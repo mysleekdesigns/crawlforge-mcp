@@ -34,6 +34,14 @@ npm start
 
 # Test MCP protocol compliance
 npm test
+
+# Performance tests
+npm run test:performance       # Full performance test suite
+npm run test:performance:quick # Quick performance tests
+npm run test:load             # Load testing
+npm run test:memory           # Memory usage tests
+npm run test:benchmark        # Component benchmarks
+npm run test:integration      # Integration tests
 ```
 
 ## Available MCP Tools (12 Total)
@@ -66,6 +74,9 @@ The codebase follows a modular architecture with clear separation of concerns:
 - **BFSCrawler**: Breadth-first search crawler with depth control, URL tracking, and domain filtering
 - **ContentProcessor**: Main content extraction using Mozilla Readability and structured data parsing
 - **PDFProcessor/BrowserProcessor**: Specialized processors for different content types
+- **PerformanceManager**: Centralized performance monitoring and optimization
+- **WorkerPool**: Multi-threading support for CPU-intensive operations
+- **ConnectionPool**: HTTP connection pooling for improved network performance
 
 ### Tool Layer (`src/tools/`)
 - Each tool is self-contained with its own validation and error handling
@@ -79,6 +90,9 @@ The codebase follows a modular architecture with clear separation of concerns:
 - **URLNormalizer**: Consistent URL normalization for deduplication
 - **SitemapParser**: Multi-format sitemap parsing with priority support
 - **DomainFilter**: Whitelist/blacklist domain management
+- **CircuitBreaker**: Fault tolerance for external service calls
+- **RetryManager**: Exponential backoff retry logic
+- **Logger**: Winston-based logging with performance metrics
 
 ### Search System Architecture
 - **Provider Adapters**: Abstraction layer for Google/DuckDuckGo with factory pattern
@@ -130,8 +144,11 @@ See `tasks/TODO.md` for detailed task tracking and progress.
 
 ### Testing Approach
 - Unit tests in `tests/unit/` for core components
+- Performance tests in `tests/performance/` for load and memory testing
+- Integration tests in `tests/integration/` for end-to-end scenarios
 - Test files follow `*.test.js` naming convention
-- Run tests with `npm test` or protocol compliance test
+- Run `npm test` for protocol compliance
+- Run `npm run test:performance` for full performance suite
 
 ## Important Implementation Notes
 
@@ -143,3 +160,5 @@ See `tasks/TODO.md` for detailed task tracking and progress.
 - Search results cached with configurable TTL
 - Per-domain rate limiting prevents server overload
 - robots.txt compliance checked before crawling
+- Performance monitoring integrated via PerformanceManager
+- Circuit breaker pattern implemented for external service reliability
