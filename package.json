@@ -1,0 +1,41 @@
+{
+  "name": "mcp-webscraper",
+  "version": "1.0.0",
+  "description": "MCP server for web scraping functionality with comprehensive tools for fetching, extracting text, links, metadata and structured data",
+  "main": "server.js",
+  "bin": {
+    "mcp-webscraper": "server.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node server.js --test"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "web-scraping",
+    "scraper",
+    "html-parser",
+    "metadata-extraction",
+    "link-extraction"
+  ],
+  "author": "MCP WebScraper Server",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YOUR_USERNAME/mcp-webscraper.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR_USERNAME/mcp-webscraper/issues"
+  },
+  "homepage": "https://github.com/YOUR_USERNAME/mcp-webscraper#readme",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.2",
+    "cheerio": "^1.1.2",
+    "zod": "^3.25.76"
+  }
+}

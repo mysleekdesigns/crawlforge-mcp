@@ -1,0 +1,383 @@
+#!/usr/bin/env node
+
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+import { load } from "cheerio";
+
+// Create the server
+const server = new McpServer({ name: "mcp_webScraper", version: "1.0.0" });
+
+// Zod schemas for tool parameters and responses
+const FetchUrlSchema = z.object({
+  url: z.string().url(),
+  headers: z.record(z.string()).optional(),
+  timeout: z.number().min(1000).max(30000).optional().default(10000)
+});
+
+const ExtractTextSchema = z.object({
+  url: z.string().url(),
+  remove_scripts: z.boolean().optional().default(true),
+  remove_styles: z.boolean().optional().default(true)
+});
+
+const ExtractLinksSchema = z.object({
+  url: z.string().url(),
+  filter_external: z.boolean().optional().default(false),
+  base_url: z.string().url().optional()
+});
+
+const ExtractMetadataSchema = z.object({
+  url: z.string().url()
+});
+
+const ScrapeStructuredSchema = z.object({
+  url: z.string().url(),
+  selectors: z.record(z.string())
+});
+
+// Utility function to fetch URL with error handling
+async function fetchWithTimeout(url, options = {}) {
+  const { timeout = 10000, headers = {} } = options;
+  
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'MCP-WebScraper/1.0.0',
+        ...headers
+      }
+    });
+    
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeout}ms`);
+    }
+    throw error;
+  }
+}
+
+// Tool: fetch_url - Basic URL fetching with headers and response handling
+server.tool("fetch_url", "Fetch content from a URL with optional headers and timeout", {
+  url: {
+    type: "string",
+    description: "The URL to fetch"
+  },
+  headers: {
+    type: "object",
+    description: "Optional HTTP headers to include",
+    optional: true
+  },
+  timeout: {
+    type: "number",
+    description: "Request timeout in milliseconds (1000-30000)",
+    optional: true
+  }
+}, async (request) => {
+  try {
+    const params = FetchUrlSchema.parse(request.params);
+    
+    const response = await fetchWithTimeout(params.url, {
+      timeout: params.timeout,
+      headers: params.headers
+    });
+    
+    const body = await response.text();
+    const responseHeaders = {};
+    response.headers.forEach((value, key) => {
+      responseHeaders[key] = value;
+    });
+    
+    return {
+      status: response.status,
+      statusText: response.statusText,
+      headers: responseHeaders,
+      body: body,
+      contentType: response.headers.get('content-type') || 'unknown',
+      size: body.length,
+      url: response.url
+    };
+  } catch (error) {
+    throw new Error(`Failed to fetch URL: ${error.message}`);
+  }
+});
+
+// Tool: extract_text - Extract clean text content from HTML
+server.tool("extract_text", "Extract clean text content from a webpage", {
+  url: {
+    type: "string",
+    description: "The URL to extract text from"
+  },
+  remove_scripts: {
+    type: "boolean",
+    description: "Remove script tags before extracting text",
+    optional: true
+  },
+  remove_styles: {
+    type: "boolean",
+    description: "Remove style tags before extracting text",
+    optional: true
+  }
+}, async (request) => {
+  try {
+    const params = ExtractTextSchema.parse(request.params);
+    
+    const response = await fetchWithTimeout(params.url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const html = await response.text();
+    const $ = load(html);
+    
+    // Remove unwanted elements
+    if (params.remove_scripts) {
+      $('script').remove();
+    }
+    if (params.remove_styles) {
+      $('style').remove();
+    }
+    
+    // Remove common non-content elements
+    $('nav, header, footer, aside, .advertisement, .ad, .sidebar').remove();
+    
+    // Extract text content
+    const text = $('body').text().replace(/\s+/g, ' ').trim();
+    
+    return {
+      text: text,
+      word_count: text.split(/\s+/).filter(word => word.length > 0).length,
+      char_count: text.length,
+      url: response.url
+    };
+  } catch (error) {
+    throw new Error(`Failed to extract text: ${error.message}`);
+  }
+});
+
+// Tool: extract_links - Extract all links from a webpage with optional filtering
+server.tool("extract_links", "Extract all links from a webpage with optional filtering", {
+  url: {
+    type: "string",
+    description: "The URL to extract links from"
+  },
+  filter_external: {
+    type: "boolean",
+    description: "Filter out external links (keep only internal links)",
+    optional: true
+  },
+  base_url: {
+    type: "string",
+    description: "Base URL for resolving relative links",
+    optional: true
+  }
+}, async (request) => {
+  try {
+    const params = ExtractLinksSchema.parse(request.params);
+    
+    const response = await fetchWithTimeout(params.url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const html = await response.text();
+    const $ = load(html);
+    
+    const baseUrl = params.base_url || new URL(params.url).origin;
+    const pageUrl = new URL(params.url);
+    const links = [];
+    
+    $('a[href]').each((_, element) => {
+      const href = $(element).attr('href');
+      const text = $(element).text().trim();
+      
+      if (!href) return;
+      
+      let absoluteUrl;
+      let isExternal = false;
+      
+      try {
+        if (href.startsWith('http://') || href.startsWith('https://')) {
+          absoluteUrl = href;
+          isExternal = new URL(href).origin !== pageUrl.origin;
+        } else {
+          absoluteUrl = new URL(href, baseUrl).toString();
+          isExternal = false;
+        }
+        
+        // Apply filtering
+        if (params.filter_external && isExternal) {
+          return;
+        }
+        
+        links.push({
+          href: absoluteUrl,
+          text: text,
+          is_external: isExternal,
+          original_href: href
+        });
+      } catch (urlError) {
+        // Skip invalid URLs
+      }
+    });
+    
+    // Remove duplicates
+    const uniqueLinks = links.filter((link, index, arr) => 
+      arr.findIndex(l => l.href === link.href) === index
+    );
+    
+    return {
+      links: uniqueLinks,
+      total_count: uniqueLinks.length,
+      internal_count: uniqueLinks.filter(l => !l.is_external).length,
+      external_count: uniqueLinks.filter(l => l.is_external).length,
+      base_url: baseUrl
+    };
+  } catch (error) {
+    throw new Error(`Failed to extract links: ${error.message}`);
+  }
+});
+
+// Tool: extract_metadata - Extract page metadata
+server.tool("extract_metadata", "Extract metadata from a webpage (title, description, keywords, etc.)", {
+  url: {
+    type: "string",
+    description: "The URL to extract metadata from"
+  }
+}, async (request) => {
+  try {
+    const params = ExtractMetadataSchema.parse(request.params);
+    
+    const response = await fetchWithTimeout(params.url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const html = await response.text();
+    const $ = load(html);
+    
+    // Extract basic metadata
+    const title = $('title').text().trim() || $('h1').first().text().trim();
+    const description = $('meta[name="description"]').attr('content') || 
+                      $('meta[property="og:description"]').attr('content') || '';
+    const keywords = $('meta[name="keywords"]').attr('content') || '';
+    const canonical = $('link[rel="canonical"]').attr('href') || '';
+    
+    // Extract Open Graph tags
+    const ogTags = {};
+    $('meta[property^="og:"]').each((_, element) => {
+      const property = $(element).attr('property');
+      const content = $(element).attr('content');
+      if (property && content) {
+        ogTags[property.replace('og:', '')] = content;
+      }
+    });
+    
+    // Extract Twitter Card tags
+    const twitterTags = {};
+    $('meta[name^="twitter:"]').each((_, element) => {
+      const name = $(element).attr('name');
+      const content = $(element).attr('content');
+      if (name && content) {
+        twitterTags[name.replace('twitter:', '')] = content;
+      }
+    });
+    
+    // Extract additional metadata
+    const author = $('meta[name="author"]').attr('content') || '';
+    const robots = $('meta[name="robots"]').attr('content') || '';
+    const viewport = $('meta[name="viewport"]').attr('content') || '';
+    const charset = $('meta[charset]').attr('charset') || 
+                   $('meta[http-equiv="Content-Type"]').attr('content') || '';
+    
+    return {
+      title: title,
+      description: description,
+      keywords: keywords.split(',').map(k => k.trim()).filter(k => k),
+      canonical_url: canonical,
+      author: author,
+      robots: robots,
+      viewport: viewport,
+      charset: charset,
+      og_tags: ogTags,
+      twitter_tags: twitterTags,
+      url: response.url
+    };
+  } catch (error) {
+    throw new Error(`Failed to extract metadata: ${error.message}`);
+  }
+});
+
+// Tool: scrape_structured - Extract structured data using CSS selectors
+server.tool("scrape_structured", "Extract structured data from a webpage using CSS selectors", {
+  url: {
+    type: "string",
+    description: "The URL to scrape"
+  },
+  selectors: {
+    type: "object",
+    description: "Object mapping field names to CSS selectors"
+  }
+}, async (request) => {
+  try {
+    const params = ScrapeStructuredSchema.parse(request.params);
+    
+    const response = await fetchWithTimeout(params.url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const html = await response.text();
+    const $ = load(html);
+    
+    const results = {};
+    
+    for (const [fieldName, selector] of Object.entries(params.selectors)) {
+      try {
+        const elements = $(selector);
+        
+        if (elements.length === 0) {
+          results[fieldName] = null;
+        } else if (elements.length === 1) {
+          // Single element - return text content
+          results[fieldName] = elements.text().trim();
+        } else {
+          // Multiple elements - return array of text content
+          results[fieldName] = elements.map((_, el) => $(el).text().trim()).get();
+        }
+      } catch (selectorError) {
+        results[fieldName] = {
+          error: `Invalid selector: ${selector}`,
+          message: selectorError.message
+        };
+      }
+    }
+    
+    return {
+      data: results,
+      selectors_used: params.selectors,
+      elements_found: Object.keys(results).length,
+      url: response.url
+    };
+  } catch (error) {
+    throw new Error(`Failed to scrape structured data: ${error.message}`);
+  }
+});
+
+// Set up the stdio transport and start the server
+async function runServer() {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error("MCP WebScraper server running on stdio");
+}
+
+runServer().catch((error) => {
+  console.error("Server error:", error);
+  process.exit(1);
+});

@@ -1,0 +1,29 @@
+{
+  "cursor_config": {
+    "_comment": "Add this to ~/.cursor/mcp.json",
+    "mcpServers": {
+      "mcp-webscraper": {
+        "command": "node",
+        "args": ["/Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/server.js"]
+      }
+    }
+  },
+  "claude_code_config": {
+    "_comment": "Add this to .mcp.json in your project root",
+    "mcpServers": {
+      "mcp-webscraper": {
+        "command": "node",
+        "args": ["/Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/server.js"]
+      }
+    }
+  },
+  "npx_config_after_publish": {
+    "_comment": "After publishing to npm, use this configuration",
+    "mcpServers": {
+      "mcp-webscraper": {
+        "command": "npx",
+        "args": ["-y", "mcp-webscraper"]
+      }
+    }
+  }
+}
