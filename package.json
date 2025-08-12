@@ -8,7 +8,13 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node server.js --test"
+    "test": "node server.js --test",
+    "test:performance": "node --expose-gc tests/performance/test-runner.js",
+    "test:load": "node --expose-gc tests/performance/load-test.js",
+    "test:memory": "node --expose-gc tests/performance/memory-test.js",
+    "test:benchmark": "node --expose-gc tests/performance/benchmark.js",
+    "test:integration": "node --expose-gc tests/integration/performance-integration.test.js",
+    "test:performance:quick": "node tests/performance/test-runner.js"
   },
   "keywords": [
     "mcp",
@@ -48,6 +54,11 @@
     "pdf-parse": "^1.1.1",
     "playwright": "^1.54.2",
     "robots-parser": "^3.0.1",
+    "winston": "^3.11.0",
     "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "artillery": "^2.0.0",
+    "clinic": "^13.0.0"
   }
 }

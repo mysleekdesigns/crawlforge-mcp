@@ -1,7 +1,10 @@
 import { customsearch } from '@googleapis/customsearch';
+import { RetryManager } from '../../../utils/RetryManager.js';
+import { createCircuitBreaker } from '../../../utils/CircuitBreaker.js';
+import { logger } from '../../../utils/Logger.js';
 
 export class GoogleSearchAdapter {
-  constructor(apiKey, searchEngineId) {
+  constructor(apiKey, searchEngineId, options = {}) {
     if (!apiKey || !searchEngineId) {
       throw new Error('Google API key and Search Engine ID are required');
     }
@@ -9,34 +12,81 @@ export class GoogleSearchAdapter {
     this.apiKey = apiKey;
     this.searchEngineId = searchEngineId;
     this.customsearch = customsearch('v1');
+
+    // Initialize error handling components
+    this.retryManager = options.retryManager || RetryManager.createPreset('api');
+    this.circuitBreaker = options.circuitBreaker || createCircuitBreaker('api');
+    this.logger = logger.child({ component: 'GoogleSearchAdapter' });
+
+    // Service identifier for circuit breaker
+    this.serviceId = 'google-search-api';
   }
 
   async search(params) {
+    const requestId = this.logger.startRequest({ 
+      operation: 'search',
+      query: params.query,
+      parameters: { ...params, query: '[REDACTED]' } // Don't log sensitive query data
+    });
+
     try {
-      const response = await this.customsearch.cse.list({
-        auth: this.apiKey,
-        cx: this.searchEngineId,
-        q: params.query,
-        num: params.num || 10,
-        start: params.start || 1,
-        lr: params.lr,
-        safe: params.safe,
-        dateRestrict: params.dateRestrict,
-        siteSearch: params.siteSearch,
-        siteSearchFilter: params.siteSearchFilter,
-        fileType: params.fileType,
-        rights: params.rights,
-        imgSize: params.imgSize,
-        imgType: params.imgType,
-        imgColorType: params.imgColorType,
-        imgDominantColor: params.imgDominantColor
+      const result = await this.retryManager.executeWithCircuitBreaker(
+        async () => {
+          this.logger.debug('Executing Google search API call', { params }, requestId);
+          
+          const response = await this.customsearch.cse.list({
+            auth: this.apiKey,
+            cx: this.searchEngineId,
+            q: params.query,
+            num: params.num || 10,
+            start: params.start || 1,
+            lr: params.lr,
+            safe: params.safe,
+            dateRestrict: params.dateRestrict,
+            siteSearch: params.siteSearch,
+            siteSearchFilter: params.siteSearchFilter,
+            fileType: params.fileType,
+            rights: params.rights,
+            imgSize: params.imgSize,
+            imgType: params.imgType,
+            imgColorType: params.imgColorType,
+            imgDominantColor: params.imgDominantColor
+          });
+
+          this.logger.info('Google search API call successful', {
+            resultsCount: response.data?.items?.length || 0,
+            searchTime: response.data?.searchInformation?.searchTime
+          }, requestId);
+
+          return response.data;
+        },
+        this.circuitBreaker,
+        this.serviceId,
+        { operation: 'search', query: params.query }
+      );
+
+      this.logger.endRequest(requestId, { 
+        success: true,
+        resultsCount: result?.items?.length || 0 
       });
 
-      return response.data;
+      return result;
     } catch (error) {
+      this.logger.requestError(requestId, error, { 
+        operation: 'search',
+        query: params.query 
+      });
+
+      // Enhanced error handling with detailed logging
       if (error.response) {
         const status = error.response.status;
         const message = error.response.data?.error?.message || error.message;
+        
+        this.logger.warn('Google Search API error response', {
+          status,
+          message,
+          query: params.query
+        }, requestId);
         
         if (status === 429) {
           throw new Error('API rate limit exceeded. Please try again later.');
@@ -44,6 +94,8 @@ export class GoogleSearchAdapter {
           throw new Error('API access forbidden. Check your API key and permissions.');
         } else if (status === 400) {
           throw new Error(`Invalid search parameters: ${message}`);
+        } else if (status >= 500) {
+          throw new Error(`Google Search API server error (${status}): ${message}`);
         }
       }
       
@@ -75,13 +127,59 @@ export class GoogleSearchAdapter {
     }
   }
 
-  validateApiKey() {
-    // Test the API key with a simple search
-    return this.search({
-      query: 'test',
-      num: 1
-    }).then(() => true)
-      .catch(() => false);
+  async validateApiKey() {
+    const requestId = this.logger.startRequest({ operation: 'validateApiKey' });
+    
+    try {
+      await this.search({
+        query: 'test',
+        num: 1
+      });
+      
+      this.logger.endRequest(requestId, { success: true, valid: true });
+      return true;
+    } catch (error) {
+      this.logger.requestError(requestId, error, { operation: 'validateApiKey' });
+      return false;
+    }
+  }
+
+  /**
+   * Get error handling statistics
+   * @returns {Object} Statistics from retry manager and circuit breaker
+   */
+  getStats() {
+    return {
+      retryStats: this.retryManager.getStats(),
+      circuitBreakerStats: this.circuitBreaker.getStats(),
+      loggerStats: this.logger.getStats()
+    };
+  }
+
+  /**
+   * Reset error handling statistics
+   */
+  resetStats() {
+    this.retryManager.resetStats();
+    this.circuitBreaker.reset(this.serviceId);
+  }
+
+  /**
+   * Get health status of the service
+   * @returns {Object} Health status information
+   */
+  getHealthStatus() {
+    const circuitStats = this.circuitBreaker.getServiceMetrics(this.serviceId);
+    const retryStats = this.retryManager.getStats();
+    
+    return {
+      status: circuitStats.state === 'CLOSED' ? 'healthy' : 'degraded',
+      circuitState: circuitStats.state,
+      errorRate: circuitStats.errorRate,
+      successRate: retryStats.successRate,
+      lastFailure: circuitStats.lastFailure,
+      nextAttempt: circuitStats.nextAttempt
+    };
   }
 }
 
