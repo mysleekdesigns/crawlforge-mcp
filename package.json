@@ -1,6 +1,6 @@
 {
   "name": "mcp-webscraper",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "MCP server for web scraping functionality with comprehensive tools for fetching, extracting text, links, metadata and structured data",
   "main": "server.js",
   "bin": {
@@ -34,8 +34,13 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@googleapis/customsearch": "^5.0.1",
     "@modelcontextprotocol/sdk": "^1.17.2",
     "cheerio": "^1.1.2",
+    "dotenv": "^17.2.1",
+    "lru-cache": "^11.1.0",
+    "p-queue": "^8.1.0",
+    "robots-parser": "^3.0.1",
     "zod": "^3.25.76"
   }
 }

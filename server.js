@@ -4,9 +4,28 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { load } from "cheerio";
+import { SearchWebTool } from "./src/tools/search/searchWeb.js";
+import { CrawlDeepTool } from "./src/tools/crawl/crawlDeep.js";
+import { MapSiteTool } from "./src/tools/crawl/mapSite.js";
+import { config, validateConfig, isSearchConfigured, getToolConfig } from "./src/constants/config.js";
+
+// Validate configuration
+const configErrors = validateConfig();
+if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
+  console.error('Configuration errors:', configErrors);
+  process.exit(1);
+}
 
 // Create the server
-const server = new McpServer({ name: "mcp_webScraper", version: "1.0.0" });
+const server = new McpServer({ name: "mcp_webScraper", version: "2.0.0" });
+
+// Initialize new tools if configured
+let searchWebTool = null;
+if (isSearchConfigured()) {
+  searchWebTool = new SearchWebTool(getToolConfig('search_web'));
+}
+const crawlDeepTool = new CrawlDeepTool(getToolConfig('crawl_deep'));
+const mapSiteTool = new MapSiteTool(getToolConfig('map_site'));
 
 // Zod schemas for tool parameters and responses
 const FetchUrlSchema = z.object({
@@ -370,11 +389,155 @@ server.tool("scrape_structured", "Extract structured data from a webpage using C
   }
 });
 
+// Tool: search_web - Web search with Google Custom Search API
+if (searchWebTool) {
+  server.tool("search_web", "Search the web using Google Custom Search API", {
+    query: {
+      type: "string",
+      description: "Search query"
+    },
+    limit: {
+      type: "number",
+      description: "Maximum number of results (1-100)",
+      optional: true
+    },
+    offset: {
+      type: "number",
+      description: "Result offset for pagination",
+      optional: true
+    },
+    lang: {
+      type: "string",
+      description: "Language code (e.g., 'en', 'fr', 'de')",
+      optional: true
+    },
+    safe_search: {
+      type: "boolean",
+      description: "Enable safe search filtering",
+      optional: true
+    },
+    time_range: {
+      type: "string",
+      description: "Time range: 'day', 'week', 'month', 'year', or 'all'",
+      optional: true
+    },
+    site: {
+      type: "string",
+      description: "Restrict search to specific site",
+      optional: true
+    },
+    file_type: {
+      type: "string",
+      description: "Filter by file type (e.g., 'pdf', 'doc')",
+      optional: true
+    }
+  }, async (request) => {
+    try {
+      return await searchWebTool.execute(request.params);
+    } catch (error) {
+      throw new Error(`Search failed: ${error.message}`);
+    }
+  });
+} else {
+  console.error("Warning: search_web tool not configured. Set GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID to enable.");
+}
+
+// Tool: crawl_deep - Deep crawl websites with BFS algorithm
+server.tool("crawl_deep", "Crawl websites deeply using breadth-first search", {
+  url: {
+    type: "string",
+    description: "Starting URL to crawl"
+  },
+  max_depth: {
+    type: "number",
+    description: "Maximum crawl depth (1-5)",
+    optional: true
+  },
+  max_pages: {
+    type: "number",
+    description: "Maximum pages to crawl (1-1000)",
+    optional: true
+  },
+  include_patterns: {
+    type: "array",
+    description: "Regex patterns for URLs to include",
+    optional: true
+  },
+  exclude_patterns: {
+    type: "array",
+    description: "Regex patterns for URLs to exclude",
+    optional: true
+  },
+  follow_external: {
+    type: "boolean",
+    description: "Follow external links",
+    optional: true
+  },
+  respect_robots: {
+    type: "boolean",
+    description: "Respect robots.txt rules",
+    optional: true
+  },
+  extract_content: {
+    type: "boolean",
+    description: "Extract page content",
+    optional: true
+  },
+  concurrency: {
+    type: "number",
+    description: "Number of concurrent requests (1-20)",
+    optional: true
+  }
+}, async (request) => {
+  try {
+    return await crawlDeepTool.execute(request.params);
+  } catch (error) {
+    throw new Error(`Crawl failed: ${error.message}`);
+  }
+});
+
+// Tool: map_site - Discover and map website structure
+server.tool("map_site", "Discover and map website structure", {
+  url: {
+    type: "string",
+    description: "Website URL to map"
+  },
+  include_sitemap: {
+    type: "boolean",
+    description: "Include sitemap.xml URLs",
+    optional: true
+  },
+  max_urls: {
+    type: "number",
+    description: "Maximum URLs to discover (1-10000)",
+    optional: true
+  },
+  group_by_path: {
+    type: "boolean",
+    description: "Group URLs by path segments",
+    optional: true
+  },
+  include_metadata: {
+    type: "boolean",
+    description: "Fetch metadata for discovered URLs",
+    optional: true
+  }
+}, async (request) => {
+  try {
+    return await mapSiteTool.execute(request.params);
+  } catch (error) {
+    throw new Error(`Site mapping failed: ${error.message}`);
+  }
+});
+
 // Set up the stdio transport and start the server
 async function runServer() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("MCP WebScraper server running on stdio");
+  console.error("MCP WebScraper server v2.0 running on stdio");
+  console.error(`Environment: ${config.server.nodeEnv}`);
+  console.error(`Search enabled: ${isSearchConfigured()}`);
+  console.error(`Tools available: fetch_url, extract_text, extract_links, extract_metadata, scrape_structured, crawl_deep, map_site${isSearchConfigured() ? ', search_web' : ''}`);
 }
 
 runServer().catch((error) => {

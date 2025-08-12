@@ -1,15 +1,27 @@
-# MCP WebScraper Server
+# MCP WebScraper Server v2.0
 
-A Model Context Protocol (MCP) server that provides comprehensive web scraping capabilities for use with Claude Code, Cursor, and other MCP-compatible clients.
+A powerful Model Context Protocol (MCP) server that provides comprehensive web scraping, searching, and crawling capabilities for use with Claude Code, Cursor, and other MCP-compatible clients.
+
+## 🚀 What's New in v2.0
+
+- **Web Search Integration**: Search the web using Google Custom Search API
+- **Deep Crawling**: Crawl websites up to 5 levels deep with BFS algorithm
+- **Site Mapping**: Discover and map website structure automatically
+- **Advanced Caching**: Multi-level caching with LRU and disk persistence
+- **Rate Limiting**: Intelligent per-domain rate limiting
+- **Concurrent Processing**: Worker pool for parallel operations
 
 ## Features
 
-- **5 Powerful Web Scraping Tools**:
+- **8 Powerful Tools** (3 new in v2.0):
   - `fetch_url` - Fetch content from URLs with headers and timeout support
   - `extract_text` - Extract clean text content from webpages
   - `extract_links` - Extract and filter links from webpages
   - `extract_metadata` - Extract comprehensive metadata (title, description, Open Graph, etc.)
   - `scrape_structured` - Extract structured data using CSS selectors
+  - 🆕 `search_web` - Search the web using Google Custom Search API
+  - 🆕 `crawl_deep` - Deep crawl websites with breadth-first search (up to 5 levels)
+  - 🆕 `map_site` - Discover and map website structure with sitemap support
 
 ## Installation
 
@@ -21,8 +33,43 @@ cd webScraper-1.0
 # Install dependencies
 npm install
 
+# Copy environment configuration
+cp .env.example .env
+
+# Edit .env to add your Google API credentials (optional, for search_web tool)
+# Get your API key from: https://console.cloud.google.com/
+# Create a Custom Search Engine: https://programmablesearchengine.google.com/
+
 # Make executable (optional)
 chmod +x server.js
+```
+
+## Configuration
+
+### Environment Variables
+
+Create a `.env` file in the project root (copy from `.env.example`):
+
+```env
+# Google Custom Search API (required for search_web tool)
+GOOGLE_API_KEY=your_google_api_key_here
+GOOGLE_SEARCH_ENGINE_ID=your_search_engine_id_here
+
+# Performance Settings
+MAX_WORKERS=10
+QUEUE_CONCURRENCY=10
+CACHE_TTL=3600000
+CACHE_MAX_SIZE=1000
+
+# Rate Limiting
+RATE_LIMIT_REQUESTS_PER_SECOND=10
+RATE_LIMIT_PER_DOMAIN=true
+
+# Crawling Settings
+MAX_CRAWL_DEPTH=5
+MAX_PAGES_PER_CRAWL=100
+RESPECT_ROBOTS_TXT=true
+USER_AGENT=MCP-WebScraper/2.0
 ```
 
 ## Usage
@@ -127,6 +174,49 @@ Extracts structured data using CSS selectors.
 - `selectors` (object, required): Object mapping field names to CSS selectors
 
 **Returns:** Structured data based on provided selectors
+
+### 6. search_web 🆕
+Search the web using Google Custom Search API.
+
+**Parameters:**
+- `query` (string, required): Search query
+- `limit` (number, optional): Maximum results (1-100, default: 10)
+- `offset` (number, optional): Result offset for pagination
+- `lang` (string, optional): Language code (default: 'en')
+- `safe_search` (boolean, optional): Enable safe search (default: true)
+- `time_range` (string, optional): 'day', 'week', 'month', 'year', 'all' (default: 'all')
+- `site` (string, optional): Restrict to specific site
+- `file_type` (string, optional): Filter by file type
+
+**Returns:** Search results with title, link, snippet, and metadata
+
+### 7. crawl_deep 🆕
+Deep crawl websites using breadth-first search algorithm.
+
+**Parameters:**
+- `url` (string, required): Starting URL
+- `max_depth` (number, optional): Maximum depth (1-5, default: 3)
+- `max_pages` (number, optional): Maximum pages (1-1000, default: 100)
+- `include_patterns` (array, optional): URL patterns to include
+- `exclude_patterns` (array, optional): URL patterns to exclude
+- `follow_external` (boolean, optional): Follow external links (default: false)
+- `respect_robots` (boolean, optional): Respect robots.txt (default: true)
+- `extract_content` (boolean, optional): Extract page content (default: true)
+- `concurrency` (number, optional): Concurrent requests (1-20, default: 10)
+
+**Returns:** Crawled pages, site structure, statistics, and errors
+
+### 8. map_site 🆕
+Discover and map website structure.
+
+**Parameters:**
+- `url` (string, required): Website URL
+- `include_sitemap` (boolean, optional): Include sitemap.xml (default: true)
+- `max_urls` (number, optional): Maximum URLs (1-10000, default: 1000)
+- `group_by_path` (boolean, optional): Group by path (default: true)
+- `include_metadata` (boolean, optional): Fetch metadata (default: false)
+
+**Returns:** Site map, URL structure, statistics, and metadata
 
 ## Requirements
 
