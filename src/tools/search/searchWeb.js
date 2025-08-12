@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GoogleSearchAdapter } from './adapters/googleSearch.js';
+import { SearchProviderFactory } from './adapters/searchProviderFactory.js';
 import { CacheManager } from '../../core/cache/CacheManager.js';
 import { QueryExpander } from './queryExpander.js';
 import { ResultRanker } from './ranking/ResultRanker.js';
@@ -50,8 +50,9 @@ const SearchWebSchema = z.object({
 export class SearchWebTool {
   constructor(options = {}) {
     const {
-      apiKey,
-      searchEngineId,
+      provider = 'auto',
+      google = {},
+      duckduckgo = {},
       cacheEnabled = true,
       cacheTTL = 3600000, // 1 hour
       expanderOptions = {},
@@ -59,11 +60,19 @@ export class SearchWebTool {
       deduplicationOptions = {}
     } = options;
 
-    if (!apiKey || !searchEngineId) {
-      throw new Error('Google API key and Search Engine ID are required');
+    // Determine which provider to use
+    this.provider = this.determineProvider(provider, { google, duckduckgo });
+    
+    // Create the search adapter
+    try {
+      this.searchAdapter = SearchProviderFactory.createAdapter(this.provider, {
+        google,
+        duckduckgo
+      });
+    } catch (error) {
+      throw new Error(`Failed to initialize search provider '${this.provider}': ${error.message}`);
     }
 
-    this.searchAdapter = new GoogleSearchAdapter(apiKey, searchEngineId);
     this.cache = cacheEnabled ? new CacheManager({ ttl: cacheTTL }) : null;
     
     // Initialize query expander
@@ -72,6 +81,27 @@ export class SearchWebTool {
     // Initialize ranking and deduplication systems
     this.resultRanker = new ResultRanker({ cacheEnabled, cacheTTL, ...rankingOptions });
     this.resultDeduplicator = new ResultDeduplicator({ cacheEnabled, cacheTTL, ...deduplicationOptions });
+  }
+
+  determineProvider(configuredProvider, providerOptions) {
+    switch (configuredProvider.toLowerCase()) {
+      case 'google':
+        if (!providerOptions.google?.apiKey || !providerOptions.google?.searchEngineId) {
+          throw new Error('Google provider requires apiKey and searchEngineId');
+        }
+        return 'google';
+        
+      case 'duckduckgo':
+        return 'duckduckgo';
+        
+      case 'auto':
+      default:
+        // Auto mode: prefer Google if credentials available, otherwise use DuckDuckGo
+        if (providerOptions.google?.apiKey && providerOptions.google?.searchEngineId) {
+          return 'google';
+        }
+        return 'duckduckgo';
+    }
   }
 
   async execute(params) {
@@ -237,6 +267,12 @@ export class SearchWebTool {
         limit: validated.limit,
         cached: false,
         
+        // Add provider information
+        provider: {
+          name: this.provider,
+          capabilities: SearchProviderFactory.getProviderCapabilities(this.provider)
+        },
+        
         // Add processing information
         processing: {
           ranking: rankingInfo,
@@ -372,10 +408,23 @@ export class SearchWebTool {
 
   getStats() {
     return {
+      provider: {
+        name: this.provider,
+        capabilities: SearchProviderFactory.getProviderCapabilities(this.provider)
+      },
       cacheStats: this.cache ? this.cache.getStats() : null,
       queryExpanderStats: this.queryExpander ? this.queryExpander.getStats() : null,
       rankingStats: this.resultRanker ? this.resultRanker.getStats() : null,
       deduplicationStats: this.resultDeduplicator ? this.resultDeduplicator.getStats() : null
+    };
+  }
+
+  getProviderInfo() {
+    return {
+      activeProvider: this.provider,
+      capabilities: SearchProviderFactory.getProviderCapabilities(this.provider),
+      supportedProviders: SearchProviderFactory.getSupportedProviders(),
+      allProviders: SearchProviderFactory.compareProviders()
     };
   }
 }

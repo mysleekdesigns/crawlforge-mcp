@@ -4,7 +4,8 @@ A powerful Model Context Protocol (MCP) server that provides comprehensive web s
 
 ## 🚀 What's New in v2.0
 
-- **Web Search Integration**: Search the web using Google Custom Search API
+- **Dual Search Provider Support**: Automatic selection between DuckDuckGo (free, no API required) and Google Custom Search API
+- **Web Search Integration**: Search the web with intelligent provider selection
 - **Deep Crawling**: Crawl websites up to 5 levels deep with BFS algorithm
 - **Site Mapping**: Discover and map website structure automatically
 - **Advanced Caching**: Multi-level caching with LRU and disk persistence
@@ -19,7 +20,7 @@ A powerful Model Context Protocol (MCP) server that provides comprehensive web s
   - `extract_links` - Extract and filter links from webpages
   - `extract_metadata` - Extract comprehensive metadata (title, description, Open Graph, etc.)
   - `scrape_structured` - Extract structured data using CSS selectors
-  - 🆕 `search_web` - Search the web using Google Custom Search API
+  - 🆕 `search_web` - Search the web using DuckDuckGo (default) or Google Custom Search API
   - 🆕 `crawl_deep` - Deep crawl websites with breadth-first search (up to 5 levels)
   - 🆕 `map_site` - Discover and map website structure with sitemap support
 
@@ -51,7 +52,10 @@ chmod +x server.js
 Create a `.env` file in the project root (copy from `.env.example`):
 
 ```env
-# Google Custom Search API (required for search_web tool)
+# Search Provider Settings
+SEARCH_PROVIDER=auto  # Options: 'auto', 'duckduckgo', 'google' (default: auto)
+
+# Google Custom Search API (optional - only needed if using Google provider)
 GOOGLE_API_KEY=your_google_api_key_here
 GOOGLE_SEARCH_ENGINE_ID=your_search_engine_id_here
 
@@ -176,7 +180,12 @@ Extracts structured data using CSS selectors.
 **Returns:** Structured data based on provided selectors
 
 ### 6. search_web 🆕
-Search the web using Google Custom Search API.
+Search the web using DuckDuckGo (default, no API key required) or Google Custom Search API.
+
+**Search Provider Selection:**
+- **Auto Mode (default)**: Automatically selects DuckDuckGo unless Google credentials are configured
+- **DuckDuckGo**: Free, privacy-focused, no API key required (limited to ~10 results per query)
+- **Google**: Requires API credentials, provides richer metadata and up to 100 results
 
 **Parameters:**
 - `query` (string, required): Search query

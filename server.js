@@ -7,7 +7,7 @@ import { load } from "cheerio";
 import { SearchWebTool } from "./src/tools/search/searchWeb.js";
 import { CrawlDeepTool } from "./src/tools/crawl/crawlDeep.js";
 import { MapSiteTool } from "./src/tools/crawl/mapSite.js";
-import { config, validateConfig, isSearchConfigured, getToolConfig } from "./src/constants/config.js";
+import { config, validateConfig, isSearchConfigured, getToolConfig, getActiveSearchProvider } from "./src/constants/config.js";
 
 // Validate configuration
 const configErrors = validateConfig();
@@ -389,9 +389,13 @@ server.tool("scrape_structured", "Extract structured data from a webpage using C
   }
 });
 
-// Tool: search_web - Web search with Google Custom Search API
+// Tool: search_web - Web search with configurable providers
 if (searchWebTool) {
-  server.tool("search_web", "Search the web using Google Custom Search API", {
+  const activeProvider = getActiveSearchProvider();
+  const providerName = activeProvider === 'google' ? 'Google Custom Search API' : 
+                      activeProvider === 'duckduckgo' ? 'DuckDuckGo' : 'Auto-selected provider';
+  
+  server.tool("search_web", `Search the web using ${providerName}`, {
     query: {
       type: "string",
       description: "Search query"
@@ -439,7 +443,12 @@ if (searchWebTool) {
     }
   });
 } else {
-  console.error("Warning: search_web tool not configured. Set GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID to enable.");
+  const activeProvider = getActiveSearchProvider();
+  if (activeProvider === 'google') {
+    console.error("Warning: search_web tool not configured. Set GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID to enable Google search.");
+  } else {
+    console.error("Warning: search_web tool initialization failed. Check your SEARCH_PROVIDER configuration.");
+  }
 }
 
 // Tool: crawl_deep - Deep crawl websites with BFS algorithm
@@ -536,7 +545,14 @@ async function runServer() {
   await server.connect(transport);
   console.error("MCP WebScraper server v2.0 running on stdio");
   console.error(`Environment: ${config.server.nodeEnv}`);
-  console.error(`Search enabled: ${isSearchConfigured()}`);
+  
+  if (isSearchConfigured()) {
+    const activeProvider = getActiveSearchProvider();
+    console.error(`Search enabled: ${isSearchConfigured()} (provider: ${activeProvider})`);
+  } else {
+    console.error(`Search enabled: ${isSearchConfigured()}`);
+  }
+  
   console.error(`Tools available: fetch_url, extract_text, extract_links, extract_metadata, scrape_structured, crawl_deep, map_site${isSearchConfigured() ? ', search_web' : ''}`);
 }
 

@@ -65,16 +65,25 @@ echo '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-1
 3. **extract_links** - Extract and filter links
 4. **extract_metadata** - Extract page metadata (Open Graph, Twitter Cards, etc.)
 5. **scrape_structured** - Extract data using CSS selectors
-6. **search_web** - Web search via Google Custom Search API (requires API key)
+6. **search_web** - Web search with multiple provider support (Google, DuckDuckGo)
 7. **crawl_deep** - BFS crawling up to 5 levels deep
 8. **map_site** - Discover website structure with sitemap support
 
 ## Key Configuration (.env)
 
 ```bash
-# Required for search_web tool
+# Search Provider Configuration
+# Supported values: 'google', 'duckduckgo', 'auto'
+# 'auto' uses Google if credentials are provided, otherwise DuckDuckGo
+SEARCH_PROVIDER=auto
+
+# Google Search Configuration (optional - required only for Google provider)
 GOOGLE_API_KEY=your_key_here
 GOOGLE_SEARCH_ENGINE_ID=your_engine_id
+
+# DuckDuckGo Configuration (optional - uses defaults if not specified)
+DUCKDUCKGO_TIMEOUT=30000
+DUCKDUCKGO_MAX_RETRIES=3
 
 # Performance tuning
 MAX_WORKERS=10
@@ -83,6 +92,25 @@ RATE_LIMIT_REQUESTS_PER_SECOND=10
 MAX_CRAWL_DEPTH=5
 RESPECT_ROBOTS_TXT=true
 ```
+
+## Search Provider Features
+
+### Google Custom Search API
+- **Requires**: API key and Search Engine ID
+- **Features**: Comprehensive web search, exact phrase matching, boolean operators, site-specific search, file type filtering, date range filtering, language filtering
+- **Limits**: 100 queries per day (free tier), up to 100 results per request
+- **Best for**: Production use with comprehensive search requirements
+
+### DuckDuckGo
+- **Requires**: No API credentials
+- **Features**: Privacy-focused search, instant answers, no tracking, basic filtering
+- **Limits**: ~10 results per request, rate limiting enforced by service
+- **Best for**: Development, privacy-focused applications, or when Google credits aren't available
+
+### Auto Selection (Default)
+- Automatically uses Google if API credentials are provided
+- Falls back to DuckDuckGo if no Google credentials are configured
+- Ensures search functionality is always available
 
 ## Architecture Highlights
 

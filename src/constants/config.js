@@ -8,10 +8,23 @@ const __dirname = dirname(__filename);
 dotenv.config({ path: join(__dirname, '../../.env'), quiet: true });
 
 export const config = {
-  // Google Search API
-  google: {
-    apiKey: process.env.GOOGLE_API_KEY || '',
-    searchEngineId: process.env.GOOGLE_SEARCH_ENGINE_ID || ''
+  // Search Provider Configuration
+  search: {
+    provider: process.env.SEARCH_PROVIDER || 'auto', // 'google', 'duckduckgo', or 'auto'
+    
+    // Google Search API
+    google: {
+      apiKey: process.env.GOOGLE_API_KEY || '',
+      searchEngineId: process.env.GOOGLE_SEARCH_ENGINE_ID || ''
+    },
+    
+    // DuckDuckGo Configuration
+    duckduckgo: {
+      timeout: parseInt(process.env.DUCKDUCKGO_TIMEOUT || '30000'),
+      maxRetries: parseInt(process.env.DUCKDUCKGO_MAX_RETRIES || '3'),
+      retryDelay: parseInt(process.env.DUCKDUCKGO_RETRY_DELAY || '1000'),
+      userAgent: process.env.DUCKDUCKGO_USER_AGENT || process.env.USER_AGENT || 'MCP-WebScraper/1.0'
+    }
   },
 
   // Performance
@@ -42,7 +55,7 @@ export const config = {
   },
 
   // Search ranking and deduplication
-  search: {
+  searchProcessing: {
     enableRanking: process.env.ENABLE_SEARCH_RANKING !== 'false',
     enableDeduplication: process.env.ENABLE_SEARCH_DEDUPLICATION !== 'false',
     
@@ -94,14 +107,28 @@ export const config = {
 export function validateConfig() {
   const errors = [];
 
-  // Check if Google API credentials are provided for production
+  // Check search provider configuration
+  const provider = getActiveSearchProvider();
+  
   if (config.server.nodeEnv === 'production') {
-    if (!config.google.apiKey) {
-      errors.push('GOOGLE_API_KEY is required in production');
+    if (provider === 'google') {
+      if (!config.search.google.apiKey) {
+        errors.push('GOOGLE_API_KEY is required when using Google search provider in production');
+      }
+      if (!config.search.google.searchEngineId) {
+        errors.push('GOOGLE_SEARCH_ENGINE_ID is required when using Google search provider in production');
+      }
     }
-    if (!config.google.searchEngineId) {
-      errors.push('GOOGLE_SEARCH_ENGINE_ID is required in production');
+    
+    if (!isSearchConfigured()) {
+      errors.push('Search provider is not properly configured');
     }
+  }
+  
+  // Validate search provider setting
+  const validProviders = ['google', 'duckduckgo', 'auto'];
+  if (!validProviders.includes(config.search.provider.toLowerCase())) {
+    errors.push(`Invalid SEARCH_PROVIDER value. Must be one of: ${validProviders.join(', ')}`);
   }
 
   // Validate numeric ranges
@@ -122,26 +149,71 @@ export function validateConfig() {
 
 // Check if search is properly configured
 export function isSearchConfigured() {
-  return !!(config.google.apiKey && config.google.searchEngineId);
+  const provider = getActiveSearchProvider();
+  
+  switch (provider) {
+    case 'google':
+      return !!(config.search.google.apiKey && config.search.google.searchEngineId);
+    case 'duckduckgo':
+      return true; // DuckDuckGo doesn't require API credentials
+    default:
+      return false;
+  }
+}
+
+// Get the active search provider based on configuration and availability
+export function getActiveSearchProvider() {
+  const configuredProvider = config.search.provider.toLowerCase();
+  
+  switch (configuredProvider) {
+    case 'google':
+      return 'google';
+    case 'duckduckgo':
+      return 'duckduckgo';
+    case 'auto':
+    default:
+      // Auto mode: prefer Google if credentials available, otherwise use DuckDuckGo
+      if (config.search.google.apiKey && config.search.google.searchEngineId) {
+        return 'google';
+      }
+      return 'duckduckgo';
+  }
 }
 
 // Get configuration for a specific tool
 export function getToolConfig(toolName) {
+  const provider = getActiveSearchProvider();
+  
   const toolConfigs = {
     search_web: {
-      apiKey: config.google.apiKey,
-      searchEngineId: config.google.searchEngineId,
+      provider: provider,
+      
+      // Google-specific configuration
+      google: {
+        apiKey: config.search.google.apiKey,
+        searchEngineId: config.search.google.searchEngineId
+      },
+      
+      // DuckDuckGo-specific configuration
+      duckduckgo: {
+        timeout: config.search.duckduckgo.timeout,
+        maxRetries: config.search.duckduckgo.maxRetries,
+        retryDelay: config.search.duckduckgo.retryDelay,
+        userAgent: config.search.duckduckgo.userAgent
+      },
+      
+      // Common configuration
       cacheEnabled: config.performance.cacheEnableDisk,
       cacheTTL: config.performance.cacheTTL,
       rankingOptions: {
-        weights: config.search.ranking.weights,
-        bm25: config.search.ranking.bm25,
+        weights: config.searchProcessing.ranking.weights,
+        bm25: config.searchProcessing.ranking.bm25,
         cacheEnabled: config.performance.cacheEnableDisk,
         cacheTTL: config.performance.cacheTTL
       },
       deduplicationOptions: {
-        thresholds: config.search.deduplication.thresholds,
-        strategies: config.search.deduplication.strategies,
+        thresholds: config.searchProcessing.deduplication.thresholds,
+        strategies: config.searchProcessing.deduplication.strategies,
         cacheEnabled: config.performance.cacheEnableDisk,
         cacheTTL: config.performance.cacheTTL
       }
