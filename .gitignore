@@ -132,6 +132,15 @@ dist
 # macOS
 .DS_Store
 
+# Cache files
+cache/*.json
+cache/mapsite/*
+cache/sitemaps/*
+
+# Test files
+test-*.js
+test-*.mjs
+
 # Editor directories and files
 .idea
 .vscode
