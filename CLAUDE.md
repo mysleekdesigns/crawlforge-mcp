@@ -35,3 +35,4 @@ node server.js
 ## Dependencies
 
 - `@modelcontextprotocol/sdk`: Core MCP SDK for building the server
+- its august 2025 so always search to the latest date
