@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { load } from 'cheerio';
+import { DomainFilter } from '../../utils/domainFilter.js';
 import { normalizeUrl, getBaseUrl } from '../../utils/urlNormalizer.js';
 
 const MapSiteSchema = z.object({
@@ -7,7 +8,15 @@ const MapSiteSchema = z.object({
   include_sitemap: z.boolean().optional().default(true),
   max_urls: z.number().min(1).max(10000).optional().default(1000),
   group_by_path: z.boolean().optional().default(true),
-  include_metadata: z.boolean().optional().default(false)
+  include_metadata: z.boolean().optional().default(false),
+  // New domain filtering options
+  domain_filter: z.object({
+    whitelist: z.array(z.string()).optional().default([]),
+    blacklist: z.array(z.string()).optional().default([]),
+    include_patterns: z.array(z.string()).optional().default([]),
+    exclude_patterns: z.array(z.string()).optional().default([])
+  }).optional(),
+  import_filter_config: z.string().optional() // JSON string of exported config
 });
 
 export class MapSiteTool {
@@ -28,14 +37,44 @@ export class MapSiteTool {
       const urls = new Set();
       const metadata = new Map();
 
+      // Create domain filter if configuration provided
+      let domainFilter = null;
+      if (validated.import_filter_config) {
+        // Import from exported configuration
+        domainFilter = new DomainFilter();
+        try {
+          const importConfig = JSON.parse(validated.import_filter_config);
+          domainFilter.importConfig(importConfig);
+        } catch (error) {
+          throw new Error(`Invalid filter configuration: ${error.message}`);
+        }
+      } else if (validated.domain_filter) {
+        // Create from inline configuration
+        domainFilter = new DomainFilter({ allowSubdomains: true });
+        
+        // Configure domain filter
+        for (const domain of validated.domain_filter.whitelist) {
+          domainFilter.addWhitelistDomain(domain);
+        }
+        for (const domain of validated.domain_filter.blacklist) {
+          domainFilter.addBlacklistDomain(domain);
+        }
+        for (const pattern of validated.domain_filter.include_patterns) {
+          domainFilter.addPattern(pattern, 'include');
+        }
+        for (const pattern of validated.domain_filter.exclude_patterns) {
+          domainFilter.addPattern(pattern, 'exclude');
+        }
+      }
+
       // Try to fetch sitemap first
       if (validated.include_sitemap) {
-        const sitemapUrls = await this.fetchSitemapUrls(baseUrl);
+        const sitemapUrls = await this.fetchSitemapUrls(baseUrl, domainFilter);
         sitemapUrls.forEach(url => urls.add(normalizeUrl(url)));
       }
 
       // Fetch and parse the main page for additional URLs
-      const pageUrls = await this.fetchPageUrls(validated.url);
+      const pageUrls = await this.fetchPageUrls(validated.url, domainFilter);
       pageUrls.forEach(url => {
         if (urls.size < validated.max_urls) {
           urls.add(normalizeUrl(url));
@@ -61,14 +100,16 @@ export class MapSiteTool {
         urls: organized,
         metadata: validated.include_metadata ? Object.fromEntries(metadata) : {},
         site_map: this.generateSiteMap(urlArray),
-        statistics: this.generateStatistics(urlArray)
+        statistics: this.generateStatistics(urlArray),
+        domain_filter_config: domainFilter ? domainFilter.exportConfig() : null,
+        filter_stats: domainFilter ? domainFilter.getStats() : null
       };
     } catch (error) {
       throw new Error(`Site mapping failed: ${error.message}`);
     }
   }
 
-  async fetchSitemapUrls(baseUrl) {
+  async fetchSitemapUrls(baseUrl, domainFilter = null) {
     const urls = new Set();
     const sitemapUrls = [
       `${baseUrl}/sitemap.xml`,
@@ -83,7 +124,13 @@ export class MapSiteTool {
         if (response.ok) {
           const xml = await response.text();
           const extractedUrls = this.parseSitemap(xml);
-          extractedUrls.forEach(url => urls.add(url));
+          
+          // Apply domain filter if provided
+          extractedUrls.forEach(url => {
+            if (!domainFilter || domainFilter.isAllowed(url).allowed) {
+              urls.add(url);
+            }
+          });
           
           // If we found a sitemap, don't try others
           if (urls.size > 0) break;
@@ -124,7 +171,7 @@ export class MapSiteTool {
     return Array.from(urls);
   }
 
-  async fetchPageUrls(url) {
+  async fetchPageUrls(url, domainFilter = null) {
     try {
       const response = await this.fetchWithTimeout(url);
       if (!response.ok) {
@@ -144,7 +191,12 @@ export class MapSiteTool {
             const absoluteUrl = new URL(href, url);
             // Only include URLs from the same domain
             if (absoluteUrl.origin === new URL(baseUrl).origin) {
-              urls.add(absoluteUrl.toString());
+              const urlString = absoluteUrl.toString();
+              
+              // Apply domain filter if provided
+              if (!domainFilter || domainFilter.isAllowed(urlString).allowed) {
+                urls.add(urlString);
+              }
             }
           } catch {
             // Invalid URL, skip

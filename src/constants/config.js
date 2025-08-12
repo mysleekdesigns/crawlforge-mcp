@@ -41,6 +41,42 @@ export const config = {
     followExternal: process.env.FOLLOW_EXTERNAL_LINKS === 'true'
   },
 
+  // Search ranking and deduplication
+  search: {
+    enableRanking: process.env.ENABLE_SEARCH_RANKING !== 'false',
+    enableDeduplication: process.env.ENABLE_SEARCH_DEDUPLICATION !== 'false',
+    
+    // Ranking configuration
+    ranking: {
+      weights: {
+        bm25: parseFloat(process.env.RANKING_WEIGHT_BM25 || '0.4'),
+        semantic: parseFloat(process.env.RANKING_WEIGHT_SEMANTIC || '0.3'),
+        authority: parseFloat(process.env.RANKING_WEIGHT_AUTHORITY || '0.2'),
+        freshness: parseFloat(process.env.RANKING_WEIGHT_FRESHNESS || '0.1')
+      },
+      bm25: {
+        k1: parseFloat(process.env.BM25_K1 || '1.5'),
+        b: parseFloat(process.env.BM25_B || '0.75')
+      }
+    },
+    
+    // Deduplication configuration
+    deduplication: {
+      thresholds: {
+        url: parseFloat(process.env.DEDUP_THRESHOLD_URL || '0.8'),
+        title: parseFloat(process.env.DEDUP_THRESHOLD_TITLE || '0.75'),
+        content: parseFloat(process.env.DEDUP_THRESHOLD_CONTENT || '0.7'),
+        combined: parseFloat(process.env.DEDUP_THRESHOLD_COMBINED || '0.6')
+      },
+      strategies: {
+        urlNormalization: process.env.DEDUP_URL_NORMALIZATION !== 'false',
+        titleFuzzy: process.env.DEDUP_TITLE_FUZZY !== 'false',
+        contentSimhash: process.env.DEDUP_CONTENT_SIMHASH !== 'false',
+        domainClustering: process.env.DEDUP_DOMAIN_CLUSTERING !== 'false'
+      }
+    }
+  },
+
   // Monitoring
   monitoring: {
     enableMetrics: process.env.ENABLE_METRICS === 'true',
@@ -96,7 +132,19 @@ export function getToolConfig(toolName) {
       apiKey: config.google.apiKey,
       searchEngineId: config.google.searchEngineId,
       cacheEnabled: config.performance.cacheEnableDisk,
-      cacheTTL: config.performance.cacheTTL
+      cacheTTL: config.performance.cacheTTL,
+      rankingOptions: {
+        weights: config.search.ranking.weights,
+        bm25: config.search.ranking.bm25,
+        cacheEnabled: config.performance.cacheEnableDisk,
+        cacheTTL: config.performance.cacheTTL
+      },
+      deduplicationOptions: {
+        thresholds: config.search.deduplication.thresholds,
+        strategies: config.search.deduplication.strategies,
+        cacheEnabled: config.performance.cacheEnableDisk,
+        cacheTTL: config.performance.cacheTTL
+      }
     },
     crawl_deep: {
       maxDepth: config.crawling.maxDepth,
