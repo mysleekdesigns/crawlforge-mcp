@@ -1,28 +1,32 @@
-# MCP WebScraper Server v2.0
+# MCP WebScraper Server v3.0
 
-A powerful Model Context Protocol (MCP) server that provides comprehensive web scraping, searching, and crawling capabilities for use with Claude Code, Cursor, and other MCP-compatible clients.
+A powerful Model Context Protocol (MCP) server that provides comprehensive web scraping, searching, crawling, and advanced content processing capabilities for use with Claude Code, Cursor, and other MCP-compatible clients.
 
-## 🚀 What's New in v2.0
+## 🚀 What's New in v3.0 (Phase 3: Advanced Content Processing)
 
-- **Dual Search Provider Support**: Automatic selection between DuckDuckGo (free, no API required) and Google Custom Search API
-- **Web Search Integration**: Search the web with intelligent provider selection
-- **Deep Crawling**: Crawl websites up to 5 levels deep with BFS algorithm
-- **Site Mapping**: Discover and map website structure automatically
-- **Advanced Caching**: Multi-level caching with LRU and disk persistence
-- **Rate Limiting**: Intelligent per-domain rate limiting
-- **Concurrent Processing**: Worker pool for parallel operations
+- **Enhanced Content Extraction**: Mozilla Readability integration for main content detection
+- **Multi-format Document Processing**: Support for PDFs, JavaScript-rendered content, and more
+- **Intelligent Summarization**: Configurable text summarization with key point extraction
+- **Comprehensive Content Analysis**: Language detection, topic extraction, sentiment analysis
+- **Structured Data Extraction**: JSON-LD, microdata, and schema.org parsing
+- **Content Quality Assessment**: Readability scoring and quality metrics
+- **JavaScript Rendering**: Playwright-powered dynamic content processing
 
 ## Features
 
-- **8 Powerful Tools** (3 new in v2.0):
+- **12 Powerful Tools** (4 new in v3.0):
   - `fetch_url` - Fetch content from URLs with headers and timeout support
   - `extract_text` - Extract clean text content from webpages
   - `extract_links` - Extract and filter links from webpages
   - `extract_metadata` - Extract comprehensive metadata (title, description, Open Graph, etc.)
   - `scrape_structured` - Extract structured data using CSS selectors
-  - 🆕 `search_web` - Search the web using DuckDuckGo (default) or Google Custom Search API
-  - 🆕 `crawl_deep` - Deep crawl websites with breadth-first search (up to 5 levels)
-  - 🆕 `map_site` - Discover and map website structure with sitemap support
+  - `search_web` - Search the web using DuckDuckGo (default) or Google Custom Search API
+  - `crawl_deep` - Deep crawl websites with breadth-first search (up to 5 levels)
+  - `map_site` - Discover and map website structure with sitemap support
+  - 🆕 `extract_content` - Enhanced content extraction with readability detection and structured data
+  - 🆕 `process_document` - Multi-format document processing (PDFs, web pages, JavaScript content)
+  - 🆕 `summarize_content` - Intelligent text summarization with configurable options
+  - 🆕 `analyze_content` - Comprehensive content analysis (language, topics, sentiment, entities)
 
 ## Installation
 

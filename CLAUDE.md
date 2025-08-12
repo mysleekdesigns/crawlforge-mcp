@@ -4,42 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MCP (Model Context Protocol) server implementation providing 8 comprehensive web scraping and crawling tools. Version 2.0 adds powerful search, deep crawling, and site mapping capabilities to the original scraping toolkit.
+MCP (Model Context Protocol) server implementation providing 12 comprehensive web scraping, crawling, and content processing tools. Version 3.0 adds advanced content extraction, document processing, summarization, and analysis capabilities.
 
 ## Technical Stack
 
 - **Runtime**: Node.js 18+ (ES modules with `"type": "module"`)
 - **Core SDK**: `@modelcontextprotocol/sdk` for MCP server implementation
 - **HTML Parsing**: Cheerio for DOM manipulation
+- **Content Processing**: Mozilla Readability, JSDOM, PDF-parse
+- **JavaScript Rendering**: Playwright for dynamic content
 - **Validation**: Zod for parameter schemas
-- **Search**: Google Custom Search API integration
+- **Search**: Google Custom Search API and DuckDuckGo integration
 - **Caching**: LRU-Cache with disk persistence
 - **Queue**: p-queue for concurrent operations
-
-## Project Structure
-
-```
-webScraper-1.0/
-├── server.js                 # Main MCP server entry point
-├── src/
-│   ├── core/                # Core infrastructure
-│   │   ├── queue/           # QueueManager for concurrent operations
-│   │   ├── cache/           # CacheManager (memory + disk)
-│   │   └── crawlers/        # BFSCrawler implementation
-│   ├── tools/               # MCP tool implementations
-│   │   ├── search/          # searchWeb tool + Google adapter
-│   │   ├── crawl/           # crawlDeep, mapSite tools
-│   │   └── extract/         # (future) enhanced extraction
-│   ├── utils/               # Shared utilities
-│   │   ├── rateLimiter.js  # Per-domain rate limiting
-│   │   ├── robotsChecker.js # robots.txt compliance
-│   │   └── urlNormalizer.js # URL normalization
-│   └── constants/
-│       └── config.js        # Centralized configuration
-├── docs/                    # Architecture documentation
-├── tasks/                   # Development tracking
-└── .env.example             # Environment variables template
-```
+- **NLP**: Compromise for text analysis, franc for language detection
 
 ## Development Commands
 
@@ -47,84 +25,121 @@ webScraper-1.0/
 # Install dependencies
 npm install
 
-# Copy and configure environment (required for search_web tool)
+# Copy and configure environment
 cp .env.example .env
-# Edit .env to add Google API credentials if needed
+# Edit .env to add Google API credentials if using Google search
 
 # Run the server
 npm start
 
 # Test MCP protocol compliance
-echo '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}},"id":1}' | node server.js
+npm test
 ```
 
-## Available MCP Tools
+## Available MCP Tools (12 Total)
 
+### Basic Scraping Tools
 1. **fetch_url** - Fetch content with headers and timeout support
 2. **extract_text** - Extract clean text from HTML
 3. **extract_links** - Extract and filter links
 4. **extract_metadata** - Extract page metadata (Open Graph, Twitter Cards, etc.)
 5. **scrape_structured** - Extract data using CSS selectors
+
+### Search & Crawling Tools
 6. **search_web** - Web search with multiple provider support (Google, DuckDuckGo)
-7. **crawl_deep** - BFS crawling up to 5 levels deep
+7. **crawl_deep** - BFS crawling up to 5 levels deep with comprehensive options
 8. **map_site** - Discover website structure with sitemap support
 
-## Key Configuration (.env)
+### Advanced Content Processing
+9. **extract_content** - Enhanced content extraction with readability detection and structured data
+10. **process_document** - Multi-format document processing (PDFs, web pages, JavaScript content)
+11. **summarize_content** - Intelligent text summarization with configurable options
+12. **analyze_content** - Comprehensive content analysis (language, topics, sentiment, entities)
+
+## High-Level Architecture
+
+The codebase follows a modular architecture with clear separation of concerns:
+
+### Core Infrastructure (`src/core/`)
+- **QueueManager**: Manages concurrent operations using p-queue, handles job scheduling and worker pool management
+- **CacheManager**: Two-tier caching system (LRU memory + disk persistence) for optimal performance
+- **BFSCrawler**: Breadth-first search crawler with depth control, URL tracking, and domain filtering
+- **ContentProcessor**: Main content extraction using Mozilla Readability and structured data parsing
+- **PDFProcessor/BrowserProcessor**: Specialized processors for different content types
+
+### Tool Layer (`src/tools/`)
+- Each tool is self-contained with its own validation and error handling
+- Tools leverage core infrastructure for common operations
+- Search tools support multiple providers through adapter pattern
+- Crawl tools use BFSCrawler with configurable strategies
+
+### Utility Layer (`src/utils/`)
+- **RateLimiter**: Per-domain rate limiting with configurable limits
+- **RobotsChecker**: robots.txt compliance checking and caching
+- **URLNormalizer**: Consistent URL normalization for deduplication
+- **SitemapParser**: Multi-format sitemap parsing with priority support
+- **DomainFilter**: Whitelist/blacklist domain management
+
+### Search System Architecture
+- **Provider Adapters**: Abstraction layer for Google/DuckDuckGo with factory pattern
+- **ResultRanker**: Multi-factor ranking using BM25, semantic matching, authority scores
+- **ResultDeduplicator**: SimHash-based deduplication with fuzzy matching
+- **QueryExpander**: Automatic query expansion for better search coverage
+
+## Key Configuration
+
+Critical environment variables for development:
 
 ```bash
-# Search Provider Configuration
-# Supported values: 'google', 'duckduckgo', 'auto'
-# 'auto' uses Google if credentials are provided, otherwise DuckDuckGo
+# Search Provider (auto, google, duckduckgo)
 SEARCH_PROVIDER=auto
 
-# Google Search Configuration (optional - required only for Google provider)
-GOOGLE_API_KEY=your_key_here
-GOOGLE_SEARCH_ENGINE_ID=your_engine_id
+# Google API (optional, only if using Google)
+GOOGLE_API_KEY=your_key
+GOOGLE_SEARCH_ENGINE_ID=your_id
 
-# DuckDuckGo Configuration (optional - uses defaults if not specified)
-DUCKDUCKGO_TIMEOUT=30000
-DUCKDUCKGO_MAX_RETRIES=3
-
-# Performance tuning
+# Performance Settings
 MAX_WORKERS=10
+QUEUE_CONCURRENCY=10
 CACHE_TTL=3600000
 RATE_LIMIT_REQUESTS_PER_SECOND=10
+
+# Crawling Limits
 MAX_CRAWL_DEPTH=5
+MAX_PAGES_PER_CRAWL=100
 RESPECT_ROBOTS_TXT=true
 ```
 
-## Search Provider Features
+## Development Workflow
 
-### Google Custom Search API
-- **Requires**: API key and Search Engine ID
-- **Features**: Comprehensive web search, exact phrase matching, boolean operators, site-specific search, file type filtering, date range filtering, language filtering
-- **Limits**: 100 queries per day (free tier), up to 100 results per request
-- **Best for**: Production use with comprehensive search requirements
+### Project Management Structure
+When working on this codebase, tasks are coordinated through a project manager pattern:
+1. Project manager reviews incoming tasks
+2. Assigns work to appropriate sub-agents (mcp-implementation, testing-validation, etc.)
+3. Sub-agents report completion back to project manager
+4. Project manager consolidates results
 
-### DuckDuckGo
-- **Requires**: No API credentials
-- **Features**: Privacy-focused search, instant answers, no tracking, basic filtering
-- **Limits**: ~10 results per request, rate limiting enforced by service
-- **Best for**: Development, privacy-focused applications, or when Google credits aren't available
+### Current Development Status
+- Phase 1: ✅ Architecture & Research (COMPLETED)
+- Phase 2: ✅ Core Search & Crawling (COMPLETED)
+- Phase 3: 🚧 Advanced Content Processing (IN PROGRESS)
+- Phase 4: ⏳ Performance Optimization (Partially Complete)
+- Phase 5: ⏳ Integration & Testing (Pending)
 
-### Auto Selection (Default)
-- Automatically uses Google if API credentials are provided
-- Falls back to DuckDuckGo if no Google credentials are configured
-- Ensures search functionality is always available
+See `tasks/TODO.md` for detailed task tracking and progress.
 
-## Architecture Highlights
+### Testing Approach
+- Unit tests in `tests/unit/` for core components
+- Test files follow `*.test.js` naming convention
+- Run tests with `npm test` or protocol compliance test
 
-- **Concurrent Processing**: Worker pool with queue management for parallel operations
-- **Multi-level Caching**: LRU memory cache + disk persistence for optimal performance
-- **Rate Limiting**: Per-domain rate limiting to respect server resources
-- **BFS Crawling**: Breadth-first search algorithm for systematic crawling
-- **robots.txt Compliance**: Built-in respect for robots.txt directives
-- **Error Handling**: Comprehensive retry mechanisms with exponential backoff
+## Important Implementation Notes
 
-## Important Notes
-
-- Server uses stdio transport (not HTTP) for MCP communication
-- Node.js 18+ required for ES modules support
-- search_web tool requires Google API configuration in .env
-- Maximum crawl depth limited to 5 levels for performance
-- All tools include timeout protection and error handling
+- Server uses stdio transport (not HTTP) for MCP protocol
+- All async operations use proper error handling and timeouts
+- Memory usage optimized to stay under 512MB for typical crawls
+- Tools validate input parameters using Zod schemas
+- Concurrent operations managed through QueueManager
+- Search results cached with configurable TTL
+- Per-domain rate limiting prevents server overload
+- robots.txt compliance checked before crawling

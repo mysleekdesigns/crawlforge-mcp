@@ -7,6 +7,10 @@ import { load } from "cheerio";
 import { SearchWebTool } from "./src/tools/search/searchWeb.js";
 import { CrawlDeepTool } from "./src/tools/crawl/crawlDeep.js";
 import { MapSiteTool } from "./src/tools/crawl/mapSite.js";
+import { ExtractContentTool } from "./src/tools/extract/extractContent.js";
+import { ProcessDocumentTool } from "./src/tools/extract/processDocument.js";
+import { SummarizeContentTool } from "./src/tools/extract/summarizeContent.js";
+import { AnalyzeContentTool } from "./src/tools/extract/analyzeContent.js";
 import { config, validateConfig, isSearchConfigured, getToolConfig, getActiveSearchProvider } from "./src/constants/config.js";
 
 // Validate configuration
@@ -17,15 +21,21 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 }
 
 // Create the server
-const server = new McpServer({ name: "mcp_webScraper", version: "2.0.0" });
+const server = new McpServer({ name: "mcp_webScraper", version: "3.0.0" });
 
-// Initialize new tools if configured
+// Initialize tools
 let searchWebTool = null;
 if (isSearchConfigured()) {
   searchWebTool = new SearchWebTool(getToolConfig('search_web'));
 }
 const crawlDeepTool = new CrawlDeepTool(getToolConfig('crawl_deep'));
 const mapSiteTool = new MapSiteTool(getToolConfig('map_site'));
+
+// Initialize Phase 3 tools
+const extractContentTool = new ExtractContentTool();
+const processDocumentTool = new ProcessDocumentTool();
+const summarizeContentTool = new SummarizeContentTool();
+const analyzeContentTool = new AnalyzeContentTool();
 
 // Zod schemas for tool parameters and responses
 const FetchUrlSchema = z.object({
@@ -539,11 +549,94 @@ server.tool("map_site", "Discover and map website structure", {
   }
 });
 
+// Phase 3 Tools: Enhanced Content Processing
+
+// Tool: extract_content - Enhanced content extraction with readability detection
+server.tool("extract_content", "Extract and analyze main content from web pages with enhanced readability detection", {
+  url: {
+    type: "string",
+    description: "URL to extract content from"
+  },
+  options: {
+    type: "object",
+    description: "Content extraction options",
+    optional: true
+  }
+}, async (request) => {
+  try {
+    return await extractContentTool.execute(request.params);
+  } catch (error) {
+    throw new Error(`Content extraction failed: ${error.message}`);
+  }
+});
+
+// Tool: process_document - Multi-format document processing
+server.tool("process_document", "Process documents from multiple sources and formats including PDFs and web pages", {
+  source: {
+    type: "string",
+    description: "Document source (URL, file path, etc.)"
+  },
+  sourceType: {
+    type: "string",
+    description: "Source type: url, pdf_url, file, pdf_file",
+    optional: true
+  },
+  options: {
+    type: "object",
+    description: "Processing options",
+    optional: true
+  }
+}, async (request) => {
+  try {
+    return await processDocumentTool.execute(request.params);
+  } catch (error) {
+    throw new Error(`Document processing failed: ${error.message}`);
+  }
+});
+
+// Tool: summarize_content - Intelligent content summarization
+server.tool("summarize_content", "Generate intelligent summaries of text content with configurable options", {
+  text: {
+    type: "string",
+    description: "Text content to summarize"
+  },
+  options: {
+    type: "object",
+    description: "Summarization options",
+    optional: true
+  }
+}, async (request) => {
+  try {
+    return await summarizeContentTool.execute(request.params);
+  } catch (error) {
+    throw new Error(`Content summarization failed: ${error.message}`);
+  }
+});
+
+// Tool: analyze_content - Comprehensive content analysis
+server.tool("analyze_content", "Perform comprehensive content analysis including language detection and topic extraction", {
+  text: {
+    type: "string",
+    description: "Text content to analyze"
+  },
+  options: {
+    type: "object",
+    description: "Analysis options",
+    optional: true
+  }
+}, async (request) => {
+  try {
+    return await analyzeContentTool.execute(request.params);
+  } catch (error) {
+    throw new Error(`Content analysis failed: ${error.message}`);
+  }
+});
+
 // Set up the stdio transport and start the server
 async function runServer() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("MCP WebScraper server v2.0 running on stdio");
+  console.error("MCP WebScraper server v3.0 running on stdio");
   console.error(`Environment: ${config.server.nodeEnv}`);
   
   if (isSearchConfigured()) {
@@ -553,7 +646,10 @@ async function runServer() {
     console.error(`Search enabled: ${isSearchConfigured()}`);
   }
   
-  console.error(`Tools available: fetch_url, extract_text, extract_links, extract_metadata, scrape_structured, crawl_deep, map_site${isSearchConfigured() ? ', search_web' : ''}`);
+  const baseTools = 'fetch_url, extract_text, extract_links, extract_metadata, scrape_structured, crawl_deep, map_site';
+  const searchTool = isSearchConfigured() ? ', search_web' : '';
+  const phase3Tools = ', extract_content, process_document, summarize_content, analyze_content';
+  console.error(`Tools available: ${baseTools}${searchTool}${phase3Tools}`);
 }
 
 runServer().catch((error) => {
