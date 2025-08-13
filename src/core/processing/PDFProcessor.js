@@ -3,7 +3,7 @@
  * Handles PDF files from URLs or local paths with comprehensive error handling
  */
 
-import pdfParse from 'pdf-parse';
+// Use dynamic import for pdf-parse to avoid initialization issues
 import { z } from 'zod';
 import fs from 'fs/promises';
 import path from 'path';
@@ -107,6 +107,8 @@ export class PDFProcessor {
 
       let pdfData;
       try {
+        // Dynamic import to avoid initialization issues
+        const pdfParse = (await import('pdf-parse')).default;
         pdfData = await pdfParse(pdfBuffer, parseOptions);
       } catch (error) {
         result.error = `PDF parsing failed: ${error.message}`;
