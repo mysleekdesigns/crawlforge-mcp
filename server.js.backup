@@ -478,28 +478,10 @@ if (searchWebTool) {
     }
   }, async (request) => {
     try {
-      // Extract parameters from MCP protocol structure with improved handling
-      let rawParams = {};
-      
-      // Try multiple possible parameter locations in MCP request
-      if (request?.params?.arguments && Object.keys(request.params.arguments).length > 0) {
-        rawParams = request.params.arguments;
-      } else if (request?.arguments && Object.keys(request.arguments).length > 0) {
-        rawParams = request.arguments;
-      } else if (request && typeof request === "object" && request.query) {
-        rawParams = request;
-      } else {
-        console.error("search_web: No parameters found in request structure:", JSON.stringify(request, null, 2));
-        throw new Error("No parameters provided");
-      }
-      
-      console.log("search_web: extracted rawParams:", JSON.stringify(rawParams));
-      const normalizedParams = normalizeParams(rawParams);
-      console.log("search_web: normalized params:", JSON.stringify(normalizedParams));
-      
-      return await searchWebTool.execute(normalizedParams);
+      // Extract parameters from MCP protocol structure
+      const rawParams = request?.params?.arguments || request || {};
+      return await searchWebTool.execute(normalizeParams(rawParams));
     } catch (error) {
-      console.error("search_web error:", error.message);
       throw new Error(`Search failed: ${error.message}`);
     }
   });
