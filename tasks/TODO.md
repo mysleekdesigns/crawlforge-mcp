@@ -709,3 +709,58 @@ All MCP WebScraper tools fail when called from Claude Code with the error:
 - Comprehensive integration testing completed
 - Production deployment ready
 - Test report generated: `cache/claude-code-integration-report-2025-08-13T03-30-36-992Z.json`
+
+---
+
+## Phase 8: Claude Code Integration Fix & Google Search 🔧
+**Goal:** Fix MCP tools parameter handling and integrate Google Search API
+**Owner:** mcp-implementation (primary)
+**Timeline:** Day 24
+**Status:** ✅ COMPLETED (2025-08-13)
+
+### Issue Identified
+- MCP tools returning "No parameters provided" error when invoked from Claude Code
+- Root cause: WebScraper server not configured in Claude's config file
+
+### Fix Implementation ✅ COMPLETED
+- [x] Added webscraper to Claude Code configuration (`~/.config/claude/claude_desktop_config.json`)
+  ```json
+  "webscraper": {
+    "command": "node",
+    "args": ["/Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/server.js"],
+    "env": {
+      "SEARCH_PROVIDER": "duckduckgo"
+    }
+  }
+  ```
+- [x] Verified .env file configuration
+- [x] Tested server startup independently - All 12 tools registered successfully
+- [x] Server runs correctly with proper tool registration
+
+### Completed Tasks ✅
+- [x] Fixed all tool inputSchema to use inline Zod validators
+- [x] Configured Google Search API with credentials
+- [x] Added Google API key and Search Engine ID to .env
+- [x] Fixed GoogleSearchAdapter circuit breaker issue
+- [x] Successfully tested Google Search integration
+- [x] Verified all 12 MCP tools are registered and working
+  - [x] fetch_url - Tested and working
+  - [x] extract_text - Tested and working
+  - [x] extract_links - Tested and working
+  - [x] extract_metadata - Tested and working
+  - [x] scrape_structured - Tested and working
+  - [x] search_web - Tested with Google provider ✅
+  - [x] crawl_deep - Tested and working
+  - [x] map_site - Tested and working
+  - [x] extract_content - Tested and working
+  - [x] process_document - Tested and working
+  - [x] summarize_content - Tested and working
+  - [x] analyze_content - Tested and working
+- [x] All tools work without parameter errors
+- [x] Configuration documented in GOOGLE_SEARCH_SETUP.md
+
+### Technical Details
+- All tools use correct `registerTool` pattern
+- Response format properly structured with `content` array
+- Zod schemas defined for all tool inputs
+- Server confirmed working on stdio transport

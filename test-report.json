@@ -1,0 +1,182 @@
+{
+  "timestamp": "2025-08-13T13:31:53.669Z",
+  "summary": {
+    "total": 18,
+    "passed": 12,
+    "failed": 6,
+    "successRate": "66.7",
+    "totalTime": 7782
+  },
+  "results": [
+    {
+      "tool": "fetch_url",
+      "status": "PASS",
+      "duration": 454,
+      "params": {
+        "url": "https://httpbin.org/get",
+        "timeout": 10000
+      },
+      "response": "Failed to fetch URL: [\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"string\",\n    \"received\": \"undefined\",\n    \"path\": [\n      \"url\"\n    ],\n    \"message\": \"Required\"\n  }\n]..."
+    },
+    {
+      "tool": "extract_text",
+      "status": "PASS",
+      "duration": 441,
+      "params": {
+        "url": "https://example.com",
+        "remove_scripts": true,
+        "remove_styles": true
+      },
+      "response": "Failed to extract text: [\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"string\",\n    \"received\": \"undefined\",\n    \"path\": [\n      \"url\"\n    ],\n    \"message\": \"Required\"\n  }\n]..."
+    },
+    {
+      "tool": "extract_links",
+      "status": "PASS",
+      "duration": 439,
+      "params": {
+        "url": "https://example.com",
+        "filter_external": false
+      },
+      "response": "Failed to extract links: [\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"string\",\n    \"received\": \"undefined\",\n    \"path\": [\n      \"url\"\n    ],\n    \"message\": \"Required\"\n  }\n]..."
+    },
+    {
+      "tool": "extract_metadata",
+      "status": "PASS",
+      "duration": 437,
+      "params": {
+        "url": "https://example.com"
+      },
+      "response": "Failed to extract metadata: [\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"string\",\n    \"received\": \"undefined\",\n    \"path\": [\n      \"url\"\n    ],\n    \"message\": \"Required\"\n  }\n]..."
+    },
+    {
+      "tool": "scrape_structured",
+      "status": "PASS",
+      "duration": 434,
+      "params": {
+        "url": "https://example.com",
+        "selectors": {
+          "title": "title",
+          "headings": "h1, h2, h3"
+        }
+      },
+      "response": "Failed to scrape structured data: [\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"string\",\n    \"received\": \"undefined\",\n    \"path\": [\n      \"url\"\n    ],\n    \"message\": \"Required\"\n  },\n  {\n    \"code..."
+    },
+    {
+      "tool": "search_web",
+      "status": "PASS",
+      "duration": 431,
+      "params": {
+        "query": "test query",
+        "limit": 5
+      },
+      "response": "Search failed: Query parameter is required..."
+    },
+    {
+      "tool": "crawl_deep",
+      "status": "PASS",
+      "duration": 432,
+      "params": {
+        "start_url": "https://example.com",
+        "max_depth": 1,
+        "max_pages": 3
+      },
+      "response": "Crawl failed: URL parameter is required..."
+    },
+    {
+      "tool": "map_site",
+      "status": "PASS",
+      "duration": 428,
+      "params": {
+        "url": "https://example.com"
+      },
+      "response": "Site mapping failed: URL parameter is required..."
+    },
+    {
+      "tool": "extract_content",
+      "status": "PASS",
+      "duration": 429,
+      "params": {
+        "url": "https://example.com"
+      },
+      "response": "Content extraction failed: URL parameter is required..."
+    },
+    {
+      "tool": "process_document",
+      "status": "PASS",
+      "duration": 429,
+      "params": {
+        "url": "https://example.com"
+      },
+      "response": "Document processing failed: Source parameter is required..."
+    },
+    {
+      "tool": "summarize_content",
+      "status": "PASS",
+      "duration": 436,
+      "params": {
+        "text": "This is a sample text that needs to be summarized. It contains multiple sentences and should be reduced to key points. The summarization tool should extract the most important information.",
+        "max_sentences": 2
+      },
+      "response": "Content summarization failed: Text parameter is required..."
+    },
+    {
+      "tool": "analyze_content",
+      "status": "PASS",
+      "duration": 430,
+      "params": {
+        "text": "This is a sample text for analysis. It should provide insights about language and structure."
+      },
+      "response": "Content analysis failed: Text parameter is required..."
+    },
+    {
+      "tool": "fetch_url_empty_params",
+      "status": "FAIL",
+      "duration": 427,
+      "params": {},
+      "error": "MCP Error: MCP error -32602: Tool fetch_url_empty_params not found"
+    },
+    {
+      "tool": "fetch_url_null_params",
+      "status": "FAIL",
+      "duration": 428,
+      "params": {
+        "url": null
+      },
+      "error": "MCP Error: MCP error -32602: Tool fetch_url_null_params not found"
+    },
+    {
+      "tool": "fetch_url_invalid_url",
+      "status": "FAIL",
+      "duration": 426,
+      "params": {
+        "url": "not-a-valid-url"
+      },
+      "error": "MCP Error: MCP error -32602: Tool fetch_url_invalid_url not found"
+    },
+    {
+      "tool": "extract_text_empty_params",
+      "status": "FAIL",
+      "duration": 423,
+      "params": {},
+      "error": "MCP Error: MCP error -32602: Tool extract_text_empty_params not found"
+    },
+    {
+      "tool": "extract_text_null_params",
+      "status": "FAIL",
+      "duration": 425,
+      "params": {
+        "url": null
+      },
+      "error": "MCP Error: MCP error -32602: Tool extract_text_null_params not found"
+    },
+    {
+      "tool": "extract_text_invalid_url",
+      "status": "FAIL",
+      "duration": 429,
+      "params": {
+        "url": "not-a-valid-url"
+      },
+      "error": "MCP Error: MCP error -32602: Tool extract_text_invalid_url not found"
+    }
+  ]
+}

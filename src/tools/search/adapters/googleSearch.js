@@ -30,40 +30,46 @@ export class GoogleSearchAdapter {
     });
 
     try {
-      const result = await this.retryManager.executeWithCircuitBreaker(
-        async () => {
-          this.logger.debug('Executing Google search API call', { params }, requestId);
-          
-          const response = await this.customsearch.cse.list({
-            auth: this.apiKey,
-            cx: this.searchEngineId,
-            q: params.query,
-            num: params.num || 10,
-            start: params.start || 1,
-            lr: params.lr,
-            safe: params.safe,
-            dateRestrict: params.dateRestrict,
-            siteSearch: params.siteSearch,
-            siteSearchFilter: params.siteSearchFilter,
-            fileType: params.fileType,
-            rights: params.rights,
-            imgSize: params.imgSize,
-            imgType: params.imgType,
-            imgColorType: params.imgColorType,
-            imgDominantColor: params.imgDominantColor
-          });
+      // Simplified execution without circuit breaker for now
+      const executeSearch = async () => {
+        this.logger.debug('Executing Google search API call', { params }, requestId);
+        
+        const response = await this.customsearch.cse.list({
+          auth: this.apiKey,
+          cx: this.searchEngineId,
+          q: params.query,
+          num: params.num || 10,
+          start: params.start || 1,
+          lr: params.lr,
+          safe: params.safe,
+          dateRestrict: params.dateRestrict,
+          siteSearch: params.siteSearch,
+          siteSearchFilter: params.siteSearchFilter,
+          fileType: params.fileType,
+          rights: params.rights,
+          imgSize: params.imgSize,
+          imgType: params.imgType,
+          imgColorType: params.imgColorType,
+          imgDominantColor: params.imgDominantColor
+        });
 
-          this.logger.info('Google search API call successful', {
-            resultsCount: response.data?.items?.length || 0,
-            searchTime: response.data?.searchInformation?.searchTime
-          }, requestId);
+        this.logger.info('Google search API call successful', {
+          resultsCount: response.data?.items?.length || 0,
+          searchTime: response.data?.searchInformation?.searchTime
+        }, requestId);
 
-          return response.data;
-        },
-        this.circuitBreaker,
-        this.serviceId,
-        { operation: 'search', query: params.query }
-      );
+        return response.data;
+      };
+
+      // Try to use retry manager if available, otherwise execute directly
+      let result;
+      try {
+        result = await this.retryManager.execute(executeSearch, { operation: 'search', query: params.query });
+      } catch (retryError) {
+        // If retry manager fails, try direct execution
+        this.logger.warn('Retry manager failed, executing directly', { error: retryError.message }, requestId);
+        result = await executeSearch();
+      }
 
       this.logger.endRequest(requestId, { 
         success: true,

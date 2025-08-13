@@ -194,7 +194,11 @@ server.registerTool("fetch_url", {
 // Tool: extract_text - Extract clean text content from HTML
 server.registerTool("extract_text", {
   description: "Extract clean text content from a webpage",
-  inputSchema: ExtractTextSchema
+  inputSchema: {
+    url: z.string().url(),
+    remove_scripts: z.boolean().optional().default(true),
+    remove_styles: z.boolean().optional().default(true)
+  }
 }, async ({ url, remove_scripts, remove_styles }) => {
   try {
     const response = await fetchWithTimeout(url);
@@ -244,7 +248,11 @@ server.registerTool("extract_text", {
 // Tool: extract_links - Extract all links from a webpage with optional filtering
 server.registerTool("extract_links", {
   description: "Extract all links from a webpage with optional filtering",
-  inputSchema: ExtractLinksSchema
+  inputSchema: {
+    url: z.string().url(),
+    filter_external: z.boolean().optional().default(false),
+    base_url: z.string().url().optional()
+  }
 }, async ({ url, filter_external, base_url }) => {
   try {
     const response = await fetchWithTimeout(url);
@@ -324,7 +332,9 @@ server.registerTool("extract_links", {
 // Tool: extract_metadata - Extract page metadata
 server.registerTool("extract_metadata", {
   description: "Extract metadata from a webpage (title, description, keywords, etc.)",
-  inputSchema: ExtractMetadataSchema
+  inputSchema: {
+    url: z.string().url()
+  }
 }, async ({ url }) => {
   try {
     const response = await fetchWithTimeout(url);
@@ -401,7 +411,10 @@ server.registerTool("extract_metadata", {
 // Tool: scrape_structured - Extract structured data using CSS selectors
 server.registerTool("scrape_structured", {
   description: "Extract structured data from a webpage using CSS selectors",
-  inputSchema: ScrapeStructuredSchema
+  inputSchema: {
+    url: z.string().url(),
+    selectors: z.record(z.string())
+  }
 }, async ({ url, selectors }) => {
   try {
     const response = await fetchWithTimeout(url);
@@ -465,7 +478,16 @@ if (searchWebTool) {
   
   server.registerTool("search_web", {
     description: `Search the web using ${providerName}`,
-    inputSchema: SearchWebSchema
+    inputSchema: {
+      query: z.string(),
+      limit: z.number().min(1).max(100).optional(),
+      offset: z.number().min(0).optional(),
+      lang: z.string().optional(),
+      safe_search: z.boolean().optional(),
+      time_range: z.enum(['day', 'week', 'month', 'year', 'all']).optional(),
+      site: z.string().optional(),
+      file_type: z.string().optional()
+    }
   }, async ({ query, limit, offset, lang, safe_search, time_range, site, file_type }) => {
     try {
       if (!query) {
@@ -507,7 +529,17 @@ if (searchWebTool) {
 // Tool: crawl_deep - Deep crawl websites with BFS algorithm
 server.registerTool("crawl_deep", {
   description: "Crawl websites deeply using breadth-first search",
-  inputSchema: CrawlDeepSchema
+  inputSchema: {
+    url: z.string().url(),
+    max_depth: z.number().min(1).max(5).optional(),
+    max_pages: z.number().min(1).max(1000).optional(),
+    include_patterns: z.array(z.string()).optional(),
+    exclude_patterns: z.array(z.string()).optional(),
+    follow_external: z.boolean().optional(),
+    respect_robots: z.boolean().optional(),
+    extract_content: z.boolean().optional(),
+    concurrency: z.number().min(1).max(20).optional()
+  }
 }, async ({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, concurrency }) => {
   try {
     if (!url) {
@@ -541,7 +573,13 @@ server.registerTool("crawl_deep", {
 // Tool: map_site - Discover and map website structure
 server.registerTool("map_site", {
   description: "Discover and map website structure",
-  inputSchema: MapSiteSchema
+  inputSchema: {
+    url: z.string().url(),
+    include_sitemap: z.boolean().optional(),
+    max_urls: z.number().min(1).max(10000).optional(),
+    group_by_path: z.boolean().optional(),
+    include_metadata: z.boolean().optional()
+  }
 }, async ({ url, include_sitemap, max_urls, group_by_path, include_metadata }) => {
   try {
     if (!url) {
@@ -577,7 +615,10 @@ server.registerTool("map_site", {
 // Tool: extract_content - Enhanced content extraction with readability detection
 server.registerTool("extract_content", {
   description: "Extract and analyze main content from web pages with enhanced readability detection",
-  inputSchema: ExtractContentSchema
+  inputSchema: {
+    url: z.string().url(),
+    options: z.object({}).optional()
+  }
 }, async ({ url, options }) => {
   try {
     if (!url) {
@@ -611,7 +652,11 @@ server.registerTool("extract_content", {
 // Tool: process_document - Multi-format document processing
 server.registerTool("process_document", {
   description: "Process documents from multiple sources and formats including PDFs and web pages",
-  inputSchema: ProcessDocumentSchema
+  inputSchema: {
+    source: z.string(),
+    sourceType: z.enum(['url', 'pdf_url', 'file', 'pdf_file']).optional(),
+    options: z.object({}).optional()
+  }
 }, async ({ source, sourceType, options }) => {
   try {
     if (!source) {
@@ -645,7 +690,10 @@ server.registerTool("process_document", {
 // Tool: summarize_content - Intelligent content summarization
 server.registerTool("summarize_content", {
   description: "Generate intelligent summaries of text content with configurable options",
-  inputSchema: SummarizeContentSchema
+  inputSchema: {
+    text: z.string(),
+    options: z.object({}).optional()
+  }
 }, async ({ text, options }) => {
   try {
     if (!text) {
@@ -679,7 +727,10 @@ server.registerTool("summarize_content", {
 // Tool: analyze_content - Comprehensive content analysis
 server.registerTool("analyze_content", {
   description: "Perform comprehensive content analysis including language detection and topic extraction",
-  inputSchema: AnalyzeContentSchema
+  inputSchema: {
+    text: z.string(),
+    options: z.object({}).optional()
+  }
 }, async ({ text, options }) => {
   try {
     if (!text) {
