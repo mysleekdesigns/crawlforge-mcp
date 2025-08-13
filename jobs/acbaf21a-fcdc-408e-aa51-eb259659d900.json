@@ -1,0 +1,141 @@
+{
+  "id": "acbaf21a-fcdc-408e-aa51-eb259659d900",
+  "type": "batch_scrape",
+  "data": {
+    "batchId": "batch_1755119184230_3t9j853rc",
+    "urlConfigs": [
+      {
+        "url": "http://example.com",
+        "selectors": {},
+        "headers": {},
+        "timeout": 15000
+      }
+    ],
+    "validated": {
+      "urls": [
+        "http://example.com"
+      ],
+      "formats": [
+        "json"
+      ],
+      "mode": "async",
+      "maxConcurrency": 10,
+      "delayBetweenRequests": 100,
+      "includeMetadata": true,
+      "includeFailed": true,
+      "pageSize": 25
+    },
+    "webhookConfig": null,
+    "startTime": 1755119184230
+  },
+  "status": "completed",
+  "priority": 0,
+  "ttl": 86400000,
+  "maxRetries": 0,
+  "currentRetries": 0,
+  "retryDelay": 5000,
+  "webhooks": [],
+  "tags": [
+    "batch_scrape",
+    "batch_1755119184230_3t9j853rc"
+  ],
+  "dependencies": [],
+  "metadata": {
+    "batchId": "batch_1755119184230_3t9j853rc",
+    "urlCount": 1,
+    "formats": [
+      "json"
+    ],
+    "extractionSchema": null
+  },
+  "createdAt": 1755119184230,
+  "updatedAt": 1755119184301,
+  "expiresAt": 1755205584230,
+  "startedAt": 1755119184235,
+  "completedAt": 1755119184301,
+  "result": {
+    "batchId": "batch_1755119184230_3t9j853rc",
+    "mode": "async",
+    "success": true,
+    "executionTime": 71,
+    "totalUrls": 1,
+    "successfulUrls": 1,
+    "failedUrls": 0,
+    "results": [
+      {
+        "success": true,
+        "url": "http://example.com",
+        "timestamp": 1755119184300,
+        "executionTime": 48,
+        "metadata": {
+          "status": 200,
+          "contentType": "text/html",
+          "contentLength": 1256
+        },
+        "extracted": {},
+        "content": {
+          "json": {
+            "title": "Example Domain",
+            "headings": [
+              {
+                "level": 1,
+                "text": "Example Domain",
+                "id": null
+              }
+            ],
+            "links": [
+              {
+                "href": "https://www.iana.org/domains/example",
+                "text": "More information...",
+                "title": null
+              }
+            ],
+            "images": [],
+            "metadata": {
+              "title": "Example Domain",
+              "description": "",
+              "og": {},
+              "twitter": {}
+            }
+          }
+        },
+        "processingMetadata": {
+          "formats": [
+            "json"
+          ],
+          "extractionApplied": false,
+          "processedAt": 1755119184301
+        }
+      }
+    ],
+    "formats": [
+      "json"
+    ],
+    "metadata": {
+      "concurrency": 10,
+      "extractionSchema": null,
+      "timestamp": 1755119184301,
+      "jobId": "acbaf21a-fcdc-408e-aa51-eb259659d900"
+    }
+  },
+  "error": null,
+  "progress": 100,
+  "logs": [
+    {
+      "timestamp": 1755119184237,
+      "level": "info",
+      "message": "Starting batch scrape",
+      "data": {
+        "progress": 0
+      }
+    },
+    {
+      "timestamp": 1755119184300,
+      "level": "info",
+      "message": "Processed 1/1 URLs",
+      "data": {
+        "progress": 100
+      }
+    }
+  ]
+}

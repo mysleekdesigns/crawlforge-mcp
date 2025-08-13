@@ -1,0 +1,69 @@
+{
+  "id": "d65465f9-dda4-493b-b770-944bd6aa272a",
+  "type": "batch_scrape",
+  "data": {
+    "batchId": "batch_1755119484632_7gqfgbpf3",
+    "urlConfigs": [
+      {
+        "url": "http://example.com",
+        "selectors": {},
+        "headers": {},
+        "timeout": 15000
+      }
+    ],
+    "validated": {
+      "urls": [
+        "http://example.com"
+      ],
+      "formats": [
+        "json"
+      ],
+      "mode": "async",
+      "maxConcurrency": 10,
+      "delayBetweenRequests": 100,
+      "includeMetadata": true,
+      "includeFailed": true,
+      "pageSize": 25
+    },
+    "webhookConfig": null,
+    "startTime": 1755119484632
+  },
+  "status": "failed",
+  "priority": 0,
+  "ttl": 86400000,
+  "maxRetries": 0,
+  "currentRetries": 0,
+  "retryDelay": 5000,
+  "webhooks": [],
+  "tags": [
+    "batch_scrape",
+    "batch_1755119484632_7gqfgbpf3"
+  ],
+  "dependencies": [],
+  "metadata": {
+    "batchId": "batch_1755119484632_7gqfgbpf3",
+    "urlCount": 1,
+    "formats": [
+      "json"
+    ],
+    "extractionSchema": null
+  },
+  "createdAt": 1755119484632,
+  "updatedAt": 1755119509471,
+  "expiresAt": 1755205884632,
+  "startedAt": 1755119484633,
+  "completedAt": 1755119509471,
+  "result": null,
+  "error": "Job was interrupted by system restart",
+  "progress": 0,
+  "logs": [
+    {
+      "timestamp": 1755119484636,
+      "level": "info",
+      "message": "Starting batch scrape",
+      "data": {
+        "progress": 0
+      }
+    }
+  ]
+}

@@ -11,9 +11,6 @@ import { ExtractContentTool } from "./src/tools/extract/extractContent.js";
 import { ProcessDocumentTool } from "./src/tools/extract/processDocument.js";
 import { SummarizeContentTool } from "./src/tools/extract/summarizeContent.js";
 import { AnalyzeContentTool } from "./src/tools/extract/analyzeContent.js";
-// Wave 2 Advanced Tools
-import { BatchScrapeTool } from "./src/tools/advanced/BatchScrapeTool.js";
-import { ScrapeWithActionsTool } from "./src/tools/advanced/ScrapeWithActionsTool.js";
 import { config, validateConfig, isSearchConfigured, getToolConfig, getActiveSearchProvider } from "./src/constants/config.js";
 
 // Validate configuration
@@ -39,10 +36,6 @@ const extractContentTool = new ExtractContentTool();
 const processDocumentTool = new ProcessDocumentTool();
 const summarizeContentTool = new SummarizeContentTool();
 const analyzeContentTool = new AnalyzeContentTool();
-
-// Initialize Wave 2 Advanced Tools
-const batchScrapeTool = new BatchScrapeTool();
-const scrapeWithActionsTool = new ScrapeWithActionsTool();
 
 // Zod schemas for tool parameters and responses
 const FetchUrlSchema = z.object({
@@ -122,93 +115,6 @@ const SummarizeContentSchema = z.object({
 const AnalyzeContentSchema = z.object({
   text: z.string(),
   options: z.object({}).optional()
-});
-
-// Wave 2 Advanced Tools Schemas
-const BatchScrapeSchema = z.object({
-  urls: z.array(z.union([
-    z.string().url(),
-    z.object({
-      url: z.string().url(),
-      selectors: z.record(z.string()).optional(),
-      headers: z.record(z.string()).optional(),
-      timeout: z.number().min(1000).max(30000).optional(),
-      metadata: z.record(z.any()).optional()
-    })
-  ])).min(1).max(50),
-  
-  formats: z.array(z.enum(['markdown', 'html', 'json', 'text'])).default(['json']),
-  mode: z.enum(['sync', 'async']).default('sync'),
-  
-  webhook: z.object({
-    url: z.string().url(),
-    events: z.array(z.string()).optional().default(['batch_completed', 'batch_failed']),
-    headers: z.record(z.string()).optional(),
-    signingSecret: z.string().optional()
-  }).optional(),
-  
-  extractionSchema: z.record(z.string()).optional(),
-  maxConcurrency: z.number().min(1).max(20).default(10),
-  delayBetweenRequests: z.number().min(0).max(10000).default(100),
-  includeMetadata: z.boolean().default(true),
-  includeFailed: z.boolean().default(true),
-  pageSize: z.number().min(1).max(100).default(25),
-  
-  jobOptions: z.object({
-    priority: z.number().default(0),
-    ttl: z.number().min(60000).default(24 * 60 * 60 * 1000),
-    maxRetries: z.number().min(0).max(5).default(1),
-    tags: z.array(z.string()).default([])
-  }).optional()
-});
-
-const ScrapeWithActionsSchema = z.object({
-  url: z.string().url(),
-  actions: z.array(z.object({
-    type: z.enum(['wait', 'click', 'type', 'press', 'scroll', 'screenshot', 'executeJavaScript']),
-    selector: z.string().optional(),
-    text: z.string().optional(),
-    key: z.string().optional(),
-    script: z.string().optional(),
-    timeout: z.number().optional(),
-    description: z.string().optional(),
-    continueOnError: z.boolean().default(false),
-    retries: z.number().min(0).max(5).default(0)
-  })).min(1).max(20),
-  
-  formats: z.array(z.enum(['markdown', 'html', 'json', 'text', 'screenshots'])).default(['json']),
-  captureIntermediateStates: z.boolean().default(false),
-  captureScreenshots: z.boolean().default(true),
-  
-  formAutoFill: z.object({
-    fields: z.array(z.object({
-      selector: z.string(),
-      value: z.string(),
-      type: z.enum(['text', 'select', 'checkbox', 'radio', 'file']).default('text'),
-      waitAfter: z.number().min(0).max(5000).default(100)
-    })),
-    submitSelector: z.string().optional(),
-    waitAfterSubmit: z.number().min(0).max(30000).default(2000)
-  }).optional(),
-  
-  browserOptions: z.object({
-    headless: z.boolean().default(true),
-    userAgent: z.string().optional(),
-    viewportWidth: z.number().min(800).max(1920).default(1280),
-    viewportHeight: z.number().min(600).max(1080).default(720),
-    timeout: z.number().min(10000).max(120000).default(30000)
-  }).optional(),
-  
-  extractionOptions: z.object({
-    selectors: z.record(z.string()).optional(),
-    includeMetadata: z.boolean().default(true),
-    includeLinks: z.boolean().default(true),
-    includeImages: z.boolean().default(true)
-  }).optional(),
-  
-  continueOnActionError: z.boolean().default(false),
-  maxRetries: z.number().min(0).max(3).default(1),
-  screenshotOnError: z.boolean().default(true)
 });
 
 
@@ -855,130 +761,6 @@ server.registerTool("analyze_content", {
   }
 });
 
-
-// Wave 2 Advanced Tools
-
-// Tool: batch_scrape - Process multiple URLs simultaneously with job management
-server.registerTool("batch_scrape", {
-  description: "Process multiple URLs simultaneously with support for async job management and webhook notifications",
-  inputSchema: {
-    urls: z.array(z.union([
-      z.string().url(),
-      z.object({
-        url: z.string().url(),
-        selectors: z.record(z.string()).optional(),
-        headers: z.record(z.string()).optional(),
-        timeout: z.number().min(1000).max(30000).optional(),
-        metadata: z.record(z.any()).optional()
-      })
-    ])).min(1).max(50),
-    formats: z.array(z.enum(['markdown', 'html', 'json', 'text'])).default(['json']),
-    mode: z.enum(['sync', 'async']).default('sync'),
-    webhook: z.object({
-      url: z.string().url(),
-      events: z.array(z.string()).optional().default(['batch_completed', 'batch_failed']),
-      headers: z.record(z.string()).optional(),
-      signingSecret: z.string().optional()
-    }).optional(),
-    extractionSchema: z.record(z.string()).optional(),
-    maxConcurrency: z.number().min(1).max(20).default(10),
-    delayBetweenRequests: z.number().min(0).max(10000).default(100),
-    includeMetadata: z.boolean().default(true),
-    includeFailed: z.boolean().default(true),
-    pageSize: z.number().min(1).max(100).default(25),
-    jobOptions: z.object({
-      priority: z.number().default(0),
-      ttl: z.number().min(60000).default(24 * 60 * 60 * 1000),
-      maxRetries: z.number().min(0).max(5).default(1),
-      tags: z.array(z.string()).default([])
-    }).optional()
-  }
-}, async (params) => {
-  try {
-    const result = await batchScrapeTool.execute(params);
-    return {
-      content: [{
-        type: "text",
-        text: JSON.stringify(result, null, 2)
-      }]
-    };
-  } catch (error) {
-    return {
-      content: [{
-        type: "text",
-        text: `Batch scrape failed: ${error.message}`
-      }],
-      isError: true
-    };
-  }
-});
-
-// Tool: scrape_with_actions - Execute action chains before scraping
-server.registerTool("scrape_with_actions", {
-  description: "Execute browser action chains before scraping content, with form auto-fill and intermediate state capture",
-  inputSchema: {
-    url: z.string().url(),
-    actions: z.array(z.object({
-      type: z.enum(['wait', 'click', 'type', 'press', 'scroll', 'screenshot', 'executeJavaScript']),
-      selector: z.string().optional(),
-      text: z.string().optional(),
-      key: z.string().optional(),
-      script: z.string().optional(),
-      timeout: z.number().optional(),
-      description: z.string().optional(),
-      continueOnError: z.boolean().default(false),
-      retries: z.number().min(0).max(5).default(0)
-    })).min(1).max(20),
-    formats: z.array(z.enum(['markdown', 'html', 'json', 'text', 'screenshots'])).default(['json']),
-    captureIntermediateStates: z.boolean().default(false),
-    captureScreenshots: z.boolean().default(true),
-    formAutoFill: z.object({
-      fields: z.array(z.object({
-        selector: z.string(),
-        value: z.string(),
-        type: z.enum(['text', 'select', 'checkbox', 'radio', 'file']).default('text'),
-        waitAfter: z.number().min(0).max(5000).default(100)
-      })),
-      submitSelector: z.string().optional(),
-      waitAfterSubmit: z.number().min(0).max(30000).default(2000)
-    }).optional(),
-    browserOptions: z.object({
-      headless: z.boolean().default(true),
-      userAgent: z.string().optional(),
-      viewportWidth: z.number().min(800).max(1920).default(1280),
-      viewportHeight: z.number().min(600).max(1080).default(720),
-      timeout: z.number().min(10000).max(120000).default(30000)
-    }).optional(),
-    extractionOptions: z.object({
-      selectors: z.record(z.string()).optional(),
-      includeMetadata: z.boolean().default(true),
-      includeLinks: z.boolean().default(true),
-      includeImages: z.boolean().default(true)
-    }).optional(),
-    continueOnActionError: z.boolean().default(false),
-    maxRetries: z.number().min(0).max(3).default(1),
-    screenshotOnError: z.boolean().default(true)
-  }
-}, async (params) => {
-  try {
-    const result = await scrapeWithActionsTool.execute(params);
-    return {
-      content: [{
-        type: "text",
-        text: JSON.stringify(result, null, 2)
-      }]
-    };
-  } catch (error) {
-    return {
-      content: [{
-        type: "text",
-        text: `Scrape with actions failed: ${error.message}`
-      }],
-      isError: true
-    };
-  }
-});
-
 // Set up the stdio transport and start the server
 async function runServer() {
   const transport = new StdioServerTransport();
@@ -996,8 +778,7 @@ async function runServer() {
   const baseTools = 'fetch_url, extract_text, extract_links, extract_metadata, scrape_structured, crawl_deep, map_site';
   const searchTool = isSearchConfigured() ? ', search_web' : '';
   const phase3Tools = ', extract_content, process_document, summarize_content, analyze_content';
-  const wave2Tools = ', batch_scrape, scrape_with_actions';
-  console.error(`Tools available: ${baseTools}${searchTool}${phase3Tools}${wave2Tools}`);
+  console.error(`Tools available: ${baseTools}${searchTool}${phase3Tools}`);
 }
 
 runServer().catch((error) => {
