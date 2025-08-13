@@ -1,23 +1,60 @@
 # Troubleshooting Guide
 
-Solve common issues with the MCP WebScraper server, including Claude Code and Cursor IDE specific problems.
+🎯 **Purpose**: Fix common issues with MCP WebScraper  
+⏱️ **Time Needed**: 2-10 minutes per issue  
+📚 **Difficulty**: 🟢 Easy to 🟡 Intermediate
 
-## Quick Diagnostics
+## 🔍 Quick Diagnostics
 
-Run this command to check your setup:
+**Run this one-liner to check everything:**
 ```bash
-# Check Node version
-node --version  # Should be v18+
+node --version && npm --version && cd mcp-webscraper && npm start && echo "✅ All systems go!" || echo "❌ Check the error above"
+```
 
-# Check if server starts
+### Manual Diagnostic Steps
+```bash
+# 1. Check Node version (need v18+)
+node --version
+
+# 2. Test server starts
 cd /path/to/mcp-webscraper
 npm start
 
-# Test a tool
-curl -X POST http://localhost:3000/tools/fetch_url \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com"}'
+# 3. Test a tool works
+curl http://localhost:3000/health
 ```
+
+## ❓ FAQ - Top 10 Issues
+
+### 1. "I can't see the tools in Claude/Cursor"
+👉 **Solution**: Check your config path is ABSOLUTE (starts with / or C:\)
+
+### 2. "Server won't start"
+👉 **Solution**: Run `npm install` in the mcp-webscraper folder
+
+### 3. "Permission denied errors"
+👉 **Solution**: Run `chmod +x server.js` (Mac/Linux)
+
+### 4. "Tools appear but don't work"
+👉 **Solution**: Restart your IDE completely (quit and reopen)
+
+### 5. "Search returns no results"
+👉 **Solution**: You're using DuckDuckGo by default - this is normal, just slower
+
+### 6. "Out of memory errors"
+👉 **Solution**: Add to .env: `MAX_WORKERS=4`
+
+### 7. "Can't install dependencies"
+👉 **Solution**: Delete node_modules and run `npm install` again
+
+### 8. "Wrong Node version"
+👉 **Solution**: Download Node.js 18+ from https://nodejs.org
+
+### 9. "Port already in use"
+👉 **Solution**: Another app is using port 3000 - stop it or change the port
+
+### 10. "JSON syntax error in config"
+👉 **Solution**: Validate your JSON at https://jsonlint.com
 
 ## Claude Code Issues
 
@@ -425,46 +462,135 @@ console.log(result);
 | `ENOMEM` | Out of memory | Increase memory limit |
 | `EADDRINUSE` | Port in use | Kill other process or change port |
 
+## 🗺️ Troubleshooting Flowchart
+
+```
+Problem with MCP WebScraper?
+│
+├─> Can't see tools in IDE?
+│   ├─> Check path is absolute → Fixed? ✅
+│   ├─> Check JSON syntax → Fixed? ✅
+│   └─> Restart IDE completely → Fixed? ✅
+│
+├─> Server won't start?
+│   ├─> Check Node version (18+) → Update if needed
+│   ├─> Run npm install → Fixed? ✅
+│   └─> Check port 3000 → Change if busy
+│
+├─> Tools error when used?
+│   ├─> Check server is running → Start it
+│   ├─> Check network connection → Fix connection
+│   └─> Check error logs → Follow error message
+│
+└─> Performance issues?
+    ├─> Reduce MAX_WORKERS → Fixed? ✅
+    ├─> Enable caching → Fixed? ✅
+    └─> Check memory usage → Increase limits
+```
+
+## 📝 Diagnostic Script
+
+Save and run this script to diagnose issues:
+
+```bash
+#!/bin/bash
+# diagnose.sh - MCP WebScraper Diagnostic Tool
+
+echo "🔍 MCP WebScraper Diagnostic Tool"
+echo "================================="
+
+# Check Node.js
+echo -n "Node.js: "
+if command -v node &> /dev/null; then
+    NODE_VERSION=$(node --version)
+    echo "✅ $NODE_VERSION"
+else
+    echo "❌ Not installed"
+fi
+
+# Check npm
+echo -n "npm: "
+if command -v npm &> /dev/null; then
+    NPM_VERSION=$(npm --version)
+    echo "✅ v$NPM_VERSION"
+else
+    echo "❌ Not installed"
+fi
+
+# Check installation
+echo -n "Installation: "
+if [ -f "server.js" ]; then
+    echo "✅ Found"
+else
+    echo "❌ Not in mcp-webscraper directory"
+fi
+
+# Check dependencies
+echo -n "Dependencies: "
+if [ -d "node_modules" ]; then
+    echo "✅ Installed"
+else
+    echo "❌ Run: npm install"
+fi
+
+# Test server
+echo -n "Server: "
+timeout 2 node server.js 2>/dev/null
+if [ $? -eq 124 ]; then
+    echo "✅ Starts correctly"
+else
+    echo "❌ Failed to start"
+fi
+
+echo "================================="
+echo "Diagnostics complete!"
+```
+
 ## Getting Help
 
-### Before Asking for Help
+### 🚑 Quick Help
 
-1. Run diagnostics script
-2. Check logs for errors
-3. Try solutions in this guide
-4. Search existing issues
+1. **Read the FAQ** above first
+2. **Run the diagnostic script**
+3. **Check the flowchart**
+4. **Search existing issues** on GitHub
 
-### Where to Get Help
+### 📞 Contact Channels
 
-- **GitHub Issues**: [Report bugs](https://github.com/your-username/mcp-webscraper/issues)
-- **Documentation**: [Full docs](https://github.com/your-username/mcp-webscraper/docs)
-- **MCP Discord**: [Community support](https://discord.gg/mcp)
+- 💬 **[GitHub Issues](https://github.com/your-username/mcp-webscraper/issues)** - Bug reports
+- 💡 **[GitHub Discussions](https://github.com/your-username/mcp-webscraper/discussions)** - Questions
+- 📖 **[Documentation](./README.md)** - Full guides
+- 🔒 **[Security Issues](mailto:security@example.com)** - Private disclosure
 
-### Reporting Issues
+### 🐛 Reporting Bugs
 
-Include:
-- Node.js version
-- Operating system
-- Error messages
-- Steps to reproduce
-- Config files (remove sensitive data)
-
-Example:
+**Good bug report template:**
 ```markdown
-**Environment:**
-- Node: v18.12.0
+## Environment
+- Node.js: v18.12.0
 - OS: macOS 13.0
 - IDE: Claude Code v1.2.3
 
-**Error:**
-"Failed to connect to MCP server"
+## Problem
+Tools don't appear in Claude Code
 
-**Steps:**
+## Steps to Reproduce
 1. Installed with `npm install`
-2. Added to mcp.json
+2. Added config to mcp.json
 3. Restarted Claude Code
-4. Tools don't appear
+4. No tools visible
 
-**Config:**
-[paste mcp.json without API keys]
+## Error Messages
+[Paste any error messages]
+
+## What I've Tried
+- Checked path is absolute ✅
+- Validated JSON ✅
+- Restarted IDE ✅
 ```
+
+---
+
+<div align="center">
+<b>Still stuck? We're here to help! Open an issue on GitHub.</b>
+</div>

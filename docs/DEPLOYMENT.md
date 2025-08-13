@@ -1,39 +1,29 @@
 # Deployment Guide
 
-Deploy the MCP WebScraper server in production environments using Docker, npm, or PM2.
+🎯 **Purpose**: Deploy MCP WebScraper to production environments  
+⏱️ **Time Needed**: 15-30 minutes  
+📚 **Difficulty**: 🟡 Intermediate
 
-## Quick Deployment Options
+## 🚀 Quick Deployment Options
 
-### Option 1: NPM Global Install (Simplest)
+### Option 1: Docker (Recommended) 🐳
 
-```bash
-# Install globally
-npm install -g mcp-webscraper
-
-# Run the server
-mcp-webscraper
-
-# Or with environment variables
-NODE_ENV=production mcp-webscraper
-```
-
-### Option 2: Docker (Recommended for Production)
+The easiest and most reliable way to deploy:
 
 ```bash
-# Using Docker Compose
+# Production deployment with Docker
 docker-compose up -d mcp-webscraper-prod
-
-# Or using Docker directly
-docker run -d \
-  --name mcp-webscraper \
-  --restart unless-stopped \
-  -e NODE_ENV=production \
-  -v $(pwd)/cache:/app/cache \
-  -v $(pwd)/logs:/app/logs \
-  mcp-webscraper:latest
 ```
 
-### Option 3: PM2 Process Manager
+📖 **[Complete Docker Guide](./docker.md)** - Includes:
+- Development & production configurations
+- Monitoring stack setup (Prometheus, Grafana)
+- Scaling and resource management
+- Troubleshooting Docker issues
+
+### Option 2: PM2 Process Manager
+
+For Node.js deployments without Docker:
 
 ```bash
 # Install PM2 globally
@@ -44,9 +34,21 @@ pm2 start server.js --name mcp-webscraper \
   --env production \
   --max-memory-restart 512M
 
-# Save PM2 configuration
+# Save configuration
 pm2 save
 pm2 startup
+```
+
+### Option 3: Direct Node.js
+
+Simplest but least robust:
+
+```bash
+# Run directly
+NODE_ENV=production node server.js
+
+# Or with nohup (Linux/Mac)
+nohup node server.js > app.log 2>&1 &
 ```
 
 ## Production Configuration
@@ -91,133 +93,60 @@ RESPECT_ROBOTS_TXT=true
 | Storage | 1GB | 5GB+ | For cache and logs |
 | Network | 10 Mbps | 100+ Mbps | For efficient web scraping |
 
-## Docker Deployment
+## 📋 Production Deployment Checklist
 
-### Build and Run
+Before deploying to production, ensure:
 
+- [ ] Node.js version 18+ installed
+- [ ] Environment variables configured
+- [ ] SSL/TLS certificates ready (for HTTPS)
+- [ ] Firewall rules configured
+- [ ] Monitoring setup planned
+- [ ] Backup strategy defined
+- [ ] Resource limits set
+- [ ] Log rotation configured
+
+## ☁️ Cloud Deployment
+
+### Quick Setup Scripts
+
+#### AWS EC2 / DigitalOcean / Azure
+
+**One-Command Setup** (Ubuntu/Debian):
 ```bash
-# Build production image
-docker build --target production -t mcp-webscraper:prod .
-
-# Run with resource limits
-docker run -d \
-  --name mcp-webscraper-prod \
-  --restart unless-stopped \
-  --memory=1g \
-  --cpus=2.0 \
-  -e NODE_ENV=production \
-  -e LOG_LEVEL=info \
-  -v mcp-cache:/app/cache \
-  -v mcp-logs:/app/logs \
-  mcp-webscraper:prod
+curl -fsSL https://raw.githubusercontent.com/your-username/mcp-webscraper/main/scripts/cloud-setup.sh | bash
 ```
 
-### Docker Compose Production
-
-```yaml
-# docker-compose.prod.yml
-version: '3.8'
-
-services:
-  mcp-webscraper:
-    image: mcp-webscraper:prod
-    restart: unless-stopped
-    environment:
-      - NODE_ENV=production
-      - LOG_LEVEL=info
-      - MAX_WORKERS=10
-      - QUEUE_CONCURRENCY=10
-    volumes:
-      - cache:/app/cache
-      - logs:/app/logs
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 1G
-        reservations:
-          cpus: '1.0'
-          memory: 512M
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-volumes:
-  cache:
-  logs:
-```
-
-Run with:
-```bash
-docker-compose -f docker-compose.prod.yml up -d
-```
-
-## Cloud Deployment
-
-### AWS EC2 / DigitalOcean / Azure VM
-
-1. **Create VM Instance**
-   - Ubuntu 20.04 LTS or newer
-   - t3.medium (AWS) or similar
-   - 20GB storage minimum
-
-2. **Setup Script**
+Or manually:
 ```bash
 #!/bin/bash
-# setup-mcp-webscraper.sh
-
-# Update system
-sudo apt update && sudo apt upgrade -y
-
 # Install Node.js 18+
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
+sudo apt-get install -y nodejs git
 
-# Install Git
-sudo apt-get install -y git
-
-# Clone repository
+# Clone and setup
 git clone https://github.com/your-username/mcp-webscraper.git
 cd mcp-webscraper
-
-# Install dependencies
 npm install --production
 
-# Setup PM2
+# Install PM2
 sudo npm install -g pm2
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your settings
-
-# Start with PM2
 pm2 start server.js --name mcp-webscraper
 pm2 save
-pm2 startup systemd -u $USER --hp /home/$USER
+pm2 startup
 ```
 
-### Heroku Deployment
+### 💰 Cost Estimates (Monthly)
 
-```bash
-# Create Heroku app
-heroku create your-mcp-webscraper
+| Provider | Instance Type | vCPUs | RAM | Storage | Cost/Month |
+|----------|--------------|-------|------|---------|------------|
+| **AWS EC2** | t3.medium | 2 | 4GB | 20GB | ~$30 |
+| **DigitalOcean** | Basic Droplet | 2 | 4GB | 80GB | $24 |
+| **Azure** | B2s | 2 | 4GB | 8GB | ~$30 |
+| **Google Cloud** | e2-medium | 2 | 4GB | 10GB | ~$25 |
+| **Heroku** | Standard 1X | 1 | 512MB | - | $25 |
 
-# Set buildpack
-heroku buildpacks:set heroku/nodejs
-
-# Set environment variables
-heroku config:set NODE_ENV=production
-heroku config:set GOOGLE_API_KEY=your_key
-heroku config:set MAX_WORKERS=4
-
-# Deploy
-git push heroku main
-
-# Scale dynos
-heroku ps:scale web=1
-```
+**💡 Pro tip**: Start with DigitalOcean for simplicity and cost-effectiveness
 
 ## Monitoring
 
@@ -381,9 +310,66 @@ pm2 start server.js --max-memory-restart 1G
 2. Verify firewall: `sudo ufw status`
 3. Test connectivity: `curl -I https://example.com`
 
+## 🔄 Rollback Procedures
+
+If deployment fails:
+
+```bash
+# PM2 Rollback
+pm2 reload mcp-webscraper --update-env
+pm2 reset mcp-webscraper  # Reset metrics
+
+# Docker Rollback
+docker-compose down
+docker-compose up -d --force-recreate mcp-webscraper-prod
+
+# Git Rollback
+git checkout HEAD~1
+npm install
+pm2 restart mcp-webscraper
+```
+
+## 📈 Performance Optimization
+
+### Quick Wins
+```env
+# Increase these for better performance
+MAX_WORKERS=16              # Match CPU cores
+QUEUE_CONCURRENCY=20        # More parallel operations
+CACHE_TTL=7200000          # Longer cache (2 hours)
+CONNECTION_POOL_SIZE=100    # More connections
+```
+
+### Resource Monitoring
+```bash
+# PM2 monitoring
+pm2 monit
+
+# Docker monitoring
+docker stats mcp-webscraper-prod
+
+# System monitoring
+htop  # or top
+```
+
+## 🔒 Security Best Practices
+
+1. **Always use environment variables** for sensitive data
+2. **Enable SSRF protection**: `ENABLE_SSRF_PROTECTION=true`
+3. **Set resource limits** to prevent abuse
+4. **Use HTTPS** with reverse proxy (nginx/Apache)
+5. **Regular updates**: `npm audit fix`
+6. **Monitor logs** for suspicious activity
+
 ## Next Steps
 
-- 📊 [Monitoring Setup](./ADVANCED.md#monitoring) - Advanced monitoring
-- 🔒 [Security Guide](./ADVANCED.md#security) - Security hardening
-- 🚀 [Performance Tuning](./ADVANCED.md#performance) - Optimization tips
-- 🔧 [Troubleshooting](./TROUBLESHOOTING.md) - Common issues
+- 🐳 **[Docker Guide](./docker.md)** - Complete container documentation
+- 🏗️ **[Architecture](./ADVANCED.md)** - System internals
+- ❓ **[Troubleshooting](./TROUBLESHOOTING.md)** - Common issues
+- 📊 **[Performance](./ADVANCED.md#performance)** - Optimization guide
+
+---
+
+<div align="center">
+<b>Need help with deployment? Open an issue on GitHub!</b>
+</div>

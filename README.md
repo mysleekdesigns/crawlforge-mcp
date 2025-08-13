@@ -1,78 +1,46 @@
 # MCP WebScraper Server v3.0
 
-A powerful Model Context Protocol (MCP) server that provides comprehensive web scraping, searching, crawling, and advanced content processing capabilities for use with Claude Code, Cursor, and other MCP-compatible clients.
+🌐 **Extract content from any website using AI-powered tools in Claude Code or Cursor IDE**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
 [![MCP Protocol](https://img.shields.io/badge/MCP-2024--11--05-blue)](https://modelcontextprotocol.io/)
 
-## Table of Contents
+## 🤔 What is This?
 
-- [Features](#features)
-- [Quick Start](#quick-start)
-- [Installation](#installation)
-- [Integration](#integration)
-- [Tools Overview](#tools-overview)
-- [Usage Examples](#usage-examples)
-- [Configuration](#configuration)
-- [Documentation](#documentation)
-- [Contributing](#contributing)
+**MCP WebScraper** is a toolkit that gives AI assistants (like Claude) the ability to browse and extract information from websites. Think of it as giving your AI assistant a web browser and teaching it how to:
 
-## Features
+- 🔍 **Search the internet** like you would with Google
+- 📄 **Read web pages** and extract the important parts
+- 🕷️ **Crawl entire websites** to gather comprehensive information
+- 📊 **Analyze content** including PDFs and complex documents
+- 🎯 **Extract specific data** using targeted selectors
 
-### 🚀 What's New in v3.0
+**Perfect for**: Researchers, developers, data analysts, content creators, and anyone who needs to gather information from the web efficiently.
 
-- **Enhanced Content Extraction**: Mozilla Readability integration for main content detection
-- **Multi-format Document Processing**: Support for PDFs, JavaScript-rendered content, and more
-- **Intelligent Summarization**: Configurable text summarization with key point extraction
-- **Comprehensive Content Analysis**: Language detection, topic extraction, sentiment analysis
-- **Structured Data Extraction**: JSON-LD, microdata, and schema.org parsing
-- **Content Quality Assessment**: Readability scoring and quality metrics
-- **JavaScript Rendering**: Playwright-powered dynamic content processing
+## 🚀 Quick Start (3 Steps)
 
-### 🛠️ 12 Powerful Tools
-
-#### Basic Web Operations
-- **`fetch_url`** - Fetch content from URLs with headers and timeout support
-- **`extract_text`** - Extract clean text content from webpages
-- **`extract_links`** - Extract and filter links from webpages
-- **`extract_metadata`** - Extract comprehensive metadata (Open Graph, Twitter Cards, etc.)
-- **`scrape_structured`** - Extract structured data using CSS selectors
-
-#### Search & Discovery
-- **`search_web`** - Web search using DuckDuckGo (default) or Google Custom Search API
-- **`crawl_deep`** - Deep website crawling with breadth-first search (up to 5 levels)
-- **`map_site`** - Discover and map website structure with sitemap support
-
-#### Advanced Content Processing (🆕 v3.0)
-- **`extract_content`** - Enhanced content extraction with readability detection
-- **`process_document`** - Multi-format document processing (PDFs, web pages, JavaScript content)
-- **`summarize_content`** - Intelligent text summarization with configurable options
-- **`analyze_content`** - Comprehensive content analysis (language, topics, sentiment, entities)
-
-## Quick Start
-
-Get started in under 5 minutes:
-
+### Prerequisites Check
 ```bash
-# 1. Clone and install
+# Check if you have Node.js installed (need v18+)
+node --version
+
+# If not installed, download from: https://nodejs.org/
+```
+
+### Step 1️⃣: Install
+```bash
 git clone https://github.com/your-username/mcp-webscraper.git
 cd mcp-webscraper
 npm install
-
-# 2. Start the server
-npm start
-
-# 3. Test basic functionality
-curl -X POST http://localhost:3000/tools/fetch_url \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com"}'
 ```
 
-### Integration with Claude Code
+### Step 2️⃣: Configure Your IDE
 
-Add to your `.mcp.json`:
+<details>
+<summary>🤖 For Claude Code</summary>
 
+Add to `~/.config/claude/mcp.json`:
 ```json
 {
   "mcpServers": {
@@ -83,369 +51,214 @@ Add to your `.mcp.json`:
   }
 }
 ```
+</details>
 
-[See detailed integration guide →](./docs/INTEGRATION_GUIDE.md)
+<details>
+<summary>💻 For Cursor IDE</summary>
 
-## Installation
+Add to Cursor settings:
+```json
+{
+  "mcp.servers": {
+    "webscraper": {
+      "command": "node",
+      "args": ["/absolute/path/to/mcp-webscraper/server.js"]
+    }
+  }
+}
+```
+</details>
 
-### Prerequisites
+### Step 3️⃣: Start Using
 
-- **Node.js** 18.0.0 or higher
-- **npm** 8.0.0 or higher
-- **Operating System**: Windows 10+, macOS 10.15+, Linux (Ubuntu 18.04+)
+Ask your AI assistant:
+- *"Search for the latest AI news"*
+- *"Extract the main content from https://example.com"*
+- *"Crawl the documentation site and summarize it"*
 
-### Install from Source
+✅ **That's it!** You're ready to scrape the web with AI.
 
+## 📚 Table of Contents
+
+- [🎯 Features](#features)
+- [🛠️ Available Tools](#available-tools)
+- [🐳 Docker Setup](./docs/docker.md)
+- [📖 Documentation](#documentation)
+- [🤝 Contributing](#contributing)
+
+## 🎯 Features
+
+### What Can It Do?
+
+🔍 **Search & Discovery**
+- Search the web like Google (but through your AI)
+- Discover all pages on a website automatically
+- Map out entire website structures
+
+📄 **Content Extraction**
+- Extract clean, readable text from any webpage
+- Get just the main article content (removes ads, menus)
+- Pull specific data using CSS selectors (prices, titles, etc.)
+
+🧠 **Smart Processing** (New in v3.0!)
+- Summarize long articles into key points
+- Analyze sentiment and detect languages
+- Process PDFs and JavaScript-heavy sites
+- Extract structured data (product info, metadata)
+
+## 🛠️ Available Tools
+
+Our toolkit includes **12 specialized tools** organized by complexity:
+
+### 🟢 Basic Tools (Start Here)
+| Tool | What it does | Example Use |
+|------|--------------|-------------|
+| `fetch_url` | Get raw website content | Downloading pages |
+| `extract_text` | Get clean, readable text | Reading articles |
+| `extract_links` | Find all links on a page | Navigation mapping |
+| `search_web` | Search the internet | Research tasks |
+
+### 🟡 Intermediate Tools
+| Tool | What it does | Example Use |
+|------|--------------|-------------|
+| `extract_metadata` | Get page title, description, images | SEO analysis |
+| `scrape_structured` | Extract specific elements | Product prices |
+| `map_site` | Discover all pages on a site | Site inventory |
+| `crawl_deep` | Explore websites thoroughly | Documentation gathering |
+
+### 🔴 Advanced Tools
+| Tool | What it does | Example Use |
+|------|--------------|-------------|
+| `extract_content` | Smart content extraction | Article processing |
+| `process_document` | Handle PDFs and complex pages | Document analysis |
+| `summarize_content` | Create summaries | Research digests |
+| `analyze_content` | Deep content analysis | Sentiment detection |
+
+## 🔧 Advanced Setup
+
+### Using Docker (Recommended)
+The easiest way to run MCP WebScraper:
 ```bash
-# Clone the repository
+# Start with Docker Compose
+docker-compose up mcp-webscraper-dev
+```
+📖 [Full Docker Guide](./docs/docker.md) - Includes monitoring, scaling, and production setups
+
+### Manual Installation
+For development or customization:
+```bash
+# Clone and setup
 git clone https://github.com/your-username/mcp-webscraper.git
 cd mcp-webscraper
-
-# Install dependencies
 npm install
 
-# Copy and configure environment
+# Configure (optional)
 cp .env.example .env
-nano .env  # Edit configuration
-
-# Test installation
-npm test
+# Edit .env if you have Google API keys
 ```
 
-### Install via NPM (when published)
+### Configuration Options
 
-```bash
-# Install globally
-npm install -g mcp-webscraper
-
-# Or install in your project
-npm install mcp-webscraper
-```
-
-### Environment Configuration
-
-Edit `.env` file to customize behavior:
-
+Basic settings in `.env`:
 ```env
-# Search Provider (auto, google, duckduckgo)
+# Search provider (auto uses DuckDuckGo by default)
 SEARCH_PROVIDER=auto
 
-# Google Search API (optional)
-GOOGLE_API_KEY=your_api_key_here
-GOOGLE_SEARCH_ENGINE_ID=your_engine_id_here
-
-# Performance Settings
-MAX_WORKERS=10
-QUEUE_CONCURRENCY=10
-RATE_LIMIT_REQUESTS_PER_SECOND=10
-
-# Crawling Settings
-MAX_CRAWL_DEPTH=5
-RESPECT_ROBOTS_TXT=true
+# Optional: Google Search API for better results
+GOOGLE_API_KEY=your_key
+GOOGLE_SEARCH_ENGINE_ID=your_id
 ```
 
-[→ See complete configuration guide](./docs/INTEGRATION_GUIDE.md#configuration-options)
+📖 [Google Search Setup Guide](./docs/GOOGLE_SEARCH_SETUP.md) - Get API keys and configure Google search
 
-## Integration
+## 💡 Example Uses
 
-### Claude Code Setup
+Ask your AI assistant to:
 
-1. **Create MCP configuration** in your project root:
+### Research Tasks
+- *"Search for recent developments in renewable energy"*
+- *"Find and summarize the top 5 articles about machine learning"*
+- *"What are people saying about the new iPhone?"*
 
-```json
-{
-  "mcpServers": {
-    "webscraper": {
-      "command": "node",
-      "args": ["/absolute/path/to/mcp-webscraper/server.js"],
-      "env": {
-        "SEARCH_PROVIDER": "auto"
-      }
-    }
-  }
-}
-```
+### Data Extraction
+- *"Get all product prices from this store page"*
+- *"Extract email addresses from this contact page"*
+- *"Find all PDF download links on this site"*
 
-2. **Restart Claude Code** to load the new server
+### Content Analysis
+- *"Analyze the sentiment of customer reviews on this page"*
+- *"Summarize this long article into 5 key points"*
+- *"What topics are discussed in this blog?"*
 
-### Cursor IDE Setup
+### Website Exploration
+- *"Map out all pages on docs.python.org"*
+- *"Crawl this blog and find all posts about JavaScript"*
+- *"Check what technologies this website uses"*
 
-1. **Create configuration** at `~/.cursor/mcp.json`:
+📖 **Full Examples**: [API Reference](./docs/API_REFERENCE.md) has detailed code examples for each tool
 
-```json
-{
-  "mcpServers": {
-    "webscraper": {
-      "command": "node",
-      "args": ["/absolute/path/to/mcp-webscraper/server.js"]
-    }
-  }
-}
-```
+## 📖 Documentation
 
-2. **Restart Cursor** to enable WebScraper tools
+### Essential Guides
+- 📚 **[Quick Start](./docs/QUICK_START.md)** - Get running in 5 minutes
+- 🔧 **[API Reference](./docs/API_REFERENCE.md)** - Detailed tool documentation
+- 🐳 **[Docker Guide](./docs/docker.md)** - Container deployment
+- ❓ **[Troubleshooting](./docs/TROUBLESHOOTING.md)** - Solve common issues
 
-[→ Complete integration guide with troubleshooting](./docs/INTEGRATION_GUIDE.md)
+### Advanced Topics
+- 🏗️ **[Architecture](./docs/ADVANCED.md)** - System design and internals
+- 🚀 **[Deployment](./docs/DEPLOYMENT.md)** - Production deployment
+- 🔍 **[Google Search Setup](./docs/GOOGLE_SEARCH_SETUP.md)** - Enhanced search configuration
 
-## Tools Overview
-
-The WebScraper server provides 12 specialized tools organized into three categories:
-
-### 🔧 Basic Web Operations
-| Tool | Purpose | Use Case |
-|------|---------|----------|
-| `fetch_url` | Fetch raw content with headers | API testing, content retrieval |
-| `extract_text` | Clean text extraction | Content analysis, research |
-| `extract_links` | Link discovery and filtering | Site mapping, navigation analysis |
-| `extract_metadata` | Comprehensive metadata extraction | SEO analysis, social media preview |
-| `scrape_structured` | CSS selector-based scraping | Product data, structured content |
-
-### 🔍 Search & Discovery
-| Tool | Purpose | Use Case |
-|------|---------|----------|
-| `search_web` | Web search with multiple providers | Research, content discovery |
-| `crawl_deep` | Deep website crawling (BFS) | Site analysis, content inventory |
-| `map_site` | Website structure mapping | Site architecture, navigation audit |
-
-### 🧠 Advanced Content Processing
-| Tool | Purpose | Use Case |
-|------|---------|----------|
-| `extract_content` | Enhanced content extraction | Article processing, content curation |
-| `process_document` | Multi-format document processing | PDF analysis, document conversion |
-| `summarize_content` | Intelligent text summarization | Content condensation, key points |
-| `analyze_content` | Comprehensive content analysis | Sentiment analysis, topic extraction |
-
-## Usage Examples
-
-### Basic Web Scraping
-
-```javascript
-// Extract clean text from a news article
-{
-  "tool": "extract_text",
-  "url": "https://news.example.com/article",
-  "remove_scripts": true,
-  "remove_styles": true
-}
-
-// Get all links from a page
-{
-  "tool": "extract_links", 
-  "url": "https://blog.example.com",
-  "filter_external": false
-}
-```
-
-### Advanced Content Processing
-
-```javascript
-// Extract main content with readability analysis
-{
-  "tool": "extract_content",
-  "url": "https://article.example.com",
-  "options": {
-    "useReadability": true,
-    "outputFormat": "markdown",
-    "calculateReadabilityScore": true
-  }
-}
-
-// Analyze content for topics and sentiment
-{
-  "tool": "analyze_content",
-  "text": "Your text content here...",
-  "options": {
-    "extractTopics": true,
-    "analyzeSentiment": true,
-    "maxKeywords": 20
-  }
-}
-```
-
-### Search and Discovery
-
-```javascript
-// Search with advanced options
-{
-  "tool": "search_web",
-  "query": "machine learning tutorials",
-  "limit": 10,
-  "time_range": "month",
-  "enable_ranking": true
-}
-
-// Deep crawl a website
-{
-  "tool": "crawl_deep",
-  "url": "https://docs.example.com",
-  "max_depth": 3,
-  "max_pages": 50,
-  "extract_content": true
-}
-```
-
-### E-commerce Data Extraction
-
-```javascript
-// Extract product information
-{
-  "tool": "scrape_structured",
-  "url": "https://shop.example.com/product/123",
-  "selectors": {
-    "title": "h1.product-title",
-    "price": ".price-current",
-    "description": ".product-description",
-    "reviews": ".review-text"
-  }
-}
-```
-
-[→ See complete API reference with all parameters](./docs/API_REFERENCE.md)
-
-## Configuration
-
-### Environment Variables
-
-Configure the server behavior through environment variables:
-
-```env
-# Search Provider
-SEARCH_PROVIDER=auto              # auto, google, duckduckgo
-GOOGLE_API_KEY=your_key          # Required for Google search
-GOOGLE_SEARCH_ENGINE_ID=your_id  # Required for Google search
-
-# Performance Tuning  
-MAX_WORKERS=10                   # Worker thread pool size
-QUEUE_CONCURRENCY=10             # Concurrent request limit
-CACHE_TTL=3600000               # Cache lifetime (ms)
-RATE_LIMIT_REQUESTS_PER_SECOND=10
-
-# Crawling Behavior
-MAX_CRAWL_DEPTH=5               # Maximum crawl depth
-RESPECT_ROBOTS_TXT=true         # Honor robots.txt
-USER_AGENT=MCP-WebScraper/3.0   # Custom user agent
-```
-
-### Performance Profiles
-
-#### High-Performance Setup
-```env
-MAX_WORKERS=20
-QUEUE_CONCURRENCY=15
-CACHE_TTL=7200000
-RATE_LIMIT_REQUESTS_PER_SECOND=15
-```
-
-#### Resource-Constrained Setup
-```env
-MAX_WORKERS=5
-QUEUE_CONCURRENCY=3
-CACHE_MAX_SIZE=500
-RATE_LIMIT_REQUESTS_PER_SECOND=5
-```
-
-[→ Complete configuration reference](./docs/INTEGRATION_GUIDE.md#configuration-options)
-
-## Documentation
-
-### 📚 Complete Documentation
-
-- **[API Reference](./docs/API_REFERENCE.md)** - Detailed API documentation for all 12 tools
-- **[Integration Guide](./docs/INTEGRATION_GUIDE.md)** - Step-by-step setup for Claude Code and Cursor
-- **[Troubleshooting Guide](./docs/TROUBLESHOOTING.md)** - Common issues and solutions
-
-### 🛠️ Development Resources
-
-- **[Architecture Overview](./docs/ARCHITECTURE.md)** - System design and components
-- **[Performance Guide](./docs/PERFORMANCE_OPTIMIZATION.md)** - Optimization strategies
-- **[Examples](./examples/)** - Practical usage examples
-
-## Testing
-
-### Quick Protocol Test
+## 🧪 Testing
 
 ```bash
-# Test MCP protocol compliance
-echo '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}},"id":1}' | node server.js
-```
-
-### Comprehensive Testing
-
-```bash
-# Run all tests
+# Quick test - verify installation
 npm test
 
-# Performance tests
+# Performance testing
 npm run test:performance
 
-# Load testing
-npm run test:load
-
-# Memory usage tests
-npm run test:memory
+# Run with Docker
+docker-compose --profile testing up mcp-webscraper-test
 ```
 
-## Requirements
+## 🤝 Contributing
 
-- **Node.js:** 18.0.0 or higher
-- **Memory:** 512MB available
-- **Network:** Internet connection for web operations
-- **Optional:** Google Custom Search API credentials
+We love contributions! Here's how to help:
 
-## Contributing
+1. 🍴 Fork the repository
+2. 🌿 Create your feature branch: `git checkout -b feature/awesome-feature`
+3. 💻 Make your changes
+4. ✅ Run tests: `npm test`
+5. 📝 Commit: `git commit -m 'Add awesome feature'`
+6. 🚀 Push: `git push origin feature/awesome-feature`
+7. 🎯 Open a Pull Request
 
-We welcome contributions! Here's how to get started:
+## 📞 Support
 
-1. **Fork the repository**
-2. **Create a feature branch:** `git checkout -b feature/amazing-feature`
-3. **Make your changes** and add tests
-4. **Run tests:** `npm test`
-5. **Commit changes:** `git commit -m 'Add amazing feature'`
-6. **Push to branch:** `git push origin feature/amazing-feature`
-7. **Open a Pull Request**
+Need help? We're here:
 
-### Development Setup
+- 💬 **[GitHub Issues](https://github.com/your-username/mcp-webscraper/issues)** - Report bugs
+- 💡 **[Discussions](https://github.com/your-username/mcp-webscraper/discussions)** - Ask questions
+- 📖 **[Documentation](./docs/)** - Read the guides
+- 🔒 **[Security](mailto:security@example.com)** - Report vulnerabilities
 
-```bash
-# Clone your fork
-git clone https://github.com/your-username/mcp-webscraper.git
-cd mcp-webscraper
+## 📄 License
 
-# Install dependencies
-npm install
+MIT License - see [LICENSE](./LICENSE) file for details.
 
-# Run in development mode
-npm run dev
+## 🙏 Acknowledgments
 
-# Run tests
-npm test
-```
-
-### Code Style
-
-- Use ESLint configuration provided
-- Follow existing code patterns
-- Add tests for new features
-- Update documentation as needed
-
-## Support
-
-- **Documentation:** [Complete guides](./docs/)
-- **Issues:** [GitHub Issues](https://github.com/your-username/mcp-webscraper/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/your-username/mcp-webscraper/discussions)
-- **Security:** [Security Policy](./docs/SECURITY.md)
-
-## License
-
-[MIT License](./LICENSE) - see the LICENSE file for details.
-
-## Acknowledgments
-
-- **MCP Team** for the Model Context Protocol
-- **Mozilla** for Readability.js
-- **Cheerio Team** for HTML parsing
-- **All contributors** who help improve this project
+Built with amazing open-source projects:
+- [Model Context Protocol](https://modelcontextprotocol.io/) by Anthropic
+- [Mozilla Readability](https://github.com/mozilla/readability) for content extraction
+- [Cheerio](https://cheerio.js.org/) for HTML parsing
+- [Playwright](https://playwright.dev/) for browser automation
 
 ---
 
-**Made with ❤️ for the MCP community**
+<div align="center">
+<b>Made with ❤️ for the MCP community</b><br>
+<i>Star ⭐ this repo if you find it helpful!</i>
+</div>

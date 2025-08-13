@@ -1,261 +1,259 @@
 # Quick Start Guide - MCP WebScraper
 
-Get the MCP WebScraper running with Claude Code or Cursor in under 5 minutes!
+🎯 **Purpose**: Get MCP WebScraper running with your AI assistant  
+⏱️ **Time Needed**: 5 minutes  
+📚 **Difficulty**: 🟢 Easy
 
-## Prerequisites
+## ✅ Prerequisites Check
 
-- **Node.js** 18.0.0+ ([Download](https://nodejs.org/))
-- **npm** 8.0.0+ (comes with Node.js)
-
-Verify installation:
+Run this diagnostic script to check your system:
 ```bash
-node --version  # Should show v18.0.0 or higher
-npm --version   # Should show v8.0.0 or higher
+# Check everything at once
+node --version && npm --version && echo "✅ Ready to install!" || echo "❌ Please install Node.js from https://nodejs.org"
 ```
 
-## Installation
+**Expected output:**
+- Node.js: v18.0.0 or higher ✅
+- npm: v8.0.0 or higher ✅
+- Message: "✅ Ready to install!"
 
-### Option 1: Quick Install (Recommended)
+## 🚀 Installation
+
+### Fastest Setup (Copy & Paste)
 
 ```bash
-# Clone and setup in one command
+# One command to set everything up
 git clone https://github.com/your-username/mcp-webscraper.git && \
 cd mcp-webscraper && \
 npm install && \
-cp .env.example .env
-
-# Test the server
-npm start
+cp .env.example .env && \
+echo "🎉 Installation complete! Now configure your IDE (see below)"
 ```
 
-### Option 2: Manual Install
+### Verify Installation Works
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/your-username/mcp-webscraper.git
-
-# 2. Navigate to directory
-cd mcp-webscraper
-
-# 3. Install dependencies
-npm install
-
-# 4. Setup configuration
-cp .env.example .env
-
-# 5. Start the server
+# Test the server starts correctly
 npm start
+
+# You should see:
+# "MCP WebScraper server v3.0.0 running"
+# Press Ctrl+C to stop
 ```
 
-## Claude Code Integration
+## 🤖 Claude Code Setup
 
-### Step 1: Locate Your Config File
+### Step 1: Find Your Config Location
 
-Claude Code stores MCP configuration in:
-- **macOS/Linux**: `~/.config/claude/mcp.json`
-- **Windows**: `%APPDATA%\claude\mcp.json`
+<details>
+<summary><b>🍎 macOS</b></summary>
 
-### Step 2: Add WebScraper Configuration
+```bash
+# Open config file
+nano ~/.config/claude/mcp.json
 
-Open the `mcp.json` file and add:
+# Or create if it doesn't exist
+mkdir -p ~/.config/claude
+touch ~/.config/claude/mcp.json
+```
+</details>
+
+<details>
+<summary><b>🐧 Linux</b></summary>
+
+```bash
+# Open config file  
+nano ~/.config/claude/mcp.json
+
+# Or create if it doesn't exist
+mkdir -p ~/.config/claude
+touch ~/.config/claude/mcp.json
+```
+</details>
+
+<details>
+<summary><b>🪟 Windows</b></summary>
+
+```powershell
+# Open config file
+notepad %APPDATA%\claude\mcp.json
+
+# Or create if it doesn't exist
+mkdir %APPDATA%\claude
+echo {} > %APPDATA%\claude\mcp.json
+```
+</details>
+
+### Step 2: Add Configuration
+
+Copy this **exactly**, replacing only the path:
 
 ```json
 {
   "mcpServers": {
     "webscraper": {
       "command": "node",
-      "args": ["/absolute/path/to/mcp-webscraper/server.js"],
-      "env": {
-        "NODE_ENV": "production"
-      }
+      "args": ["/YOUR/ACTUAL/PATH/mcp-webscraper/server.js"]
     }
   }
 }
 ```
 
-**Important**: Replace `/absolute/path/to/mcp-webscraper` with your actual installation path:
-- **macOS Example**: `/Users/username/projects/mcp-webscraper/server.js`
-- **Windows Example**: `C:\\Users\\username\\projects\\mcp-webscraper\\server.js`
-- **Linux Example**: `/home/username/projects/mcp-webscraper/server.js`
-
-### Step 3: Restart Claude Code
-
-1. Quit Claude Code completely
-2. Restart Claude Code
-3. Open the MCP tools panel
-4. You should see 12 WebScraper tools available
-
-### Step 4: Test in Claude Code
-
-Try this command in Claude Code:
-```
-Use the fetch_url tool to get the content from https://example.com
+#### 🔍 Find Your Path:
+```bash
+# Run this in the mcp-webscraper directory:
+pwd  # macOS/Linux
+cd   # Windows (shows current directory)
 ```
 
-## Cursor IDE Integration
+Then append `/server.js` to that path.
 
-### Step 1: Open Cursor Settings
+### Step 3: Restart & Verify
 
-1. Open Cursor IDE
-2. Press `Cmd+,` (Mac) or `Ctrl+,` (Windows/Linux)
-3. Search for "MCP" in settings
+1. **Quit Claude Code completely** (Cmd+Q / Alt+F4)
+2. **Start Claude Code again**
+3. **Check it worked**: Type "list available tools" in Claude
 
-### Step 2: Configure MCP Server
+✅ **Success looks like**: Claude lists 12 web scraping tools
 
-Add to your Cursor configuration:
+## 💻 Cursor IDE Setup
+
+### Step 1: Open Settings
+
+- **Mac**: Press `Cmd + ,`
+- **Windows/Linux**: Press `Ctrl + ,`
+- Search for "MCP" in the search bar
+
+### Step 2: Add Configuration
+
+In the MCP settings section, add:
 
 ```json
 {
   "mcp.servers": {
     "webscraper": {
       "command": "node",
-      "args": ["/absolute/path/to/mcp-webscraper/server.js"],
-      "env": {
-        "NODE_ENV": "production"
-      }
+      "args": ["/YOUR/ACTUAL/PATH/mcp-webscraper/server.js"]
     }
   }
 }
 ```
 
-### Step 3: Enable MCP in Cursor
+### Step 3: Activate
 
-1. Open Command Palette (`Cmd+Shift+P` or `Ctrl+Shift+P`)
-2. Type "MCP: Reload Servers"
+1. Open Command Palette:
+   - **Mac**: `Cmd + Shift + P`
+   - **Windows/Linux**: `Ctrl + Shift + P`
+2. Type: `MCP: Reload Servers`
 3. Press Enter
 
-### Step 4: Verify Installation
+✅ **Success check**: Type `MCP: List Tools` in Command Palette - should show 12 tools
 
-1. Open Command Palette
-2. Type "MCP: List Tools"
-3. You should see all 12 WebScraper tools
+## 🎯 Your First Success
 
-## First Tool Usage
+### Test These Commands
 
-### Example 1: Fetch a Website
+Ask your AI assistant these exact phrases to verify everything works:
 
-```javascript
-// In Claude Code or Cursor, ask:
-"Fetch the content from https://httpbin.org/html"
+1. **Simple Test**:
+   > "Use the search_web tool to search for 'weather today'"
 
-// Or use directly:
-{
-  "tool": "fetch_url",
-  "parameters": {
-    "url": "https://httpbin.org/html"
-  }
-}
-```
+2. **Extract Content**:
+   > "Extract the main text from https://example.com"
 
-### Example 2: Extract Clean Text
+3. **Get Links**:
+   > "Find all links on https://wikipedia.org"
 
-```javascript
-// Ask:
-"Extract the main text content from https://example.com"
+### 🎉 Success Indicators
 
-// Direct usage:
-{
-  "tool": "extract_text",
-  "parameters": {
-    "url": "https://example.com"
-  }
-}
-```
+✅ **Working correctly if**:
+- AI responds with actual search results
+- You see website content in the response
+- No error messages about "tool not found"
 
-### Example 3: Search the Web
+❌ **Not working if**:
+- "I don't have access to web scraping tools"
+- "Tool not found" errors
+- No response or timeout
 
-```javascript
-// Ask:
-"Search for 'Node.js MCP servers' and return 5 results"
+## 🔍 Optional: Better Search Results
 
-// Direct usage:
-{
-  "tool": "search_web",
-  "parameters": {
-    "query": "Node.js MCP servers",
-    "max_results": 5
-  }
-}
-```
+**Default**: Uses DuckDuckGo (free, no setup needed)  
+**Upgrade**: Use Google Search for better results
 
-## Optional: Configure Google Search
+👉 [Google Search Setup Guide](./GOOGLE_SEARCH_SETUP.md) - Takes 5 minutes
 
-For better search results, add Google Custom Search API:
+## 🚨 Troubleshooting Checklist
 
-1. Get API credentials:
-   - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Create a new project or select existing
-   - Enable "Custom Search API"
-   - Create credentials (API Key)
-   - Create a [Custom Search Engine](https://programmablesearchengine.google.com/)
+### Problem: "Tools not showing"
 
-2. Edit `.env` file:
-```env
-SEARCH_PROVIDER=google
-GOOGLE_API_KEY=your_api_key_here
-GOOGLE_SEARCH_ENGINE_ID=your_engine_id_here
-```
-
-3. Restart the server:
+Run this diagnostic:
 ```bash
-npm start
+# 1. Check server works
+cd mcp-webscraper && npm start
+# Should see "MCP WebScraper server v3.0.0 running"
+
+# 2. Check your config path
+pwd  # Copy this path and add /server.js
+
+# 3. Verify JSON syntax
+python -m json.tool ~/.config/claude/mcp.json
+# Should output formatted JSON, no errors
 ```
 
-## Available Tools (12)
+### Problem: "Server won't start"
 
-### Basic Web Operations
-- `fetch_url` - Fetch content from URLs
-- `extract_text` - Extract clean text
-- `extract_links` - Extract all links
-- `extract_metadata` - Get page metadata
-- `scrape_structured` - Extract using CSS selectors
-
-### Search & Discovery
-- `search_web` - Search the internet
-- `crawl_deep` - Deep website crawling
-- `map_site` - Map website structure
-
-### Advanced Processing
-- `extract_content` - Smart content extraction
-- `process_document` - Process PDFs and documents
-- `summarize_content` - Summarize long text
-- `analyze_content` - Analyze text (sentiment, language, etc.)
-
-## Quick Troubleshooting
-
-### Server won't start?
 ```bash
-# Check Node version
-node --version  # Must be 18+
+# Fix 1: Check Node version
+node --version  # Need v18+
 
-# Reinstall dependencies
+# Fix 2: Reinstall
 rm -rf node_modules package-lock.json
 npm install
+
+# Fix 3: Check for port conflicts
+lsof -i :3000  # Mac/Linux
+netstat -ano | findstr :3000  # Windows
 ```
 
-### Tools not showing in Claude/Cursor?
-1. Check the path in config is absolute (not relative)
-2. Ensure no syntax errors in JSON config
-3. Restart the IDE completely
+### Problem: "Permission denied"
 
-### Permission errors?
 ```bash
-# Make server executable
+# Mac/Linux fix:
 chmod +x server.js
+chmod -R 755 .
 
-# Fix npm permissions
-sudo npm install -g npm
+# Windows fix: Run as Administrator
 ```
 
-## Next Steps
+### Still Stuck?
 
-- 📖 [API Reference](./API_REFERENCE.md) - Detailed tool documentation
-- 🚀 [Deployment Guide](./DEPLOYMENT.md) - Production deployment
-- 🔧 [Troubleshooting](./TROUBLESHOOTING.md) - Solve common issues
-- 🏗️ [Advanced Topics](./ADVANCED.md) - Architecture & optimization
+1. **Check logs**: Look for error messages when starting
+2. **Path issues**: Ensure you're using ABSOLUTE paths (starting with / or C:\)
+3. **JSON errors**: Use a JSON validator online
+4. **Restart completely**: Quit and restart your IDE
 
-## Need Help?
+## 📚 What's Next?
 
-- **Issues**: [GitHub Issues](https://github.com/your-username/mcp-webscraper/issues)
-- **Documentation**: [Full Docs](https://github.com/your-username/mcp-webscraper/tree/main/docs)
-- **MCP Protocol**: [Official MCP Docs](https://modelcontextprotocol.io/)
+Now that you're set up, explore:
+
+### Learn the Tools
+- 🟢 **Start with**: [Basic Examples](#your-first-success) above
+- 🟡 **Then try**: [API Reference](./API_REFERENCE.md) for all 12 tools
+- 🔴 **Advanced**: [Architecture Guide](./ADVANCED.md) for customization
+
+### Deploy & Scale
+- 🐳 [Docker Guide](./docker.md) - Container deployment
+- 🚀 [Production Setup](./DEPLOYMENT.md) - Deploy to cloud
+- 📊 [Performance Tuning](./ADVANCED.md#performance) - Optimize speed
+
+### Get Help
+- 💬 [Troubleshooting Guide](./TROUBLESHOOTING.md) - Common fixes
+- 🐛 [Report Issues](https://github.com/your-username/mcp-webscraper/issues)
+- 💡 [Ask Questions](https://github.com/your-username/mcp-webscraper/discussions)
+
+---
+
+<div align="center">
+<b>🎉 Congratulations! You're ready to scrape the web with AI!</b>
+</div>
