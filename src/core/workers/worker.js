@@ -24,7 +24,27 @@ const taskHandlers = {
 
 // Listen for messages from main thread
 parentPort.on('message', async (message) => {
+  // Handle ready signal and ignore it
+  if (message && message.type === 'ready') {
+    return;
+  }
+  
   const { taskId, type, data } = message;
+  
+  // Validate required fields
+  if (!taskId) {
+    console.error('Worker received message without taskId:', message);
+    return;
+  }
+  
+  if (!type) {
+    parentPort.postMessage({
+      taskId,
+      error: 'No task type specified',
+      stack: new Error('No task type specified').stack
+    });
+    return;
+  }
   
   try {
     const handler = taskHandlers[type];

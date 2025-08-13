@@ -61,12 +61,19 @@ export class WorkerPool extends EventEmitter {
 
   /**
    * Execute a task using the worker pool
-   * @param {string} taskType - Type of task to execute
+   * @param {string|Object} taskType - Type of task to execute, or task object with {type, data, options}
    * @param {any} data - Task data
    * @param {Object} options - Task options
    * @returns {Promise<any>} - Task result
    */
   async execute(taskType, data, options = {}) {
+    // Handle object-style task input from PerformanceManager
+    if (typeof taskType === 'object' && taskType.type) {
+      const taskObj = taskType;
+      taskType = taskObj.type;
+      data = taskObj.data;
+      options = taskObj.options || {};
+    }
     const taskId = this.generateTaskId();
     const { timeout = this.taskTimeout, priority = 0, retries = this.retryAttempts } = options;
 
@@ -343,6 +350,11 @@ export class WorkerPool extends EventEmitter {
    * @param {Object} message - Message from worker
    */
   handleWorkerMessage(worker, message) {
+    // Handle worker ready signal
+    if (message && message.type === 'ready') {
+      return; // Ignore ready signals
+    }
+    
     const { taskId, result, error } = message;
     const task = this.activeTasks.get(taskId);
 

@@ -500,10 +500,115 @@ export class PerformanceManager extends EventEmitter {
    * @param {Object} options - Task options
    * @returns {Promise<any>} - Task result
    */
-  async executeStandardTask(taskType, data, options) {
-    // Implement standard task execution
-    // This would be specific to each task type
-    throw new Error(`Standard task execution not implemented for: ${taskType}`);
+  async executeStandardTask(taskType, data, options = {}) {
+    const startTime = Date.now();
+    
+    try {
+      // Determine which component should handle this task
+      const routingKey = this.taskRouting[taskType] || this.taskRouting.default;
+      let result;
+      
+      switch (routingKey) {
+        case 'worker':
+          // CPU-intensive tasks go to worker pool
+          result = await this.workerPool.execute({
+            type: taskType,
+            data,
+            options
+          });
+          break;
+          
+        case 'connection':
+          // I/O tasks use connection pool
+          result = await this._executeIOTask(taskType, data, options);
+          break;
+          
+        case 'stream':
+          // Large data processing tasks
+          result = await this.streamProcessor.process(data, {
+            taskType,
+            ...options
+          });
+          break;
+          
+        case 'queue':
+        default:
+          // Standard queue processing
+          result = await this.queueManager.add(async () => {
+            return await this._executeGenericTask(taskType, data, options);
+          }, options);
+          break;
+      }
+      
+      // Update metrics
+      this.metrics.completedOperations++;
+      const duration = Date.now() - startTime;
+      this.metrics.avgOperationTime = 
+        (this.metrics.avgOperationTime * (this.metrics.completedOperations - 1) + duration) / 
+        this.metrics.completedOperations;
+      
+      return result;
+      
+    } catch (error) {
+      this.metrics.failedOperations++;
+      throw new Error(`Task execution failed for ${taskType}: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Execute I/O intensive task using connection pool
+   * @private
+   */
+  async _executeIOTask(taskType, data, options) {
+    return new Promise((resolve, reject) => {
+      const request = this.connectionPool.createRequest({
+        taskType,
+        data,
+        options
+      });
+      
+      request.on('response', (response) => {
+        resolve(response);
+      });
+      
+      request.on('error', (error) => {
+        reject(error);
+      });
+      
+      request.end();
+    });
+  }
+  
+  /**
+   * Execute generic task
+   * @private
+   */
+  async _executeGenericTask(taskType, data, options) {
+    // Basic task execution for common operations
+    switch (taskType) {
+      case 'validateUrl':
+        const url = new URL(data);
+        return { valid: true, url: url.href };
+        
+      case 'normalizeData':
+        return Array.isArray(data) ? data.filter(Boolean) : data;
+        
+      case 'calculateMetrics':
+        return {
+          size: JSON.stringify(data).length,
+          timestamp: Date.now(),
+          ...options
+        };
+        
+      default:
+        // For unknown task types, return the data as-is with metadata
+        return {
+          taskType,
+          data,
+          processed: true,
+          timestamp: Date.now()
+        };
+    }
   }
 
   /**
