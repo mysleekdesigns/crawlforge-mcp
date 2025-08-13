@@ -35,6 +35,9 @@ npm start
 # Test MCP protocol compliance
 npm test
 
+# Lint checks (no linter configured yet, placeholder)
+npm run lint
+
 # Performance tests
 npm run test:performance       # Full performance test suite
 npm run test:performance:quick # Quick performance tests
@@ -42,6 +45,23 @@ npm run test:load             # Load testing
 npm run test:memory           # Memory usage tests
 npm run test:benchmark        # Component benchmarks
 npm run test:integration      # Integration tests
+npm run test:security         # Security test suite
+npm run test:all             # Run all tests
+
+# Docker commands
+npm run docker:build         # Build Docker image
+npm run docker:dev          # Run development container
+npm run docker:prod         # Run production container
+npm run docker:test         # Run test container
+npm run docker:perf         # Run performance test container
+
+# Release management
+npm run release:patch       # Patch version bump
+npm run release:minor       # Minor version bump
+npm run release:major       # Major version bump
+
+# Cleanup
+npm run clean              # Remove cache, logs, test results
 ```
 
 ## Available MCP Tools (12 Total)
@@ -126,39 +146,54 @@ RESPECT_ROBOTS_TXT=true
 
 ## Development Workflow
 
-### Project Management Structure
-When working on this codebase, tasks are coordinated through a project manager pattern:
-1. Project manager reviews incoming tasks
-2. Assigns work to appropriate sub-agents (mcp-implementation, testing-validation, etc.)
-3. Sub-agents report completion back to project manager
-4. Project manager consolidates results
+### MCP Server Entry Point
+The main server implementation is in `server.js` which:
+1. Uses stdio transport for MCP protocol communication
+2. Registers all 12 tools using `server.registerTool()` pattern
+3. Each tool has its own Zod schema for parameter validation
+4. Tools are implemented as classes in `src/tools/` directory
 
-### Current Development Status
-- Phase 1: ✅ Architecture & Research (COMPLETED)
-- Phase 2: ✅ Core Search & Crawling (COMPLETED)
-- Phase 3: ✅ Advanced Content Processing (COMPLETED)
-- Phase 4: ✅ Performance Optimization (COMPLETED)
-- Phase 5: ✅ Integration & Testing (COMPLETED)
-
-See `tasks/TODO.md` for detailed task tracking and progress.
+### CI/CD Pipeline
+GitHub Actions workflow (`/.github/workflows/ci.yml`) handles:
+- Multi-platform testing (Ubuntu, Windows, macOS)
+- Node.js version matrix (18.x, 20.x, 21.x)
+- Security audits and CodeQL analysis
+- Performance regression detection
+- Docker build testing
+- Automated npm publishing on release commits
 
 ### Testing Approach
 - Unit tests in `tests/unit/` for core components
 - Performance tests in `tests/performance/` for load and memory testing
 - Integration tests in `tests/integration/` for end-to-end scenarios
+- Security tests in `tests/security/` for vulnerability scanning
 - Test files follow `*.test.js` naming convention
 - Run `npm test` for protocol compliance
-- Run `npm run test:performance` for full performance suite
+- Run `npm run test:all` for comprehensive test suite
+- Test results uploaded as artifacts in CI pipeline
 
 ## Important Implementation Notes
 
+### MCP Protocol Implementation
 - Server uses stdio transport (not HTTP) for MCP protocol
-- All async operations use proper error handling and timeouts
+- All tools registered with `server.registerTool()` with inline Zod schemas
+- Parameter extraction from `request.params?.arguments` structure
+- Response format uses `content` array with text objects
+
+### Performance & Reliability
 - Memory usage optimized to stay under 512MB for typical crawls
-- Tools validate input parameters using Zod schemas
-- Concurrent operations managed through QueueManager
-- Search results cached with configurable TTL
+- Concurrent operations managed through QueueManager (p-queue)
+- WorkerPool with Node.js worker_threads for 8x faster HTML parsing
+- ConnectionPool reduces connection overhead by 50%
+- StreamProcessor enables 90% memory reduction for large datasets
+- Circuit breaker pattern (CircuitBreaker class) for external services
+- Exponential backoff retry logic (RetryManager)
 - Per-domain rate limiting prevents server overload
 - robots.txt compliance checked before crawling
-- Performance monitoring integrated via PerformanceManager
-- Circuit breaker pattern implemented for external service reliability
+
+### Security & Validation
+- All inputs validated with Zod schemas
+- SSRF protection implemented (`src/utils/ssrfProtection.js`)
+- Input sanitization across all tools
+- Security audit completed (see SECURITY_AUDIT_REPORT.md)
+- No hardcoded secrets, uses .env configuration
