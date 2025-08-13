@@ -1,20 +1,35 @@
 {
   "name": "mcp-webscraper",
-  "version": "2.0.0",
-  "description": "MCP server for web scraping functionality with comprehensive tools for fetching, extracting text, links, metadata and structured data",
+  "version": "3.0.0",
+  "description": "Comprehensive MCP server for web scraping with 12 advanced tools including content extraction, document processing, search, crawling, and analysis capabilities",
   "main": "server.js",
   "bin": {
     "mcp-webscraper": "server.js"
   },
   "scripts": {
     "start": "node server.js",
+    "dev": "NODE_ENV=development node server.js",
     "test": "node server.js --test",
     "test:performance": "node --expose-gc tests/performance/test-runner.js",
     "test:load": "node --expose-gc tests/performance/load-test.js",
     "test:memory": "node --expose-gc tests/performance/memory-test.js",
     "test:benchmark": "node --expose-gc tests/performance/benchmark.js",
     "test:integration": "node --expose-gc tests/integration/performance-integration.test.js",
-    "test:performance:quick": "node tests/performance/test-runner.js"
+    "test:performance:quick": "node tests/performance/test-runner.js",
+    "test:security": "node tests/security/security-test-suite.js",
+    "test:all": "npm test && npm run test:integration && npm run test:performance:quick && npm run test:security",
+    "lint": "echo 'No linter configured yet'",
+    "build": "echo 'No build step required for Node.js project'",
+    "clean": "rm -rf cache/*.json logs/*.log performance-results/ test-results/",
+    "docker:build": "docker build -t mcp-webscraper .",
+    "docker:dev": "docker-compose up mcp-webscraper-dev",
+    "docker:prod": "docker-compose up mcp-webscraper-prod",
+    "docker:test": "docker-compose --profile testing up mcp-webscraper-test",
+    "docker:perf": "docker-compose --profile performance up mcp-webscraper-perf",
+    "release:patch": "npm version patch && git push && git push --tags",
+    "release:minor": "npm version minor && git push && git push --tags",
+    "release:major": "npm version major && git push && git push --tags",
+    "prepublishOnly": "npm run test:all && npm run clean"
   },
   "keywords": [
     "mcp",
@@ -23,22 +38,68 @@
     "scraper",
     "html-parser",
     "metadata-extraction",
-    "link-extraction"
+    "link-extraction",
+    "content-processing",
+    "document-analysis",
+    "web-crawler",
+    "search-engine",
+    "text-summarization",
+    "content-analysis",
+    "nlp",
+    "ai-tools",
+    "automation",
+    "data-extraction",
+    "pdf-processing",
+    "sitemap-parser",
+    "performance-optimized"
   ],
-  "author": "MCP WebScraper Server",
+  "author": {
+    "name": "MCP WebScraper Team",
+    "email": "support@mcp-webscraper.com",
+    "url": "https://github.com/mcp-webscraper"
+  },
+  "contributors": [
+    {
+      "name": "Development Team",
+      "email": "dev@mcp-webscraper.com"
+    }
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/YOUR_USERNAME/mcp-webscraper.git"
+    "url": "git+https://github.com/mcp-webscraper/mcp-webscraper.git"
   },
   "bugs": {
-    "url": "https://github.com/YOUR_USERNAME/mcp-webscraper/issues"
+    "url": "https://github.com/mcp-webscraper/mcp-webscraper/issues"
   },
-  "homepage": "https://github.com/YOUR_USERNAME/mcp-webscraper#readme",
+  "homepage": "https://github.com/mcp-webscraper/mcp-webscraper#readme",
   "type": "module",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
   },
+  "os": [
+    "linux",
+    "darwin",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "tag": "latest"
+  },
+  "files": [
+    "server.js",
+    "src/",
+    "README.md",
+    "LICENSE",
+    "package.json",
+    "package-lock.json"
+  ],
   "dependencies": {
     "@googleapis/customsearch": "^5.0.1",
     "@modelcontextprotocol/sdk": "^1.17.2",
@@ -47,6 +108,7 @@
     "compromise": "^14.14.4",
     "dotenv": "^17.2.1",
     "franc": "^6.2.0",
+    "isomorphic-dompurify": "^2.26.0",
     "jsdom": "^26.1.0",
     "lru-cache": "^11.1.0",
     "node-summarizer": "^1.0.7",

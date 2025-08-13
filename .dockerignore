@@ -1,0 +1,119 @@
+# Docker ignore file - optimizes build context and image size
+
+# Documentation
+*.md
+!README.md
+!LICENSE
+docs/
+examples/
+ARCHITECTURE.md
+IMPLEMENTATION_PLAN.md
+PERFORMANCE_OPTIMIZATION.md
+PHASE3_IMPLEMENTATION.md
+SEARCH_RANKING_SYSTEM.md
+link-analysis-system.md
+sitemap-parser-enhancement.md
+API_REFERENCE.md
+INTEGRATION_GUIDE.md
+SECURITY_AUDIT_REPORT.md
+SECURITY_IMPLEMENTATION_GUIDE.md
+TROUBLESHOOTING.md
+USAGE_EXAMPLES.md
+
+# Git and version control
+.git/
+.gitignore
+.gitattributes
+.gitmodules
+
+# CI/CD and development tools
+.github/
+.vscode/
+.idea/
+tasks/
+scripts/
+tools/
+
+# Environment files
+.env*
+!.env.example
+
+# Dependencies (will be installed in container)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+tests/
+test/
+coverage/
+.nyc_output
+*.test.js
+*.spec.js
+test-*.js
+test-*.mjs
+
+# Cache and logs
+cache/
+logs/
+*.log
+tmp/
+temp/
+
+# Build artifacts
+dist/
+build/
+.next/
+.nuxt/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*.vim
+*~
+.vscode/
+.idea/
+
+# Docker files (avoid recursion)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Monitoring and analysis
+monitoring/
+grafana/
+prometheus/
+elastic/
+
+# Development configuration
+.eslintrc*
+.prettierrc*
+.babelrc*
+jest.config.*
+rollup.config.*
+webpack.config.*
+tsconfig.json
+
+# Performance and analysis
+performance-results/
+benchmark-results/
+.runtime/
+*.prof
+*.heapsnapshot
+
+# Security
+*.pem
+*.key
+*.crt
+*.cert
+security-reports/

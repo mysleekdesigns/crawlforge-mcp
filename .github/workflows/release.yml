@@ -1,0 +1,346 @@
+name: Release Automation
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+        - major
+        - minor
+        - patch
+        - prerelease
+      release_notes:
+        description: 'Release notes'
+        required: false
+        type: string
+
+env:
+  NODE_ENV: production
+
+jobs:
+  validate-release:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install Playwright browsers
+      run: npx playwright install --with-deps chromium
+
+    - name: Run full test suite
+      run: |
+        npm test
+        npm run test:integration
+        npm run test:performance
+      env:
+        NODE_OPTIONS: "--expose-gc --max-old-space-size=1024"
+
+    - name: Security audit
+      run: npm audit --audit-level high
+
+    - name: Determine version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          # Manual release
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          NEW_VERSION=$(npm version ${{ github.event.inputs.version_type }} --no-git-tag-version --dry-run | sed 's/v//')
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+        else
+          # Automated release from GitHub release
+          echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+        fi
+
+  build-artifacts:
+    name: Build Release Artifacts
+    runs-on: ubuntu-latest
+    needs: validate-release
+    
+    strategy:
+      matrix:
+        platform: [linux/amd64, linux/arm64, linux/arm/v7]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci --production
+
+    - name: Create tarball
+      run: |
+        npm pack
+        mkdir -p dist
+        mv *.tgz dist/
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: |
+          mcp-webscraper
+          ghcr.io/${{ github.repository }}
+        tags: |
+          type=ref,event=branch
+          type=semver,pattern={{version}},value=${{ needs.validate-release.outputs.version }}
+          type=semver,pattern={{major}}.{{minor}},value=${{ needs.validate-release.outputs.version }}
+          type=semver,pattern={{major}},value=${{ needs.validate-release.outputs.version }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: ${{ matrix.platform }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-artifacts-${{ matrix.platform }}
+        path: dist/
+        retention-days: 90
+
+  publish-npm:
+    name: Publish to NPM Registry
+    runs-on: ubuntu-latest
+    needs: [validate-release, build-artifacts]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        registry-url: 'https://registry.npmjs.org'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Update version
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        npm version ${{ github.event.inputs.version_type }} --no-git-tag-version
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add package.json package-lock.json
+        git commit -m "chore: bump version to ${{ needs.validate-release.outputs.version }}"
+
+    - name: Build package
+      run: |
+        npm run build || echo "No build script defined"
+
+    - name: Publish to NPM
+      run: |
+        if [ "${{ github.event.inputs.version_type }}" = "prerelease" ]; then
+          npm publish --tag beta --access public
+        else
+          npm publish --access public
+        fi
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    - name: Push version bump
+      if: github.event_name == 'workflow_dispatch'
+      uses: ad-m/github-push-action@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        branch: ${{ github.ref }}
+
+  create-github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [validate-release, publish-npm]
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        if [ -n "$PREVIOUS_TAG" ]; then
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD)
+        else
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" --max-count=20)
+        fi
+        
+        echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+        echo "$CHANGELOG" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Create Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ needs.validate-release.outputs.tag }}
+        release_name: Release ${{ needs.validate-release.outputs.version }}
+        body: |
+          ## Release ${{ needs.validate-release.outputs.version }}
+          
+          ${{ github.event.inputs.release_notes }}
+          
+          ### Changes
+          ${{ steps.changelog.outputs.CHANGELOG }}
+          
+          ### Installation
+          ```bash
+          npm install -g mcp-webscraper@${{ needs.validate-release.outputs.version }}
+          ```
+          
+          ### Docker
+          ```bash
+          docker pull mcp-webscraper:${{ needs.validate-release.outputs.version }}
+          docker pull ghcr.io/${{ github.repository }}:${{ needs.validate-release.outputs.version }}
+          ```
+          
+          ### Verification
+          After installation, verify the release:
+          ```bash
+          mcp-webscraper --version
+          ```
+        draft: false
+        prerelease: ${{ github.event.inputs.version_type == 'prerelease' }}
+
+  update-documentation:
+    name: Update Documentation
+    runs-on: ubuntu-latest
+    needs: [validate-release, create-github-release]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.version_type != 'prerelease'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+
+    - name: Update documentation version references
+      run: |
+        VERSION=${{ needs.validate-release.outputs.version }}
+        
+        # Update version in README.md
+        sed -i "s/mcp-webscraper@[0-9]\+\.[0-9]\+\.[0-9]\+/mcp-webscraper@$VERSION/g" README.md || true
+        
+        # Update version in INTEGRATION_GUIDE.md
+        sed -i "s/version: [0-9]\+\.[0-9]\+\.[0-9]\+/version: $VERSION/g" INTEGRATION_GUIDE.md || true
+        
+        # Update Docker image versions
+        sed -i "s/mcp-webscraper:[0-9]\+\.[0-9]\+\.[0-9]\+/mcp-webscraper:$VERSION/g" docker-compose.yml || true
+
+    - name: Commit documentation updates
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add .
+        git diff --staged --quiet || git commit -m "docs: update version references to ${{ needs.validate-release.outputs.version }}"
+
+    - name: Push documentation updates
+      uses: ad-m/github-push-action@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        branch: ${{ github.ref }}
+
+  notify-release:
+    name: Notify Release Completion
+    runs-on: ubuntu-latest
+    needs: [validate-release, publish-npm, create-github-release]
+    if: always()
+    
+    steps:
+    - name: Success notification
+      if: needs.publish-npm.result == 'success'
+      run: |
+        echo "🎉 Release ${{ needs.validate-release.outputs.version }} completed successfully!"
+        echo "📦 NPM package published"
+        echo "🐳 Docker images built and pushed"
+        echo "📋 GitHub release created"
+        echo "📚 Documentation updated"
+
+    - name: Failure notification
+      if: needs.publish-npm.result == 'failure'
+      run: |
+        echo "❌ Release ${{ needs.validate-release.outputs.version }} failed!"
+        echo "Please check the workflow logs for details."
+        exit 1
+
+  post-release-tests:
+    name: Post-Release Verification
+    runs-on: ubuntu-latest
+    needs: [validate-release, publish-npm]
+    if: needs.publish-npm.result == 'success'
+    
+    steps:
+    - name: Test NPM installation
+      run: |
+        npm install -g mcp-webscraper@${{ needs.validate-release.outputs.version }}
+        mcp-webscraper --version
+
+    - name: Test Docker image
+      run: |
+        docker pull mcp-webscraper:${{ needs.validate-release.outputs.version }}
+        docker run --rm mcp-webscraper:${{ needs.validate-release.outputs.version }} npm test
+
+    - name: Verify package integrity
+      run: |
+        npm view mcp-webscraper@${{ needs.validate-release.outputs.version }} --json

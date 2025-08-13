@@ -1,0 +1,212 @@
+# NPM package ignore file - optimizes package size
+# Only include essential files for production deployment
+
+# Documentation (keep only essential docs)
+*.md
+!README.md
+!LICENSE
+docs/
+examples/
+ARCHITECTURE.md
+IMPLEMENTATION_PLAN.md
+PERFORMANCE_OPTIMIZATION.md
+PHASE3_IMPLEMENTATION.md
+SEARCH_RANKING_SYSTEM.md
+link-analysis-system.md
+sitemap-parser-enhancement.md
+API_REFERENCE.md
+INTEGRATION_GUIDE.md
+SECURITY_AUDIT_REPORT.md
+SECURITY_IMPLEMENTATION_GUIDE.md
+TROUBLESHOOTING.md
+USAGE_EXAMPLES.md
+
+# Development and testing files
+tests/
+test/
+coverage/
+.nyc_output
+*.test.js
+*.spec.js
+test-*.js
+test-*.mjs
+benchmark/
+performance/
+
+# Build and development tools
+.github/
+.vscode/
+.idea/
+tasks/
+scripts/
+tools/
+build/
+dist/
+
+# Configuration files for development
+.eslintrc*
+.prettierrc*
+.babelrc*
+jest.config.*
+rollup.config.*
+webpack.config.*
+tsconfig.json
+tslint.json
+.editorconfig
+
+# Environment and configuration
+.env*
+!.env.example
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+.gitignore
+.gitattributes
+
+# Cache and temporary files
+cache/
+logs/
+*.log
+tmp/
+temp/
+.tmp/
+.cache/
+.DS_Store
+Thumbs.db
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# Dependency directories (will be installed by npm)
+node_modules/
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional stylelint cache
+.stylelintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn files
+yarn.lock
+.yarn/
+.pnp.*
+
+# Editor-specific files
+*.swp
+*.swo
+*.vim
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Monitoring and analysis
+monitoring/
+grafana/
+prometheus/
+elastic/
+
+# Security scan results
+security-reports/
+.snyk
+
+# Performance results
+performance-results/
+benchmark-results/
+
+# Git files
+.git/
+.gitmodules
+
+# CI/CD files (keep package-specific CI if any)
+.travis.yml
+.circleci/
+.gitlab-ci.yml
+appveyor.yml
+azure-pipelines.yml
+
+# Linting and formatting
+.eslintignore
+.prettierignore
+
+# TypeScript
+*.tsbuildinfo
+
+# Lock files (package-lock.json should be included)
+yarn.lock
+
+# Development scripts
+dev/
+development/
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+
+# Archive files
+*.zip
+*.tar.gz
+*.tar.bz2
+*.rar
+
+# Local configuration
+local.json
+local.js
+local.config.js
+
+# Runtime files
+.runtime/
+runtime/
+
+# Certificates and keys (security)
+*.pem
+*.key
+*.crt
+*.cert
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Analysis and profiling
+profile/
+*.prof
+*.heapsnapshot

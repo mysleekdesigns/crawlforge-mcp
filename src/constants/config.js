@@ -90,16 +90,60 @@ export const config = {
     }
   },
 
+  // Security Configuration
+  security: {
+    // SSRF Protection
+    ssrfProtection: {
+      enabled: process.env.SSRF_PROTECTION_ENABLED !== 'false',
+      allowedProtocols: (process.env.ALLOWED_PROTOCOLS || 'http:,https:').split(','),
+      maxRequestSize: parseInt(process.env.MAX_REQUEST_SIZE || '104857600'), // 100MB
+      maxTimeout: parseInt(process.env.MAX_REQUEST_TIMEOUT || '60000'), // 60s
+      maxRedirects: parseInt(process.env.MAX_REDIRECTS || '5'),
+      allowedDomains: (process.env.ALLOWED_DOMAINS || '').split(',').filter(d => d.trim()),
+      blockedDomains: (process.env.BLOCKED_DOMAINS || 'localhost,127.0.0.1,0.0.0.0,metadata.google.internal,169.254.169.254,metadata.azure.com').split(',')
+    },
+
+    // Input Validation
+    inputValidation: {
+      enabled: process.env.INPUT_VALIDATION_ENABLED !== 'false',
+      maxStringLength: parseInt(process.env.MAX_STRING_LENGTH || '10000'),
+      maxArrayLength: parseInt(process.env.MAX_ARRAY_LENGTH || '1000'),
+      maxObjectDepth: parseInt(process.env.MAX_OBJECT_DEPTH || '10'),
+      maxRegexLength: parseInt(process.env.MAX_REGEX_LENGTH || '500'),
+      strictMode: process.env.STRICT_VALIDATION_MODE === 'true'
+    },
+
+    // API Security
+    apiSecurity: {
+      requireAuthentication: process.env.REQUIRE_AUTHENTICATION === 'true',
+      apiKeyHeader: process.env.API_KEY_HEADER || 'X-API-Key',
+      apiKey: process.env.API_KEY || '',
+      rateLimitByKey: process.env.RATE_LIMIT_BY_KEY === 'true',
+      auditLogging: process.env.AUDIT_LOGGING !== 'false'
+    },
+
+    // Content Security
+    contentSecurity: {
+      sanitizeHTML: process.env.SANITIZE_HTML !== 'false',
+      allowedHTMLTags: (process.env.ALLOWED_HTML_TAGS || 'p,br,strong,em,u,h1,h2,h3,h4,h5,h6').split(','),
+      blockScripts: process.env.BLOCK_SCRIPTS !== 'false',
+      blockIframes: process.env.BLOCK_IFRAMES !== 'false'
+    }
+  },
+
   // Monitoring
   monitoring: {
     enableMetrics: process.env.ENABLE_METRICS === 'true',
-    logLevel: process.env.LOG_LEVEL || 'info'
+    logLevel: process.env.LOG_LEVEL || 'info',
+    securityLogging: process.env.SECURITY_LOGGING !== 'false',
+    violationLogging: process.env.VIOLATION_LOGGING !== 'false'
   },
 
   // Server
   server: {
     nodeEnv: process.env.NODE_ENV || 'development',
-    port: parseInt(process.env.PORT || '3000')
+    port: parseInt(process.env.PORT || '3000'),
+    enableSecurityHeaders: process.env.ENABLE_SECURITY_HEADERS !== 'false'
   }
 };
 

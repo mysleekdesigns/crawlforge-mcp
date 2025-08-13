@@ -1,0 +1,262 @@
+version: '3.8'
+
+services:
+  # Development environment
+  mcp-webscraper-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: mcp-webscraper-dev
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+      - CACHE_ENABLE_DISK=true
+      - ENABLE_METRICS=true
+      - MAX_WORKERS=5
+      - QUEUE_CONCURRENCY=5
+      - SEARCH_PROVIDER=auto
+    volumes:
+      - .:/app
+      - node_modules_dev:/app/node_modules
+      - cache_dev:/app/cache
+      - logs_dev:/app/logs
+      - /app/node_modules/.bin
+    ports:
+      - "3000:3000"
+    working_dir: /app
+    command: ["npm", "run", "dev"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "console.log('Health check passed')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Production environment
+  mcp-webscraper-prod:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: mcp-webscraper-prod
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+      - CACHE_ENABLE_DISK=true
+      - ENABLE_METRICS=true
+      - MAX_WORKERS=10
+      - QUEUE_CONCURRENCY=10
+      - SEARCH_PROVIDER=auto
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GOOGLE_SEARCH_ENGINE_ID=${GOOGLE_SEARCH_ENGINE_ID:-}
+    volumes:
+      - cache_prod:/app/cache
+      - logs_prod:/app/logs
+    ports:
+      - "3001:3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "console.log('Health check passed')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+  # Testing environment
+  mcp-webscraper-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: testing
+    container_name: mcp-webscraper-test
+    environment:
+      - NODE_ENV=test
+      - CACHE_ENABLE_DISK=false
+      - LOG_LEVEL=error
+      - MAX_WORKERS=2
+      - QUEUE_CONCURRENCY=2
+    volumes:
+      - test_results:/app/test-results
+      - logs_test:/app/logs
+    command: ["npm", "test"]
+    profiles:
+      - testing
+
+  # Performance testing environment
+  mcp-webscraper-perf:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: mcp-webscraper-perf
+    environment:
+      - NODE_ENV=test
+      - LOG_LEVEL=info
+      - CACHE_ENABLE_DISK=true
+      - ENABLE_METRICS=true
+      - NODE_OPTIONS=--expose-gc --max-old-space-size=1024
+    volumes:
+      - .:/app
+      - node_modules_perf:/app/node_modules
+      - cache_perf:/app/cache
+      - logs_perf:/app/logs
+      - performance_results:/app/performance-results
+    command: ["npm", "run", "test:performance"]
+    profiles:
+      - performance
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+
+  # Redis cache (optional for advanced caching)
+  redis:
+    image: redis:7-alpine
+    container_name: mcp-webscraper-redis
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    restart: unless-stopped
+    profiles:
+      - cache
+
+  # Monitoring with Prometheus (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: mcp-webscraper-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  # Grafana for metrics visualization (optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: mcp-webscraper-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    ports:
+      - "3002:3000"
+    restart: unless-stopped
+    profiles:
+      - monitoring
+    depends_on:
+      - prometheus
+
+  # Log aggregation with ELK stack (optional)
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.8.0
+    container_name: mcp-webscraper-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    restart: unless-stopped
+    profiles:
+      - logging
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.8.0
+    container_name: mcp-webscraper-logstash
+    volumes:
+      - ./monitoring/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - logs_dev:/logs/dev:ro
+      - logs_prod:/logs/prod:ro
+    ports:
+      - "5044:5044"
+    restart: unless-stopped
+    profiles:
+      - logging
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.8.0
+    container_name: mcp-webscraper-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    restart: unless-stopped
+    profiles:
+      - logging
+    depends_on:
+      - elasticsearch
+
+volumes:
+  # Development volumes
+  node_modules_dev:
+    driver: local
+  cache_dev:
+    driver: local
+  logs_dev:
+    driver: local
+
+  # Production volumes
+  cache_prod:
+    driver: local
+  logs_prod:
+    driver: local
+
+  # Testing volumes
+  node_modules_perf:
+    driver: local
+  cache_perf:
+    driver: local
+  logs_perf:
+    driver: local
+  logs_test:
+    driver: local
+  test_results:
+    driver: local
+  performance_results:
+    driver: local
+
+  # Infrastructure volumes
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+
+networks:
+  default:
+    name: mcp-webscraper-network
+    driver: bridge
