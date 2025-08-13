@@ -497,3 +497,135 @@ Transform the MCP WebScraper into a powerful Firecrawl-like search and crawling 
 - ✅ Implemented comprehensive health monitoring system
 - ✅ Built real-time metrics collection and dashboard integration
 - ✅ Achieved 97% production readiness (35/36 checklist items)
+
+---
+
+## Phase 6: Claude Code Integration & Critical Parameter Fix 🔧
+**Goal:** Fix critical parameter handling issues preventing MCP tools from working in Claude Code
+**Owner:** mcp-implementation (primary), testing-validation (testing)
+**Timeline:** Day 22 (Emergency Fix)
+**Status:** 🚧 In Progress (2025-08-13)
+
+### Critical Issue Identified
+All MCP WebScraper tools fail when called from Claude Code with the error:
+```
+"Expected string, received undefined" for required parameters
+```
+
+### Root Cause Analysis
+- [ ] MCP protocol sends parameters in `request.params.arguments` structure
+- [ ] Server handlers incorrectly access parameters directly from `request`
+- [ ] `normalizeParams` utility function exists but is never used
+- [ ] No defensive checks for undefined/null parameters
+
+### Core Parameter Fix Tasks 🚨 CRITICAL
+- [ ] Fix parameter extraction in all tool handlers
+  - [ ] Change from `request` to `request.params?.arguments || {}`
+  - [ ] Implement consistent parameter access pattern
+  - [ ] Add null safety checks before Zod parsing
+- [ ] Implement normalizeParams usage
+  - [ ] Apply normalizeParams to all tool handler inputs
+  - [ ] Ensure backward compatibility with existing calls
+  - [ ] Test with various parameter formats
+- [ ] Add parameter validation layer
+  - [ ] Create wrapper function for safe parameter extraction
+  - [ ] Log parameter structure for debugging
+  - [ ] Handle edge cases (string, object, undefined)
+
+### Tool Handler Updates (12 tools)
+- [ ] Update fetch_url handler
+  - [ ] Fix: `FetchUrlSchema.parse(normalizeParams(request?.params?.arguments))`
+  - [ ] Add fallback for undefined parameters
+- [ ] Update extract_text handler
+  - [ ] Fix parameter extraction
+  - [ ] Add defensive checks
+- [ ] Update extract_links handler
+  - [ ] Fix parameter extraction
+  - [ ] Add defensive checks
+- [ ] Update extract_metadata handler
+  - [ ] Fix parameter extraction
+  - [ ] Add defensive checks
+- [ ] Update scrape_structured handler
+  - [ ] Fix parameter extraction
+  - [ ] Add defensive checks
+- [ ] Update search_web tool
+  - [ ] Fix: Pass `request?.params?.arguments` to `searchWebTool.execute()`
+  - [ ] Update SearchWebTool execute method
+- [ ] Update crawl_deep tool
+  - [ ] Fix: Pass `request?.params?.arguments` to `crawlDeepTool.execute()`
+  - [ ] Update CrawlDeepTool execute method
+- [ ] Update map_site tool
+  - [ ] Fix: Pass `request?.params?.arguments` to `mapSiteTool.execute()`
+  - [ ] Update MapSiteTool execute method
+- [ ] Update extract_content tool
+  - [ ] Fix parameter extraction in execute method
+  - [ ] Add defensive checks
+- [ ] Update process_document tool
+  - [ ] Fix parameter extraction in execute method
+  - [ ] Add defensive checks
+- [ ] Update summarize_content tool
+  - [ ] Fix parameter extraction in execute method
+  - [ ] Add defensive checks
+- [ ] Update analyze_content tool
+  - [ ] Fix parameter extraction in execute method
+  - [ ] Add defensive checks
+
+### Testing & Validation
+- [ ] Test all tools with Claude Code
+  - [ ] Verify fetch_url works with URL parameter
+  - [ ] Verify search_web works with query parameter
+  - [ ] Test all 12 tools systematically
+  - [ ] Document successful responses
+- [ ] Test with different parameter formats
+  - [ ] Test with object parameters
+  - [ ] Test with string parameters
+  - [ ] Test with undefined/null parameters
+  - [ ] Test with malformed JSON
+- [ ] Create regression test suite
+  - [ ] Add tests for parameter handling
+  - [ ] Test MCP protocol compliance
+  - [ ] Automate Claude Code integration tests
+- [ ] Performance validation
+  - [ ] Ensure no performance degradation
+  - [ ] Test with high volume of requests
+  - [ ] Monitor memory usage
+
+### Error Handling Improvements
+- [ ] Enhance error messages
+  - [ ] Add detailed parameter validation errors
+  - [ ] Include expected vs received format
+  - [ ] Provide debugging information
+- [ ] Implement graceful fallbacks
+  - [ ] Default to empty object for undefined params
+  - [ ] Try multiple parameter access patterns
+  - [ ] Log warnings for parameter issues
+- [ ] Add debugging capabilities
+  - [ ] Create debug mode for parameter logging
+  - [ ] Add request/response logging
+  - [ ] Include stack traces for errors
+
+### Documentation Updates
+- [ ] Update TROUBLESHOOTING.md
+  - [ ] Add parameter error solutions
+  - [ ] Document common Claude Code issues
+  - [ ] Include debugging steps
+- [ ] Update API_REFERENCE.md
+  - [ ] Clarify parameter formats
+  - [ ] Add Claude Code examples
+  - [ ] Document parameter normalization
+- [ ] Create CLAUDE_CODE_INTEGRATION.md
+  - [ ] Step-by-step setup guide
+  - [ ] Known issues and solutions
+  - [ ] Best practices for MCP tools
+
+**Parallel Tasks:**
+- Core parameter fix must be completed first
+- Tool handler updates can be done in parallel after core fix
+- Testing can begin as each tool is fixed
+
+### Success Criteria
+- [ ] All 12 tools work correctly in Claude Code
+- [ ] No parameter undefined errors
+- [ ] Backward compatibility maintained
+- [ ] All tests passing
+- [ ] Documentation updated

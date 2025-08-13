@@ -131,16 +131,9 @@ server.tool("fetch_url", "Fetch content from a URL with optional headers and tim
   }
 }, async (request) => {
   try {
-    // Try different approaches to find parameters
-    const possibleParams = request.params || request.arguments || request;
-    console.error('DEBUG: trying params =', JSON.stringify(possibleParams));
-    
-    // Test if url is directly on the request object
-    if (request.url) {
-      console.error('DEBUG: Found url directly:', request.url);
-    }
-    
-    const params = FetchUrlSchema.parse(possibleParams);
+    // Extract parameters from MCP protocol structure
+    const rawParams = request?.params?.arguments || request || {};
+    const params = FetchUrlSchema.parse(normalizeParams(rawParams));
     
     const response = await fetchWithTimeout(params.url, {
       timeout: params.timeout,
@@ -185,7 +178,9 @@ server.tool("extract_text", "Extract clean text content from a webpage", {
   }
 }, async (request) => {
   try {
-    const params = ExtractTextSchema.parse(request.params || {});
+    // Extract parameters from MCP protocol structure
+    const rawParams = request?.params?.arguments || request || {};
+    const params = ExtractTextSchema.parse(normalizeParams(rawParams));
     
     const response = await fetchWithTimeout(params.url);
     if (!response.ok) {
@@ -238,7 +233,9 @@ server.tool("extract_links", "Extract all links from a webpage with optional fil
   }
 }, async (request) => {
   try {
-    const params = ExtractLinksSchema.parse(request.params || {});
+    // Extract parameters from MCP protocol structure
+    const rawParams = request?.params?.arguments || request || {};
+    const params = ExtractLinksSchema.parse(normalizeParams(rawParams));
     
     const response = await fetchWithTimeout(params.url);
     if (!response.ok) {
@@ -311,7 +308,9 @@ server.tool("extract_metadata", "Extract metadata from a webpage (title, descrip
   }
 }, async (request) => {
   try {
-    const params = ExtractMetadataSchema.parse(request.params || {});
+    // Extract parameters from MCP protocol structure
+    const rawParams = request?.params?.arguments || request || {};
+    const params = ExtractMetadataSchema.parse(normalizeParams(rawParams));
     
     const response = await fetchWithTimeout(params.url);
     if (!response.ok) {
@@ -385,7 +384,9 @@ server.tool("scrape_structured", "Extract structured data from a webpage using C
   }
 }, async (request) => {
   try {
-    const params = ScrapeStructuredSchema.parse(request.params || {});
+    // Extract parameters from MCP protocol structure
+    const rawParams = request?.params?.arguments || request || {};
+    const params = ScrapeStructuredSchema.parse(normalizeParams(rawParams));
     
     const response = await fetchWithTimeout(params.url);
     if (!response.ok) {
@@ -477,7 +478,9 @@ if (searchWebTool) {
     }
   }, async (request) => {
     try {
-      return await searchWebTool.execute(request.params || {});
+      // Extract parameters from MCP protocol structure
+      const rawParams = request?.params?.arguments || request || {};
+      return await searchWebTool.execute(normalizeParams(rawParams));
     } catch (error) {
       throw new Error(`Search failed: ${error.message}`);
     }
@@ -539,7 +542,9 @@ server.tool("crawl_deep", "Crawl websites deeply using breadth-first search", {
   }
 }, async (request) => {
   try {
-    return await crawlDeepTool.execute(request.params || {});
+    // Extract parameters from MCP protocol structure
+    const rawParams = request?.params?.arguments || request || {};
+    return await crawlDeepTool.execute(normalizeParams(rawParams));
   } catch (error) {
     throw new Error(`Crawl failed: ${error.message}`);
   }
@@ -573,7 +578,9 @@ server.tool("map_site", "Discover and map website structure", {
   }
 }, async (request) => {
   try {
-    return await mapSiteTool.execute(request.params || {});
+    // Extract parameters from MCP protocol structure
+    const rawParams = request?.params?.arguments || request || {};
+    return await mapSiteTool.execute(normalizeParams(rawParams));
   } catch (error) {
     throw new Error(`Site mapping failed: ${error.message}`);
   }
@@ -594,7 +601,9 @@ server.tool("extract_content", "Extract and analyze main content from web pages 
   }
 }, async (request) => {
   try {
-    return await extractContentTool.execute(request.params || {});
+    // Extract parameters from MCP protocol structure
+    const rawParams = request?.params?.arguments || request || {};
+    return await extractContentTool.execute(normalizeParams(rawParams));
   } catch (error) {
     throw new Error(`Content extraction failed: ${error.message}`);
   }
@@ -618,7 +627,9 @@ server.tool("process_document", "Process documents from multiple sources and for
   }
 }, async (request) => {
   try {
-    return await processDocumentTool.execute(request.params || {});
+    // Extract parameters from MCP protocol structure
+    const rawParams = request?.params?.arguments || request || {};
+    return await processDocumentTool.execute(normalizeParams(rawParams));
   } catch (error) {
     throw new Error(`Document processing failed: ${error.message}`);
   }
@@ -637,7 +648,9 @@ server.tool("summarize_content", "Generate intelligent summaries of text content
   }
 }, async (request) => {
   try {
-    return await summarizeContentTool.execute(request.params || {});
+    // Extract parameters from MCP protocol structure
+    const rawParams = request?.params?.arguments || request || {};
+    return await summarizeContentTool.execute(normalizeParams(rawParams));
   } catch (error) {
     throw new Error(`Content summarization failed: ${error.message}`);
   }
@@ -656,7 +669,9 @@ server.tool("analyze_content", "Perform comprehensive content analysis including
   }
 }, async (request) => {
   try {
-    return await analyzeContentTool.execute(request.params || {});
+    // Extract parameters from MCP protocol structure
+    const rawParams = request?.params?.arguments || request || {};
+    return await analyzeContentTool.execute(normalizeParams(rawParams));
   } catch (error) {
     throw new Error(`Content analysis failed: ${error.message}`);
   }
