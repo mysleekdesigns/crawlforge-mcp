@@ -72,22 +72,47 @@ Fetch content from a URL with optional headers and timeout support.
 
 #### Example Usage
 
+##### Basic Website Fetch
 ```javascript
-// Basic fetch
 {
-  "url": "https://example.com"
+  "tool": "fetch_url",
+  "parameters": {
+    "url": "https://httpbin.org/get"
+  }
 }
 
-// With custom headers and timeout
+// Response:
 {
-  "url": "https://api.example.com/data",
+  "status": 200,
+  "statusText": "OK",
   "headers": {
-    "Authorization": "Bearer token123",
-    "User-Agent": "MyApp/1.0"
+    "content-type": "application/json"
   },
-  "timeout": 15000
+  "body": "{\"args\": {}, \"headers\": {...}}",
+  "size": 315
 }
 ```
+
+##### API Call with Authentication
+```javascript
+{
+  "tool": "fetch_url",
+  "parameters": {
+    "url": "https://api.github.com/repos/microsoft/vscode",
+    "headers": {
+      "Authorization": "Bearer github_pat_123",
+      "Accept": "application/vnd.github.v3+json"
+    },
+    "timeout": 15000
+  }
+}
+```
+
+**Common Use Cases:**
+- API testing and debugging
+- Fetching raw content for analysis
+- Downloading documents or data files
+- Testing website accessibility
 
 ---
 
@@ -124,19 +149,43 @@ Extract clean text content from HTML, removing scripts, styles, and non-content 
 
 #### Example Usage
 
+##### Extract News Article Text
 ```javascript
-// Basic text extraction
 {
-  "url": "https://blog.example.com/article"
+  "tool": "extract_text",
+  "parameters": {
+    "url": "https://www.bbc.com/news/technology",
+    "remove_scripts": true,
+    "remove_styles": true
+  }
 }
 
-// Keep scripts and styles
+// Response:
 {
-  "url": "https://example.com",
-  "remove_scripts": false,
-  "remove_styles": false
+  "text": "Artificial Intelligence Breakthrough Scientists at MIT...",
+  "word_count": 425,
+  "char_count": 2847,
+  "url": "https://www.bbc.com/news/technology"
 }
 ```
+
+##### Extract with Minimal Processing
+```javascript
+{
+  "tool": "extract_text",
+  "parameters": {
+    "url": "https://blog.example.com/article",
+    "remove_scripts": false,
+    "remove_styles": false
+  }
+}
+```
+
+**Common Use Cases:**
+- Content analysis and research
+- Creating text summaries
+- Academic research and citation
+- Content migration and archival
 
 ---
 

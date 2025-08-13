@@ -1,387 +1,329 @@
 # Deployment Guide
 
-This guide covers deployment options for the MCP WebScraper server across different environments.
+Deploy the MCP WebScraper server in production environments using Docker, npm, or PM2.
 
-## Quick Start
+## Quick Deployment Options
 
-### NPM Installation (Recommended)
+### Option 1: NPM Global Install (Simplest)
+
 ```bash
 # Install globally
 npm install -g mcp-webscraper
 
-# Or install locally
-npm install mcp-webscraper
-
 # Run the server
 mcp-webscraper
+
+# Or with environment variables
+NODE_ENV=production mcp-webscraper
 ```
 
-### Docker Deployment
+### Option 2: Docker (Recommended for Production)
+
 ```bash
-# Quick start with Docker
+# Using Docker Compose
+docker-compose up -d mcp-webscraper-prod
+
+# Or using Docker directly
 docker run -d \
   --name mcp-webscraper \
+  --restart unless-stopped \
   -e NODE_ENV=production \
   -v $(pwd)/cache:/app/cache \
   -v $(pwd)/logs:/app/logs \
   mcp-webscraper:latest
 ```
 
-## Deployment Options
+### Option 3: PM2 Process Manager
 
-### 1. Production Deployment with Docker
-
-#### Using Docker Compose (Recommended)
 ```bash
-# Clone the repository
-git clone https://github.com/mcp-webscraper/mcp-webscraper.git
-cd mcp-webscraper
-
-# Copy environment template
-cp .env.example .env
-# Edit .env with your configuration
-
-# Start production services
-docker-compose up -d mcp-webscraper-prod
-```
-
-#### Single Container Deployment
-```bash
-# Build production image
-docker build --target production -t mcp-webscraper:prod .
-
-# Run production container
-docker run -d \
-  --name mcp-webscraper-prod \
-  --restart unless-stopped \
-  -e NODE_ENV=production \
-  -e LOG_LEVEL=info \
-  -e MAX_WORKERS=10 \
-  -e QUEUE_CONCURRENCY=10 \
-  -e GOOGLE_API_KEY=${GOOGLE_API_KEY} \
-  -e GOOGLE_SEARCH_ENGINE_ID=${GOOGLE_SEARCH_ENGINE_ID} \
-  -v mcp-cache:/app/cache \
-  -v mcp-logs:/app/logs \
-  -p 3000:3000 \
-  --memory=1g \
-  --cpus=1.0 \
-  mcp-webscraper:prod
-```
-
-### 2. Kubernetes Deployment
-
-#### Basic Deployment
-```yaml
-# k8s/deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: mcp-webscraper
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: mcp-webscraper
-  template:
-    metadata:
-      labels:
-        app: mcp-webscraper
-    spec:
-      containers:
-      - name: mcp-webscraper
-        image: mcp-webscraper:latest
-        ports:
-        - containerPort: 3000
-        env:
-        - name: NODE_ENV
-          value: production
-        - name: LOG_LEVEL
-          value: info
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "0.5"
-          limits:
-            memory: "1Gi"
-            cpu: "1.0"
-        volumeMounts:
-        - name: cache-volume
-          mountPath: /app/cache
-        - name: logs-volume
-          mountPath: /app/logs
-      volumes:
-      - name: cache-volume
-        persistentVolumeClaim:
-          claimName: mcp-cache-pvc
-      - name: logs-volume
-        persistentVolumeClaim:
-          claimName: mcp-logs-pvc
-```
-
-#### ConfigMap for Configuration
-```yaml
-# k8s/configmap.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: mcp-webscraper-config
-data:
-  NODE_ENV: "production"
-  LOG_LEVEL: "info"
-  MAX_WORKERS: "10"
-  QUEUE_CONCURRENCY: "10"
-  CACHE_ENABLE_DISK: "true"
-  SEARCH_PROVIDER: "auto"
-```
-
-#### Service Configuration
-```yaml
-# k8s/service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: mcp-webscraper-service
-spec:
-  selector:
-    app: mcp-webscraper
-  ports:
-  - protocol: TCP
-    port: 80
-    targetPort: 3000
-  type: LoadBalancer
-```
-
-### 3. Cloud Platform Deployments
-
-#### AWS ECS
-```json
-{
-  "family": "mcp-webscraper",
-  "networkMode": "awsvpc",
-  "requiresCompatibilities": ["FARGATE"],
-  "cpu": "1024",
-  "memory": "2048",
-  "containerDefinitions": [
-    {
-      "name": "mcp-webscraper",
-      "image": "mcp-webscraper:latest",
-      "portMappings": [
-        {
-          "containerPort": 3000,
-          "protocol": "tcp"
-        }
-      ],
-      "environment": [
-        {"name": "NODE_ENV", "value": "production"},
-        {"name": "LOG_LEVEL", "value": "info"}
-      ],
-      "logConfiguration": {
-        "logDriver": "awslogs",
-        "options": {
-          "awslogs-group": "/ecs/mcp-webscraper",
-          "awslogs-region": "us-west-2",
-          "awslogs-stream-prefix": "ecs"
-        }
-      }
-    }
-  ]
-}
-```
-
-#### Google Cloud Run
-```yaml
-# cloudrun.yaml
-apiVersion: serving.knative.dev/v1
-kind: Service
-metadata:
-  name: mcp-webscraper
-  annotations:
-    run.googleapis.com/ingress: all
-spec:
-  template:
-    metadata:
-      annotations:
-        autoscaling.knative.dev/maxScale: "10"
-        run.googleapis.com/cpu-throttling: "false"
-        run.googleapis.com/memory: "1Gi"
-    spec:
-      containerConcurrency: 100
-      containers:
-      - image: gcr.io/PROJECT_ID/mcp-webscraper:latest
-        ports:
-        - containerPort: 3000
-        env:
-        - name: NODE_ENV
-          value: production
-        resources:
-          limits:
-            memory: 1Gi
-            cpu: "1"
-```
-
-#### Azure Container Instances
-```bash
-az container create \
-  --resource-group myResourceGroup \
-  --name mcp-webscraper \
-  --image mcp-webscraper:latest \
-  --cpu 1 \
-  --memory 2 \
-  --restart-policy Always \
-  --environment-variables \
-    NODE_ENV=production \
-    LOG_LEVEL=info \
-  --ports 3000
-```
-
-### 4. Traditional Server Deployment
-
-#### PM2 Process Manager
-```bash
-# Install PM2
+# Install PM2 globally
 npm install -g pm2
 
-# Install MCP WebScraper
-npm install -g mcp-webscraper
-
-# Create PM2 ecosystem file
-cat > ecosystem.config.js << EOF
-module.exports = {
-  apps: [{
-    name: 'mcp-webscraper',
-    script: 'mcp-webscraper',
-    instances: 'max',
-    exec_mode: 'cluster',
-    env: {
-      NODE_ENV: 'production',
-      LOG_LEVEL: 'info',
-      MAX_WORKERS: 10,
-      QUEUE_CONCURRENCY: 10
-    }
-  }]
-}
-EOF
-
 # Start with PM2
-pm2 start ecosystem.config.js
+pm2 start server.js --name mcp-webscraper \
+  --env production \
+  --max-memory-restart 512M
+
+# Save PM2 configuration
 pm2 save
 pm2 startup
 ```
 
-#### Systemd Service
-```ini
-# /etc/systemd/system/mcp-webscraper.service
-[Unit]
-Description=MCP WebScraper Server
-After=network.target
+## Production Configuration
 
-[Service]
-Type=simple
-User=mcp
-WorkingDirectory=/opt/mcp-webscraper
-ExecStart=/usr/bin/node server.js
-Restart=always
-RestartSec=5
-Environment=NODE_ENV=production
-Environment=LOG_LEVEL=info
+### Environment Variables
 
-[Install]
-WantedBy=multi-user.target
-```
+Create a `.env` file for production:
 
-```bash
-# Enable and start service
-sudo systemctl enable mcp-webscraper
-sudo systemctl start mcp-webscraper
-sudo systemctl status mcp-webscraper
-```
-
-## Environment Configuration
-
-### Required Environment Variables
-```bash
-# Core configuration
+```env
+# Environment
 NODE_ENV=production
 LOG_LEVEL=info
 
-# Performance settings
+# Performance
 MAX_WORKERS=10
 QUEUE_CONCURRENCY=10
-CACHE_ENABLE_DISK=true
 CACHE_TTL=3600000
+RATE_LIMIT_REQUESTS_PER_SECOND=10
 
-# Search provider (optional)
-SEARCH_PROVIDER=auto
-GOOGLE_API_KEY=your_api_key
-GOOGLE_SEARCH_ENGINE_ID=your_search_engine_id
+# Search Configuration
+SEARCH_PROVIDER=google
+GOOGLE_API_KEY=your_production_key
+GOOGLE_SEARCH_ENGINE_ID=your_engine_id
 
-# Security settings
-SSRF_PROTECTION_ENABLED=true
-INPUT_VALIDATION_ENABLED=true
-```
+# Security
+ENABLE_SSRF_PROTECTION=true
+MAX_REQUEST_SIZE=104857600
+REQUEST_TIMEOUT=60000
 
-### Production Optimization
-```bash
-# Memory optimization
-NODE_OPTIONS="--max-old-space-size=1024"
-
-# Crawler limits
+# Crawling Limits
 MAX_CRAWL_DEPTH=5
 MAX_PAGES_PER_CRAWL=100
-
-# Rate limiting
-RATE_LIMIT_REQUESTS_PER_SECOND=10
 RESPECT_ROBOTS_TXT=true
 ```
 
-## Monitoring and Observability
+### Resource Requirements
 
-### Health Checks
+| Component | Minimum | Recommended | Notes |
+|-----------|---------|-------------|-------|
+| CPU | 1 core | 2+ cores | More cores improve concurrent processing |
+| Memory | 512MB | 1-2GB | Depends on crawl size and concurrency |
+| Storage | 1GB | 5GB+ | For cache and logs |
+| Network | 10 Mbps | 100+ Mbps | For efficient web scraping |
+
+## Docker Deployment
+
+### Build and Run
+
 ```bash
-# HTTP health check endpoint (if running in HTTP mode)
+# Build production image
+docker build --target production -t mcp-webscraper:prod .
+
+# Run with resource limits
+docker run -d \
+  --name mcp-webscraper-prod \
+  --restart unless-stopped \
+  --memory=1g \
+  --cpus=2.0 \
+  -e NODE_ENV=production \
+  -e LOG_LEVEL=info \
+  -v mcp-cache:/app/cache \
+  -v mcp-logs:/app/logs \
+  mcp-webscraper:prod
+```
+
+### Docker Compose Production
+
+```yaml
+# docker-compose.prod.yml
+version: '3.8'
+
+services:
+  mcp-webscraper:
+    image: mcp-webscraper:prod
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+      - MAX_WORKERS=10
+      - QUEUE_CONCURRENCY=10
+    volumes:
+      - cache:/app/cache
+      - logs:/app/logs
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  cache:
+  logs:
+```
+
+Run with:
+```bash
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+## Cloud Deployment
+
+### AWS EC2 / DigitalOcean / Azure VM
+
+1. **Create VM Instance**
+   - Ubuntu 20.04 LTS or newer
+   - t3.medium (AWS) or similar
+   - 20GB storage minimum
+
+2. **Setup Script**
+```bash
+#!/bin/bash
+# setup-mcp-webscraper.sh
+
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install Node.js 18+
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Install Git
+sudo apt-get install -y git
+
+# Clone repository
+git clone https://github.com/your-username/mcp-webscraper.git
+cd mcp-webscraper
+
+# Install dependencies
+npm install --production
+
+# Setup PM2
+sudo npm install -g pm2
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your settings
+
+# Start with PM2
+pm2 start server.js --name mcp-webscraper
+pm2 save
+pm2 startup systemd -u $USER --hp /home/$USER
+```
+
+### Heroku Deployment
+
+```bash
+# Create Heroku app
+heroku create your-mcp-webscraper
+
+# Set buildpack
+heroku buildpacks:set heroku/nodejs
+
+# Set environment variables
+heroku config:set NODE_ENV=production
+heroku config:set GOOGLE_API_KEY=your_key
+heroku config:set MAX_WORKERS=4
+
+# Deploy
+git push heroku main
+
+# Scale dynos
+heroku ps:scale web=1
+```
+
+## Monitoring
+
+### Health Check Endpoint
+
+The server exposes a health check endpoint:
+
+```bash
 curl http://localhost:3000/health
-
-# Process health check
-docker exec mcp-webscraper node -e "console.log('Health check passed')"
 ```
 
-### Logging Configuration
+Response:
+```json
+{
+  "status": "healthy",
+  "uptime": 3600,
+  "memory": {
+    "used": 52428800,
+    "total": 536870912
+  },
+  "cpu": {
+    "usage": 15.2
+  }
+}
+```
+
+### Logging
+
+Production logs are written to:
+- `./logs/app.log` - Application logs
+- `./logs/error.log` - Error logs
+- `./logs/performance.log` - Performance metrics
+
+Configure log rotation:
+
 ```bash
-# Log levels: error, warn, info, debug
-LOG_LEVEL=info
-
-# Enable security logging
-SECURITY_LOGGING=true
-VIOLATION_LOGGING=true
-
-# Enable performance metrics
-ENABLE_METRICS=true
+# /etc/logrotate.d/mcp-webscraper
+/path/to/mcp-webscraper/logs/*.log {
+  daily
+  rotate 7
+  compress
+  missingok
+  notifempty
+  create 0640 node node
+  sharedscripts
+  postrotate
+    pm2 reload mcp-webscraper
+  endscript
+}
 ```
 
-### Monitoring Stack (Optional)
+### Monitoring with PM2
+
 ```bash
-# Start full monitoring stack
-docker-compose --profile monitoring up -d
+# Real-time monitoring
+pm2 monit
 
-# Access dashboards
-# Grafana: http://localhost:3002 (admin/admin)
-# Prometheus: http://localhost:9090
+# View logs
+pm2 logs mcp-webscraper
+
+# Process info
+pm2 show mcp-webscraper
+
+# Web dashboard
+pm2 install pm2-web
+pm2 web
 ```
 
-## Scaling and High Availability
+## Security Best Practices
+
+1. **Use Environment Variables**
+   - Never commit `.env` files
+   - Use secrets management in production
+
+2. **Enable SSRF Protection**
+   ```env
+   ENABLE_SSRF_PROTECTION=true
+   ```
+
+3. **Set Resource Limits**
+   ```env
+   MAX_REQUEST_SIZE=104857600  # 100MB
+   REQUEST_TIMEOUT=60000        # 60 seconds
+   MAX_CRAWL_DEPTH=5
+   MAX_PAGES_PER_CRAWL=100
+   ```
+
+4. **Use HTTPS**
+   - Deploy behind a reverse proxy (nginx/Apache)
+   - Enable SSL/TLS certificates
+
+5. **Regular Updates**
+   ```bash
+   # Update dependencies
+   npm audit fix
+   npm update
+   ```
+
+## Scaling Considerations
 
 ### Horizontal Scaling
-```bash
-# Scale with Docker Compose
-docker-compose up -d --scale mcp-webscraper-prod=3
 
-# Scale with Kubernetes
-kubectl scale deployment mcp-webscraper --replicas=5
-```
+Run multiple instances behind a load balancer:
 
-### Load Balancing
 ```nginx
-# Nginx load balancer configuration
+# nginx.conf
 upstream mcp_webscraper {
     server 127.0.0.1:3001;
     server 127.0.0.1:3002;
@@ -390,132 +332,58 @@ upstream mcp_webscraper {
 
 server {
     listen 80;
-    server_name mcp-webscraper.example.com;
+    server_name your-domain.com;
     
     location / {
         proxy_pass http://mcp_webscraper;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
+        proxy_cache_bypass $http_upgrade;
     }
 }
 ```
 
-## Security Considerations
+### Performance Tuning
 
-### Container Security
-```dockerfile
-# Use non-root user
-USER mcp
-
-# Read-only root filesystem
---read-only --tmpfs /tmp
-
-# Drop capabilities
---cap-drop=ALL
-
-# Security options
---security-opt=no-new-privileges:true
+```env
+# Optimize for high load
+MAX_WORKERS=16               # Match CPU cores
+QUEUE_CONCURRENCY=20         # Increase concurrency
+CACHE_SIZE=10000            # Larger cache
+CONNECTION_POOL_SIZE=100    # More connections
 ```
 
-### Network Security
+## Troubleshooting Production Issues
+
+### High Memory Usage
 ```bash
-# Firewall rules
-sudo ufw allow 3000/tcp
-sudo ufw enable
+# Check memory usage
+pm2 monit
 
-# TLS/SSL termination (use reverse proxy)
-# Never expose the MCP server directly to the internet
+# Restart if needed
+pm2 restart mcp-webscraper
+
+# Adjust memory limit
+pm2 delete mcp-webscraper
+pm2 start server.js --max-memory-restart 1G
 ```
 
-## Troubleshooting
+### Slow Performance
+1. Check CPU usage: `top` or `htop`
+2. Review logs: `pm2 logs`
+3. Increase workers: `MAX_WORKERS=16`
+4. Enable caching: `CACHE_TTL=7200000`
 
-### Common Issues
+### Connection Errors
+1. Check network: `netstat -tuln`
+2. Verify firewall: `sudo ufw status`
+3. Test connectivity: `curl -I https://example.com`
 
-#### High Memory Usage
-```bash
-# Monitor memory usage
-docker stats mcp-webscraper
+## Next Steps
 
-# Adjust memory limits
-NODE_OPTIONS="--max-old-space-size=512"
-MAX_WORKERS=5
-QUEUE_CONCURRENCY=5
-```
-
-#### Performance Issues
-```bash
-# Check performance metrics
-npm run test:performance:quick
-
-# Optimize cache settings
-CACHE_ENABLE_DISK=true
-CACHE_TTL=7200000
-
-# Reduce crawler limits
-MAX_CRAWL_DEPTH=3
-MAX_PAGES_PER_CRAWL=50
-```
-
-#### Connection Issues
-```bash
-# Check connectivity
-docker logs mcp-webscraper
-
-# Verify DNS resolution
-docker exec mcp-webscraper nslookup google.com
-
-# Check rate limiting
-RATE_LIMIT_REQUESTS_PER_SECOND=5
-```
-
-### Logs and Debugging
-```bash
-# View logs
-docker logs -f mcp-webscraper
-
-# Enable debug logging
-LOG_LEVEL=debug
-
-# Check specific log files
-tail -f logs/app.log
-tail -f logs/error.log
-tail -f logs/performance.log
-```
-
-## Backup and Recovery
-
-### Data Backup
-```bash
-# Backup cache and logs
-docker run --rm -v mcp-cache:/cache -v $(pwd):/backup alpine \
-  tar czf /backup/mcp-cache-backup.tar.gz -C /cache .
-
-# Restore cache
-docker run --rm -v mcp-cache:/cache -v $(pwd):/backup alpine \
-  tar xzf /backup/mcp-cache-backup.tar.gz -C /cache
-```
-
-### Configuration Backup
-```bash
-# Backup configuration
-cp .env .env.backup
-cp docker-compose.yml docker-compose.yml.backup
-```
-
-## Performance Tuning
-
-### Resource Allocation
-- **Memory**: 512MB minimum, 1GB recommended for production
-- **CPU**: 0.5 cores minimum, 1+ cores for high-load scenarios
-- **Storage**: 1GB for cache and logs
-
-### Optimization Settings
-```bash
-# High-performance configuration
-MAX_WORKERS=20
-QUEUE_CONCURRENCY=15
-CACHE_TTL=7200000
-RATE_LIMIT_REQUESTS_PER_SECOND=20
-```
-
-For more detailed configuration options, see the [Configuration Guide](CONFIGURATION.md) and [Performance Optimization](docs/PERFORMANCE_OPTIMIZATION.md) documentation.
+- 📊 [Monitoring Setup](./ADVANCED.md#monitoring) - Advanced monitoring
+- 🔒 [Security Guide](./ADVANCED.md#security) - Security hardening
+- 🚀 [Performance Tuning](./ADVANCED.md#performance) - Optimization tips
+- 🔧 [Troubleshooting](./TROUBLESHOOTING.md) - Common issues
