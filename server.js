@@ -65,26 +65,58 @@ const ScrapeStructuredSchema = z.object({
   selectors: z.record(z.string())
 });
 
-// Utility function to normalize and parse MCP parameters
-function normalizeParams(params) {
-  // If params is already an object, return as-is
-  if (params && typeof params === 'object' && !Array.isArray(params)) {
-    return params;
-  }
-  
-  // If params is a string, try to parse as JSON
-  if (typeof params === 'string') {
-    try {
-      return JSON.parse(params);
-    } catch (error) {
-      // If it's not valid JSON, treat as a single string parameter
-      return { value: params };
-    }
-  }
-  
-  // Return empty object for null/undefined
-  return {};
-}
+const SearchWebSchema = z.object({
+  query: z.string(),
+  limit: z.number().min(1).max(100).optional(),
+  offset: z.number().min(0).optional(),
+  lang: z.string().optional(),
+  safe_search: z.boolean().optional(),
+  time_range: z.enum(['day', 'week', 'month', 'year', 'all']).optional(),
+  site: z.string().optional(),
+  file_type: z.string().optional()
+});
+
+const CrawlDeepSchema = z.object({
+  url: z.string().url(),
+  max_depth: z.number().min(1).max(5).optional(),
+  max_pages: z.number().min(1).max(1000).optional(),
+  include_patterns: z.array(z.string()).optional(),
+  exclude_patterns: z.array(z.string()).optional(),
+  follow_external: z.boolean().optional(),
+  respect_robots: z.boolean().optional(),
+  extract_content: z.boolean().optional(),
+  concurrency: z.number().min(1).max(20).optional()
+});
+
+const MapSiteSchema = z.object({
+  url: z.string().url(),
+  include_sitemap: z.boolean().optional(),
+  max_urls: z.number().min(1).max(10000).optional(),
+  group_by_path: z.boolean().optional(),
+  include_metadata: z.boolean().optional()
+});
+
+const ExtractContentSchema = z.object({
+  url: z.string().url(),
+  options: z.object({}).optional()
+});
+
+const ProcessDocumentSchema = z.object({
+  source: z.string(),
+  sourceType: z.enum(['url', 'pdf_url', 'file', 'pdf_file']).optional(),
+  options: z.object({}).optional()
+});
+
+const SummarizeContentSchema = z.object({
+  text: z.string(),
+  options: z.object({}).optional()
+});
+
+const AnalyzeContentSchema = z.object({
+  text: z.string(),
+  options: z.object({}).optional()
+});
+
 
 // Utility function to fetch URL with error handling
 async function fetchWithTimeout(url, options = {}) {
@@ -114,30 +146,18 @@ async function fetchWithTimeout(url, options = {}) {
 }
 
 // Tool: fetch_url - Basic URL fetching with headers and response handling
-server.tool("fetch_url", "Fetch content from a URL with optional headers and timeout", {
-  url: {
-    type: "string",
-    description: "The URL to fetch"
-  },
-  headers: {
-    type: "object",
-    description: "Optional HTTP headers to include",
-    optional: true
-  },
-  timeout: {
-    type: "number",
-    description: "Request timeout in milliseconds (1000-30000)",
-    optional: true
+server.registerTool("fetch_url", {
+  description: "Fetch content from a URL with optional headers and timeout",
+  inputSchema: {
+    url: z.string().url(),
+    headers: z.record(z.string()).optional(),
+    timeout: z.number().min(1000).max(30000).optional().default(10000)
   }
-}, async (request) => {
+}, async ({ url, headers, timeout }) => {
   try {
-    // Extract parameters from MCP protocol structure
-    const rawParams = request?.params?.arguments || request || {};
-    const params = FetchUrlSchema.parse(normalizeParams(rawParams));
-    
-    const response = await fetchWithTimeout(params.url, {
-      timeout: params.timeout,
-      headers: params.headers
+    const response = await fetchWithTimeout(url, {
+      timeout: timeout || 10000,
+      headers: headers || {}
     });
     
     const body = await response.text();
@@ -147,42 +167,37 @@ server.tool("fetch_url", "Fetch content from a URL with optional headers and tim
     });
     
     return {
-      status: response.status,
-      statusText: response.statusText,
-      headers: responseHeaders,
-      body: body,
-      contentType: response.headers.get('content-type') || 'unknown',
-      size: body.length,
-      url: response.url
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          status: response.status,
+          statusText: response.statusText,
+          headers: responseHeaders,
+          body: body,
+          contentType: response.headers.get('content-type') || 'unknown',
+          size: body.length,
+          url: response.url
+        }, null, 2)
+      }]
     };
   } catch (error) {
-    throw new Error(`Failed to fetch URL: ${error.message}`);
+    return {
+      content: [{
+        type: "text",
+        text: `Failed to fetch URL: ${error.message}`
+      }],
+      isError: true
+    };
   }
 });
 
 // Tool: extract_text - Extract clean text content from HTML
-server.tool("extract_text", "Extract clean text content from a webpage", {
-  url: {
-    type: "string",
-    description: "The URL to extract text from"
-  },
-  remove_scripts: {
-    type: "boolean",
-    description: "Remove script tags before extracting text",
-    optional: true
-  },
-  remove_styles: {
-    type: "boolean",
-    description: "Remove style tags before extracting text",
-    optional: true
-  }
-}, async (request) => {
+server.registerTool("extract_text", {
+  description: "Extract clean text content from a webpage",
+  inputSchema: ExtractTextSchema
+}, async ({ url, remove_scripts, remove_styles }) => {
   try {
-    // Extract parameters from MCP protocol structure
-    const rawParams = request?.params?.arguments || request || {};
-    const params = ExtractTextSchema.parse(normalizeParams(rawParams));
-    
-    const response = await fetchWithTimeout(params.url);
+    const response = await fetchWithTimeout(url);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
@@ -191,10 +206,10 @@ server.tool("extract_text", "Extract clean text content from a webpage", {
     const $ = load(html);
     
     // Remove unwanted elements
-    if (params.remove_scripts) {
+    if (remove_scripts !== false) {
       $('script').remove();
     }
-    if (params.remove_styles) {
+    if (remove_styles !== false) {
       $('style').remove();
     }
     
@@ -205,39 +220,34 @@ server.tool("extract_text", "Extract clean text content from a webpage", {
     const text = $('body').text().replace(/\s+/g, ' ').trim();
     
     return {
-      text: text,
-      word_count: text.split(/\s+/).filter(word => word.length > 0).length,
-      char_count: text.length,
-      url: response.url
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          text: text,
+          word_count: text.split(/\s+/).filter(word => word.length > 0).length,
+          char_count: text.length,
+          url: response.url
+        }, null, 2)
+      }]
     };
   } catch (error) {
-    throw new Error(`Failed to extract text: ${error.message}`);
+    return {
+      content: [{
+        type: "text",
+        text: `Failed to extract text: ${error.message}`
+      }],
+      isError: true
+    };
   }
 });
 
 // Tool: extract_links - Extract all links from a webpage with optional filtering
-server.tool("extract_links", "Extract all links from a webpage with optional filtering", {
-  url: {
-    type: "string",
-    description: "The URL to extract links from"
-  },
-  filter_external: {
-    type: "boolean",
-    description: "Filter out external links (keep only internal links)",
-    optional: true
-  },
-  base_url: {
-    type: "string",
-    description: "Base URL for resolving relative links",
-    optional: true
-  }
-}, async (request) => {
+server.registerTool("extract_links", {
+  description: "Extract all links from a webpage with optional filtering",
+  inputSchema: ExtractLinksSchema
+}, async ({ url, filter_external, base_url }) => {
   try {
-    // Extract parameters from MCP protocol structure
-    const rawParams = request?.params?.arguments || request || {};
-    const params = ExtractLinksSchema.parse(normalizeParams(rawParams));
-    
-    const response = await fetchWithTimeout(params.url);
+    const response = await fetchWithTimeout(url);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
@@ -245,8 +255,8 @@ server.tool("extract_links", "Extract all links from a webpage with optional fil
     const html = await response.text();
     const $ = load(html);
     
-    const baseUrl = params.base_url || new URL(params.url).origin;
-    const pageUrl = new URL(params.url);
+    const baseUrl = base_url || new URL(url).origin;
+    const pageUrl = new URL(url);
     const links = [];
     
     $('a[href]').each((_, element) => {
@@ -268,7 +278,7 @@ server.tool("extract_links", "Extract all links from a webpage with optional fil
         }
         
         // Apply filtering
-        if (params.filter_external && isExternal) {
+        if (filter_external && isExternal) {
           return;
         }
         
@@ -289,30 +299,35 @@ server.tool("extract_links", "Extract all links from a webpage with optional fil
     );
     
     return {
-      links: uniqueLinks,
-      total_count: uniqueLinks.length,
-      internal_count: uniqueLinks.filter(l => !l.is_external).length,
-      external_count: uniqueLinks.filter(l => l.is_external).length,
-      base_url: baseUrl
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          links: uniqueLinks,
+          total_count: uniqueLinks.length,
+          internal_count: uniqueLinks.filter(l => !l.is_external).length,
+          external_count: uniqueLinks.filter(l => l.is_external).length,
+          base_url: baseUrl
+        }, null, 2)
+      }]
     };
   } catch (error) {
-    throw new Error(`Failed to extract links: ${error.message}`);
+    return {
+      content: [{
+        type: "text",
+        text: `Failed to extract links: ${error.message}`
+      }],
+      isError: true
+    };
   }
 });
 
 // Tool: extract_metadata - Extract page metadata
-server.tool("extract_metadata", "Extract metadata from a webpage (title, description, keywords, etc.)", {
-  url: {
-    type: "string",
-    description: "The URL to extract metadata from"
-  }
-}, async (request) => {
+server.registerTool("extract_metadata", {
+  description: "Extract metadata from a webpage (title, description, keywords, etc.)",
+  inputSchema: ExtractMetadataSchema
+}, async ({ url }) => {
   try {
-    // Extract parameters from MCP protocol structure
-    const rawParams = request?.params?.arguments || request || {};
-    const params = ExtractMetadataSchema.parse(normalizeParams(rawParams));
-    
-    const response = await fetchWithTimeout(params.url);
+    const response = await fetchWithTimeout(url);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
@@ -355,40 +370,41 @@ server.tool("extract_metadata", "Extract metadata from a webpage (title, descrip
                    $('meta[http-equiv="Content-Type"]').attr('content') || '';
     
     return {
-      title: title,
-      description: description,
-      keywords: keywords.split(',').map(k => k.trim()).filter(k => k),
-      canonical_url: canonical,
-      author: author,
-      robots: robots,
-      viewport: viewport,
-      charset: charset,
-      og_tags: ogTags,
-      twitter_tags: twitterTags,
-      url: response.url
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          title: title,
+          description: description,
+          keywords: keywords.split(',').map(k => k.trim()).filter(k => k),
+          canonical_url: canonical,
+          author: author,
+          robots: robots,
+          viewport: viewport,
+          charset: charset,
+          og_tags: ogTags,
+          twitter_tags: twitterTags,
+          url: response.url
+        }, null, 2)
+      }]
     };
   } catch (error) {
-    throw new Error(`Failed to extract metadata: ${error.message}`);
+    return {
+      content: [{
+        type: "text",
+        text: `Failed to extract metadata: ${error.message}`
+      }],
+      isError: true
+    };
   }
 });
 
 // Tool: scrape_structured - Extract structured data using CSS selectors
-server.tool("scrape_structured", "Extract structured data from a webpage using CSS selectors", {
-  url: {
-    type: "string",
-    description: "The URL to scrape"
-  },
-  selectors: {
-    type: "object",
-    description: "Object mapping field names to CSS selectors"
-  }
-}, async (request) => {
+server.registerTool("scrape_structured", {
+  description: "Extract structured data from a webpage using CSS selectors",
+  inputSchema: ScrapeStructuredSchema
+}, async ({ url, selectors }) => {
   try {
-    // Extract parameters from MCP protocol structure
-    const rawParams = request?.params?.arguments || request || {};
-    const params = ScrapeStructuredSchema.parse(normalizeParams(rawParams));
-    
-    const response = await fetchWithTimeout(params.url);
+    const response = await fetchWithTimeout(url);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
@@ -398,7 +414,7 @@ server.tool("scrape_structured", "Extract structured data from a webpage using C
     
     const results = {};
     
-    for (const [fieldName, selector] of Object.entries(params.selectors)) {
+    for (const [fieldName, selector] of Object.entries(selectors)) {
       try {
         const elements = $(selector);
         
@@ -420,13 +436,24 @@ server.tool("scrape_structured", "Extract structured data from a webpage using C
     }
     
     return {
-      data: results,
-      selectors_used: params.selectors,
-      elements_found: Object.keys(results).length,
-      url: response.url
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          data: results,
+          selectors_used: selectors,
+          elements_found: Object.keys(results).length,
+          url: response.url
+        }, null, 2)
+      }]
     };
   } catch (error) {
-    throw new Error(`Failed to scrape structured data: ${error.message}`);
+    return {
+      content: [{
+        type: "text",
+        text: `Failed to scrape structured data: ${error.message}`
+      }],
+      isError: true
+    };
   }
 });
 
@@ -436,71 +463,36 @@ if (searchWebTool) {
   const providerName = activeProvider === 'google' ? 'Google Custom Search API' : 
                       activeProvider === 'duckduckgo' ? 'DuckDuckGo' : 'Auto-selected provider';
   
-  server.tool("search_web", `Search the web using ${providerName}`, {
-    query: {
-      type: "string",
-      description: "Search query"
-    },
-    limit: {
-      type: "number",
-      description: "Maximum number of results (1-100)",
-      optional: true
-    },
-    offset: {
-      type: "number",
-      description: "Result offset for pagination",
-      optional: true
-    },
-    lang: {
-      type: "string",
-      description: "Language code (e.g., 'en', 'fr', 'de')",
-      optional: true
-    },
-    safe_search: {
-      type: "boolean",
-      description: "Enable safe search filtering",
-      optional: true
-    },
-    time_range: {
-      type: "string",
-      description: "Time range: 'day', 'week', 'month', 'year', or 'all'",
-      optional: true
-    },
-    site: {
-      type: "string",
-      description: "Restrict search to specific site",
-      optional: true
-    },
-    file_type: {
-      type: "string",
-      description: "Filter by file type (e.g., 'pdf', 'doc')",
-      optional: true
-    }
-  }, async (request) => {
+  server.registerTool("search_web", {
+    description: `Search the web using ${providerName}`,
+    inputSchema: SearchWebSchema
+  }, async ({ query, limit, offset, lang, safe_search, time_range, site, file_type }) => {
     try {
-      // Extract parameters from MCP protocol structure with improved handling
-      let rawParams = {};
-      
-      // Try multiple possible parameter locations in MCP request
-      if (request?.params?.arguments && Object.keys(request.params.arguments).length > 0) {
-        rawParams = request.params.arguments;
-      } else if (request?.arguments && Object.keys(request.arguments).length > 0) {
-        rawParams = request.arguments;
-      } else if (request && typeof request === "object" && request.query) {
-        rawParams = request;
-      } else {
-        console.error("search_web: No parameters found in request structure:", JSON.stringify(request, null, 2));
-        throw new Error("No parameters provided");
+      if (!query) {
+        return {
+          content: [{
+            type: "text",
+            text: "Query parameter is required"
+          }],
+          isError: true
+        };
       }
       
-      console.log("search_web: extracted rawParams:", JSON.stringify(rawParams));
-      const normalizedParams = normalizeParams(rawParams);
-      console.log("search_web: normalized params:", JSON.stringify(normalizedParams));
-      
-      return await searchWebTool.execute(normalizedParams);
+      const result = await searchWebTool.execute({ query, limit, offset, lang, safe_search, time_range, site, file_type });
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(result, null, 2)
+        }]
+      };
     } catch (error) {
-      console.error("search_web error:", error.message);
-      throw new Error(`Search failed: ${error.message}`);
+      return {
+        content: [{
+          type: "text",
+          text: `Search failed: ${error.message}`
+        }],
+        isError: true
+      };
     }
   });
 } else {
@@ -513,185 +505,208 @@ if (searchWebTool) {
 }
 
 // Tool: crawl_deep - Deep crawl websites with BFS algorithm
-server.tool("crawl_deep", "Crawl websites deeply using breadth-first search", {
-  url: {
-    type: "string",
-    description: "Starting URL to crawl"
-  },
-  max_depth: {
-    type: "number",
-    description: "Maximum crawl depth (1-5)",
-    optional: true
-  },
-  max_pages: {
-    type: "number",
-    description: "Maximum pages to crawl (1-1000)",
-    optional: true
-  },
-  include_patterns: {
-    type: "array",
-    description: "Regex patterns for URLs to include",
-    optional: true
-  },
-  exclude_patterns: {
-    type: "array",
-    description: "Regex patterns for URLs to exclude",
-    optional: true
-  },
-  follow_external: {
-    type: "boolean",
-    description: "Follow external links",
-    optional: true
-  },
-  respect_robots: {
-    type: "boolean",
-    description: "Respect robots.txt rules",
-    optional: true
-  },
-  extract_content: {
-    type: "boolean",
-    description: "Extract page content",
-    optional: true
-  },
-  concurrency: {
-    type: "number",
-    description: "Number of concurrent requests (1-20)",
-    optional: true
-  }
-}, async (request) => {
+server.registerTool("crawl_deep", {
+  description: "Crawl websites deeply using breadth-first search",
+  inputSchema: CrawlDeepSchema
+}, async ({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, concurrency }) => {
   try {
-    // Extract parameters from MCP protocol structure
-    const rawParams = request?.params?.arguments || request || {};
-    return await crawlDeepTool.execute(normalizeParams(rawParams));
+    if (!url) {
+      return {
+        content: [{
+          type: "text",
+          text: "URL parameter is required"
+        }],
+        isError: true
+      };
+    }
+    
+    const result = await crawlDeepTool.execute({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, concurrency });
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
   } catch (error) {
-    throw new Error(`Crawl failed: ${error.message}`);
+    return {
+      content: [{
+        type: "text",
+        text: `Crawl failed: ${error.message}`
+      }],
+      isError: true
+    };
   }
 });
 
 // Tool: map_site - Discover and map website structure
-server.tool("map_site", "Discover and map website structure", {
-  url: {
-    type: "string",
-    description: "Website URL to map"
-  },
-  include_sitemap: {
-    type: "boolean",
-    description: "Include sitemap.xml URLs",
-    optional: true
-  },
-  max_urls: {
-    type: "number",
-    description: "Maximum URLs to discover (1-10000)",
-    optional: true
-  },
-  group_by_path: {
-    type: "boolean",
-    description: "Group URLs by path segments",
-    optional: true
-  },
-  include_metadata: {
-    type: "boolean",
-    description: "Fetch metadata for discovered URLs",
-    optional: true
-  }
-}, async (request) => {
+server.registerTool("map_site", {
+  description: "Discover and map website structure",
+  inputSchema: MapSiteSchema
+}, async ({ url, include_sitemap, max_urls, group_by_path, include_metadata }) => {
   try {
-    // Extract parameters from MCP protocol structure
-    const rawParams = request?.params?.arguments || request || {};
-    return await mapSiteTool.execute(normalizeParams(rawParams));
+    if (!url) {
+      return {
+        content: [{
+          type: "text",
+          text: "URL parameter is required"
+        }],
+        isError: true
+      };
+    }
+    
+    const result = await mapSiteTool.execute({ url, include_sitemap, max_urls, group_by_path, include_metadata });
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
   } catch (error) {
-    throw new Error(`Site mapping failed: ${error.message}`);
+    return {
+      content: [{
+        type: "text",
+        text: `Site mapping failed: ${error.message}`
+      }],
+      isError: true
+    };
   }
 });
 
 // Phase 3 Tools: Enhanced Content Processing
 
 // Tool: extract_content - Enhanced content extraction with readability detection
-server.tool("extract_content", "Extract and analyze main content from web pages with enhanced readability detection", {
-  url: {
-    type: "string",
-    description: "URL to extract content from"
-  },
-  options: {
-    type: "object",
-    description: "Content extraction options",
-    optional: true
-  }
-}, async (request) => {
+server.registerTool("extract_content", {
+  description: "Extract and analyze main content from web pages with enhanced readability detection",
+  inputSchema: ExtractContentSchema
+}, async ({ url, options }) => {
   try {
-    // Extract parameters from MCP protocol structure
-    const rawParams = request?.params?.arguments || request || {};
-    return await extractContentTool.execute(normalizeParams(rawParams));
+    if (!url) {
+      return {
+        content: [{
+          type: "text",
+          text: "URL parameter is required"
+        }],
+        isError: true
+      };
+    }
+    
+    const result = await extractContentTool.execute({ url, options });
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
   } catch (error) {
-    throw new Error(`Content extraction failed: ${error.message}`);
+    return {
+      content: [{
+        type: "text",
+        text: `Content extraction failed: ${error.message}`
+      }],
+      isError: true
+    };
   }
 });
 
 // Tool: process_document - Multi-format document processing
-server.tool("process_document", "Process documents from multiple sources and formats including PDFs and web pages", {
-  source: {
-    type: "string",
-    description: "Document source (URL, file path, etc.)"
-  },
-  sourceType: {
-    type: "string",
-    description: "Source type: url, pdf_url, file, pdf_file",
-    optional: true
-  },
-  options: {
-    type: "object",
-    description: "Processing options",
-    optional: true
-  }
-}, async (request) => {
+server.registerTool("process_document", {
+  description: "Process documents from multiple sources and formats including PDFs and web pages",
+  inputSchema: ProcessDocumentSchema
+}, async ({ source, sourceType, options }) => {
   try {
-    // Extract parameters from MCP protocol structure
-    const rawParams = request?.params?.arguments || request || {};
-    return await processDocumentTool.execute(normalizeParams(rawParams));
+    if (!source) {
+      return {
+        content: [{
+          type: "text",
+          text: "Source parameter is required"
+        }],
+        isError: true
+      };
+    }
+    
+    const result = await processDocumentTool.execute({ source, sourceType, options });
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
   } catch (error) {
-    throw new Error(`Document processing failed: ${error.message}`);
+    return {
+      content: [{
+        type: "text",
+        text: `Document processing failed: ${error.message}`
+      }],
+      isError: true
+    };
   }
 });
 
 // Tool: summarize_content - Intelligent content summarization
-server.tool("summarize_content", "Generate intelligent summaries of text content with configurable options", {
-  text: {
-    type: "string",
-    description: "Text content to summarize"
-  },
-  options: {
-    type: "object",
-    description: "Summarization options",
-    optional: true
-  }
-}, async (request) => {
+server.registerTool("summarize_content", {
+  description: "Generate intelligent summaries of text content with configurable options",
+  inputSchema: SummarizeContentSchema
+}, async ({ text, options }) => {
   try {
-    // Extract parameters from MCP protocol structure
-    const rawParams = request?.params?.arguments || request || {};
-    return await summarizeContentTool.execute(normalizeParams(rawParams));
+    if (!text) {
+      return {
+        content: [{
+          type: "text",
+          text: "Text parameter is required"
+        }],
+        isError: true
+      };
+    }
+    
+    const result = await summarizeContentTool.execute({ text, options });
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
   } catch (error) {
-    throw new Error(`Content summarization failed: ${error.message}`);
+    return {
+      content: [{
+        type: "text",
+        text: `Content summarization failed: ${error.message}`
+      }],
+      isError: true
+    };
   }
 });
 
 // Tool: analyze_content - Comprehensive content analysis
-server.tool("analyze_content", "Perform comprehensive content analysis including language detection and topic extraction", {
-  text: {
-    type: "string",
-    description: "Text content to analyze"
-  },
-  options: {
-    type: "object",
-    description: "Analysis options",
-    optional: true
-  }
-}, async (request) => {
+server.registerTool("analyze_content", {
+  description: "Perform comprehensive content analysis including language detection and topic extraction",
+  inputSchema: AnalyzeContentSchema
+}, async ({ text, options }) => {
   try {
-    // Extract parameters from MCP protocol structure
-    const rawParams = request?.params?.arguments || request || {};
-    return await analyzeContentTool.execute(normalizeParams(rawParams));
+    if (!text) {
+      return {
+        content: [{
+          type: "text",
+          text: "Text parameter is required"
+        }],
+        isError: true
+      };
+    }
+    
+    const result = await analyzeContentTool.execute({ text, options });
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
   } catch (error) {
-    throw new Error(`Content analysis failed: ${error.message}`);
+    return {
+      content: [{
+        type: "text",
+        text: `Content analysis failed: ${error.message}`
+      }],
+      isError: true
+    };
   }
 });
 
