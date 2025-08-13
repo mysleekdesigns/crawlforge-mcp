@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MCP (Model Context Protocol) server implementation providing 12 comprehensive web scraping, crawling, and content processing tools. Version 3.0 adds advanced content extraction, document processing, summarization, and analysis capabilities.
+MCP (Model Context Protocol) server implementation providing 14 comprehensive web scraping, crawling, and content processing tools. Version 3.0 includes advanced content extraction, document processing, summarization, and analysis capabilities. Wave 2 adds asynchronous batch processing and browser automation features.
 
 ## Technical Stack
 
@@ -48,6 +48,12 @@ npm run test:integration      # Integration tests
 npm run test:security         # Security test suite
 npm run test:all             # Run all tests
 
+# Wave 2 Validation Tests
+node tests/validation/test-wave2-runner.js  # Test Wave 2 features
+node tests/validation/test-batch-scrape.js  # Test batch scraping
+node tests/validation/test-scrape-with-actions.js  # Test action scraping
+node tests/integration/master-test-runner.js # Run master test suite
+
 # Docker commands
 npm run docker:build         # Build Docker image
 npm run docker:dev          # Run development container
@@ -64,7 +70,7 @@ npm run release:major       # Major version bump
 npm run clean              # Remove cache, logs, test results
 ```
 
-## Available MCP Tools (12 Total)
+## Available MCP Tools (14 Total)
 
 ### Basic Scraping Tools
 1. **fetch_url** - Fetch content with headers and timeout support
@@ -84,6 +90,10 @@ npm run clean              # Remove cache, logs, test results
 11. **summarize_content** - Intelligent text summarization with configurable options
 12. **analyze_content** - Comprehensive content analysis (language, topics, sentiment, entities)
 
+### Wave 2 Advanced Tools
+13. **batch_scrape** - Asynchronously scrape multiple URLs with job tracking and webhook notifications
+14. **scrape_with_actions** - Advanced scraping with browser automation (clicks, scrolls, form fills)
+
 ## High-Level Architecture
 
 The codebase follows a modular architecture with clear separation of concerns:
@@ -97,6 +107,9 @@ The codebase follows a modular architecture with clear separation of concerns:
 - **PerformanceManager**: Centralized performance monitoring and optimization
 - **WorkerPool**: Multi-threading support for CPU-intensive operations
 - **ConnectionPool**: HTTP connection pooling for improved network performance
+- **JobManager**: Asynchronous job tracking and management for batch operations
+- **WebhookDispatcher**: Event notification system for job completion callbacks
+- **ActionExecutor**: Browser automation engine for complex interactions
 
 ### Tool Layer (`src/tools/`)
 - Each tool is self-contained with its own validation and error handling
@@ -149,7 +162,7 @@ RESPECT_ROBOTS_TXT=true
 ### MCP Server Entry Point
 The main server implementation is in `server.js` which:
 1. Uses stdio transport for MCP protocol communication
-2. Registers all 12 tools using `server.registerTool()` pattern
+2. Registers all 14 tools using `server.registerTool()` pattern
 3. Each tool has its own Zod schema for parameter validation
 4. Tools are implemented as classes in `src/tools/` directory
 
@@ -167,10 +180,12 @@ GitHub Actions workflow (`/.github/workflows/ci.yml`) handles:
 - Performance tests in `tests/performance/` for load and memory testing
 - Integration tests in `tests/integration/` for end-to-end scenarios
 - Security tests in `tests/security/` for vulnerability scanning
+- Validation tests in `tests/validation/` for Wave 2 features
 - Test files follow `*.test.js` naming convention
 - Run `npm test` for protocol compliance
 - Run `npm run test:all` for comprehensive test suite
 - Test results uploaded as artifacts in CI pipeline
+- Note: No linter configured yet (npm run lint is placeholder)
 
 ## Important Implementation Notes
 
@@ -190,6 +205,8 @@ GitHub Actions workflow (`/.github/workflows/ci.yml`) handles:
 - Exponential backoff retry logic (RetryManager)
 - Per-domain rate limiting prevents server overload
 - robots.txt compliance checked before crawling
+- Asynchronous job management with unique job IDs and status tracking
+- Webhook notifications for long-running batch operations
 
 ### Security & Validation
 - All inputs validated with Zod schemas
