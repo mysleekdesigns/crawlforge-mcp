@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MCP (Model Context Protocol) server implementation providing 14 comprehensive web scraping, crawling, and content processing tools. Version 3.0 includes advanced content extraction, document processing, summarization, and analysis capabilities. Wave 2 adds asynchronous batch processing and browser automation features.
+MCP (Model Context Protocol) server implementation providing 14 comprehensive web scraping, crawling, and content processing tools. Version 3.0 includes advanced content extraction, document processing, summarization, and analysis capabilities. Wave 2 adds asynchronous batch processing and browser automation features. Wave 3 adds deep research orchestration, stealth scraping, localization, and change tracking.
 
 ## Technical Stack
 
@@ -54,6 +54,13 @@ node tests/validation/test-batch-scrape.js  # Test batch scraping
 node tests/validation/test-scrape-with-actions.js  # Test action scraping
 node tests/integration/master-test-runner.js # Run master test suite
 
+# Wave 3 Tests
+npm run test:wave3             # Full Wave 3 validation
+npm run test:wave3:quick       # Quick Wave 3 tests
+npm run test:wave3:verbose     # Verbose Wave 3 output
+npm run test:unit:wave3        # Wave 3 unit tests (Jest)
+npm run test:integration:wave3 # Wave 3 integration tests
+
 # Docker commands
 npm run docker:build         # Build Docker image
 npm run docker:dev          # Run development container
@@ -70,7 +77,7 @@ npm run release:major       # Major version bump
 npm run clean              # Remove cache, logs, test results
 ```
 
-## Available MCP Tools (14 Total)
+## Available MCP Tools (16 Total)
 
 ### Basic Scraping Tools
 1. **fetch_url** - Fetch content with headers and timeout support
@@ -94,6 +101,10 @@ npm run clean              # Remove cache, logs, test results
 13. **batch_scrape** - Asynchronously scrape multiple URLs with job tracking and webhook notifications
 14. **scrape_with_actions** - Advanced scraping with browser automation (clicks, scrolls, form fills)
 
+### Wave 3 Research & Tracking Tools
+15. **deep_research** - Multi-stage research orchestration with intelligent query expansion and source verification
+16. **track_changes** - Monitor content changes with baseline capture, comparison, and scheduled monitoring
+
 ## High-Level Architecture
 
 The codebase follows a modular architecture with clear separation of concerns:
@@ -110,6 +121,11 @@ The codebase follows a modular architecture with clear separation of concerns:
 - **JobManager**: Asynchronous job tracking and management for batch operations
 - **WebhookDispatcher**: Event notification system for job completion callbacks
 - **ActionExecutor**: Browser automation engine for complex interactions
+- **ResearchOrchestrator**: Coordinates multi-stage research with query expansion and synthesis
+- **StealthBrowserManager**: Manages stealth mode scraping with anti-detection features
+- **LocalizationManager**: Handles multi-language content and localization
+- **ChangeTracker**: Tracks and compares content changes over time
+- **SnapshotManager**: Manages website snapshots and version history
 
 ### Tool Layer (`src/tools/`)
 - Each tool is self-contained with its own validation and error handling
@@ -194,6 +210,13 @@ GitHub Actions workflow (`/.github/workflows/ci.yml`) handles:
 - All tools registered with `server.registerTool()` with inline Zod schemas
 - Parameter extraction from `request.params?.arguments` structure
 - Response format uses `content` array with text objects
+- Tools are located in `src/tools/` with subdirectories for organization:
+  - `advanced/` - BatchScrapeTool, ScrapeWithActionsTool
+  - `crawl/` - crawlDeep, mapSite
+  - `extract/` - analyzeContent, extractContent, processDocument, summarizeContent
+  - `research/` - deepResearch
+  - `search/` - searchWeb and adapters
+  - `tracking/` - trackChanges
 
 ### Performance & Reliability
 - Memory usage optimized to stay under 512MB for typical crawls
@@ -214,4 +237,9 @@ GitHub Actions workflow (`/.github/workflows/ci.yml`) handles:
 - Input sanitization across all tools
 - Security audit completed (see SECURITY_AUDIT_REPORT.md)
 - No hardcoded secrets, uses .env configuration
-- everytime you create a new documentation.md file make sure to put it in the docs folder
+
+### Documentation Standards
+- All documentation files should be placed in the `docs/` directory
+- Tool-specific documentation in `docs/TOOLS_GUIDE.md`
+- Deployment guides in `docs/DEPLOYMENT.md`
+- API reference in `docs/API_REFERENCE.md`

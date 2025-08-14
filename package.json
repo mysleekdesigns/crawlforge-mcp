@@ -4,7 +4,8 @@
   "description": "Comprehensive MCP server for web scraping with 12 advanced tools including content extraction, document processing, search, crawling, and analysis capabilities",
   "main": "server.js",
   "bin": {
-    "mcp-webscraper": "server.js"
+    "mcp-webscraper": "install.js",
+    "mcp-webscraper-server": "server.js"
   },
   "scripts": {
     "start": "node server.js",
@@ -99,11 +100,14 @@
   },
   "files": [
     "server.js",
+    "install.js",
     "src/",
     "README.md",
+    "INSTALL.md",
     "LICENSE",
     "package.json",
-    "package-lock.json"
+    "package-lock.json",
+    ".env.example"
   ],
   "dependencies": {
     "@googleapis/customsearch": "^5.0.1",
