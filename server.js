@@ -18,6 +18,7 @@ import { ScrapeWithActionsTool } from "./src/tools/advanced/ScrapeWithActionsToo
 import { DeepResearchTool } from "./src/tools/research/deepResearch.js";
 // Change Tracking Tool
 import { TrackChangesTool } from "./src/tools/tracking/trackChanges.js";
+import { memoryMonitor } from "./src/utils/MemoryMonitor.js";
 import { config, validateConfig, isSearchConfigured, getToolConfig, getActiveSearchProvider } from "./src/constants/config.js";
 
 // Validate configuration
@@ -1246,9 +1247,99 @@ async function runServer() {
   const researchTools = ', deep_research';
   const trackingTools = ', track_changes';
   console.error(`Tools available: ${baseTools}${searchTool}${phase3Tools}${wave2Tools}${researchTools}${trackingTools}`);
+
+  // Start memory monitoring in development
+  if (config.server.nodeEnv === "development") {
+    memoryMonitor.start();
+    console.error("Memory monitoring started");
+  }
 }
 
 runServer().catch((error) => {
   console.error("Server error:", error);
   process.exit(1);
 });
+// === MEMORY LEAK PREVENTION ===
+// Add graceful shutdown handling to prevent memory leaks
+
+let isShuttingDown = false;
+
+async function gracefulShutdown(signal) {
+  if (isShuttingDown) {
+    console.error("Force shutdown...");
+    process.exit(1);
+  }
+  
+  isShuttingDown = true;
+  console.error(`Received ${signal}. Starting graceful shutdown...`);
+  
+  try {
+    // Cleanup tools that have destroy methods
+    const toolsToCleanup = [
+      batchScrapeTool,
+      scrapeWithActionsTool,
+      deepResearchTool,
+      trackChangesTool
+    ].filter(tool => tool && typeof tool.destroy === 'function');
+    
+    console.error(`Cleaning up ${toolsToCleanup.length} tools...`);
+    
+    // Cleanup tools with timeout
+    await Promise.race([
+      Promise.all(toolsToCleanup.map(async (tool) => {
+        try {
+          await tool.destroy();
+          console.error(`Cleaned up ${tool.constructor.name}`);
+        } catch (error) {
+          console.error(`Error cleaning up ${tool.constructor.name}:`, error.message);
+        }
+      })),
+      new Promise(resolve => setTimeout(resolve, 5000)) // 5 second timeout
+    ]);
+    
+    // Stop memory monitoring
+    if (memoryMonitor.isMonitoring) {
+      memoryMonitor.stop();
+      console.error("Memory monitoring stopped");
+    }
+
+    // Force garbage collection if available
+    if (global.gc) {
+      console.error("Running final garbage collection...");
+      global.gc();
+    }
+    
+    console.error("Graceful shutdown completed");
+    process.exit(0);
+    
+  } catch (error) {
+    console.error("Error during graceful shutdown:", error);
+    process.exit(1);
+  }
+}
+
+// Register signal handlers
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+// Handle uncaught exceptions and unhandled rejections
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('unhandledRejection');
+});
+
+// Memory monitoring (development only)
+if (config.server.nodeEnv === 'development') {
+  setInterval(() => {
+    const usage = process.memoryUsage();
+    const memoryMB = (usage.heapUsed / 1024 / 1024).toFixed(2);
+    if (memoryMB > 200) { // Alert if over 200MB
+      console.error(`Memory usage: ${memoryMB}MB (high usage detected)`);
+    }
+  }, 60000); // Check every minute
+}

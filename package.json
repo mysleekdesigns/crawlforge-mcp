@@ -17,7 +17,7 @@
     "test:benchmark": "node --expose-gc tests/performance/benchmark.js",
     "test:integration": "node --expose-gc tests/integration/performance-integration.test.js",
     "test:performance:quick": "node tests/performance/test-runner.js",
-    "test:security": "node tests/security/security-test-suite.js",
+    "test:security": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/security/security-test-suite.test.js",
     "test:wave3": "node tests/validation/wave3-validation.js",
     "test:wave3:quick": "node tests/validation/wave3-validation.js --quick",
     "test:wave3:verbose": "node tests/validation/wave3-validation.js --verbose",
@@ -111,11 +111,11 @@
   ],
   "dependencies": {
     "@googleapis/customsearch": "^5.0.1",
-    "@modelcontextprotocol/sdk": "^1.17.2",
+    "@modelcontextprotocol/sdk": "^1.17.3",
     "@mozilla/readability": "^0.6.0",
     "cheerio": "^1.1.2",
     "compromise": "^14.14.4",
-    "diff": "^7.0.0",
+    "diff": "^8.0.2",
     "dotenv": "^17.2.1",
     "franc": "^6.2.0",
     "isomorphic-dompurify": "^2.26.0",
@@ -127,7 +127,7 @@
     "playwright": "^1.54.2",
     "robots-parser": "^3.0.1",
     "winston": "^3.11.0",
-    "zod": "^3.25.76"
+    "zod": "^4.0.17"
   },
   "devDependencies": {
     "@jest/globals": "^30.0.5",
