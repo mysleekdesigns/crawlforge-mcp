@@ -7,6 +7,7 @@
 import { SSRFProtection } from '../../src/utils/ssrfProtection.js';
 import { InputValidator } from '../../src/utils/inputValidation.js';
 import { RateLimiter } from '../../src/utils/rateLimiter.js';
+import { jest } from '@jest/globals';
 
 describe('Security Test Suite', () => {
   

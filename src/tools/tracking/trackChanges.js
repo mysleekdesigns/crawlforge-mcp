@@ -13,7 +13,21 @@ import { EventEmitter } from 'events';
 // Input validation schemas
 const TrackChangesSchema = z.object({
   url: z.string().url(),
-  operation: z.enum(['create_baseline', 'compare', 'monitor', 'get_history', 'get_stats']).default('compare'),
+  operation: z.enum([
+    'create_baseline', 
+    'compare', 
+    'monitor', 
+    'get_history', 
+    'get_stats',
+    // Enhanced Phase 2.4 operations
+    'create_scheduled_monitor',
+    'stop_scheduled_monitor',
+    'get_dashboard',
+    'export_history',
+    'create_alert_rule',
+    'generate_trend_report',
+    'get_monitoring_templates'
+  ]).default('compare'),
   
   // Content options
   content: z.string().optional(),
@@ -93,6 +107,35 @@ const TrackChangesSchema = z.object({
       channel: z.string().optional(),
       username: z.string().optional()
     }).optional()
+  }).optional(),
+  
+  // Enhanced Phase 2.4 options
+  scheduledMonitorOptions: z.object({
+    schedule: z.string().optional(), // Cron expression
+    templateId: z.string().optional(), // Monitoring template ID
+    enabled: z.boolean().default(true)
+  }).optional(),
+  
+  alertRuleOptions: z.object({
+    ruleId: z.string().optional(),
+    condition: z.string().optional(), // Condition description
+    actions: z.array(z.enum(['webhook', 'email', 'slack'])).optional(),
+    throttle: z.number().min(0).optional(),
+    priority: z.enum(['low', 'medium', 'high']).optional()
+  }).optional(),
+  
+  exportOptions: z.object({
+    format: z.enum(['json', 'csv']).default('json'),
+    startTime: z.number().optional(),
+    endTime: z.number().optional(),
+    includeContent: z.boolean().default(false),
+    includeSnapshots: z.boolean().default(false)
+  }).optional(),
+  
+  dashboardOptions: z.object({
+    includeRecentAlerts: z.boolean().default(true),
+    includeTrends: z.boolean().default(true),
+    includeMonitorStatus: z.boolean().default(true)
   }).optional()
 });
 
@@ -200,6 +243,28 @@ export class TrackChangesTool extends EventEmitter {
           
         case 'get_stats':
           return await this.getStatistics(validated);
+          
+        // Enhanced Phase 2.4 operations
+        case 'create_scheduled_monitor':
+          return await this.createScheduledMonitor(validated);
+          
+        case 'stop_scheduled_monitor':
+          return await this.stopScheduledMonitor(validated);
+          
+        case 'get_dashboard':
+          return await this.getMonitoringDashboard(validated);
+          
+        case 'export_history':
+          return await this.exportHistoricalData(validated);
+          
+        case 'create_alert_rule':
+          return await this.createAlertRule(validated);
+          
+        case 'generate_trend_report':
+          return await this.generateTrendReport(validated);
+          
+        case 'get_monitoring_templates':
+          return await this.getMonitoringTemplates(validated);
           
         default:
           throw new Error(`Unknown operation: ${operation}`);
@@ -969,9 +1034,287 @@ export class TrackChangesTool extends EventEmitter {
     }));
   }
   
+  /**
+   * Create scheduled monitor using enhanced features
+   * @param {Object} params - Parameters
+   * @returns {Object} - Scheduled monitor results
+   */
+  async createScheduledMonitor(params) {
+    const { url, scheduledMonitorOptions, trackingOptions, notificationOptions } = params;
+    
+    try {
+      const schedule = scheduledMonitorOptions?.schedule || '0 */1 * * *'; // Hourly default
+      const templateId = scheduledMonitorOptions?.templateId;
+      
+      // Apply template if specified
+      let monitorOptions = { ...trackingOptions };
+      if (templateId && this.changeTracker.monitoringTemplates.has(templateId)) {
+        const template = this.changeTracker.monitoringTemplates.get(templateId);
+        monitorOptions = { ...template.options, ...monitorOptions };
+      }
+      
+      // Create scheduled monitor
+      const result = await this.changeTracker.createScheduledMonitor(
+        url,
+        schedule,
+        {
+          ...monitorOptions,
+          alertRules: {
+            threshold: 'moderate',
+            methods: ['webhook'],
+            throttle: 600000,
+            ...notificationOptions
+          }
+        }
+      );
+      
+      return {
+        success: true,
+        operation: 'create_scheduled_monitor',
+        url,
+        monitor: result,
+        template: templateId ? this.changeTracker.monitoringTemplates.get(templateId)?.name : null,
+        timestamp: Date.now()
+      };
+      
+    } catch (error) {
+      throw new Error(`Failed to create scheduled monitor: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Stop scheduled monitor
+   * @param {Object} params - Parameters
+   * @returns {Object} - Stop results
+   */
+  async stopScheduledMonitor(params) {
+    const { url } = params;
+    
+    try {
+      // Find and stop the scheduled monitor for this URL
+      let stoppedMonitors = 0;
+      
+      for (const [id, monitor] of this.changeTracker.scheduledMonitors.entries()) {
+        if (monitor.url === url) {
+          if (monitor.cronJob) {
+            monitor.cronJob.destroy();
+          }
+          monitor.status = 'stopped';
+          this.changeTracker.scheduledMonitors.delete(id);
+          stoppedMonitors++;
+        }
+      }
+      
+      return {
+        success: true,
+        operation: 'stop_scheduled_monitor',
+        url,
+        stoppedMonitors,
+        timestamp: Date.now()
+      };
+      
+    } catch (error) {
+      throw new Error(`Failed to stop scheduled monitor: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Get monitoring dashboard
+   * @param {Object} params - Parameters
+   * @returns {Object} - Dashboard data
+   */
+  async getMonitoringDashboard(params) {
+    const { dashboardOptions } = params;
+    
+    try {
+      const dashboard = this.changeTracker.getMonitoringDashboard();
+      
+      // Filter based on options
+      if (!dashboardOptions?.includeRecentAlerts) {
+        delete dashboard.recentAlerts;
+      }
+      
+      if (!dashboardOptions?.includeTrends) {
+        delete dashboard.trends;
+      }
+      
+      if (!dashboardOptions?.includeMonitorStatus) {
+        dashboard.monitors = dashboard.monitors.map(m => ({
+          id: m.id,
+          url: m.url,
+          status: m.status
+        }));
+      }
+      
+      return {
+        success: true,
+        operation: 'get_dashboard',
+        dashboard,
+        timestamp: Date.now()
+      };
+      
+    } catch (error) {
+      throw new Error(`Failed to get monitoring dashboard: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Export historical data
+   * @param {Object} params - Parameters
+   * @returns {Object} - Exported data
+   */
+  async exportHistoricalData(params) {
+    const { url, exportOptions } = params;
+    
+    try {
+      const exportData = await this.changeTracker.exportHistoricalData({
+        ...exportOptions,
+        url
+      });
+      
+      return {
+        success: true,
+        operation: 'export_history',
+        url: url || 'global',
+        export: exportData,
+        timestamp: Date.now()
+      };
+      
+    } catch (error) {
+      throw new Error(`Failed to export historical data: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Create custom alert rule
+   * @param {Object} params - Parameters
+   * @returns {Object} - Alert rule results
+   */
+  async createAlertRule(params) {
+    const { alertRuleOptions } = params;
+    
+    try {
+      const ruleId = alertRuleOptions?.ruleId || 
+        `custom_rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      const rule = {
+        condition: this.parseCondition(alertRuleOptions?.condition || 'significance === "major"'),
+        actions: alertRuleOptions?.actions || ['webhook'],
+        throttle: alertRuleOptions?.throttle || 600000,
+        priority: alertRuleOptions?.priority || 'medium'
+      };
+      
+      // Store the alert rule
+      this.changeTracker.alertRules.set(ruleId, rule);
+      
+      return {
+        success: true,
+        operation: 'create_alert_rule',
+        ruleId,
+        rule,
+        timestamp: Date.now()
+      };
+      
+    } catch (error) {
+      throw new Error(`Failed to create alert rule: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Generate trend analysis report
+   * @param {Object} params - Parameters
+   * @returns {Object} - Trend report
+   */
+  async generateTrendReport(params) {
+    const { url } = params;
+    
+    try {
+      const report = await this.changeTracker.generateTrendAnalysisReport(url);
+      
+      return {
+        success: true,
+        operation: 'generate_trend_report',
+        report,
+        timestamp: Date.now()
+      };
+      
+    } catch (error) {
+      throw new Error(`Failed to generate trend report: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Get available monitoring templates
+   * @param {Object} params - Parameters
+   * @returns {Object} - Templates list
+   */
+  async getMonitoringTemplates(params) {
+    try {
+      const templates = {};
+      
+      for (const [id, template] of this.changeTracker.monitoringTemplates.entries()) {
+        templates[id] = {
+          name: template.name,
+          frequency: template.frequency,
+          description: this.generateTemplateDescription(template),
+          options: template.options,
+          alertRules: template.alertRules
+        };
+      }
+      
+      return {
+        success: true,
+        operation: 'get_monitoring_templates',
+        templates,
+        count: Object.keys(templates).length,
+        timestamp: Date.now()
+      };
+      
+    } catch (error) {
+      throw new Error(`Failed to get monitoring templates: ${error.message}`);
+    }
+  }
+  
+  // Helper methods for enhanced features
+  
+  parseCondition(conditionString) {
+    // Simple condition parser - in production would use a proper parser
+    return (changeResult, history) => {
+      try {
+        // Basic condition evaluation
+        if (conditionString.includes('significance')) {
+          const match = conditionString.match(/significance\s*===\s*["'](\w+)["']/);
+          if (match) {
+            return changeResult.significance === match[1];
+          }
+        }
+        
+        if (conditionString.includes('frequent')) {
+          const recent = history.filter(h => Date.now() - h.timestamp < 3600000);
+          return recent.length > 3;
+        }
+        
+        return false;
+      } catch (error) {
+        return false;
+      }
+    };
+  }
+  
+  generateTemplateDescription(template) {
+    const descriptions = {
+      'news-site': 'Optimized for news websites with frequent content updates',
+      'e-commerce': 'Tracks product pages, prices, and inventory changes',
+      'documentation': 'Monitors documentation sites with less frequent but important changes'
+    };
+    
+    return descriptions[template.name] || 'Custom monitoring template';
+  }
+
   async shutdown() {
     this.stopAllMonitoring();
     await this.snapshotManager.shutdown();
+    await this.changeTracker.cleanup();
     this.emit('shutdown');
   }
 }

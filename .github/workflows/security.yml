@@ -1,0 +1,400 @@
+name: Security Scanning
+
+on:
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      scan_type:
+        description: 'Type of security scan to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - dependencies
+          - code-analysis
+          - container-scan
+      severity_threshold:
+        description: 'Minimum severity level to report'
+        required: false
+        default: 'moderate'
+        type: choice
+        options:
+          - low
+          - moderate
+          - high
+          - critical
+
+env:
+  NODE_ENV: production
+  CACHE_ENABLE_DISK: false
+
+jobs:
+  dependency-scan:
+    name: Dependency Security Scan
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == 'dependencies' || github.event_name == 'schedule'
+    timeout-minutes: 10
+    
+    outputs:
+      critical-vulns: ${{ steps.audit-check.outputs.critical-count }}
+      high-vulns: ${{ steps.audit-check.outputs.high-count }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: |
+        npm ci --prefer-offline --no-audit
+      timeout-minutes: 5
+
+    - name: Run comprehensive dependency audit
+      id: audit-check
+      run: |
+        mkdir -p security-reports
+        
+        # Generate detailed audit report
+        npm audit --json --audit-level=low > security-reports/npm-audit-full.json || true
+        npm audit --audit-level=${{ github.event.inputs.severity_threshold || 'moderate' }} > security-reports/npm-audit.txt || true
+        
+        # Parse results
+        if [ -f "security-reports/npm-audit-full.json" ]; then
+          critical_count=$(jq '[.vulnerabilities[] | select(.severity == "critical")] | length' security-reports/npm-audit-full.json 2>/dev/null || echo "0")
+          high_count=$(jq '[.vulnerabilities[] | select(.severity == "high")] | length' security-reports/npm-audit-full.json 2>/dev/null || echo "0")
+          moderate_count=$(jq '[.vulnerabilities[] | select(.severity == "moderate")] | length' security-reports/npm-audit-full.json 2>/dev/null || echo "0")
+          low_count=$(jq '[.vulnerabilities[] | select(.severity == "low")] | length' security-reports/npm-audit-full.json 2>/dev/null || echo "0")
+          
+          echo "critical-count=$critical_count" >> $GITHUB_OUTPUT
+          echo "high-count=$high_count" >> $GITHUB_OUTPUT
+          echo "moderate-count=$moderate_count" >> $GITHUB_OUTPUT
+          echo "low-count=$low_count" >> $GITHUB_OUTPUT
+          
+          echo "## Vulnerability Summary" > security-reports/vulnerability-summary.md
+          echo "- Critical: $critical_count" >> security-reports/vulnerability-summary.md
+          echo "- High: $high_count" >> security-reports/vulnerability-summary.md
+          echo "- Moderate: $moderate_count" >> security-reports/vulnerability-summary.md
+          echo "- Low: $low_count" >> security-reports/vulnerability-summary.md
+        fi
+
+    - name: Check for license compliance
+      run: |
+        echo "## License Compliance Check" > security-reports/license-check.md
+        
+        # Generate license report
+        npm ls --json > security-reports/package-tree.json 2>/dev/null || true
+        
+        # Check for problematic licenses
+        problematic_licenses=("GPL-2.0" "GPL-3.0" "AGPL-1.0" "AGPL-3.0" "CPOL-1.02" "EUPL-1.1")
+        found_issues=false
+        
+        for license in "${problematic_licenses[@]}"; do
+          if jq -r '.. | objects | select(has("license")) | .license' security-reports/package-tree.json 2>/dev/null | grep -i "$license" > /dev/null; then
+            echo "⚠️ Found potentially problematic license: $license" >> security-reports/license-check.md
+            found_issues=true
+          fi
+        done
+        
+        if [ "$found_issues" = false ]; then
+          echo "✅ No problematic licenses detected" >> security-reports/license-check.md
+        fi
+
+    - name: Upload dependency scan results
+      uses: actions/upload-artifact@v4
+      with:
+        name: dependency-scan-results
+        path: security-reports/
+        retention-days: 30
+
+  code-analysis:
+    name: Static Code Analysis
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == 'code-analysis' || github.event_name == 'schedule'
+    timeout-minutes: 15
+    
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci --prefer-offline --no-audit
+      timeout-minutes: 5
+
+    - name: Run ESLint security rules
+      run: |
+        mkdir -p security-reports
+        
+        # Install ESLint security plugin if not present
+        npm install --no-save eslint-plugin-security@latest || true
+        
+        # Create temporary ESLint config for security
+        cat > .eslintrc.security.json << 'EOF'
+        {
+          "plugins": ["security"],
+          "extends": ["plugin:security/recommended"],
+          "rules": {
+            "security/detect-buffer-noassert": "error",
+            "security/detect-child-process": "error",
+            "security/detect-disable-mustache-escape": "error",
+            "security/detect-eval-with-expression": "error",
+            "security/detect-new-buffer": "error",
+            "security/detect-no-csrf-before-method-override": "error",
+            "security/detect-non-literal-fs-filename": "error",
+            "security/detect-non-literal-regexp": "error",
+            "security/detect-non-literal-require": "error",
+            "security/detect-object-injection": "error",
+            "security/detect-possible-timing-attacks": "error",
+            "security/detect-pseudoRandomBytes": "error",
+            "security/detect-unsafe-regex": "error"
+          }
+        }
+        EOF
+        
+        # Run security-focused ESLint
+        npx eslint . --config .eslintrc.security.json --format json --output-file security-reports/eslint-security.json || true
+        npx eslint . --config .eslintrc.security.json > security-reports/eslint-security.txt || true
+        
+        # Clean up
+        rm -f .eslintrc.security.json
+
+    - name: CodeQL Analysis
+      uses: github/codeql-action/init@v3
+      with:
+        languages: javascript
+        build-mode: none
+        queries: security-extended
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:javascript/security-scan"
+
+    - name: Analyze for hardcoded secrets
+      run: |
+        echo "## Secret Detection Scan" > security-reports/secret-scan.md
+        
+        # Basic regex patterns for common secrets
+        secret_patterns=(
+          'password\s*[:=]\s*["\047][^"\047\s]{8,}["\047]'
+          'api[_-]?key\s*[:=]\s*["\047][^"\047\s]{16,}["\047]'
+          'secret\s*[:=]\s*["\047][^"\047\s]{16,}["\047]'
+          'token\s*[:=]\s*["\047][^"\047\s]{16,}["\047]'
+          'AKIA[0-9A-Z]{16}'
+          'ghp_[a-zA-Z0-9]{36}'
+          'sk-[a-zA-Z0-9]{48}'
+        )
+        
+        found_secrets=false
+        for pattern in "${secret_patterns[@]}"; do
+          if grep -riE "$pattern" . --exclude-dir=node_modules --exclude-dir=.git --exclude="*.md" > /dev/null 2>&1; then
+            echo "⚠️ Potential hardcoded secret detected (pattern: ${pattern:0:20}...)" >> security-reports/secret-scan.md
+            found_secrets=true
+          fi
+        done
+        
+        if [ "$found_secrets" = false ]; then
+          echo "✅ No obvious hardcoded secrets detected" >> security-reports/secret-scan.md
+        fi
+
+    - name: Upload code analysis results
+      uses: actions/upload-artifact@v4
+      with:
+        name: code-analysis-results
+        path: security-reports/
+        retention-days: 30
+
+  container-scan:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == 'container-scan' || github.event_name == 'schedule'
+    timeout-minutes: 15
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image for scanning
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        load: true
+        tags: mcp-webscraper:security-scan
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'mcp-webscraper:security-scan'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Generate container security report
+      run: |
+        mkdir -p security-reports
+        
+        # Run additional Trivy scans
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          -v $PWD:/workspace aquasec/trivy:latest \
+          image --format table --output security-reports/container-vulnerabilities.txt \
+          mcp-webscraper:security-scan || true
+        
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          -v $PWD:/workspace aquasec/trivy:latest \
+          image --format json --output security-reports/container-vulnerabilities.json \
+          mcp-webscraper:security-scan || true
+
+    - name: Upload container scan results
+      uses: actions/upload-artifact@v4
+      with:
+        name: container-scan-results
+        path: security-reports/
+        retention-days: 30
+
+  security-report:
+    name: Generate Security Report
+    runs-on: ubuntu-latest
+    needs: [dependency-scan, code-analysis, container-scan]
+    if: always()
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all security artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: all-security-results/
+
+    - name: Generate comprehensive security report
+      run: |
+        mkdir -p final-security-report
+        
+        echo "# Comprehensive Security Report" > final-security-report/SECURITY-SUMMARY.md
+        echo "Generated on: $(date)" >> final-security-report/SECURITY-SUMMARY.md
+        echo "Repository: ${{ github.repository }}" >> final-security-report/SECURITY-SUMMARY.md
+        echo "Scan Type: ${{ github.event.inputs.scan_type || 'scheduled' }}" >> final-security-report/SECURITY-SUMMARY.md
+        echo "" >> final-security-report/SECURITY-SUMMARY.md
+        
+        # Combine results from all scans
+        if [ -d "all-security-results/dependency-scan-results" ]; then
+          echo "## Dependency Security" >> final-security-report/SECURITY-SUMMARY.md
+          if [ -f "all-security-results/dependency-scan-results/vulnerability-summary.md" ]; then
+            cat all-security-results/dependency-scan-results/vulnerability-summary.md >> final-security-report/SECURITY-SUMMARY.md
+          fi
+          echo "" >> final-security-report/SECURITY-SUMMARY.md
+        fi
+        
+        if [ -d "all-security-results/code-analysis-results" ]; then
+          echo "## Static Code Analysis" >> final-security-report/SECURITY-SUMMARY.md
+          if [ -f "all-security-results/code-analysis-results/secret-scan.md" ]; then
+            cat all-security-results/code-analysis-results/secret-scan.md >> final-security-report/SECURITY-SUMMARY.md
+          fi
+          echo "" >> final-security-report/SECURITY-SUMMARY.md
+        fi
+        
+        echo "## Recommendations" >> final-security-report/SECURITY-SUMMARY.md
+        echo "1. Review all identified vulnerabilities" >> final-security-report/SECURITY-SUMMARY.md
+        echo "2. Update dependencies to latest secure versions" >> final-security-report/SECURITY-SUMMARY.md
+        echo "3. Address any hardcoded secrets or credentials" >> final-security-report/SECURITY-SUMMARY.md
+        echo "4. Review container base image for vulnerabilities" >> final-security-report/SECURITY-SUMMARY.md
+        echo "5. Implement additional security controls as needed" >> final-security-report/SECURITY-SUMMARY.md
+        
+        # Copy all detailed results
+        cp -r all-security-results/* final-security-report/ 2>/dev/null || true
+
+    - name: Upload final security report
+      uses: actions/upload-artifact@v4
+      with:
+        name: comprehensive-security-report-${{ github.run_id }}
+        path: final-security-report/
+        retention-days: 90
+
+    - name: Create security issue (if critical vulnerabilities found)
+      uses: actions/github-script@v7
+      if: needs.dependency-scan.outputs.critical-vulns > 0
+      with:
+        script: |
+          const criticalCount = ${{ needs.dependency-scan.outputs.critical-vulns }};
+          const highCount = ${{ needs.dependency-scan.outputs.high-vulns }};
+          
+          const issueTitle = `🚨 Critical Security Vulnerabilities Detected (${criticalCount} critical, ${highCount} high)`;
+          const issueBody = `## Security Alert
+          
+          Our automated security scan has detected critical vulnerabilities that require immediate attention.
+          
+          ### Summary
+          - **Critical vulnerabilities:** ${criticalCount}
+          - **High severity vulnerabilities:** ${highCount}
+          - **Scan date:** ${new Date().toISOString()}
+          - **Workflow run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          ### Action Required
+          1. Download the security report from the workflow artifacts
+          2. Review all critical and high severity vulnerabilities
+          3. Update affected dependencies immediately
+          4. Test the application after updates
+          5. Close this issue once all critical vulnerabilities are resolved
+          
+          ### Resources
+          - [Security Report Artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - [npm audit documentation](https://docs.npmjs.com/cli/v8/commands/npm-audit)
+          - [Security Best Practices](https://nodejs.org/en/docs/guides/security/)
+          
+          **This issue was automatically created by the security scanning workflow.**`;
+          
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: issueTitle,
+            body: issueBody,
+            labels: ['security', 'critical', 'vulnerability']
+          });
+
+  notify-completion:
+    name: Notify Security Scan Completion
+    runs-on: ubuntu-latest
+    needs: [dependency-scan, code-analysis, container-scan, security-report]
+    if: always()
+    
+    steps:
+    - name: Security scan summary
+      run: |
+        echo "## Security Scan Results Summary"
+        echo "- Dependency scan: ${{ needs.dependency-scan.result }}"
+        echo "- Code analysis: ${{ needs.code-analysis.result }}"
+        echo "- Container scan: ${{ needs.container-scan.result }}"
+        echo "- Report generation: ${{ needs.security-report.result }}"
+        echo ""
+        echo "Critical vulnerabilities found: ${{ needs.dependency-scan.outputs.critical-vulns || 0 }}"
+        echo "High severity vulnerabilities found: ${{ needs.dependency-scan.outputs.high-vulns || 0 }}"
+        echo ""
+        echo "Download detailed reports from workflow artifacts."

@@ -3,29 +3,37 @@ Wave 3 Features Validation Report
 ================================
 
 Summary:
-- Total Tests: 26
-- Passed: 26
-- Failed: 0
+- Total Tests: 19
+- Passed: 13
+- Failed: 6
 - Skipped: 0
-- Success Rate: 100%
+- Success Rate: 68%
 - Duration: 0s
 
 Component Coverage:
 - ResearchOrchestrator: 85%
 - StealthBrowserManager: 80%
 - LocalizationManager: 90%
-- ChangeTracker: 88%
+- ChangeTracker: 0%
 
 Performance:
 - Average Test Time: 1ms
 - Memory Usage: N/A
 
 
+Errors:
+- Fingerprint Generation: stealthManager.generateFingerprint is not a function
+- Anti-Detection Scripts Generation: stealthManager.generateAntiDetectionScripts is not a function
+- ChangeTracker: Failed to load or test: Invalid or unexpected token
+- Track Changes MCP Tool: Invalid or unexpected token
+- MCP Protocol Compliance: Invalid or unexpected token
+- Component Integration: Integration test failed: Invalid or unexpected token
+- Error Handling and Recovery: Error handling test failed: Invalid or unexpected token
 
 
 Warnings:
 - English text detection may be inaccurate
 - German text detection may be inaccurate
 
-Generated: 2025-08-14T22:12:45.632Z
+Generated: 2025-08-14T23:36:37.318Z
   

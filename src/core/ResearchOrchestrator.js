@@ -7,11 +7,19 @@ import { QueryExpander } from '../tools/search/queryExpander.js';
 import { ResultRanker } from '../tools/search/ranking/ResultRanker.js';
 import { CacheManager } from './cache/CacheManager.js';
 import { Logger } from '../utils/Logger.js';
+import { LLMManager } from './llm/LLMManager.js';
 
 /**
- * ResearchOrchestrator - Multi-stage research orchestration engine
+ * ResearchOrchestrator - Multi-stage research orchestration engine with LLM integration
  * Coordinates complex research workflows with intelligent query expansion,
- * source verification, and information synthesis
+ * source verification, information synthesis, and AI-powered analysis
+ * 
+ * Phase 2.1 Features:
+ * - LLM-powered query expansion with semantic understanding
+ * - AI-driven relevance scoring and content analysis
+ * - Intelligent research synthesis with conflict detection
+ * - Advanced provenance tracking and activity logging
+ * - Smart URL prioritization based on content quality
  */
 export class ResearchOrchestrator extends EventEmitter {
   constructor(options = {}) {
@@ -50,6 +58,16 @@ export class ResearchOrchestrator extends EventEmitter {
     this.resultRanker = new ResultRanker();
     this.cache = cacheEnabled ? new CacheManager({ ttl: cacheTTL }) : null;
     this.logger = new Logger({ component: 'ResearchOrchestrator' });
+    
+    // Initialize LLM Manager for AI-powered research
+    this.llmManager = new LLMManager(options.llmConfig || {});
+    this.enableLLMFeatures = this.llmManager.isAvailable();
+    
+    if (this.enableLLMFeatures) {
+      this.logger.info('LLM-powered research features enabled');
+    } else {
+      this.logger.warn('LLM providers not available, using fallback methods');
+    }
 
     // Research state tracking
     this.researchState = {
@@ -62,7 +80,11 @@ export class ResearchOrchestrator extends EventEmitter {
       researchFindings: [],
       credibilityScores: new Map(),
       conflictMap: new Map(),
-      activityLog: []
+      activityLog: [],
+      llmAnalysis: new Map(),
+      semanticSimilarities: new Map(),
+      relevanceScores: new Map(),
+      synthesisHistory: []
     };
 
     // Performance metrics
@@ -73,7 +95,11 @@ export class ResearchOrchestrator extends EventEmitter {
       conflictsDetected: 0,
       sourcesVerified: 0,
       cacheHits: 0,
-      totalProcessingTime: 0
+      totalProcessingTime: 0,
+      llmAnalysisCalls: 0,
+      semanticAnalysisTime: 0,
+      queryExpansionTime: 0,
+      synthesisTime: 0
     };
   }
 
@@ -167,11 +193,13 @@ export class ResearchOrchestrator extends EventEmitter {
   }
 
   /**
-   * Expand research topic into multiple targeted queries
+   * Expand research topic into multiple targeted queries with LLM enhancement
    */
   async expandResearchTopic(topic) {
+    const startTime = Date.now();
+    
     try {
-      const cacheKey = this.cache ? this.cache.generateKey('topic_expansion', { topic }) : null;
+      const cacheKey = this.cache ? this.cache.generateKey('topic_expansion_v2', { topic, llm: this.enableLLMFeatures }) : null;
       
       if (this.cache && cacheKey) {
         const cached = await this.cache.get(cacheKey);
@@ -181,28 +209,50 @@ export class ResearchOrchestrator extends EventEmitter {
         }
       }
 
-      // Generate multiple research angles
-      const expandedQueries = await this.queryExpander.expandQuery(topic, {
-        enableSynonyms: true,
-        enableSpellCheck: true,
-        enablePhraseDetection: true,
-        maxExpansions: 8
-      });
+      let expandedQueries = [];
+      
+      // LLM-powered query expansion (preferred)
+      if (this.enableLLMFeatures) {
+        try {
+          this.logger.info('Using LLM for intelligent query expansion');
+          expandedQueries = await this.llmManager.expandQuery(topic, {
+            maxExpansions: 8,
+            includeContextual: true,
+            includeSynonyms: true,
+            includeRelated: true
+          });
+          this.metrics.llmAnalysisCalls++;
+        } catch (llmError) {
+          this.logger.warn('LLM query expansion failed, falling back to traditional methods', { error: llmError.message });
+        }
+      }
+      
+      // Fallback to traditional expansion if LLM failed or unavailable
+      if (expandedQueries.length === 0) {
+        expandedQueries = await this.queryExpander.expandQuery(topic, {
+          enableSynonyms: true,
+          enableSpellCheck: true,
+          enablePhraseDetection: true,
+          maxExpansions: 8
+        });
+      }
 
       // Add research-specific query variations
       const researchVariations = this.generateResearchVariations(topic);
       const allQueries = [...new Set([topic, ...expandedQueries, ...researchVariations])];
 
-      // Rank queries by research relevance
-      const rankedQueries = this.rankResearchQueries(allQueries, topic);
+      // Rank queries by research relevance with semantic understanding
+      const rankedQueries = await this.rankResearchQueriesWithSemantics(allQueries, topic);
 
       if (this.cache && cacheKey) {
         await this.cache.set(cacheKey, rankedQueries);
       }
-
+      
+      this.metrics.queryExpansionTime += Date.now() - startTime;
       return rankedQueries;
     } catch (error) {
       this.logger.warn('Topic expansion failed, using original topic', { error: error.message });
+      this.metrics.queryExpansionTime += Date.now() - startTime;
       return [topic];
     }
   }
@@ -237,29 +287,91 @@ export class ResearchOrchestrator extends EventEmitter {
   }
 
   /**
-   * Rank research queries by relevance and specificity
+   * Rank research queries by relevance and specificity with semantic analysis
    */
-  rankResearchQueries(queries, originalTopic) {
-    const scored = queries.map(query => {
-      let score = 0.5; // Base score
-      
-      // Give original topic highest priority
-      if (query === originalTopic) {
-        score = 1.0; // Highest score for original topic
-      } else {
-        // Prefer queries that include original topic terms
+  async rankResearchQueriesWithSemantics(queries, originalTopic) {
+    const startTime = Date.now();
+    
+    try {
+      const scored = await Promise.all(queries.map(async (query) => {
+        let score = 0.5; // Base score
+        
+        // Give original topic highest priority
+        if (query === originalTopic) {
+          return { query, score: 1.0 };
+        }
+        
+        // Traditional scoring
         const topicWords = originalTopic.toLowerCase().split(" ");
         const queryWords = query.toLowerCase().split(" ");
         const overlap = topicWords.filter(word => queryWords.includes(word));
         score += (overlap.length / topicWords.length) * 0.3;
         
-        // Prefer research-oriented queries
+        // Research-oriented bonus
         const researchKeywords = ["research", "study", "analysis", "academic", "scientific"];
         if (researchKeywords.some(keyword => query.toLowerCase().includes(keyword))) {
           score += 0.2;
         }
         
-        // Prefer specific over generic
+        // Length preference
+        if (query.length > 10 && query.length < 100) {
+          score += 0.1;
+        }
+        
+        // Semantic similarity boost (if LLM available)
+        if (this.enableLLMFeatures) {
+          try {
+            const similarity = await this.llmManager.calculateSimilarity(originalTopic, query);
+            score += similarity * 0.3; // Semantic similarity weight
+            this.researchState.semanticSimilarities.set(query, similarity);
+          } catch (semanticError) {
+            this.logger.debug('Semantic similarity calculation failed', { query, error: semanticError.message });
+          }
+        }
+        
+        return { query, score };
+      }));
+
+      const sortedQueries = scored
+        .sort((a, b) => b.score - a.score)
+        .map(item => item.query);
+      
+      // Ensure original topic is always first
+      const result = [originalTopic];
+      sortedQueries.forEach(query => {
+        if (query !== originalTopic && result.length < this.maxDepth) {
+          result.push(query);
+        }
+      });
+      
+      this.metrics.semanticAnalysisTime += Date.now() - startTime;
+      return result.slice(0, this.maxDepth);
+    } catch (error) {
+      this.logger.warn('Semantic ranking failed, using fallback', { error: error.message });
+      return this.rankResearchQueries(queries, originalTopic);
+    }
+  }
+  
+  /**
+   * Fallback ranking method (original implementation)
+   */
+  rankResearchQueries(queries, originalTopic) {
+    const scored = queries.map(query => {
+      let score = 0.5;
+      
+      if (query === originalTopic) {
+        score = 1.0;
+      } else {
+        const topicWords = originalTopic.toLowerCase().split(" ");
+        const queryWords = query.toLowerCase().split(" ");
+        const overlap = topicWords.filter(word => queryWords.includes(word));
+        score += (overlap.length / topicWords.length) * 0.3;
+        
+        const researchKeywords = ["research", "study", "analysis", "academic", "scientific"];
+        if (researchKeywords.some(keyword => query.toLowerCase().includes(keyword))) {
+          score += 0.2;
+        }
+        
         if (query.length > 10 && query.length < 100) {
           score += 0.1;
         }
@@ -272,24 +384,12 @@ export class ResearchOrchestrator extends EventEmitter {
       .sort((a, b) => b.score - a.score)
       .map(item => item.query);
     
-    // Ensure original topic is always included at the top
-    const result = [];
-    if (sortedQueries.includes(originalTopic)) {
-      result.push(originalTopic);
-      sortedQueries.forEach(query => {
-        if (query !== originalTopic && result.length < this.maxDepth) {
-          result.push(query);
-        }
-      });
-    } else {
-      // Fallback: original topic should always be first
-      result.push(originalTopic);
-      sortedQueries.slice(0, this.maxDepth - 1).forEach(query => {
-        if (query !== originalTopic) {
-          result.push(query);
-        }
-      });
-    }
+    const result = [originalTopic];
+    sortedQueries.forEach(query => {
+      if (query !== originalTopic && result.length < this.maxDepth) {
+        result.push(query);
+      }
+    });
     
     return result.slice(0, this.maxDepth);
   }
@@ -342,11 +442,12 @@ export class ResearchOrchestrator extends EventEmitter {
   }
 
   /**
-   * Explore promising sources in depth
+   * Explore promising sources in depth with LLM-powered relevance analysis
    */
   async exploreSourcesInDepth(sources, options) {
     const detailedFindings = [];
     const batchSize = Math.min(this.concurrency, 10);
+    const { topic } = this.researchState;
     
     await this.processWithTimeLimit(async () => {
       for (let i = 0; i < sources.length; i += batchSize) {
@@ -371,7 +472,7 @@ export class ResearchOrchestrator extends EventEmitter {
               this.metrics.contentExtracted++;
               
               // Enhance source with extracted content
-              const enhancedSource = {
+              let enhancedSource = {
                 ...source,
                 extractedContent: contentData.content,
                 metadata: contentData.metadata,
@@ -380,6 +481,39 @@ export class ResearchOrchestrator extends EventEmitter {
                 wordCount: contentData.content.split(' ').length,
                 readabilityScore: this.calculateReadabilityScore(contentData.content)
               };
+
+              // LLM-powered relevance analysis
+              if (this.enableLLMFeatures && topic) {
+                try {
+                  const relevanceAnalysis = await this.llmManager.analyzeRelevance(
+                    contentData.content, 
+                    topic,
+                    { maxContentLength: 2000 }
+                  );
+                  
+                  enhancedSource.llmAnalysis = relevanceAnalysis;
+                  enhancedSource.relevanceScore = relevanceAnalysis.relevanceScore;
+                  this.researchState.llmAnalysis.set(source.link, relevanceAnalysis);
+                  this.researchState.relevanceScores.set(source.link, relevanceAnalysis.relevanceScore);
+                  this.metrics.llmAnalysisCalls++;
+                  
+                  this.logger.debug('LLM relevance analysis completed', {
+                    url: source.link,
+                    relevanceScore: relevanceAnalysis.relevanceScore,
+                    keyPoints: relevanceAnalysis.keyPoints.length
+                  });
+                } catch (llmError) {
+                  this.logger.warn('LLM relevance analysis failed', { 
+                    url: source.link, 
+                    error: llmError.message 
+                  });
+                  // Set default relevance score
+                  enhancedSource.relevanceScore = this.calculateTraditionalRelevance(contentData.content, topic);
+                }
+              } else {
+                // Fallback relevance calculation
+                enhancedSource.relevanceScore = this.calculateTraditionalRelevance(contentData.content, topic);
+              }
 
               this.researchState.extractedContent.set(source.link, enhancedSource);
               return enhancedSource;
@@ -400,7 +534,8 @@ export class ResearchOrchestrator extends EventEmitter {
       }
     });
 
-    return detailedFindings;
+    // Sort by relevance score (LLM or traditional)
+    return detailedFindings.sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
   }
 
   /**
@@ -447,16 +582,18 @@ export class ResearchOrchestrator extends EventEmitter {
   }
 
   /**
-   * Synthesize information and detect conflicts
+   * Synthesize information and detect conflicts with LLM enhancement
    */
   async synthesizeInformation(sources, topic) {
+    const startTime = Date.now();
     const synthesis = {
       keyFindings: [],
       supportingEvidence: [],
       conflicts: [],
       consensus: [],
       gaps: [],
-      recommendations: []
+      recommendations: [],
+      llmSynthesis: null
     };
 
     try {
@@ -487,11 +624,57 @@ export class ResearchOrchestrator extends EventEmitter {
       // Generate recommendations
       synthesis.recommendations = this.generateResearchRecommendations(synthesis, topic);
 
+      // LLM-powered comprehensive synthesis
+      if (this.enableLLMFeatures && sources.length > 0) {
+        try {
+          this.logger.info('Generating LLM-powered research synthesis');
+          
+          // Prepare findings for LLM analysis
+          const findingsForLLM = synthesis.keyFindings.map(finding => ({
+            finding: finding.finding,
+            credibility: finding.credibility,
+            sources: finding.sources.length
+          }));
+
+          const llmSynthesis = await this.llmManager.synthesizeFindings(
+            findingsForLLM,
+            topic,
+            { 
+              maxFindings: 10, 
+              includeConflicts: synthesis.conflicts.length > 0 
+            }
+          );
+
+          synthesis.llmSynthesis = llmSynthesis;
+          this.researchState.synthesisHistory.push({
+            timestamp: new Date().toISOString(),
+            topic,
+            synthesis: llmSynthesis,
+            sourceCount: sources.length
+          });
+
+          this.metrics.llmAnalysisCalls++;
+          this.logger.info('LLM synthesis completed', {
+            confidence: llmSynthesis.confidence,
+            insights: llmSynthesis.keyInsights?.length || 0,
+            themes: llmSynthesis.themes?.length || 0
+          });
+
+        } catch (llmError) {
+          this.logger.warn('LLM synthesis failed', { error: llmError.message });
+          synthesis.llmSynthesis = {
+            error: 'LLM synthesis unavailable',
+            fallback: true
+          };
+        }
+      }
+
     } catch (error) {
       this.logger.error('Information synthesis failed', { error: error.message });
       synthesis.error = error.message;
     }
 
+    this.metrics.synthesisTime += Date.now() - startTime;
     return synthesis;
   }
 
@@ -791,6 +974,36 @@ export class ResearchOrchestrator extends EventEmitter {
   }
 
   /**
+   * Calculate traditional relevance score without LLM
+   */
+  calculateTraditionalRelevance(content, topic) {
+    if (!content || !topic) return 0.5;
+    
+    const topicWords = topic.toLowerCase().split(/\s+/).filter(word => word.length > 2);
+    const contentLower = content.toLowerCase();
+    
+    let matches = 0;
+    let totalWeight = 0;
+    
+    topicWords.forEach(word => {
+      const regex = new RegExp(`\\b${word}\\b`, 'g');
+      const wordMatches = (contentLower.match(regex) || []).length;
+      matches += wordMatches;
+      totalWeight += word.length * wordMatches; // Weight by word importance
+    });
+    
+    // Calculate relevance based on keyword density and content length
+    const contentWords = content.split(/\s+/).length;
+    const density = matches / Math.max(contentWords, 1);
+    const coverage = matches / Math.max(topicWords.length, 1);
+    
+    // Combine density and coverage with weights
+    const relevanceScore = (density * 0.4) + (coverage * 0.6);
+    
+    return Math.min(1, Math.max(0, relevanceScore));
+  }
+
+  /**
    * Utility methods for research workflow
    */
   async processWithTimeLimit(asyncFunction) {
@@ -900,7 +1113,7 @@ export class ResearchOrchestrator extends EventEmitter {
   }
 
   compileResearchResults(topic, synthesis, options) {
-    return {
+    const baseResults = {
       sessionId: this.researchState.sessionId,
       topic,
       researchSummary: {
@@ -908,7 +1121,8 @@ export class ResearchOrchestrator extends EventEmitter {
         verifiedSources: this.metrics.sourcesVerified,
         keyFindings: synthesis.keyFindings.length,
         conflictsFound: synthesis.conflicts.length,
-        consensusAreas: synthesis.consensus.length
+        consensusAreas: synthesis.consensus.length,
+        llmEnhanced: this.enableLLMFeatures
       },
       findings: synthesis.keyFindings,
       supportingEvidence: synthesis.supportingEvidence,
@@ -935,10 +1149,55 @@ export class ResearchOrchestrator extends EventEmitter {
         configuration: {
           maxDepth: this.maxDepth,
           maxUrls: this.maxUrls,
-          timeLimit: this.timeLimit
+          timeLimit: this.timeLimit,
+          llmEnabled: this.enableLLMFeatures
         }
       }
     };
+
+    // Add LLM-specific analysis if available
+    if (this.enableLLMFeatures) {
+      baseResults.llmAnalysis = {
+        synthesis: synthesis.llmSynthesis,
+        relevanceScores: Object.fromEntries(this.researchState.relevanceScores),
+        semanticSimilarities: Object.fromEntries(this.researchState.semanticSimilarities),
+        analysisHistory: this.researchState.synthesisHistory,
+        llmMetrics: {
+          totalLLMCalls: this.metrics.llmAnalysisCalls,
+          semanticAnalysisTime: this.metrics.semanticAnalysisTime,
+          queryExpansionTime: this.metrics.queryExpansionTime,
+          synthesisTime: this.metrics.synthesisTime
+        }
+      };
+
+      // Enhanced insights from LLM synthesis
+      if (synthesis.llmSynthesis && !synthesis.llmSynthesis.error) {
+        baseResults.insights = {
+          aiSummary: synthesis.llmSynthesis.summary,
+          keyThemes: synthesis.llmSynthesis.themes,
+          confidenceLevel: synthesis.llmSynthesis.confidence,
+          intelligentInsights: synthesis.llmSynthesis.keyInsights,
+          aiRecommendations: synthesis.llmSynthesis.recommendations,
+          identifiedGaps: synthesis.llmSynthesis.gaps
+        };
+      }
+
+      // Provenance tracking for LLM-enhanced sources
+      baseResults.provenance = {
+        sourceAnalysis: Array.from(this.researchState.llmAnalysis.entries()).map(([url, analysis]) => ({
+          url,
+          relevanceScore: analysis.relevanceScore,
+          keyPoints: analysis.keyPoints,
+          topicAlignment: analysis.topicAlignment,
+          credibilityIndicators: analysis.credibilityIndicators
+        })),
+        queryExpansion: this.researchState.semanticSimilarities.size > 0 ? 
+          Object.fromEntries(this.researchState.semanticSimilarities) : null,
+        totalAnalyzedSources: this.researchState.llmAnalysis.size
+      };
+    }
+
+    return baseResults;
   }
 
   handleResearchError(error, topic, sessionId) {
@@ -1037,7 +1296,11 @@ export class ResearchOrchestrator extends EventEmitter {
         researchFindings: [],
         credibilityScores: new Map(),
         conflictMap: new Map(),
-        activityLog: []
+        activityLog: [],
+        llmAnalysis: new Map(),
+        semanticSimilarities: new Map(),
+        relevanceScores: new Map(),
+        synthesisHistory: []
       };
       
       // Reset metrics
@@ -1048,7 +1311,11 @@ export class ResearchOrchestrator extends EventEmitter {
         conflictsDetected: 0,
         sourcesVerified: 0,
         cacheHits: 0,
-        totalProcessingTime: 0
+        totalProcessingTime: 0,
+        llmAnalysisCalls: 0,
+        semanticAnalysisTime: 0,
+        queryExpansionTime: 0,
+        synthesisTime: 0
       };
       
     } catch (error) {

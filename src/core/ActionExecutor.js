@@ -523,7 +523,7 @@ export class ActionExecutor extends EventEmitter {
   }
 
   /**
-   * Execute click action
+   * Execute click action with human behavior simulation
    * @param {Page} page - Playwright page
    * @param {Object} action - Click action
    * @returns {Promise<Object>} Click result
@@ -531,18 +531,32 @@ export class ActionExecutor extends EventEmitter {
   async executeClickAction(page, action) {
     const element = await page.waitForSelector(action.selector);
     
-    const clickOptions = {
-      button: action.button,
-      clickCount: action.clickCount,
-      delay: action.delay,
-      force: action.force
-    };
+    // Check if stealth mode is enabled and use human behavior
+    const humanBehaviorSimulator = this.browserProcessor.stealthManager?.humanBehaviorSimulator;
+    
+    if (humanBehaviorSimulator) {
+      // Use human-like clicking behavior
+      await humanBehaviorSimulator.simulateClick(page, action.selector, {
+        button: action.button,
+        clickCount: action.clickCount,
+        delay: action.delay,
+        force: action.force
+      });
+    } else {
+      // Standard click behavior
+      const clickOptions = {
+        button: action.button,
+        clickCount: action.clickCount,
+        delay: action.delay,
+        force: action.force
+      };
 
-    if (action.position) {
-      clickOptions.position = action.position;
+      if (action.position) {
+        clickOptions.position = action.position;
+      }
+
+      await element.click(clickOptions);
     }
-
-    await element.click(clickOptions);
     
     return {
       selector: action.selector,
@@ -553,7 +567,7 @@ export class ActionExecutor extends EventEmitter {
   }
 
   /**
-   * Execute type action
+   * Execute type action with human behavior simulation
    * @param {Page} page - Playwright page
    * @param {Object} action - Type action
    * @returns {Promise<Object>} Type result
@@ -561,12 +575,21 @@ export class ActionExecutor extends EventEmitter {
   async executeTypeAction(page, action) {
     const element = await page.waitForSelector(action.selector);
     
+    // Check if stealth mode is enabled and use human behavior
+    const humanBehaviorSimulator = this.browserProcessor.stealthManager?.humanBehaviorSimulator;
+    
     if (action.clear) {
       await element.selectText();
       await element.press('Delete');
     }
 
-    await element.type(action.text, { delay: action.delay });
+    if (humanBehaviorSimulator) {
+      // Use human-like typing behavior
+      await humanBehaviorSimulator.simulateTyping(page, action.selector, action.text);
+    } else {
+      // Standard typing behavior
+      await element.type(action.text, { delay: action.delay });
+    }
     
     return {
       selector: action.selector,
@@ -602,40 +625,60 @@ export class ActionExecutor extends EventEmitter {
   }
 
   /**
-   * Execute scroll action
+   * Execute scroll action with human behavior simulation
    * @param {Page} page - Playwright page
    * @param {Object} action - Scroll action
    * @returns {Promise<Object>} Scroll result
    */
   async executeScrollAction(page, action) {
+    // Check if stealth mode is enabled and use human behavior
+    const humanBehaviorSimulator = this.browserProcessor.stealthManager?.humanBehaviorSimulator;
+    
     if (action.toElement) {
-      const element = await page.waitForSelector(action.toElement);
-      await element.scrollIntoView();
+      if (humanBehaviorSimulator) {
+        // Use human-like scrolling to element
+        await humanBehaviorSimulator.simulateScroll(page, {
+          target: action.toElement
+        });
+      } else {
+        const element = await page.waitForSelector(action.toElement);
+        await element.scrollIntoView();
+      }
       return { scrolledToElement: action.toElement };
     }
 
-    let deltaX = 0, deltaY = 0;
-    switch (action.direction) {
-      case 'up':
-        deltaY = -action.distance;
-        break;
-      case 'down':
-        deltaY = action.distance;
-        break;
-      case 'left':
-        deltaX = -action.distance;
-        break;
-      case 'right':
-        deltaX = action.distance;
-        break;
-    }
-
-    if (action.selector) {
-      const element = await page.waitForSelector(action.selector);
-      await element.hover();
-      await page.mouse.wheel(deltaX, deltaY);
+    if (humanBehaviorSimulator) {
+      // Use human-like scrolling behavior
+      await humanBehaviorSimulator.simulateScroll(page, {
+        direction: action.direction,
+        distance: action.distance,
+        duration: 1000 + Math.random() * 1000 // Variable duration
+      });
     } else {
-      await page.mouse.wheel(deltaX, deltaY);
+      // Standard scroll behavior
+      let deltaX = 0, deltaY = 0;
+      switch (action.direction) {
+        case 'up':
+          deltaY = -action.distance;
+          break;
+        case 'down':
+          deltaY = action.distance;
+          break;
+        case 'left':
+          deltaX = -action.distance;
+          break;
+        case 'right':
+          deltaX = action.distance;
+          break;
+      }
+
+      if (action.selector) {
+        const element = await page.waitForSelector(action.selector);
+        await element.hover();
+        await page.mouse.wheel(deltaX, deltaY);
+      } else {
+        await page.mouse.wheel(deltaX, deltaY);
+      }
     }
 
     return {
@@ -715,13 +758,55 @@ export class ActionExecutor extends EventEmitter {
     // Use the enhanced BrowserProcessor initialization that supports stealth mode
     const page = await this.browserProcessor.initializePage(browserOptions);
     
+    // Apply CloudFlare and reCAPTCHA detection if stealth mode is enabled
+    if (browserOptions.stealthMode?.enabled && this.browserProcessor.stealthManager) {
+      // Initialize human behavior simulator for the page
+      await this.browserProcessor.stealthManager.initializeHumanBehaviorSimulator();
+    }
+    
     // Navigate to URL
     await page.goto(url, {
       waitUntil: 'domcontentloaded',
       timeout: 30000
     });
+    
+    // Handle CloudFlare challenges and reCAPTCHA if stealth mode is enabled
+    if (browserOptions.stealthMode?.enabled && this.browserProcessor.stealthManager) {
+      await this.browserProcessor.stealthManager.bypassCloudflareChallenge(page);
+      await this.browserProcessor.stealthManager.handleRecaptcha(page);
+      
+      // Simulate initial human behavior on page load
+      if (browserOptions.humanBehavior?.enabled) {
+        await this.simulateInitialPageInteraction(page);
+      }
+    }
 
     return page;
+  }
+  
+  /**
+   * Simulate initial human behavior when landing on a page
+   * @param {Page} page - Playwright page
+   * @returns {Promise<void>}
+   */
+  async simulateInitialPageInteraction(page) {
+    if (!this.browserProcessor.stealthManager?.humanBehaviorSimulator) return;
+    
+    const simulator = this.browserProcessor.stealthManager.humanBehaviorSimulator;
+    
+    // Brief reading time for page load
+    await simulator.simulateReadingTime(page);
+    
+    // Random mouse movements
+    await this.browserProcessor.stealthManager.simulateRealisticMouseMovements(page);
+    
+    // Possible scroll behavior
+    if (Math.random() < 0.4) { // 40% chance
+      await this.browserProcessor.stealthManager.simulateNaturalScrolling(page);
+    }
+    
+    // Random idle period
+    await simulator.simulateIdlePeriod();
   }
 
   /**

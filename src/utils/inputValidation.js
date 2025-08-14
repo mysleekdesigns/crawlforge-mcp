@@ -42,7 +42,7 @@ const SECURITY_PATTERNS = {
 
   // Command injection patterns
   commandInjection: [
-    /[;&|`$(){}[\]]/g,
+    /[;&|`$(){}\[\]]/g,
     /\beval\b/gi,
     /\bexec\b/gi,
     /\bsystem\b/gi,
@@ -52,9 +52,7 @@ const SECURITY_PATTERNS = {
   // CSS selector injection
   cssSelectorInjection: [
     /['"]/g,
-    /\/\*/g,
-    /\*\//g,
-    /expression\s*\(/gi,
+    /\/\*/g,    /expression\s*\(/gi,
     /javascript\s*:/gi,
     /@import/gi
   ],

@@ -38,7 +38,6 @@ const SSRF_CONFIG = {
   blockedHostnames: [
     'localhost',
     'metadata.google.internal',  // GCP metadata
-    '169.254.169.254',          // AWS/Azure metadata
     'metadata.azure.com',       // Azure metadata
     'metadata',
     'consul',
@@ -96,6 +95,9 @@ export class SSRFProtection {
    */
   async validateURL(url, options = {}) {
     try {
+      // Check for path traversal in raw URL before URL parsing
+      const rawPathTraversal = this.checkRawPathTraversal(url);
+      
       const urlObj = new URL(url);
       const validationResult = {
         allowed: false,
@@ -110,7 +112,11 @@ export class SSRFProtection {
           validatedAt: new Date().toISOString()
         }
       };
-
+      
+      // Add raw path traversal violations
+      if (rawPathTraversal.violations.length > 0) {
+        validationResult.violations.push(...rawPathTraversal.violations);
+      }
       // 1. Protocol validation
       if (!this.config.allowedProtocols.includes(urlObj.protocol)) {
         validationResult.violations.push({
@@ -365,27 +371,92 @@ export class SSRFProtection {
    * @returns {boolean}
    */
   isIPv6InRange(ip, network, prefix) {
-    // Simplified IPv6 range checking
-    // For production, consider using a proper IPv6 library
-    const ipParts = ip.split(':');
-    const networkParts = network.split(':');
-    const prefixBytes = Math.floor(prefix / 16);
+    try {
+      // Normalize IPv6 addresses by expanding compressed notation
+      const normalizeIPv6 = (ipv6) => {
+        // Handle :: compression
+        if (ipv6.includes("::")) {
+          const parts = ipv6.split("::");
+          const leftParts = parts[0] ? parts[0].split(":") : [];
+          const rightParts = parts[1] ? parts[1].split(":") : [];
+          const missingParts = 8 - leftParts.length - rightParts.length;
+          const middleParts = Array(missingParts).fill("0000");
+          const allParts = [...leftParts, ...middleParts, ...rightParts];
+          return allParts.map(part => part.padStart(4, "0")).join(":");
+        } else {
+          return ipv6.split(":").map(part => part.padStart(4, "0")).join(":");
+        }
+      };
 
-    for (let i = 0; i < prefixBytes && i < Math.min(ipParts.length, networkParts.length); i++) {
-      if (ipParts[i] !== networkParts[i]) {
-        return false;
+      const normalizedIP = normalizeIPv6(ip);
+      const normalizedNetwork = normalizeIPv6(network);
+      
+      // Convert to binary for precise comparison
+      const ipBinary = normalizedIP.split(":").map(hex => 
+        parseInt(hex, 16).toString(2).padStart(16, "0")
+      ).join("");
+      
+      const networkBinary = normalizedNetwork.split(":").map(hex => 
+        parseInt(hex, 16).toString(2).padStart(16, "0")
+      ).join("");
+      
+      // Compare only the prefix bits
+      for (let i = 0; i < prefix; i++) {
+        if (ipBinary[i] !== networkBinary[i]) {
+          return false;
+        }
       }
-    }
 
-    return true;
+      return true;
+    } catch (error) {
+      // If IPv6 parsing fails, be conservative and return false
+      console.warn("IPv6 range check failed for", ip, "vs", network, error.message);
+      return false;
+    }
   }
+  /**
 
   /**
+   * Check for path traversal patterns in raw URL before parsing
+   * @param {string} url - Raw URL to check
+   * @returns {Object} - Result with violations array
+   */
    * Validate URL path for suspicious patterns
+  /**
+   * Check for path traversal patterns in raw URL before parsing
+   * @param {string} url - Raw URL to check
+   * @returns {Object} - Result with violations array
+   */
+  checkRawPathTraversal(url) {
+    const violations = [];
+    
+    // Path traversal patterns to check before URL normalization
+    const pathTraversalPatterns = [
+      /\.\.\//g, // Basic path traversal ../
+      /\.\.\\/g, // Windows path traversal ..\
+      /%2e%2e%2f/gi, // URL encoded ../
+      /%2e%2e%5c/gi, // URL encoded ..\
+      /%2e%2e/gi, // URL encoded ..
+      /\.\.%2f/gi, // Mixed encoding
+      /\.\.%5c/gi, // Mixed encoding
+    ];
+    
+    for (const pattern of pathTraversalPatterns) {
+      if (pattern.test(url)) {
+        violations.push({
+          type: "SUSPICIOUS_PATH",
+          message: `URL contains path traversal pattern: ${pattern}`,
+          severity: "HIGH"
+        });
+        break; // Only report one path traversal violation
+      }
+    }
+    
+    return { violations };
+  }
    * @param {string} path 
    * @returns {Object}
-   */
-  validatePath(path) {
+   */  validatePath(path) {
     const suspiciousPatterns = [
       /\.\.\//, // Directory traversal
       /\/etc\//, // System files

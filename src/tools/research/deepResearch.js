@@ -42,6 +42,22 @@ const DeepResearchSchema = z.object({
     maxVariations: z.number().min(1).max(20).optional().default(8)
   }).optional(),
   
+  // LLM Configuration
+  llmConfig: z.object({
+    provider: z.enum(['auto', 'openai', 'anthropic']).optional().default('auto'),
+    openai: z.object({
+      apiKey: z.string().optional(),
+      model: z.string().optional().default('gpt-3.5-turbo'),
+      embeddingModel: z.string().optional().default('text-embedding-ada-002')
+    }).optional(),
+    anthropic: z.object({
+      apiKey: z.string().optional(),
+      model: z.string().optional().default('claude-3-haiku-20240307')
+    }).optional(),
+    enableSemanticAnalysis: z.boolean().optional().default(true),
+    enableIntelligentSynthesis: z.boolean().optional().default(true)
+  }).optional(),
+  
   concurrency: z.number().min(1).max(20).optional().default(5),
   cacheResults: z.boolean().optional().default(true),
   
@@ -186,6 +202,11 @@ export class DeepResearchTool {
    */
   buildOrchestratorConfig(params) {
     const baseConfig = { ...this.defaultOrchestratorConfig };
+    
+    // Add LLM configuration if provided
+    if (params.llmConfig) {
+      baseConfig.llmConfig = params.llmConfig;
+    }
     
     // Adjust configuration based on research approach
     switch (params.researchApproach) {

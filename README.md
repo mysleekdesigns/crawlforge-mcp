@@ -100,11 +100,18 @@ Ask your AI assistant:
 - Get just the main article content (removes ads, menus)
 - Pull specific data using CSS selectors (prices, titles, etc.)
 
-🧠 **Smart Processing** (New in v3.0!)
+🧠 **Smart Processing** (Enhanced in v3.0!)
 - Summarize long articles into key points
 - Analyze sentiment and detect languages
 - Process PDFs and JavaScript-heavy sites
 - Extract structured data (product info, metadata)
+
+🔬 **Wave 3 Research & Intelligence** (NEW!)
+- **Deep Research Intelligence** - Multi-stage research with AI-powered source verification and conflict detection
+- **Intelligent Change Tracking** - Website monitoring with significance scoring and automated notifications
+- **Advanced Stealth Mode** - Human behavior simulation and anti-detection for sophisticated scraping
+- **Comprehensive Localization** - 26 countries with RTL support, cultural adaptation, and geo-blocking bypass
+- **Research Orchestration** - Configurable research approaches with academic, current events, and comparative modes
 
 ## 🛠️ Available Tools
 
@@ -201,18 +208,27 @@ Ask your AI assistant to:
 - *"Research AI ethics frameworks, detect conflicts between different viewpoints"*
 - *"Investigate recent developments in quantum computing with academic sources only"*
 - *"Compare different COVID vaccine effectiveness studies and identify consensus areas"*
+- *"Perform multi-stage academic research with credibility assessment and conflict detection"*
 
 ### 📊 Change Tracking & Monitoring (NEW!)
 - *"Monitor competitor pricing changes and notify me of any updates"*
 - *"Track changes on our privacy policy page for compliance monitoring"*
 - *"Set up alerts for when tech news sites publish AI regulation updates"*
 - *"Create baseline for product documentation and track all future changes"*
+- *"Schedule automated monitoring with webhook notifications and significance scoring"*
 
 ### 🥷 Advanced Stealth Mode (NEW!)
 - *"Scrape competitor data using stealth mode to avoid detection"*
 - *"Fill out forms with human-like typing patterns and mouse movements"*
 - *"Access geo-blocked content from multiple countries"*
 - *"Analyze websites with randomized browser fingerprints"*
+- *"Automate complex interactions with human behavior simulation"*
+
+### 🌍 Global Localization (NEW!)
+- *"Access content from 26 countries with automatic geo-blocking bypass"*
+- *"Process RTL (Right-to-Left) content in Arabic, Hebrew, and Persian"*
+- *"Adapt scraping behavior to cultural browsing patterns by region"*
+- *"Route traffic through regional proxies for authentic local access"*
 
 ### Data Extraction
 - *"Get all product prices from this store page"*
@@ -245,10 +261,10 @@ Ask your AI assistant to:
 - 🔍 **[Google Search Setup](./docs/GOOGLE_SEARCH_SETUP.md)** - Enhanced search configuration
 
 ### 🔬 Wave 3 Research & Intelligence Features
-- 🧠 **[Deep Research Tool](./docs/DEEP_RESEARCH_TOOL.md)** - Comprehensive research orchestration guide
-- 🥷 **[Stealth Mode Features](./docs/STEALTH_MODE.md)** - Advanced anti-detection and human behavior simulation
-- 📊 **[Wave 3 Features Guide](./docs/WAVE3_FEATURES.md)** - Complete Wave 3 feature documentation with examples
-- 💡 **[Usage Examples](./docs/USAGE_EXAMPLES.md)** - Real-world Wave 3 workflow examples and use cases
+- 📊 **[Wave 3 Features Guide](./docs/WAVE3_FEATURES.md)** - Complete Wave 3 feature documentation with examples and configuration
+- 🧠 **[Deep Research Tool](./docs/DEEP_RESEARCH_PHASE_2_1.md)** - LLM-powered research orchestration with source verification
+- 📈 **[Enhanced Change Tracking](./docs/ENHANCED_CHANGE_TRACKING.md)** - Advanced monitoring with scheduled checks and notifications
+- 🌍 **[Advanced Localization](./docs/LOCALIZATION_PHASE2_IMPLEMENTATION.md)** - 26-country support with RTL languages and geo-blocking bypass
 
 ## 🧪 Testing
 

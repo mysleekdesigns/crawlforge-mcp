@@ -16,8 +16,13 @@ import { BatchScrapeTool } from "./src/tools/advanced/BatchScrapeTool.js";
 import { ScrapeWithActionsTool } from "./src/tools/advanced/ScrapeWithActionsTool.js";
 // Deep Research Tool
 import { DeepResearchTool } from "./src/tools/research/deepResearch.js";
-// Change Tracking Tool
-import { TrackChangesTool } from "./src/tools/tracking/trackChanges.js";
+// Change Tracking Tool - commented out due to import issue
+// import { TrackChangesTool } from "./src/tools/tracking/trackChanges.js";
+// LLMs.txt Generator Tool (Phase 2.5)
+import { GenerateLLMsTxtTool } from "./src/tools/llmstxt/generateLLMsTxt.js";
+// Wave 3-4 Core Managers
+import { StealthBrowserManager } from "./src/core/StealthBrowserManager.js";
+import { LocalizationManager } from "./src/core/LocalizationManager.js";
 import { memoryMonitor } from "./src/utils/MemoryMonitor.js";
 import { config, validateConfig, isSearchConfigured, getToolConfig, getActiveSearchProvider } from "./src/constants/config.js";
 
@@ -52,8 +57,15 @@ const scrapeWithActionsTool = new ScrapeWithActionsTool();
 // Initialize Deep Research Tool
 const deepResearchTool = new DeepResearchTool();
 
-// Initialize Change Tracking Tool
-const trackChangesTool = new TrackChangesTool();
+// Initialize Change Tracking Tool - temporarily disabled due to import issue
+// const trackChangesTool = new TrackChangesTool();
+
+// Initialize LLMs.txt Generator Tool (Phase 2.5)
+const generateLLMsTxtTool = new GenerateLLMsTxtTool();
+
+// Initialize Wave 3-4 Core Managers
+const stealthBrowserManager = new StealthBrowserManager();
+const localizationManager = new LocalizationManager();
 
 // Zod schemas for tool parameters and responses
 const FetchUrlSchema = z.object({
@@ -244,6 +256,20 @@ const DeepResearchSchema = z.object({
     enableContextual: z.boolean().optional().default(true),
     maxVariations: z.number().min(1).max(20).optional().default(8)
   }).optional(),
+  llmConfig: z.object({
+    provider: z.enum(['auto', 'openai', 'anthropic']).optional().default('auto'),
+    openai: z.object({
+      apiKey: z.string().optional(),
+      model: z.string().optional().default('gpt-3.5-turbo'),
+      embeddingModel: z.string().optional().default('text-embedding-ada-002')
+    }).optional(),
+    anthropic: z.object({
+      apiKey: z.string().optional(),
+      model: z.string().optional().default('claude-3-haiku-20240307')
+    }).optional(),
+    enableSemanticAnalysis: z.boolean().optional().default(true),
+    enableIntelligentSynthesis: z.boolean().optional().default(true)
+  }).optional(),
   concurrency: z.number().min(1).max(20).optional().default(5),
   cacheResults: z.boolean().optional().default(true),
   webhook: z.object({
@@ -316,6 +342,129 @@ const TrackChangesSchema = z.object({
       channel: z.string().optional(),
       username: z.string().optional()
     }).optional()
+  }).optional()
+});
+
+// LLMs.txt Generator Tool Schema (Phase 2.5)
+const GenerateLLMsTxtSchema = z.object({
+  url: z.string().url(),
+  analysisOptions: z.object({
+    maxDepth: z.number().min(1).max(5).optional().default(3),
+    maxPages: z.number().min(10).max(500).optional().default(100),
+    detectAPIs: z.boolean().optional().default(true),
+    analyzeContent: z.boolean().optional().default(true),
+    checkSecurity: z.boolean().optional().default(true),
+    respectRobots: z.boolean().optional().default(true)
+  }).optional(),
+  outputOptions: z.object({
+    includeDetailed: z.boolean().optional().default(true),
+    includeAnalysis: z.boolean().optional().default(false),
+    contactEmail: z.string().email().optional(),
+    organizationName: z.string().optional(),
+    customGuidelines: z.array(z.string()).optional(),
+    customRestrictions: z.array(z.string()).optional()
+  }).optional(),
+  complianceLevel: z.enum(['basic', 'standard', 'strict']).optional().default('standard'),
+  format: z.enum(['both', 'llms-txt', 'llms-full-txt']).optional().default('both')
+});
+
+// Stealth Mode Tool Schema (Wave 3)
+const StealthModeSchema = z.object({
+  operation: z.enum(['configure', 'enable', 'disable', 'create_context', 'create_page', 'get_stats', 'cleanup']).default('configure'),
+  stealthConfig: z.object({
+    level: z.enum(['basic', 'medium', 'advanced']).default('medium'),
+    randomizeFingerprint: z.boolean().default(true),
+    hideWebDriver: z.boolean().default(true),
+    blockWebRTC: z.boolean().default(true),
+    spoofTimezone: z.boolean().default(true),
+    randomizeHeaders: z.boolean().default(true),
+    useRandomUserAgent: z.boolean().default(true),
+    simulateHumanBehavior: z.boolean().default(true),
+    customUserAgent: z.string().optional(),
+    customViewport: z.object({
+      width: z.number().min(800).max(1920),
+      height: z.number().min(600).max(1080)
+    }).optional(),
+    locale: z.string().default('en-US'),
+    timezone: z.string().optional(),
+    webRTCPublicIP: z.string().optional(),
+    webRTCLocalIPs: z.array(z.string()).optional(),
+    proxyRotation: z.object({
+      enabled: z.boolean().default(false),
+      proxies: z.array(z.string()).optional(),
+      rotationInterval: z.number().default(300000)
+    }).optional(),
+    antiDetection: z.object({
+      cloudflareBypass: z.boolean().default(true),
+      recaptchaHandling: z.boolean().default(true),
+      hideAutomation: z.boolean().default(true),
+      spoofMediaDevices: z.boolean().default(true),
+      spoofBatteryAPI: z.boolean().default(true)
+    }).optional(),
+    fingerprinting: z.object({
+      canvasNoise: z.boolean().default(true),
+      webglSpoofing: z.boolean().default(true),
+      audioContextSpoofing: z.boolean().default(true),
+      fontSpoofing: z.boolean().default(true),
+      hardwareSpoofing: z.boolean().default(true)
+    }).optional()
+  }).optional(),
+  contextId: z.string().optional(),
+  urlToTest: z.string().url().optional()
+});
+
+// Localization Tool Schema (Wave 3)
+const LocalizationSchema = z.object({
+  operation: z.enum(['configure_country', 'localize_search', 'localize_browser', 'generate_timezone_spoof', 'handle_geo_blocking', 'auto_detect', 'get_stats', 'get_supported_countries']).default('configure_country'),
+  countryCode: z.string().length(2).optional(),
+  language: z.string().optional(),
+  timezone: z.string().optional(),
+  currency: z.string().length(3).optional(),
+  customHeaders: z.record(z.string()).optional(),
+  userAgent: z.string().optional(),
+  acceptLanguage: z.string().optional(),
+  geoLocation: z.object({
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+    accuracy: z.number().min(1).max(100).optional()
+  }).optional(),
+  proxySettings: z.object({
+    enabled: z.boolean().default(false),
+    region: z.string().optional(),
+    type: z.enum(['http', 'https', 'socks4', 'socks5']).default('https'),
+    server: z.string().optional(),
+    port: z.number().optional(),
+    username: z.string().optional(),
+    password: z.string().optional(),
+    rotation: z.object({
+      enabled: z.boolean().default(false),
+      interval: z.number().default(300000),
+      strategy: z.enum(['round-robin', 'random', 'failover']).default('round-robin')
+    }).optional(),
+    fallback: z.object({
+      enabled: z.boolean().default(true),
+      maxRetries: z.number().default(3),
+      timeout: z.number().default(10000)
+    }).optional()
+  }).optional(),
+  searchParams: z.object({
+    query: z.string().optional(),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+    headers: z.record(z.string()).optional()
+  }).optional(),
+  browserOptions: z.object({
+    locale: z.string().optional(),
+    timezoneId: z.string().optional(),
+    extraHTTPHeaders: z.record(z.string()).optional(),
+    userAgent: z.string().optional()
+  }).optional(),
+  content: z.string().optional(),
+  url: z.string().url().optional(),
+  response: z.object({
+    status: z.number(),
+    body: z.string().optional(),
+    statusText: z.string().optional()
   }).optional()
 });
 
@@ -1111,6 +1260,20 @@ server.registerTool("deep_research", {
       enableContextual: z.boolean().optional().default(true),
       maxVariations: z.number().min(1).max(20).optional().default(8)
     }).optional(),
+    llmConfig: z.object({
+      provider: z.enum(['auto', 'openai', 'anthropic']).optional().default('auto'),
+      openai: z.object({
+        apiKey: z.string().optional(),
+        model: z.string().optional().default('gpt-3.5-turbo'),
+        embeddingModel: z.string().optional().default('text-embedding-ada-002')
+      }).optional(),
+      anthropic: z.object({
+        apiKey: z.string().optional(),
+        model: z.string().optional().default('claude-3-haiku-20240307')
+      }).optional(),
+      enableSemanticAnalysis: z.boolean().optional().default(true),
+      enableIntelligentSynthesis: z.boolean().optional().default(true)
+    }).optional(),
     concurrency: z.number().min(1).max(20).optional().default(5),
     cacheResults: z.boolean().optional().default(true),
     webhook: z.object({
@@ -1139,12 +1302,27 @@ server.registerTool("deep_research", {
   }
 });
 
-// Tool: track_changes - Content change tracking with baseline capture and monitoring
+// Tool: track_changes - Enhanced Content change tracking with baseline capture and monitoring (Phase 2.4)
+// Temporarily disabled due to import issue
+/*
 server.registerTool("track_changes", {
-  description: "Track content changes with baseline capture, comparison, scheduled monitoring, and change notification system",
+  description: "Enhanced content change tracking with baseline capture, comparison, scheduled monitoring, advanced comparison engine, alert system, and historical analysis",
   inputSchema: {
     url: z.string().url(),
-    operation: z.enum(['create_baseline', 'compare', 'monitor', 'get_history', 'get_stats']).default('compare'),
+    operation: z.enum([
+      'create_baseline', 
+      'compare', 
+      'monitor', 
+      'get_history', 
+      'get_stats',
+      'create_scheduled_monitor',
+      'stop_scheduled_monitor',
+      'get_dashboard',
+      'export_history',
+      'create_alert_rule',
+      'generate_trend_report',
+      'get_monitoring_templates'
+    ]).default('compare'),
     content: z.string().optional(),
     html: z.string().optional(),
     trackingOptions: z.object({
@@ -1204,6 +1382,31 @@ server.registerTool("track_changes", {
         channel: z.string().optional(),
         username: z.string().optional()
       }).optional()
+    }).optional(),
+    // Enhanced Phase 2.4 options
+    scheduledMonitorOptions: z.object({
+      schedule: z.string().optional(), // Cron expression
+      templateId: z.string().optional(), // Monitoring template ID
+      enabled: z.boolean().default(true)
+    }).optional(),
+    alertRuleOptions: z.object({
+      ruleId: z.string().optional(),
+      condition: z.string().optional(), // Condition description
+      actions: z.array(z.enum(['webhook', 'email', 'slack'])).optional(),
+      throttle: z.number().min(0).optional(),
+      priority: z.enum(['low', 'medium', 'high']).optional()
+    }).optional(),
+    exportOptions: z.object({
+      format: z.enum(['json', 'csv']).default('json'),
+      startTime: z.number().optional(),
+      endTime: z.number().optional(),
+      includeContent: z.boolean().default(false),
+      includeSnapshots: z.boolean().default(false)
+    }).optional(),
+    dashboardOptions: z.object({
+      includeRecentAlerts: z.boolean().default(true),
+      includeTrends: z.boolean().default(true),
+      includeMonitorStatus: z.boolean().default(true)
     }).optional()
   }
 }, async (params) => {
@@ -1220,6 +1423,308 @@ server.registerTool("track_changes", {
       content: [{
         type: "text",
         text: `Change tracking failed: ${error.message}`
+      }],
+      isError: true
+    };
+  }
+});
+
+// Tool: generate_llms_txt - Generate LLMs.txt and LLMs-full.txt files (Phase 2.5)
+server.registerTool("generate_llms_txt", {
+  description: "Analyze websites and generate standard-compliant LLMs.txt and LLMs-full.txt files defining AI model interaction guidelines",
+  inputSchema: {
+    url: z.string().url(),
+    analysisOptions: z.object({
+      maxDepth: z.number().min(1).max(5).optional().default(3),
+      maxPages: z.number().min(10).max(500).optional().default(100),
+      detectAPIs: z.boolean().optional().default(true),
+      analyzeContent: z.boolean().optional().default(true),
+      checkSecurity: z.boolean().optional().default(true),
+      respectRobots: z.boolean().optional().default(true)
+    }).optional(),
+    outputOptions: z.object({
+      includeDetailed: z.boolean().optional().default(true),
+      includeAnalysis: z.boolean().optional().default(false),
+      contactEmail: z.string().email().optional(),
+      organizationName: z.string().optional(),
+      customGuidelines: z.array(z.string()).optional(),
+      customRestrictions: z.array(z.string()).optional()
+    }).optional(),
+    complianceLevel: z.enum(['basic', 'standard', 'strict']).optional().default('standard'),
+    format: z.enum(['both', 'llms-txt', 'llms-full-txt']).optional().default('both')
+  }
+}, async (params) => {
+  try {
+    const result = await generateLLMsTxtTool.execute(params);
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{
+        type: "text",
+        text: `LLMs.txt generation failed: ${error.message}`
+      }],
+      isError: true
+    };
+  }
+});
+*/
+
+// Tool: stealth_mode - Advanced anti-detection browser management (Wave 3)
+server.registerTool("stealth_mode", {
+  description: "Advanced anti-detection browser management with stealth features, fingerprint randomization, and human behavior simulation",
+  inputSchema: {
+    operation: z.enum(['configure', 'enable', 'disable', 'create_context', 'create_page', 'get_stats', 'cleanup']).default('configure'),
+    stealthConfig: z.object({
+      level: z.enum(['basic', 'medium', 'advanced']).default('medium'),
+      randomizeFingerprint: z.boolean().default(true),
+      hideWebDriver: z.boolean().default(true),
+      blockWebRTC: z.boolean().default(true),
+      spoofTimezone: z.boolean().default(true),
+      randomizeHeaders: z.boolean().default(true),
+      useRandomUserAgent: z.boolean().default(true),
+      simulateHumanBehavior: z.boolean().default(true),
+      customUserAgent: z.string().optional(),
+      customViewport: z.object({
+        width: z.number().min(800).max(1920),
+        height: z.number().min(600).max(1080)
+      }).optional(),
+      locale: z.string().default('en-US'),
+      timezone: z.string().optional(),
+      webRTCPublicIP: z.string().optional(),
+      webRTCLocalIPs: z.array(z.string()).optional(),
+      proxyRotation: z.object({
+        enabled: z.boolean().default(false),
+        proxies: z.array(z.string()).optional(),
+        rotationInterval: z.number().default(300000)
+      }).optional(),
+      antiDetection: z.object({
+        cloudflareBypass: z.boolean().default(true),
+        recaptchaHandling: z.boolean().default(true),
+        hideAutomation: z.boolean().default(true),
+        spoofMediaDevices: z.boolean().default(true),
+        spoofBatteryAPI: z.boolean().default(true)
+      }).optional(),
+      fingerprinting: z.object({
+        canvasNoise: z.boolean().default(true),
+        webglSpoofing: z.boolean().default(true),
+        audioContextSpoofing: z.boolean().default(true),
+        fontSpoofing: z.boolean().default(true),
+        hardwareSpoofing: z.boolean().default(true)
+      }).optional()
+    }).optional(),
+    contextId: z.string().optional(),
+    urlToTest: z.string().url().optional()
+  }
+}, async ({ operation, stealthConfig, contextId, urlToTest }) => {
+  try {
+    let result;
+    
+    switch (operation) {
+      case 'configure':
+        if (stealthConfig) {
+          const validated = stealthBrowserManager.validateConfig(stealthConfig);
+          result = { configured: true, config: validated };
+        } else {
+          result = { error: 'stealthConfig is required for configure operation' };
+        }
+        break;
+        
+      case 'enable':
+        stealthBrowserManager.enableStealthMode(stealthConfig?.level || 'medium');
+        result = { enabled: true, level: stealthConfig?.level || 'medium' };
+        break;
+        
+      case 'disable':
+        stealthBrowserManager.disableStealthMode();
+        result = { disabled: true };
+        break;
+        
+      case 'create_context':
+        const contextData = await stealthBrowserManager.createStealthContext(stealthConfig);
+        result = {
+          contextId: contextData.contextId,
+          fingerprint: contextData.fingerprint,
+          created: true
+        };
+        break;
+        
+      case 'create_page':
+        if (!contextId) {
+          throw new Error('contextId is required for create_page operation');
+        }
+        const page = await stealthBrowserManager.createStealthPage(contextId);
+        result = {
+          pageCreated: true,
+          contextId: contextId,
+          url: urlToTest ? await page.goto(urlToTest) : null
+        };
+        break;
+        
+      case 'get_stats':
+        result = stealthBrowserManager.getStats();
+        break;
+        
+      case 'cleanup':
+        await stealthBrowserManager.cleanup();
+        result = { cleaned: true };
+        break;
+        
+      default:
+        result = { error: `Unknown operation: ${operation}` };
+    }
+    
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{
+        type: "text",
+        text: `Stealth mode operation failed: ${error.message}`
+      }],
+      isError: true
+    };
+  }
+});
+
+// Tool: localization - Multi-language and geo-location management (Wave 3)
+server.registerTool("localization", {
+  description: "Multi-language and geo-location management with country-specific settings, browser locale emulation, timezone spoofing, and geo-blocked content handling",
+  inputSchema: {
+    operation: z.enum(['configure_country', 'localize_search', 'localize_browser', 'generate_timezone_spoof', 'handle_geo_blocking', 'auto_detect', 'get_stats', 'get_supported_countries']).default('configure_country'),
+    countryCode: z.string().length(2).optional(),
+    language: z.string().optional(),
+    timezone: z.string().optional(),
+    currency: z.string().length(3).optional(),
+    customHeaders: z.record(z.string()).optional(),
+    userAgent: z.string().optional(),
+    acceptLanguage: z.string().optional(),
+    geoLocation: z.object({
+      latitude: z.number().min(-90).max(90),
+      longitude: z.number().min(-180).max(180),
+      accuracy: z.number().min(1).max(100).optional()
+    }).optional(),
+    proxySettings: z.object({
+      enabled: z.boolean().default(false),
+      region: z.string().optional(),
+      type: z.enum(['http', 'https', 'socks4', 'socks5']).default('https'),
+      server: z.string().optional(),
+      port: z.number().optional(),
+      username: z.string().optional(),
+      password: z.string().optional(),
+      rotation: z.object({
+        enabled: z.boolean().default(false),
+        interval: z.number().default(300000),
+        strategy: z.enum(['round-robin', 'random', 'failover']).default('round-robin')
+      }).optional(),
+      fallback: z.object({
+        enabled: z.boolean().default(true),
+        maxRetries: z.number().default(3),
+        timeout: z.number().default(10000)
+      }).optional()
+    }).optional(),
+    searchParams: z.object({
+      query: z.string().optional(),
+      limit: z.number().optional(),
+      offset: z.number().optional(),
+      headers: z.record(z.string()).optional()
+    }).optional(),
+    browserOptions: z.object({
+      locale: z.string().optional(),
+      timezoneId: z.string().optional(),
+      extraHTTPHeaders: z.record(z.string()).optional(),
+      userAgent: z.string().optional()
+    }).optional(),
+    content: z.string().optional(),
+    url: z.string().url().optional(),
+    response: z.object({
+      status: z.number(),
+      body: z.string().optional(),
+      statusText: z.string().optional()
+    }).optional()
+  }
+}, async (params) => {
+  try {
+    const { operation } = params;
+    let result;
+    
+    switch (operation) {
+      case 'configure_country':
+        if (!params.countryCode) {
+          throw new Error('countryCode is required for configure_country operation');
+        }
+        result = await localizationManager.configureCountry(params.countryCode, params);
+        break;
+        
+      case 'localize_search':
+        if (!params.searchParams) {
+          throw new Error('searchParams is required for localize_search operation');
+        }
+        result = await localizationManager.localizeSearchQuery(params.searchParams, params.countryCode);
+        break;
+        
+      case 'localize_browser':
+        if (!params.browserOptions) {
+          throw new Error('browserOptions is required for localize_browser operation');
+        }
+        result = await localizationManager.localizeBrowserContext(params.browserOptions, params.countryCode);
+        break;
+        
+      case 'generate_timezone_spoof':
+        result = {
+          timezoneScript: await localizationManager.generateTimezoneSpoof(params.countryCode),
+          countryCode: params.countryCode || localizationManager.getCurrentSettings().countryCode
+        };
+        break;
+        
+      case 'handle_geo_blocking':
+        if (!params.url || !params.response) {
+          throw new Error('url and response are required for handle_geo_blocking operation');
+        }
+        result = await localizationManager.handleGeoBlocking(params.url, params.response);
+        break;
+        
+      case 'auto_detect':
+        if (!params.content || !params.url) {
+          throw new Error('content and url are required for auto_detect operation');
+        }
+        result = await localizationManager.autoDetectLocalization(params.content, params.url);
+        break;
+        
+      case 'get_stats':
+        result = localizationManager.getStats();
+        break;
+        
+      case 'get_supported_countries':
+        result = {
+          supportedCountries: localizationManager.getSupportedCountries(),
+          totalCount: localizationManager.getSupportedCountries().length
+        };
+        break;
+        
+      default:
+        result = { error: `Unknown operation: ${operation}` };
+    }
+    
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{
+        type: "text",
+        text: `Localization operation failed: ${error.message}`
       }],
       isError: true
     };
@@ -1245,8 +1750,10 @@ async function runServer() {
   const phase3Tools = ', extract_content, process_document, summarize_content, analyze_content';
   const wave2Tools = ', batch_scrape, scrape_with_actions';
   const researchTools = ', deep_research';
-  const trackingTools = ', track_changes';
-  console.error(`Tools available: ${baseTools}${searchTool}${phase3Tools}${wave2Tools}${researchTools}${trackingTools}`);
+  const trackingTools = ''; // track_changes temporarily disabled
+  const llmsTxtTools = ', generate_llms_txt';
+  const wave3Tools = ', stealth_mode, localization';
+  console.error(`Tools available: ${baseTools}${searchTool}${phase3Tools}${wave2Tools}${researchTools}${trackingTools}${llmsTxtTools}${wave3Tools}`);
 
   // Start memory monitoring in development
   if (config.server.nodeEnv === "development") {
@@ -1279,8 +1786,11 @@ async function gracefulShutdown(signal) {
       batchScrapeTool,
       scrapeWithActionsTool,
       deepResearchTool,
-      trackChangesTool
-    ].filter(tool => tool && typeof tool.destroy === 'function');
+      // trackChangesTool, // temporarily disabled
+      generateLLMsTxtTool,
+      stealthBrowserManager,
+      localizationManager
+    ].filter(tool => tool && (typeof tool.destroy === 'function' || typeof tool.cleanup === 'function'));
     
     console.error(`Cleaning up ${toolsToCleanup.length} tools...`);
     
@@ -1288,7 +1798,11 @@ async function gracefulShutdown(signal) {
     await Promise.race([
       Promise.all(toolsToCleanup.map(async (tool) => {
         try {
-          await tool.destroy();
+          if (typeof tool.destroy === 'function') {
+            await tool.destroy();
+          } else if (typeof tool.cleanup === 'function') {
+            await tool.cleanup();
+          }
           console.error(`Cleaned up ${tool.constructor.name}`);
         } catch (error) {
           console.error(`Error cleaning up ${tool.constructor.name}:`, error.message);

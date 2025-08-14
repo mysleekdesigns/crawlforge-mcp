@@ -215,6 +215,70 @@ export const config = {
       longitude: parseFloat(process.env.STEALTH_LONGITUDE || '-74.0060'),
       accuracy: parseInt(process.env.STEALTH_LOCATION_ACCURACY || '100')
     }
+  },
+
+  // Localization Configuration
+  localization: {
+    // Global localization settings
+    enabled: process.env.LOCALIZATION_ENABLED === 'true',
+    defaultCountry: process.env.DEFAULT_COUNTRY_CODE || 'US',
+    defaultLanguage: process.env.DEFAULT_LANGUAGE || 'en-US',
+    
+    // Proxy configuration for geo-specific access
+    proxy: {
+      enabled: process.env.LOCALIZATION_PROXY_ENABLED === 'true',
+      rotation: {
+        enabled: process.env.PROXY_ROTATION_ENABLED === 'true',
+        interval: parseInt(process.env.PROXY_ROTATION_INTERVAL || '300000'), // 5 minutes
+        strategy: process.env.PROXY_ROTATION_STRATEGY || 'round-robin'
+      },
+      healthCheck: {
+        enabled: process.env.PROXY_HEALTH_CHECK_ENABLED !== 'false',
+        interval: parseInt(process.env.PROXY_HEALTH_CHECK_INTERVAL || '300000'), // 5 minutes
+        timeout: parseInt(process.env.PROXY_HEALTH_CHECK_TIMEOUT || '10000')
+      },
+      fallback: {
+        enabled: process.env.PROXY_FALLBACK_ENABLED !== 'false',
+        maxRetries: parseInt(process.env.PROXY_MAX_RETRIES || '3'),
+        timeout: parseInt(process.env.PROXY_TIMEOUT || '10000')
+      }
+    },
+    
+    // Translation services
+    translation: {
+      enabled: process.env.TRANSLATION_ENABLED === 'true',
+      defaultProvider: process.env.TRANSLATION_PROVIDER || 'google',
+      autoDetect: process.env.TRANSLATION_AUTO_DETECT !== 'false',
+      preserveFormatting: process.env.TRANSLATION_PRESERVE_FORMAT !== 'false',
+      cacheEnabled: process.env.TRANSLATION_CACHE_ENABLED !== 'false',
+      cacheTTL: parseInt(process.env.TRANSLATION_CACHE_TTL || '86400000') // 24 hours
+    },
+    
+    // Geo-blocking bypass
+    geoBlocking: {
+      autoBypass: process.env.GEO_BLOCKING_AUTO_BYPASS === 'true',
+      maxRetries: parseInt(process.env.GEO_BLOCKING_MAX_RETRIES || '3'),
+      retryDelay: parseInt(process.env.GEO_BLOCKING_RETRY_DELAY || '2000'),
+      fallbackCountries: (process.env.GEO_BLOCKING_FALLBACK_COUNTRIES || 'US,GB,DE,CA').split(','),
+      detectionSensitivity: process.env.GEO_BLOCKING_DETECTION_SENSITIVITY || 'medium'
+    },
+    
+    // Cultural browsing simulation
+    cultural: {
+      enabled: process.env.CULTURAL_SIMULATION_ENABLED === 'true',
+      adaptBehavior: process.env.CULTURAL_ADAPT_BEHAVIOR !== 'false',
+      adaptTiming: process.env.CULTURAL_ADAPT_TIMING !== 'false',
+      respectRTL: process.env.CULTURAL_RESPECT_RTL !== 'false'
+    },
+    
+    // DNS configuration
+    dns: {
+      enabled: process.env.LOCALIZATION_DNS_ENABLED === 'true',
+      overHttps: process.env.DNS_OVER_HTTPS === 'true',
+      customResolvers: process.env.CUSTOM_DNS_RESOLVERS ? 
+        JSON.parse(process.env.CUSTOM_DNS_RESOLVERS) : {},
+      preferredCountry: process.env.DNS_PREFERRED_COUNTRY || null
+    }
   }
 };
 
@@ -258,6 +322,10 @@ export function validateConfig() {
   if (config.performance.queueConcurrency > 50) {
     errors.push('QUEUE_CONCURRENCY should not exceed 50 to avoid overwhelming servers');
   }
+
+  // Validate localization configuration
+  const localizationErrors = validateLocalizationConfig();
+  errors.push(...localizationErrors);
 
   return errors;
 }
@@ -458,6 +526,90 @@ export function isStealthConfigured() {
     config.stealth.fingerprinting.hideWebDriver ||
     config.stealth.humanBehavior.enabled
   );
+}
+
+// Get localization configuration
+export function getLocalizationConfig() {
+  return config.localization;
+}
+
+// Check if localization is enabled and properly configured
+export function isLocalizationConfigured() {
+  return config.localization.enabled && (
+    config.localization.proxy.enabled ||
+    config.localization.translation.enabled ||
+    config.localization.geoBlocking.autoBypass
+  );
+}
+
+// Get proxy configuration for localization
+export function getProxyConfig() {
+  return config.localization.proxy;
+}
+
+// Get translation configuration
+export function getTranslationConfig() {
+  return config.localization.translation;
+}
+
+// Get geo-blocking bypass configuration
+export function getGeoBlockingConfig() {
+  return config.localization.geoBlocking;
+}
+
+// Get cultural simulation configuration
+export function getCulturalConfig() {
+  return config.localization.cultural;
+}
+
+// Validate localization configuration
+export function validateLocalizationConfig() {
+  const errors = [];
+  const localizationConfig = config.localization;
+  
+  if (localizationConfig.enabled) {
+    // Validate country code
+    if (!localizationConfig.defaultCountry || localizationConfig.defaultCountry.length !== 2) {
+      errors.push('DEFAULT_COUNTRY_CODE must be a valid 2-letter country code');
+    }
+    
+    // Validate language code
+    if (!localizationConfig.defaultLanguage || !localizationConfig.defaultLanguage.includes('-')) {
+      errors.push('DEFAULT_LANGUAGE must be in format language-country (e.g., en-US)');
+    }
+    
+    // Validate proxy configuration
+    if (localizationConfig.proxy.enabled) {
+      if (localizationConfig.proxy.rotation.interval < 60000) {
+        errors.push('PROXY_ROTATION_INTERVAL should be at least 60000ms (1 minute)');
+      }
+      
+      if (localizationConfig.proxy.healthCheck.interval < 60000) {
+        errors.push('PROXY_HEALTH_CHECK_INTERVAL should be at least 60000ms (1 minute)');
+      }
+    }
+    
+    // Validate translation configuration
+    if (localizationConfig.translation.enabled) {
+      const validProviders = ['google', 'azure', 'libre'];
+      if (!validProviders.includes(localizationConfig.translation.defaultProvider)) {
+        errors.push(`TRANSLATION_PROVIDER must be one of: ${validProviders.join(', ')}`);
+      }
+    }
+    
+    // Validate geo-blocking configuration
+    if (localizationConfig.geoBlocking.autoBypass) {
+      if (localizationConfig.geoBlocking.maxRetries > 10) {
+        errors.push('GEO_BLOCKING_MAX_RETRIES should not exceed 10');
+      }
+      
+      if (localizationConfig.geoBlocking.retryDelay < 1000) {
+        errors.push('GEO_BLOCKING_RETRY_DELAY should be at least 1000ms');
+      }
+    }
+  }
+  
+  return errors;
 }
 
 export default config;

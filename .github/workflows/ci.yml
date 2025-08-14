@@ -112,9 +112,9 @@ jobs:
         retention-days: 7
 
   security:
-    name: Security Audit
+    name: Security Audit & Testing
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       security-events: write
       contents: read
@@ -138,27 +138,178 @@ jobs:
         npm ci --prefer-offline --no-audit
       timeout-minutes: 5
 
-    - name: Run npm audit
-      run: npm audit --audit-level high || true
+    - name: Create security results directory
+      run: mkdir -p security-results
+
+    - name: Run npm audit with JSON output
+      run: |
+        npm audit --json --audit-level moderate > security-results/npm-audit.json || true
+        npm audit --audit-level moderate || echo "Vulnerabilities found - check security-results/npm-audit.json"
       continue-on-error: true
 
-    - name: Run security tests
+    - name: Generate audit summary
       run: |
-        if [ -f "tests/security/security-test-suite.js" ]; then
-          node tests/security/security-test-suite.js || echo "Security tests completed with warnings"
+        if [ -f "security-results/npm-audit.json" ]; then
+          echo "# NPM Audit Summary" > security-results/audit-summary.md
+          echo "" >> security-results/audit-summary.md
+          echo "## Vulnerabilities Found:" >> security-results/audit-summary.md
+          jq -r '.vulnerabilities | to_entries[] | "- **\(.key)**: \(.value.severity) severity - \(.value.title)"' security-results/npm-audit.json >> security-results/audit-summary.md 2>/dev/null || echo "No vulnerabilities found or audit file malformed" >> security-results/audit-summary.md
+          echo "" >> security-results/audit-summary.md
+          echo "## Full Report:" >> security-results/audit-summary.md
+          echo "See npm-audit.json for complete details" >> security-results/audit-summary.md
         else
-          echo "No security test suite found, skipping"
+          echo "No audit results to summarize" > security-results/audit-summary.md
         fi
-      timeout-minutes: 3
 
-    - name: CodeQL Analysis
+    - name: Check for security-sensitive files
+      run: |
+        echo "# Security File Scan" > security-results/file-scan.md
+        echo "" >> security-results/file-scan.md
+        echo "## Potentially Sensitive Files:" >> security-results/file-scan.md
+        
+        # Check for common sensitive file patterns
+        find . -type f \( -name "*.key" -o -name "*.pem" -o -name "*.p12" -o -name "*.pfx" -o -name "*_rsa" -o -name "*_dsa" -o -name "*_ed25519" -o -name "*_ecdsa" \) -not -path "./node_modules/*" > security-results/sensitive-files.txt || true
+        
+        if [ -s security-results/sensitive-files.txt ]; then
+          echo "⚠️ Potential sensitive files found:" >> security-results/file-scan.md
+          cat security-results/sensitive-files.txt >> security-results/file-scan.md
+        else
+          echo "✅ No sensitive files detected" >> security-results/file-scan.md
+        fi
+
+    - name: Run comprehensive security test suite
+      run: |
+        echo "Running security test suite..."
+        npm run test:security > security-results/security-tests.log 2>&1 || echo "Security tests completed with warnings"
+        
+        # Generate security test summary
+        echo "# Security Test Results" > security-results/security-test-summary.md
+        echo "" >> security-results/security-test-summary.md
+        
+        if grep -q "All tests passed" security-results/security-tests.log; then
+          echo "✅ All security tests passed" >> security-results/security-test-summary.md
+        elif grep -q "failing\|failed\|error" security-results/security-tests.log; then
+          echo "❌ Some security tests failed - see security-tests.log for details" >> security-results/security-test-summary.md
+        else
+          echo "⚠️ Security tests completed with warnings - see security-tests.log for details" >> security-results/security-test-summary.md
+        fi
+        
+        echo "" >> security-results/security-test-summary.md
+        echo "## Test Coverage:" >> security-results/security-test-summary.md
+        echo "- SSRF Protection Tests" >> security-results/security-test-summary.md
+        echo "- Input Validation Tests" >> security-results/security-test-summary.md
+        echo "- Rate Limiting Tests" >> security-results/security-test-summary.md
+        echo "- XSS Prevention Tests" >> security-results/security-test-summary.md
+        echo "- SQL Injection Prevention Tests" >> security-results/security-test-summary.md
+        echo "- Command Injection Prevention Tests" >> security-results/security-test-summary.md
+        echo "- DoS Protection Tests" >> security-results/security-test-summary.md
+      timeout-minutes: 5
+
+    - name: Analyze dependencies for known vulnerabilities
+      run: |
+        echo "# Dependency Security Analysis" > security-results/dependency-analysis.md
+        echo "" >> security-results/dependency-analysis.md
+        
+        # Check for packages with known security issues
+        npm ls --depth=0 --json > security-results/dependencies.json || true
+        
+        echo "## Direct Dependencies Analysis:" >> security-results/dependency-analysis.md
+        echo "Total direct dependencies: $(jq '.dependencies | length' security-results/dependencies.json 2>/dev/null || echo 'unknown')" >> security-results/dependency-analysis.md
+        echo "" >> security-results/dependency-analysis.md
+        
+        # Check for outdated packages
+        npm outdated --json > security-results/outdated.json || true
+        if [ -s security-results/outdated.json ]; then
+          echo "## Outdated Packages:" >> security-results/dependency-analysis.md
+          jq -r 'to_entries[] | "- \(.key): current \(.value.current), wanted \(.value.wanted), latest \(.value.latest)"' security-results/outdated.json >> security-results/dependency-analysis.md 2>/dev/null || echo "No outdated packages or analysis failed" >> security-results/dependency-analysis.md
+        else
+          echo "✅ All packages are up to date" >> security-results/dependency-analysis.md
+        fi
+
+    - name: Generate security report
+      run: |
+        echo "# Security Assessment Report" > security-results/SECURITY-REPORT.md
+        echo "Generated on: $(date)" >> security-results/SECURITY-REPORT.md
+        echo "Repository: ${{ github.repository }}" >> security-results/SECURITY-REPORT.md
+        echo "Branch: ${{ github.ref_name }}" >> security-results/SECURITY-REPORT.md
+        echo "Commit: ${{ github.sha }}" >> security-results/SECURITY-REPORT.md
+        echo "" >> security-results/SECURITY-REPORT.md
+        
+        # Combine all reports
+        for report in audit-summary.md file-scan.md security-test-summary.md dependency-analysis.md; do
+          if [ -f "security-results/$report" ]; then
+            cat "security-results/$report" >> security-results/SECURITY-REPORT.md
+            echo "" >> security-results/SECURITY-REPORT.md
+          fi
+        done
+        
+        echo "## Quick Actions:" >> security-results/SECURITY-REPORT.md
+        echo "- Review npm-audit.json for detailed vulnerability information" >> security-results/SECURITY-REPORT.md
+        echo "- Check security-tests.log for test execution details" >> security-results/SECURITY-REPORT.md
+        echo "- Update outdated dependencies: \`npm update\`" >> security-results/SECURITY-REPORT.md
+        echo "- Fix vulnerabilities: \`npm audit fix\`" >> security-results/SECURITY-REPORT.md
+
+    - name: Upload security results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: security-results-${{ github.run_id }}
+        path: |
+          security-results/
+        retention-days: 30
+
+    - name: Comment PR with security summary (on PR)
+      uses: actions/github-script@v7
+      if: github.event_name == 'pull_request' && always()
+      with:
+        script: |
+          const fs = require('fs');
+          if (fs.existsSync('security-results/SECURITY-REPORT.md')) {
+            const report = fs.readFileSync('security-results/SECURITY-REPORT.md', 'utf8');
+            const summary = report.substring(0, 2000) + (report.length > 2000 ? '\n\n... (see full report in artifacts)' : '');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '## 🔒 Security Assessment Results\n\n' + summary
+            });
+          }
+
+    - name: CodeQL Analysis Setup
       uses: github/codeql-action/init@v3
       with:
         languages: javascript
         build-mode: none
+        queries: security-and-quality
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:javascript"
+
+    - name: Fail on critical security issues
+      run: |
+        # Check if critical vulnerabilities were found
+        if [ -f "security-results/npm-audit.json" ]; then
+          critical_count=$(jq '[.vulnerabilities[] | select(.severity == "critical")] | length' security-results/npm-audit.json 2>/dev/null || echo "0")
+          high_count=$(jq '[.vulnerabilities[] | select(.severity == "high")] | length' security-results/npm-audit.json 2>/dev/null || echo "0")
+          
+          echo "Critical vulnerabilities: $critical_count"
+          echo "High vulnerabilities: $high_count"
+          
+          if [ "$critical_count" -gt "0" ]; then
+            echo "❌ Critical security vulnerabilities found! Build failed."
+            exit 1
+          fi
+          
+          if [ "$high_count" -gt "3" ]; then
+            echo "⚠️ Too many high-severity vulnerabilities found ($high_count > 3)! Build failed."
+            exit 1
+          fi
+        fi
+        
+        echo "✅ Security check passed"
 
   performance:
     name: Performance Regression Detection
