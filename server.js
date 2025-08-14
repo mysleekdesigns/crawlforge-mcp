@@ -14,6 +14,10 @@ import { AnalyzeContentTool } from "./src/tools/extract/analyzeContent.js";
 // Wave 2 Advanced Tools
 import { BatchScrapeTool } from "./src/tools/advanced/BatchScrapeTool.js";
 import { ScrapeWithActionsTool } from "./src/tools/advanced/ScrapeWithActionsTool.js";
+// Deep Research Tool
+import { DeepResearchTool } from "./src/tools/research/deepResearch.js";
+// Change Tracking Tool
+import { TrackChangesTool } from "./src/tools/tracking/trackChanges.js";
 import { config, validateConfig, isSearchConfigured, getToolConfig, getActiveSearchProvider } from "./src/constants/config.js";
 
 // Validate configuration
@@ -43,6 +47,12 @@ const analyzeContentTool = new AnalyzeContentTool();
 // Initialize Wave 2 Advanced Tools
 const batchScrapeTool = new BatchScrapeTool();
 const scrapeWithActionsTool = new ScrapeWithActionsTool();
+
+// Initialize Deep Research Tool
+const deepResearchTool = new DeepResearchTool();
+
+// Initialize Change Tracking Tool
+const trackChangesTool = new TrackChangesTool();
 
 // Zod schemas for tool parameters and responses
 const FetchUrlSchema = z.object({
@@ -209,6 +219,103 @@ const ScrapeWithActionsSchema = z.object({
   continueOnActionError: z.boolean().default(false),
   maxRetries: z.number().min(0).max(3).default(1),
   screenshotOnError: z.boolean().default(true)
+});
+
+// Deep Research Tool Schema
+const DeepResearchSchema = z.object({
+  topic: z.string().min(3).max(500),
+  maxDepth: z.number().min(1).max(10).optional().default(5),
+  maxUrls: z.number().min(1).max(1000).optional().default(50),
+  timeLimit: z.number().min(30000).max(300000).optional().default(120000),
+  researchApproach: z.enum(['broad', 'focused', 'academic', 'current_events', 'comparative']).optional().default('broad'),
+  sourceTypes: z.array(z.enum(['academic', 'news', 'government', 'commercial', 'blog', 'wiki', 'any'])).optional().default(['any']),
+  credibilityThreshold: z.number().min(0).max(1).optional().default(0.3),
+  includeRecentOnly: z.boolean().optional().default(false),
+  enableConflictDetection: z.boolean().optional().default(true),
+  enableSourceVerification: z.boolean().optional().default(true),
+  enableSynthesis: z.boolean().optional().default(true),
+  outputFormat: z.enum(['comprehensive', 'summary', 'citations_only', 'conflicts_focus']).optional().default('comprehensive'),
+  includeRawData: z.boolean().optional().default(false),
+  includeActivityLog: z.boolean().optional().default(false),
+  queryExpansion: z.object({
+    enableSynonyms: z.boolean().optional().default(true),
+    enableSpellCheck: z.boolean().optional().default(true),
+    enableContextual: z.boolean().optional().default(true),
+    maxVariations: z.number().min(1).max(20).optional().default(8)
+  }).optional(),
+  concurrency: z.number().min(1).max(20).optional().default(5),
+  cacheResults: z.boolean().optional().default(true),
+  webhook: z.object({
+    url: z.string().url(),
+    events: z.array(z.enum(['started', 'progress', 'completed', 'failed'])).optional().default(['completed']),
+    headers: z.record(z.string()).optional()
+  }).optional()
+});
+
+// Change Tracking Tool Schema
+const TrackChangesSchema = z.object({
+  url: z.string().url(),
+  operation: z.enum(['create_baseline', 'compare', 'monitor', 'get_history', 'get_stats']).default('compare'),
+  content: z.string().optional(),
+  html: z.string().optional(),
+  trackingOptions: z.object({
+    granularity: z.enum(['page', 'section', 'element', 'text']).default('section'),
+    trackText: z.boolean().default(true),
+    trackStructure: z.boolean().default(true),
+    trackAttributes: z.boolean().default(false),
+    trackImages: z.boolean().default(false),
+    trackLinks: z.boolean().default(true),
+    ignoreWhitespace: z.boolean().default(true),
+    ignoreCase: z.boolean().default(false),
+    customSelectors: z.array(z.string()).optional(),
+    excludeSelectors: z.array(z.string()).optional(),
+    significanceThresholds: z.object({
+      minor: z.number().min(0).max(1).default(0.1),
+      moderate: z.number().min(0).max(1).default(0.3),
+      major: z.number().min(0).max(1).default(0.7)
+    }).optional()
+  }).optional(),
+  monitoringOptions: z.object({
+    enabled: z.boolean().default(false),
+    interval: z.number().min(60000).max(24 * 60 * 60 * 1000).default(300000),
+    maxRetries: z.number().min(0).max(5).default(3),
+    retryDelay: z.number().min(1000).max(60000).default(5000),
+    notificationThreshold: z.enum(['minor', 'moderate', 'major', 'critical']).default('moderate'),
+    enableWebhook: z.boolean().default(false),
+    webhookUrl: z.string().url().optional(),
+    webhookSecret: z.string().optional()
+  }).optional(),
+  storageOptions: z.object({
+    enableSnapshots: z.boolean().default(true),
+    retainHistory: z.boolean().default(true),
+    maxHistoryEntries: z.number().min(1).max(1000).default(100),
+    compressionEnabled: z.boolean().default(true),
+    deltaStorageEnabled: z.boolean().default(true)
+  }).optional(),
+  queryOptions: z.object({
+    limit: z.number().min(1).max(500).default(50),
+    offset: z.number().min(0).default(0),
+    startTime: z.number().optional(),
+    endTime: z.number().optional(),
+    includeContent: z.boolean().default(false),
+    significanceFilter: z.enum(['all', 'minor', 'moderate', 'major', 'critical']).optional()
+  }).optional(),
+  notificationOptions: z.object({
+    webhook: z.object({
+      enabled: z.boolean().default(false),
+      url: z.string().url().optional(),
+      method: z.enum(['POST', 'PUT']).default('POST'),
+      headers: z.record(z.string()).optional(),
+      signingSecret: z.string().optional(),
+      includeContent: z.boolean().default(false)
+    }).optional(),
+    slack: z.object({
+      enabled: z.boolean().default(false),
+      webhookUrl: z.string().url().optional(),
+      channel: z.string().optional(),
+      username: z.string().optional()
+    }).optional()
+  }).optional()
 });
 
 
@@ -979,6 +1086,145 @@ server.registerTool("scrape_with_actions", {
   }
 });
 
+// Tool: deep_research - Comprehensive multi-stage research with source verification
+server.registerTool("deep_research", {
+  description: "Conduct comprehensive multi-stage research with intelligent query expansion, source verification, and conflict detection",
+  inputSchema: {
+    topic: z.string().min(3).max(500),
+    maxDepth: z.number().min(1).max(10).optional().default(5),
+    maxUrls: z.number().min(1).max(1000).optional().default(50),
+    timeLimit: z.number().min(30000).max(300000).optional().default(120000),
+    researchApproach: z.enum(['broad', 'focused', 'academic', 'current_events', 'comparative']).optional().default('broad'),
+    sourceTypes: z.array(z.enum(['academic', 'news', 'government', 'commercial', 'blog', 'wiki', 'any'])).optional().default(['any']),
+    credibilityThreshold: z.number().min(0).max(1).optional().default(0.3),
+    includeRecentOnly: z.boolean().optional().default(false),
+    enableConflictDetection: z.boolean().optional().default(true),
+    enableSourceVerification: z.boolean().optional().default(true),
+    enableSynthesis: z.boolean().optional().default(true),
+    outputFormat: z.enum(['comprehensive', 'summary', 'citations_only', 'conflicts_focus']).optional().default('comprehensive'),
+    includeRawData: z.boolean().optional().default(false),
+    includeActivityLog: z.boolean().optional().default(false),
+    queryExpansion: z.object({
+      enableSynonyms: z.boolean().optional().default(true),
+      enableSpellCheck: z.boolean().optional().default(true),
+      enableContextual: z.boolean().optional().default(true),
+      maxVariations: z.number().min(1).max(20).optional().default(8)
+    }).optional(),
+    concurrency: z.number().min(1).max(20).optional().default(5),
+    cacheResults: z.boolean().optional().default(true),
+    webhook: z.object({
+      url: z.string().url(),
+      events: z.array(z.enum(['started', 'progress', 'completed', 'failed'])).optional().default(['completed']),
+      headers: z.record(z.string()).optional()
+    }).optional()
+  }
+}, async (params) => {
+  try {
+    const result = await deepResearchTool.execute(params);
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{
+        type: "text",
+        text: `Deep research failed: ${error.message}`
+      }],
+      isError: true
+    };
+  }
+});
+
+// Tool: track_changes - Content change tracking with baseline capture and monitoring
+server.registerTool("track_changes", {
+  description: "Track content changes with baseline capture, comparison, scheduled monitoring, and change notification system",
+  inputSchema: {
+    url: z.string().url(),
+    operation: z.enum(['create_baseline', 'compare', 'monitor', 'get_history', 'get_stats']).default('compare'),
+    content: z.string().optional(),
+    html: z.string().optional(),
+    trackingOptions: z.object({
+      granularity: z.enum(['page', 'section', 'element', 'text']).default('section'),
+      trackText: z.boolean().default(true),
+      trackStructure: z.boolean().default(true),
+      trackAttributes: z.boolean().default(false),
+      trackImages: z.boolean().default(false),
+      trackLinks: z.boolean().default(true),
+      ignoreWhitespace: z.boolean().default(true),
+      ignoreCase: z.boolean().default(false),
+      customSelectors: z.array(z.string()).optional(),
+      excludeSelectors: z.array(z.string()).optional(),
+      significanceThresholds: z.object({
+        minor: z.number().min(0).max(1).default(0.1),
+        moderate: z.number().min(0).max(1).default(0.3),
+        major: z.number().min(0).max(1).default(0.7)
+      }).optional()
+    }).optional(),
+    monitoringOptions: z.object({
+      enabled: z.boolean().default(false),
+      interval: z.number().min(60000).max(24 * 60 * 60 * 1000).default(300000),
+      maxRetries: z.number().min(0).max(5).default(3),
+      retryDelay: z.number().min(1000).max(60000).default(5000),
+      notificationThreshold: z.enum(['minor', 'moderate', 'major', 'critical']).default('moderate'),
+      enableWebhook: z.boolean().default(false),
+      webhookUrl: z.string().url().optional(),
+      webhookSecret: z.string().optional()
+    }).optional(),
+    storageOptions: z.object({
+      enableSnapshots: z.boolean().default(true),
+      retainHistory: z.boolean().default(true),
+      maxHistoryEntries: z.number().min(1).max(1000).default(100),
+      compressionEnabled: z.boolean().default(true),
+      deltaStorageEnabled: z.boolean().default(true)
+    }).optional(),
+    queryOptions: z.object({
+      limit: z.number().min(1).max(500).default(50),
+      offset: z.number().min(0).default(0),
+      startTime: z.number().optional(),
+      endTime: z.number().optional(),
+      includeContent: z.boolean().default(false),
+      significanceFilter: z.enum(['all', 'minor', 'moderate', 'major', 'critical']).optional()
+    }).optional(),
+    notificationOptions: z.object({
+      webhook: z.object({
+        enabled: z.boolean().default(false),
+        url: z.string().url().optional(),
+        method: z.enum(['POST', 'PUT']).default('POST'),
+        headers: z.record(z.string()).optional(),
+        signingSecret: z.string().optional(),
+        includeContent: z.boolean().default(false)
+      }).optional(),
+      slack: z.object({
+        enabled: z.boolean().default(false),
+        webhookUrl: z.string().url().optional(),
+        channel: z.string().optional(),
+        username: z.string().optional()
+      }).optional()
+    }).optional()
+  }
+}, async (params) => {
+  try {
+    const result = await trackChangesTool.execute(params);
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{
+        type: "text",
+        text: `Change tracking failed: ${error.message}`
+      }],
+      isError: true
+    };
+  }
+});
+
 // Set up the stdio transport and start the server
 async function runServer() {
   const transport = new StdioServerTransport();
@@ -997,7 +1243,9 @@ async function runServer() {
   const searchTool = isSearchConfigured() ? ', search_web' : '';
   const phase3Tools = ', extract_content, process_document, summarize_content, analyze_content';
   const wave2Tools = ', batch_scrape, scrape_with_actions';
-  console.error(`Tools available: ${baseTools}${searchTool}${phase3Tools}${wave2Tools}`);
+  const researchTools = ', deep_research';
+  const trackingTools = ', track_changes';
+  console.error(`Tools available: ${baseTools}${searchTool}${phase3Tools}${wave2Tools}${researchTools}${trackingTools}`);
 }
 
 runServer().catch((error) => {

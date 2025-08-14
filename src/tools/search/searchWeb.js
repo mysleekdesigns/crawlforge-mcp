@@ -4,6 +4,7 @@ import { CacheManager } from '../../core/cache/CacheManager.js';
 import { QueryExpander } from './queryExpander.js';
 import { ResultRanker } from './ranking/ResultRanker.js';
 import { ResultDeduplicator } from './ranking/ResultDeduplicator.js';
+import LocalizationManager from '../../core/LocalizationManager.js';
 
 const SearchWebSchema = z.object({
   query: z.string().min(1),
@@ -44,7 +45,19 @@ const SearchWebSchema = z.object({
   
   // Output options
   include_ranking_details: z.boolean().optional().default(false),
-  include_deduplication_details: z.boolean().optional().default(false)
+  include_deduplication_details: z.boolean().optional().default(false),
+  
+  // Localization options
+  localization: z.object({
+    countryCode: z.string().length(2).optional(),
+    language: z.string().optional(),
+    timezone: z.string().optional(),
+    enableGeoTargeting: z.boolean().default(false),
+    customLocation: z.object({
+      latitude: z.number().min(-90).max(90),
+      longitude: z.number().min(-180).max(180)
+    }).optional()
+  }).optional()
 });
 
 export class SearchWebTool {
@@ -81,6 +94,12 @@ export class SearchWebTool {
     // Initialize ranking and deduplication systems
     this.resultRanker = new ResultRanker({ cacheEnabled, cacheTTL, ...rankingOptions });
     this.resultDeduplicator = new ResultDeduplicator({ cacheEnabled, cacheTTL, ...deduplicationOptions });
+    
+    // Initialize localization manager
+    this.localizationManager = new LocalizationManager({
+      enableGeoBlockingBypass: options.enableGeoBlockingBypass !== false,
+      dynamicFingerprinting: options.dynamicFingerprinting !== false
+    });
   }
 
   determineProvider(configuredProvider, providerOptions) {
@@ -108,15 +127,29 @@ export class SearchWebTool {
     try {
       const validated = SearchWebSchema.parse(params);
       
+      // Apply localization if specified
+      let localizedParams = validated;
+      if (validated.localization) {
+        try {
+          localizedParams = await this.localizationManager.localizeSearchQuery(
+            validated,
+            validated.localization.countryCode
+          );
+        } catch (localizationError) {
+          console.warn('Localization failed, using original parameters:', localizationError.message);
+          // Continue with original parameters
+        }
+      }
+      
       // Expand query if enabled
-      let searchQueries = [validated.query];
+      let searchQueries = [localizedParams.query];
       let expandedQueries = [];
       
-      if (validated.expand_query) {
+      if (localizedParams.expand_query) {
         try {
           expandedQueries = await this.queryExpander.expandQuery(
-            validated.query,
-            validated.expansion_options || {}
+            localizedParams.query,
+            localizedParams.expansion_options || {}
           );
           
           // Use the best expanded query as primary, keep original as fallback
@@ -129,10 +162,11 @@ export class SearchWebTool {
         }
       }
       
-      // Generate cache key (include expansion info for accurate caching)
+      // Generate cache key (include expansion and localization info for accurate caching)
       const cacheKey = this.cache ? this.cache.generateKey('search', {
-        ...validated,
-        expandedQueries: validated.expand_query ? expandedQueries : undefined
+        ...localizedParams,
+        expandedQueries: localizedParams.expand_query ? expandedQueries : undefined,
+        localization: validated.localization
       }) : null;
       
       // Check cache
@@ -164,15 +198,21 @@ export class SearchWebTool {
             searchQuery = `filetype:${validated.file_type} ${searchQuery}`;
           }
           
-          // Perform search
-          const results = await this.searchAdapter.search({
+          // Perform search with localized parameters
+          const searchParams = {
             query: searchQuery,
-            num: validated.limit,
-            start: validated.offset + 1, // Google uses 1-based indexing
-            lr: `lang_${validated.lang}`,
-            safe: validated.safe_search ? 'active' : 'off',
-            dateRestrict: this.getDateRestrict(validated.time_range)
-          });
+            num: localizedParams.limit,
+            start: localizedParams.offset + 1, // Google uses 1-based indexing
+            lr: localizedParams.lr || `lang_${localizedParams.lang}`,
+            safe: localizedParams.safe_search ? 'active' : 'off',
+            dateRestrict: this.getDateRestrict(localizedParams.time_range),
+            // Add localization-specific parameters
+            ...localizedParams.headers && { headers: localizedParams.headers },
+            cr: localizedParams.cr, // Country restrict
+            uule: localizedParams.uule // Location encoding
+          };
+          
+          const results = await this.searchAdapter.search(searchParams);
           
           // Check if we got good results
           if (results.items && results.items.length > 0) {
@@ -259,12 +299,12 @@ export class SearchWebTool {
       const response = {
         query: validated.query,
         effective_query: usedQuery !== validated.query ? usedQuery : undefined,
-        expanded_queries: validated.expand_query && expandedQueries.length > 1 ? expandedQueries : undefined,
+        expanded_queries: localizedParams.expand_query && expandedQueries.length > 1 ? expandedQueries : undefined,
         results: processedResults,
         total_results: bestResults.searchInformation?.totalResults || 0,
         search_time: bestResults.searchInformation?.searchTime || 0,
-        offset: validated.offset,
-        limit: validated.limit,
+        offset: localizedParams.offset,
+        limit: localizedParams.limit,
         cached: false,
         
         // Add provider information
@@ -273,15 +313,25 @@ export class SearchWebTool {
           capabilities: SearchProviderFactory.getProviderCapabilities(this.provider)
         },
         
+        // Add localization information
+        localization: validated.localization ? {
+          applied: true,
+          countryCode: validated.localization.countryCode,
+          language: localizedParams.lang,
+          searchDomain: localizedParams.searchDomain,
+          geoTargeting: validated.localization.enableGeoTargeting
+        } : null,
+        
         // Add processing information
         processing: {
           ranking: rankingInfo,
           deduplication: deduplicationInfo,
-          query_expansion: validated.expand_query && expandedQueries.length > 1 ? {
+          query_expansion: localizedParams.expand_query && expandedQueries.length > 1 ? {
             original_query: validated.query,
             expanded_count: expandedQueries.length,
             used_query: usedQuery
-          } : null
+          } : null,
+          localization_applied: !!validated.localization
         }
       };
       

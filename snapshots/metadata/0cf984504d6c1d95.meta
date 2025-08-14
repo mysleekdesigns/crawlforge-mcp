@@ -1,0 +1,38 @@
+{
+  "id": "0cf984504d6c1d95",
+  "url": "https://example.org",
+  "content": "<html><body><h1>Tool Test</h1></body></html>",
+  "metadata": {
+    "timestamp": 1755182296131,
+    "contentHash": "91fca8c6566564e3b086bc988ce59ab6930b70201fd177be579ce3e94d5f0f66",
+    "contentLength": 44,
+    "contentType": "text/html",
+    "baseline": true,
+    "trackingOptions": {
+      "granularity": "section",
+      "trackText": true,
+      "trackStructure": true,
+      "trackAttributes": false,
+      "trackImages": false,
+      "trackLinks": true,
+      "ignoreWhitespace": true,
+      "ignoreCase": false,
+      "excludeSelectors": [
+        "script",
+        "style",
+        "noscript",
+        ".advertisement",
+        ".ad",
+        "#comments"
+      ]
+    }
+  },
+  "compression": {
+    "enabled": false,
+    "algorithm": "none",
+    "originalSize": 44
+  },
+  "delta": {
+    "enabled": false
+  }
+}

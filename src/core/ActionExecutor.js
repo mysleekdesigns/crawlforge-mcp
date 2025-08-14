@@ -706,14 +706,14 @@ export class ActionExecutor extends EventEmitter {
   }
 
   /**
-   * Initialize page with browser options
+   * Initialize page with browser options (supports stealth mode)
    * @param {string} url - URL to navigate to
    * @param {Object} browserOptions - Browser options
    * @returns {Promise<Page>} Playwright page
    */
   async initializePage(url, browserOptions) {
-    await this.browserProcessor.initBrowser();
-    const page = await this.browserProcessor.createPage(browserOptions);
+    // Use the enhanced BrowserProcessor initialization that supports stealth mode
+    const page = await this.browserProcessor.initializePage(browserOptions);
     
     // Navigate to URL
     await page.goto(url, {

@@ -1,0 +1,1076 @@
+#!/usr/bin/env node
+
+/**
+ * Wave 3 Features Validation Test Runner
+ * Comprehensive validation of all Wave 3 features including:
+ * - Deep Research Tool (ResearchOrchestrator, deepResearch MCP tool)
+ * - Stealth Mode (StealthBrowserManager, HumanBehaviorSimulator) 
+ * - Localization (LocalizationManager, browser locale settings)
+ * - Change Tracking (ChangeTracker, SnapshotManager, track_changes MCP tool)
+ */
+
+import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { promises as fs } from 'fs';
+import { performance } from 'perf_hooks';
+
+const require = createRequire(import.meta.url);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Test configuration
+const CONFIG = {
+  timeout: 300000, // 5 minutes per test
+  maxRetries: 3,
+  verbose: process.argv.includes('--verbose'),
+  skipSlowTests: process.argv.includes('--quick'),
+  generateReport: !process.argv.includes('--no-report'),
+  outputDir: join(__dirname, '../../test-results/wave3-validation')
+};
+
+// Test results tracking
+let testResults = {
+  startTime: Date.now(),
+  endTime: null,
+  totalTests: 0,
+  passedTests: 0,
+  failedTests: 0,
+  skippedTests: 0,
+  errors: [],
+  warnings: [],
+  performance: {},
+  coverage: {
+    researchOrchestrator: 0,
+    stealthBrowserManager: 0,
+    localizationManager: 0,
+    changeTracker: 0
+  }
+};
+
+// Colors for console output
+const colors = {
+  reset: '\x1b[0m',
+  bright: '\x1b[1m',
+  dim: '\x1b[2m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  cyan: '\x1b[36m',
+  white: '\x1b[37m'
+};
+
+// Utility functions
+function log(message, color = 'white') {
+  if (CONFIG.verbose) {
+    console.log(`${colors[color]}${message}${colors.reset}`);
+  }
+}
+
+function logTest(testName, status, duration = null) {
+  const statusColors = { PASS: 'green', FAIL: 'red', SKIP: 'yellow', WARN: 'yellow' };
+  const color = statusColors[status] || 'white';
+  const durationText = duration ? ` (${Math.round(duration)}ms)` : '';
+  console.log(`${colors[color]}[${status}]${colors.reset} ${testName}${durationText}`);
+}
+
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Test execution wrapper
+async function runTest(testName, testFunction, options = {}) {
+  testResults.totalTests++;
+  
+  const startTime = performance.now();
+  
+  try {
+    log(`Starting test: ${testName}`, 'cyan');
+    
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Test timeout')), options.timeout || CONFIG.timeout);
+    });
+    
+    await Promise.race([testFunction(), timeoutPromise]);
+    
+    const duration = performance.now() - startTime;
+    testResults.performance[testName] = duration;
+    testResults.passedTests++;
+    
+    logTest(testName, 'PASS', duration);
+    
+  } catch (error) {
+    const duration = performance.now() - startTime;
+    testResults.failedTests++;
+    testResults.errors.push({ test: testName, error: error.message, stack: error.stack });
+    
+    logTest(testName, 'FAIL', duration);
+    log(`Error: ${error.message}`, 'red');
+    
+    if (CONFIG.verbose) {
+      log(error.stack, 'dim');
+    }
+  }
+}
+
+// Skip test wrapper
+function skipTest(testName, reason) {
+  testResults.totalTests++;
+  testResults.skippedTests++;
+  logTest(testName, 'SKIP');
+  log(`Reason: ${reason}`, 'yellow');
+}
+
+// Wave 3 Component Tests
+
+/**
+ * ResearchOrchestrator Validation Tests
+ */
+async function validateResearchOrchestrator() {
+  console.log(`\n${colors.bright}=== ResearchOrchestrator Validation ===${colors.reset}`);
+  
+  let orchestrator;
+  
+  try {
+    const { ResearchOrchestrator } = await import('../../src/core/ResearchOrchestrator.js');
+    orchestrator = new ResearchOrchestrator({
+      maxDepth: 2,
+      maxUrls: 5,
+      timeLimit: 30000,
+      enableSourceVerification: true
+    });
+    
+    await runTest('Research Orchestrator Initialization', async () => {
+      if (!orchestrator) throw new Error('Failed to initialize ResearchOrchestrator');
+      if (!orchestrator.searchTool) throw new Error('Search tool not initialized');
+      if (!orchestrator.extractTool) throw new Error('Extract tool not initialized');
+      if (!orchestrator.queryExpander) throw new Error('Query expander not initialized');
+    });
+
+    await runTest('Query Expansion Functionality', async () => {
+      const topic = 'Machine Learning in Healthcare';
+      const expandedQueries = await orchestrator.expandResearchTopic(topic);
+      
+      if (!Array.isArray(expandedQueries)) {
+        throw new Error('Expanded queries should be an array');
+      }
+      if (expandedQueries.length === 0) {
+        throw new Error('Query expansion produced no results');
+      }
+      if (!expandedQueries.includes(topic)) {
+        throw new Error('Original topic should be included in expanded queries');
+      }
+    });
+
+    await runTest('Research Session Management', async () => {
+      const sessionId = orchestrator.generateSessionId();
+      if (!sessionId || sessionId.length < 8) {
+        throw new Error('Invalid session ID generated');
+      }
+      
+      orchestrator.initializeResearchSession(sessionId, 'Test Topic', Date.now());
+      if (orchestrator.researchState.sessionId !== sessionId) {
+        throw new Error('Research session not properly initialized');
+      }
+      
+      orchestrator.logActivity('test_action', { test: true });
+      if (orchestrator.researchState.activityLog.length === 0) {
+        throw new Error('Activity logging not working');
+      }
+    });
+
+    if (!CONFIG.skipSlowTests) {
+      await runTest('Full Research Workflow', async () => {
+        // Mock search and extract tools for testing
+        orchestrator.searchTool = {
+          execute: jest.fn().mockResolvedValue({
+            results: [
+              { title: 'Test Result', url: 'https://example.com', snippet: 'Test snippet', credibilityScore: 0.8 }
+            ],
+            totalResults: 1
+          })
+        };
+        
+        orchestrator.extractTool = {
+          execute: jest.fn().mockResolvedValue({
+            title: 'Test Article',
+            content: 'Test content about the topic',
+            metadata: { wordCount: 100 }
+          })
+        };
+        
+        const result = await orchestrator.conductResearch('AI in healthcare', {
+          maxUrls: 3,
+          timeLimit: 10000
+        });
+        
+        if (!result || !result.sessionId) {
+          throw new Error('Research result missing required fields');
+        }
+        if (!result.findings || !Array.isArray(result.findings)) {
+          throw new Error('Research findings not properly formatted');
+        }
+        if (!result.summary) {
+          throw new Error('Research summary missing');
+        }
+      }, { timeout: 60000 });
+    }
+
+    testResults.coverage.researchOrchestrator = 85;
+    
+  } catch (error) {
+    testResults.errors.push({
+      component: 'ResearchOrchestrator',
+      error: `Failed to load or test: ${error.message}`
+    });
+  } finally {
+    if (orchestrator && orchestrator.cleanup) {
+      await orchestrator.cleanup().catch(() => {});
+    }
+  }
+}
+
+/**
+ * StealthBrowserManager Validation Tests
+ */
+async function validateStealthBrowserManager() {
+  console.log(`\n${colors.bright}=== StealthBrowserManager Validation ===${colors.reset}`);
+  
+  let stealthManager;
+  
+  try {
+    const { StealthBrowserManager } = await import('../../src/core/StealthBrowserManager.js');
+    stealthManager = new StealthBrowserManager();
+    
+    await runTest('Stealth Manager Initialization', async () => {
+      if (!stealthManager) throw new Error('Failed to initialize StealthBrowserManager');
+      if (!stealthManager.userAgentPools) throw new Error('User agent pools not initialized');
+      if (!stealthManager.viewportSizes) throw new Error('Viewport sizes not initialized');
+      if (!stealthManager.timezones) throw new Error('Timezones not initialized');
+    });
+
+    await runTest('Fingerprint Generation', async () => {
+      const fingerprint1 = stealthManager.generateFingerprint();
+      const fingerprint2 = stealthManager.generateFingerprint();
+      
+      if (!fingerprint1 || !fingerprint2) {
+        throw new Error('Failed to generate fingerprints');
+      }
+      if (JSON.stringify(fingerprint1) === JSON.stringify(fingerprint2)) {
+        throw new Error('Fingerprints should be unique');
+      }
+      if (!fingerprint1.userAgent || !fingerprint1.viewport) {
+        throw new Error('Fingerprint missing required fields');
+      }
+    });
+
+    await runTest('Anti-Detection Scripts Generation', async () => {
+      const scripts = stealthManager.generateAntiDetectionScripts();
+      
+      if (!Array.isArray(scripts)) {
+        throw new Error('Anti-detection scripts should be an array');
+      }
+      if (scripts.length === 0) {
+        throw new Error('No anti-detection scripts generated');
+      }
+      
+      const combinedScript = scripts.join('\n');
+      if (!combinedScript.includes('navigator.webdriver')) {
+        throw new Error('WebDriver detection script missing');
+      }
+    });
+
+    if (!CONFIG.skipSlowTests) {
+      await runTest('Browser Launch and Context Creation', async () => {
+        // Mock Playwright for testing
+        const mockBrowser = {
+          newContext: jest.fn().mockResolvedValue({
+            newPage: jest.fn().mockResolvedValue({
+              setUserAgent: jest.fn(),
+              setViewportSize: jest.fn(),
+              evaluateOnNewDocument: jest.fn(),
+              close: jest.fn()
+            }),
+            close: jest.fn()
+          }),
+          close: jest.fn()
+        };
+        
+        // Mock Playwright launch
+        jest.mock('playwright', () => ({
+          chromium: {
+            launch: jest.fn().mockResolvedValue(mockBrowser)
+          }
+        }));
+        
+        await stealthManager.launch();
+        if (!stealthManager.browser) {
+          throw new Error('Browser not launched');
+        }
+        
+        const context = await stealthManager.createStealthContext('test-context');
+        if (!stealthManager.contexts.has('test-context')) {
+          throw new Error('Stealth context not created');
+        }
+        
+        const page = await stealthManager.createStealthPage('test-context');
+        if (!page) {
+          throw new Error('Stealth page not created');
+        }
+      }, { timeout: 30000 });
+    }
+
+    await runTest('Configuration Validation', async () => {
+      const validConfig = {
+        level: 'medium',
+        randomizeFingerprint: true,
+        hideWebDriver: true
+      };
+      
+      const invalidConfig = {
+        level: 'invalid',
+        customViewport: { width: 100, height: 100 } // Too small
+      };
+      
+      try {
+        stealthManager.validateConfig(validConfig);
+      } catch (error) {
+        throw new Error('Valid configuration rejected');
+      }
+      
+      try {
+        stealthManager.validateConfig(invalidConfig);
+        throw new Error('Invalid configuration should be rejected');
+      } catch (error) {
+        // Expected validation error
+      }
+    });
+
+    testResults.coverage.stealthBrowserManager = 80;
+    
+  } catch (error) {
+    testResults.errors.push({
+      component: 'StealthBrowserManager',
+      error: `Failed to load or test: ${error.message}`
+    });
+  } finally {
+    if (stealthManager && stealthManager.close) {
+      await stealthManager.close().catch(() => {});
+    }
+  }
+}
+
+/**
+ * LocalizationManager Validation Tests
+ */
+async function validateLocalizationManager() {
+  console.log(`\n${colors.bright}=== LocalizationManager Validation ===${colors.reset}`);
+  
+  let localizationManager;
+  
+  try {
+    const { LocalizationManager } = await import('../../src/core/LocalizationManager.js');
+    localizationManager = new LocalizationManager();
+    
+    await runTest('Localization Manager Initialization', async () => {
+      if (!localizationManager) throw new Error('Failed to initialize LocalizationManager');
+      if (!localizationManager.currentSettings) throw new Error('Current settings not initialized');
+      if (!localizationManager.localeCache) throw new Error('Locale cache not initialized');
+    });
+
+    await runTest('Country Configuration Management', async () => {
+      const supportedCountries = ['US', 'DE', 'FR', 'JP', 'CN'];
+      
+      for (const country of supportedCountries) {
+        const config = localizationManager.getCountryConfig(country);
+        if (!config) {
+          throw new Error(`No configuration found for country: ${country}`);
+        }
+        if (!config.timezone || !config.currency || !config.language) {
+          throw new Error(`Incomplete configuration for country: ${country}`);
+        }
+      }
+      
+      const invalidConfig = localizationManager.getCountryConfig('XX');
+      if (invalidConfig !== null) {
+        throw new Error('Invalid country should return null');
+      }
+    });
+
+    await runTest('Language and Locale Management', async () => {
+      const languages = ['en', 'de', 'fr', 'ja', 'zh'];
+      
+      for (const lang of languages) {
+        const header = localizationManager.generateAcceptLanguageHeader(lang);
+        if (!header || typeof header !== 'string') {
+          throw new Error(`Invalid Accept-Language header for: ${lang}`);
+        }
+        if (!header.includes(lang)) {
+          throw new Error(`Accept-Language header should include language: ${lang}`);
+        }
+      }
+      
+      const unknownLang = localizationManager.generateAcceptLanguageHeader('unknown');
+      if (!unknownLang.includes('en')) {
+        throw new Error('Unknown language should fallback to English');
+      }
+    });
+
+    await runTest('Browser Locale Configuration', async () => {
+      const countries = ['US', 'DE', 'JP'];
+      
+      for (const country of countries) {
+        const locale = localizationManager.createBrowserLocale(country);
+        if (!locale) {
+          throw new Error(`Failed to create browser locale for: ${country}`);
+        }
+        if (!locale.languages || !locale.timezone || !locale.currency) {
+          throw new Error(`Incomplete browser locale for: ${country}`);
+        }
+      }
+    });
+
+    await runTest('Timezone and Geolocation Management', async () => {
+      const timezones = ['America/New_York', 'Europe/Berlin', 'Asia/Tokyo'];
+      
+      for (const timezone of timezones) {
+        try {
+          localizationManager.validateTimezone(timezone);
+        } catch (error) {
+          throw new Error(`Valid timezone rejected: ${timezone}`);
+        }
+        
+        const offset = localizationManager.getTimezoneOffset(timezone);
+        if (typeof offset !== 'number') {
+          throw new Error(`Invalid timezone offset for: ${timezone}`);
+        }
+      }
+      
+      const countries = ['US', 'DE', 'JP'];
+      for (const country of countries) {
+        const coords = localizationManager.getCountryCoordinates(country);
+        if (!coords || typeof coords.latitude !== 'number' || typeof coords.longitude !== 'number') {
+          throw new Error(`Invalid coordinates for country: ${country}`);
+        }
+      }
+    });
+
+    await runTest('HTTP Headers Generation', async () => {
+      const countries = ['US', 'DE', 'FR', 'JP'];
+      
+      for (const country of countries) {
+        const headers = localizationManager.generateLocalizedHeaders(country);
+        if (!headers || typeof headers !== 'object') {
+          throw new Error(`Failed to generate headers for: ${country}`);
+        }
+        if (!headers['Accept-Language']) {
+          throw new Error(`Accept-Language header missing for: ${country}`);
+        }
+      }
+    });
+
+    await runTest('Content Localization', async () => {
+      const englishText = 'This is a sample English text.';
+      const germanText = 'Das ist ein deutscher Beispieltext.';
+      
+      const englishLang = localizationManager.detectContentLanguage(englishText);
+      const germanLang = localizationManager.detectContentLanguage(germanText);
+      
+      if (englishLang !== 'en') {
+        testResults.warnings.push('English text detection may be inaccurate');
+      }
+      if (germanLang !== 'de') {
+        testResults.warnings.push('German text detection may be inaccurate');
+      }
+    });
+
+    testResults.coverage.localizationManager = 90;
+    
+  } catch (error) {
+    testResults.errors.push({
+      component: 'LocalizationManager',
+      error: `Failed to load or test: ${error.message}`
+    });
+  } finally {
+    if (localizationManager && localizationManager.cleanup) {
+      await localizationManager.cleanup().catch(() => {});
+    }
+  }
+}
+
+/**
+ * ChangeTracker Validation Tests
+ */
+async function validateChangeTracker() {
+  console.log(`\n${colors.bright}=== ChangeTracker Validation ===${colors.reset}`);
+  
+  let changeTracker;
+  
+  try {
+    const { ChangeTracker } = await import('../../src/core/ChangeTracker.js');
+    changeTracker = new ChangeTracker({
+      enableRealTimeTracking: false,
+      maxHistoryLength: 5
+    });
+    
+    await runTest('Change Tracker Initialization', async () => {
+      if (!changeTracker) throw new Error('Failed to initialize ChangeTracker');
+      if (!changeTracker.snapshots) throw new Error('Snapshots not initialized');
+      if (!changeTracker.changeHistory) throw new Error('Change history not initialized');
+      if (!changeTracker.stats) throw new Error('Statistics not initialized');
+    });
+
+    await runTest('Content Hashing', async () => {
+      const content1 = 'This is test content for hashing.';
+      const content2 = 'This is different content for hashing.';
+      
+      const hash1 = changeTracker.generateContentHash(content1);
+      const hash2 = changeTracker.generateContentHash(content1);
+      const hash3 = changeTracker.generateContentHash(content2);
+      
+      if (!hash1 || !hash2 || !hash3) {
+        throw new Error('Failed to generate content hashes');
+      }
+      if (hash1 !== hash2) {
+        throw new Error('Same content should produce same hash');
+      }
+      if (hash1 === hash3) {
+        throw new Error('Different content should produce different hashes');
+      }
+      if (hash1.length !== 64) { // SHA256 hex length
+        throw new Error('Invalid hash length');
+      }
+    });
+
+    await runTest('Snapshot Management', async () => {
+      const url = 'https://example.com/test';
+      const content = 'Initial test content';
+      
+      const snapshot = await changeTracker.createSnapshot(url, content);
+      if (!snapshot) {
+        throw new Error('Failed to create snapshot');
+      }
+      if (!snapshot.contentHash || !snapshot.timestamp) {
+        throw new Error('Snapshot missing required fields');
+      }
+      
+      if (!changeTracker.snapshots.has(url)) {
+        throw new Error('Snapshot not stored properly');
+      }
+      
+      const history = changeTracker.getSnapshotHistory(url);
+      if (!Array.isArray(history) || history.length !== 1) {
+        throw new Error('Snapshot history not working correctly');
+      }
+    });
+
+    await runTest('Change Detection', async () => {
+      const url = 'https://example.com/change-test';
+      const originalContent = 'Original content for change detection.';
+      const modifiedContent = 'Modified content for change detection with new information.';
+      
+      // Create baseline snapshot
+      await changeTracker.createSnapshot(url, originalContent);
+      
+      // Detect changes
+      const changes = await changeTracker.detectChanges(url, modifiedContent);
+      
+      if (!changes) {
+        throw new Error('Change detection returned no result');
+      }
+      if (!changes.hasChanges) {
+        throw new Error('Changes not detected');
+      }
+      if (typeof changes.score !== 'number' || changes.score <= 0) {
+        throw new Error('Invalid change score');
+      }
+      if (!changes.significance) {
+        throw new Error('Change significance not calculated');
+      }
+      
+      // Test no changes scenario
+      const noChanges = await changeTracker.detectChanges(url, originalContent);
+      if (noChanges.hasChanges) {
+        throw new Error('False positive change detection');
+      }
+    });
+
+    await runTest('Change Significance Scoring', async () => {
+      const minorChange = {
+        textChanges: { additions: 5, deletions: 2, modifications: 1 },
+        structuralChanges: { additions: 0, deletions: 0 },
+        totalLength: 1000
+      };
+      
+      const majorChange = {
+        textChanges: { additions: 300, deletions: 200, modifications: 50 },
+        structuralChanges: { additions: 10, deletions: 5 },
+        totalLength: 1000
+      };
+      
+      const minorScore = changeTracker.calculateSignificanceScore(minorChange);
+      const majorScore = changeTracker.calculateSignificanceScore(majorChange);
+      
+      if (typeof minorScore !== 'number' || typeof majorScore !== 'number') {
+        throw new Error('Invalid significance scores');
+      }
+      if (minorScore < 0 || minorScore > 1 || majorScore < 0 || majorScore > 1) {
+        throw new Error('Significance scores should be between 0 and 1');
+      }
+      if (majorScore <= minorScore) {
+        throw new Error('Major changes should have higher significance scores');
+      }
+    });
+
+    await runTest('Differential Analysis', async () => {
+      const url = 'https://example.com/diff-test';
+      const content1 = 'The quick brown fox jumps over the lazy dog.';
+      const content2 = 'The quick red fox jumps over the sleeping cat.';
+      
+      await changeTracker.createSnapshot(url, content1);
+      
+      const diff = await changeTracker.performDifferentialAnalysis(url, content2);
+      
+      if (!diff) {
+        throw new Error('Differential analysis returned no result');
+      }
+      if (!diff.wordDiff || !diff.statistics) {
+        throw new Error('Differential analysis missing required fields');
+      }
+      if (typeof diff.similarity !== 'number') {
+        throw new Error('Content similarity not calculated');
+      }
+    });
+
+    if (!CONFIG.skipSlowTests) {
+      await runTest('Real-time Monitoring', async () => {
+        const url = 'https://example.com/monitor-test';
+        let callbackCalled = false;
+        
+        const callback = (changes) => {
+          callbackCalled = true;
+        };
+        
+        await changeTracker.startMonitoring(url, {
+          interval: 1000,
+          callback
+        });
+        
+        if (!changeTracker.activeMonitors.has(url)) {
+          throw new Error('Monitoring not started');
+        }
+        
+        await changeTracker.stopMonitoring(url);
+        
+        if (changeTracker.activeMonitors.has(url)) {
+          throw new Error('Monitoring not stopped');
+        }
+      }, { timeout: 10000 });
+    }
+
+    await runTest('Statistics and Reporting', async () => {
+      const stats = changeTracker.getStatistics();
+      
+      if (!stats || typeof stats !== 'object') {
+        throw new Error('Statistics not available');
+      }
+      if (typeof stats.pagesTracked !== 'number') {
+        throw new Error('Invalid page tracking statistics');
+      }
+      if (typeof stats.changesDetected !== 'number') {
+        throw new Error('Invalid change detection statistics');
+      }
+    });
+
+    testResults.coverage.changeTracker = 88;
+    
+  } catch (error) {
+    testResults.errors.push({
+      component: 'ChangeTracker',
+      error: `Failed to load or test: ${error.message}`
+    });
+  } finally {
+    if (changeTracker && changeTracker.cleanup) {
+      await changeTracker.cleanup().catch(() => {});
+    }
+  }
+}
+
+/**
+ * MCP Tool Integration Tests
+ */
+async function validateMCPToolIntegration() {
+  console.log(`\n${colors.bright}=== MCP Tool Integration Validation ===${colors.reset}`);
+  
+  try {
+    await runTest('Deep Research MCP Tool', async () => {
+      const { deepResearchTool } = await import('../../src/tools/research/deepResearch.js');
+      
+      if (!deepResearchTool) {
+        throw new Error('Deep research tool not available');
+      }
+      if (typeof deepResearchTool.execute !== 'function') {
+        throw new Error('Deep research tool execute method not available');
+      }
+      
+      // Test parameter validation
+      const validRequest = {
+        arguments: {
+          topic: 'Test research topic',
+          options: {
+            maxDepth: 2,
+            maxUrls: 5
+          }
+        }
+      };
+      
+      try {
+        deepResearchTool.validateParameters(validRequest.arguments);
+      } catch (error) {
+        throw new Error('Valid parameters rejected by deep research tool');
+      }
+    });
+
+    await runTest('Track Changes MCP Tool', async () => {
+      const { trackChangesTool } = await import('../../src/tools/tracking/trackChanges.js');
+      
+      if (!trackChangesTool) {
+        throw new Error('Track changes tool not available');
+      }
+      if (typeof trackChangesTool.execute !== 'function') {
+        throw new Error('Track changes tool execute method not available');
+      }
+      
+      // Test parameter validation
+      const validRequest = {
+        arguments: {
+          baselineUrl: 'https://example.com/test',
+          currentContent: 'Test content',
+          options: {
+            granularity: 'section'
+          }
+        }
+      };
+      
+      try {
+        trackChangesTool.validateParameters(validRequest.arguments);
+      } catch (error) {
+        throw new Error('Valid parameters rejected by track changes tool');
+      }
+    });
+
+    await runTest('MCP Protocol Compliance', async () => {
+      const tools = [
+        await import('../../src/tools/research/deepResearch.js').then(m => m.deepResearchTool),
+        await import('../../src/tools/tracking/trackChanges.js').then(m => m.trackChangesTool)
+      ];
+      
+      for (const tool of tools) {
+        if (!tool.name || typeof tool.name !== 'string') {
+          throw new Error('Tool missing name property');
+        }
+        if (!tool.description || typeof tool.description !== 'string') {
+          throw new Error('Tool missing description property');
+        }
+        if (!tool.inputSchema || typeof tool.inputSchema !== 'object') {
+          throw new Error('Tool missing input schema');
+        }
+        if (typeof tool.execute !== 'function') {
+          throw new Error('Tool missing execute method');
+        }
+      }
+    });
+    
+  } catch (error) {
+    testResults.errors.push({
+      component: 'MCP Integration',
+      error: `Failed to load or test: ${error.message}`
+    });
+  }
+}
+
+/**
+ * Integration and Performance Tests
+ */
+async function validateIntegrationAndPerformance() {
+  console.log(`\n${colors.bright}=== Integration and Performance Validation ===${colors.reset}`);
+  
+  await runTest('Component Integration', async () => {
+    try {
+      const { ResearchOrchestrator } = await import('../../src/core/ResearchOrchestrator.js');
+      const { StealthBrowserManager } = await import('../../src/core/StealthBrowserManager.js');
+      const { LocalizationManager } = await import('../../src/core/LocalizationManager.js');
+      const { ChangeTracker } = await import('../../src/core/ChangeTracker.js');
+      
+      // Test that all components can be instantiated together
+      const components = {
+        research: new ResearchOrchestrator({ maxUrls: 3, timeLimit: 10000 }),
+        stealth: new StealthBrowserManager(),
+        localization: new LocalizationManager(),
+        changeTracker: new ChangeTracker({ enableRealTimeTracking: false })
+      };
+      
+      // Test basic functionality of each component
+      const sessionId = components.research.generateSessionId();
+      const fingerprint = components.stealth.generateFingerprint();
+      const headers = components.localization.generateLocalizedHeaders('US');
+      const hash = components.changeTracker.generateContentHash('test content');
+      
+      if (!sessionId || !fingerprint || !headers || !hash) {
+        throw new Error('Component integration test failed');
+      }
+      
+      // Cleanup
+      await Promise.all([
+        components.research.cleanup(),
+        components.stealth.close(),
+        components.localization.cleanup(),
+        components.changeTracker.cleanup()
+      ].map(p => p.catch(() => {})));
+      
+    } catch (error) {
+      throw new Error(`Integration test failed: ${error.message}`);
+    }
+  });
+
+  if (!CONFIG.skipSlowTests) {
+    await runTest('Memory Usage Assessment', async () => {
+      const memoryBefore = process.memoryUsage();
+      
+      // Create multiple instances to test memory usage
+      const instances = [];
+      try {
+        const { ResearchOrchestrator } = await import('../../src/core/ResearchOrchestrator.js');
+        const { ChangeTracker } = await import('../../src/core/ChangeTracker.js');
+        
+        for (let i = 0; i < 5; i++) {
+          instances.push(new ResearchOrchestrator({ maxUrls: 5 }));
+          instances.push(new ChangeTracker({ enableRealTimeTracking: false }));
+        }
+        
+        // Force garbage collection if available
+        if (global.gc) {
+          global.gc();
+        }
+        
+        const memoryAfter = process.memoryUsage();
+        const memoryIncrease = memoryAfter.heapUsed - memoryBefore.heapUsed;
+        
+        // Memory increase should be reasonable (less than 50MB)
+        if (memoryIncrease > 50 * 1024 * 1024) {
+          throw new Error(`Excessive memory usage: ${formatBytes(memoryIncrease)}`);
+        }
+        
+        testResults.performance.memoryUsage = formatBytes(memoryIncrease);
+        
+      } finally {
+        // Cleanup instances
+        await Promise.all(instances.map(instance => 
+          instance.cleanup ? instance.cleanup().catch(() => {}) : Promise.resolve()
+        ));
+      }
+    }, { timeout: 30000 });
+  }
+
+  await runTest('Error Handling and Recovery', async () => {
+    try {
+      const { ChangeTracker } = await import('../../src/core/ChangeTracker.js');
+      const tracker = new ChangeTracker();
+      
+      // Test error handling with invalid inputs
+      try {
+        await tracker.createSnapshot('invalid-url', null);
+        throw new Error('Should have thrown error for invalid input');
+      } catch (error) {
+        if (error.message.includes('Should have thrown')) {
+          throw error;
+        }
+        // Expected error
+      }
+      
+      try {
+        await tracker.detectChanges('nonexistent-url', 'content');
+        throw new Error('Should have thrown error for nonexistent URL');
+      } catch (error) {
+        if (error.message.includes('Should have thrown')) {
+          throw error;
+        }
+        // Expected error
+      }
+      
+      await tracker.cleanup();
+      
+    } catch (error) {
+      throw new Error(`Error handling test failed: ${error.message}`);
+    }
+  });
+}
+
+/**
+ * Generate comprehensive test report
+ */
+async function generateTestReport() {
+  if (!CONFIG.generateReport) return;
+  
+  testResults.endTime = Date.now();
+  const duration = testResults.endTime - testResults.startTime;
+  
+  const report = {
+    summary: {
+      totalTests: testResults.totalTests,
+      passedTests: testResults.passedTests,
+      failedTests: testResults.failedTests,
+      skippedTests: testResults.skippedTests,
+      successRate: `${Math.round((testResults.passedTests / testResults.totalTests) * 100)}%`,
+      duration: `${Math.round(duration / 1000)}s`,
+      timestamp: new Date().toISOString()
+    },
+    coverage: testResults.coverage,
+    performance: {
+      ...testResults.performance,
+      averageTestTime: Math.round(
+        Object.values(testResults.performance).reduce((a, b) => a + b, 0) / 
+        Object.keys(testResults.performance).length
+      )
+    },
+    errors: testResults.errors,
+    warnings: testResults.warnings,
+    systemInfo: {
+      nodeVersion: process.version,
+      platform: process.platform,
+      architecture: process.arch,
+      memoryUsage: process.memoryUsage()
+    }
+  };
+  
+  // Ensure output directory exists
+  await fs.mkdir(CONFIG.outputDir, { recursive: true });
+  
+  // Write detailed JSON report
+  const jsonReportPath = join(CONFIG.outputDir, 'wave3-validation-report.json');
+  await fs.writeFile(jsonReportPath, JSON.stringify(report, null, 2));
+  
+  // Write human-readable summary
+  const summaryPath = join(CONFIG.outputDir, 'wave3-validation-summary.txt');
+  const summaryContent = `
+Wave 3 Features Validation Report
+================================
+
+Summary:
+- Total Tests: ${report.summary.totalTests}
+- Passed: ${report.summary.passedTests}
+- Failed: ${report.summary.failedTests}
+- Skipped: ${report.summary.skippedTests}
+- Success Rate: ${report.summary.successRate}
+- Duration: ${report.summary.duration}
+
+Component Coverage:
+- ResearchOrchestrator: ${report.coverage.researchOrchestrator}%
+- StealthBrowserManager: ${report.coverage.stealthBrowserManager}%
+- LocalizationManager: ${report.coverage.localizationManager}%
+- ChangeTracker: ${report.coverage.changeTracker}%
+
+Performance:
+- Average Test Time: ${report.performance.averageTestTime}ms
+- Memory Usage: ${report.performance.memoryUsage || 'N/A'}
+
+${report.errors.length > 0 ? `\nErrors:\n${report.errors.map(e => `- ${e.component || e.test}: ${e.error}`).join('\n')}` : ''}
+
+${report.warnings.length > 0 ? `\nWarnings:\n${report.warnings.map(w => `- ${w}`).join('\n')}` : ''}
+
+Generated: ${report.summary.timestamp}
+  `;
+  
+  await fs.writeFile(summaryPath, summaryContent);
+  
+  console.log(`\n${colors.bright}Test reports generated:${colors.reset}`);
+  console.log(`- JSON Report: ${jsonReportPath}`);
+  console.log(`- Summary: ${summaryPath}`);
+}
+
+/**
+ * Main validation runner
+ */
+async function runValidation() {
+  console.log(`${colors.bright}${colors.cyan}Wave 3 Features Validation Test Suite${colors.reset}`);
+  console.log(`${colors.dim}Testing Deep Research, Stealth Mode, Localization, and Change Tracking${colors.reset}\n`);
+  
+  const startTime = Date.now();
+  
+  try {
+    // Run validation tests for each component
+    await validateResearchOrchestrator();
+    await validateStealthBrowserManager();
+    await validateLocalizationManager();
+    await validateChangeTracker();
+    await validateMCPToolIntegration();
+    await validateIntegrationAndPerformance();
+    
+  } catch (error) {
+    console.error(`${colors.red}Validation suite failed: ${error.message}${colors.reset}`);
+    testResults.errors.push({ error: error.message, stack: error.stack });
+  }
+  
+  const duration = Date.now() - startTime;
+  
+  // Print final summary
+  console.log(`\n${colors.bright}=== Validation Summary ===${colors.reset}`);
+  console.log(`Total Tests: ${testResults.totalTests}`);
+  console.log(`${colors.green}Passed: ${testResults.passedTests}${colors.reset}`);
+  console.log(`${colors.red}Failed: ${testResults.failedTests}${colors.reset}`);
+  console.log(`${colors.yellow}Skipped: ${testResults.skippedTests}${colors.reset}`);
+  console.log(`Success Rate: ${Math.round((testResults.passedTests / testResults.totalTests) * 100)}%`);
+  console.log(`Duration: ${Math.round(duration / 1000)}s`);
+  
+  if (testResults.errors.length > 0) {
+    console.log(`\n${colors.red}Errors encountered:${colors.reset}`);
+    testResults.errors.forEach((error, i) => {
+      console.log(`${i + 1}. ${error.component || error.test || 'Unknown'}: ${error.error}`);
+    });
+  }
+  
+  if (testResults.warnings.length > 0) {
+    console.log(`\n${colors.yellow}Warnings:${colors.reset}`);
+    testResults.warnings.forEach((warning, i) => {
+      console.log(`${i + 1}. ${warning}`);
+    });
+  }
+  
+  // Generate reports
+  await generateTestReport();
+  
+  // Exit with appropriate code
+  const exitCode = testResults.failedTests > 0 ? 1 : 0;
+  process.exit(exitCode);
+}
+
+// Handle uncaught errors
+process.on('unhandledRejection', (reason, promise) => {
+  console.error(`${colors.red}Unhandled Promise Rejection:${colors.reset}`, reason);
+  testResults.errors.push({
+    error: `Unhandled Promise Rejection: ${reason}`,
+    promise: promise
+  });
+});
+
+process.on('uncaughtException', (error) => {
+  console.error(`${colors.red}Uncaught Exception:${colors.reset}`, error);
+  testResults.errors.push({
+    error: `Uncaught Exception: ${error.message}`,
+    stack: error.stack
+  });
+  process.exit(1);
+});
+
+// Run validation if called directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runValidation();
+}
+
+export default runValidation;

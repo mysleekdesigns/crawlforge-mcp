@@ -108,7 +108,7 @@ Ask your AI assistant:
 
 ## 🛠️ Available Tools
 
-Our toolkit includes **12 specialized tools** organized by complexity:
+Our toolkit includes **16 specialized tools** organized by complexity:
 
 ### 🟢 Basic Tools (Start Here)
 | Tool | What it does | Example Use |
@@ -133,6 +133,22 @@ Our toolkit includes **12 specialized tools** organized by complexity:
 | `process_document` | Handle PDFs and complex pages | Document analysis |
 | `summarize_content` | Create summaries | Research digests |
 | `analyze_content` | Deep content analysis | Sentiment detection |
+| `batch_scrape` | Process multiple URLs simultaneously | Mass data collection |
+| `scrape_with_actions` | Interactive scraping with browser automation | Form filling, dynamic content |
+
+### 🟣 Wave 3 Research & Intelligence Tools
+| Tool | What it does | Example Use |
+|------|--------------|-------------|
+| `deep_research` | **Comprehensive multi-stage research with source verification** | Academic research, fact-checking, comprehensive topic investigation |
+| `track_changes` | **Website change tracking and monitoring** | Competitor monitoring, content compliance, price tracking |
+
+**🔬 Wave 3 New Features:**
+- **Deep Research Intelligence:** Multi-stage research with AI-powered source verification and conflict detection
+- **Advanced Stealth Mode:** Browser fingerprint randomization with human behavior simulation
+- **Comprehensive Localization:** 15+ countries with timezone, language, and cultural adaptation
+- **Intelligent Change Tracking:** Baseline capture, significance scoring, and automated monitoring
+- **Research Orchestration:** Configurable approaches (academic, current events, comparative)
+- **Anti-Detection Systems:** Bypass geo-blocking, bot detection, and content restrictions
 
 ## 🔧 Advanced Setup
 
@@ -180,6 +196,24 @@ Ask your AI assistant to:
 - *"Find and summarize the top 5 articles about machine learning"*
 - *"What are people saying about the new iPhone?"*
 
+### 🔬 Wave 3 Deep Research & Intelligence (NEW!)
+- *"Conduct comprehensive research on climate change impacts on agriculture with source verification"*
+- *"Research AI ethics frameworks, detect conflicts between different viewpoints"*
+- *"Investigate recent developments in quantum computing with academic sources only"*
+- *"Compare different COVID vaccine effectiveness studies and identify consensus areas"*
+
+### 📊 Change Tracking & Monitoring (NEW!)
+- *"Monitor competitor pricing changes and notify me of any updates"*
+- *"Track changes on our privacy policy page for compliance monitoring"*
+- *"Set up alerts for when tech news sites publish AI regulation updates"*
+- *"Create baseline for product documentation and track all future changes"*
+
+### 🥷 Advanced Stealth Mode (NEW!)
+- *"Scrape competitor data using stealth mode to avoid detection"*
+- *"Fill out forms with human-like typing patterns and mouse movements"*
+- *"Access geo-blocked content from multiple countries"*
+- *"Analyze websites with randomized browser fingerprints"*
+
 ### Data Extraction
 - *"Get all product prices from this store page"*
 - *"Extract email addresses from this contact page"*
@@ -209,6 +243,12 @@ Ask your AI assistant to:
 - 🏗️ **[Architecture](./docs/ADVANCED.md)** - System design and internals
 - 🚀 **[Deployment](./docs/DEPLOYMENT.md)** - Production deployment
 - 🔍 **[Google Search Setup](./docs/GOOGLE_SEARCH_SETUP.md)** - Enhanced search configuration
+
+### 🔬 Wave 3 Research & Intelligence Features
+- 🧠 **[Deep Research Tool](./docs/DEEP_RESEARCH_TOOL.md)** - Comprehensive research orchestration guide
+- 🥷 **[Stealth Mode Features](./docs/STEALTH_MODE.md)** - Advanced anti-detection and human behavior simulation
+- 📊 **[Wave 3 Features Guide](./docs/WAVE3_FEATURES.md)** - Complete Wave 3 feature documentation with examples
+- 💡 **[Usage Examples](./docs/USAGE_EXAMPLES.md)** - Real-world Wave 3 workflow examples and use cases
 
 ## 🧪 Testing
 

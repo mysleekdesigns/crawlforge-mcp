@@ -2,9 +2,9 @@
 
 ## Overview
 
-The MCP WebScraper server provides 12 comprehensive tools for web scraping, searching, crawling, and content processing. This document provides detailed API specifications for all available tools.
+The MCP WebScraper server provides 16 comprehensive tools for web scraping, searching, crawling, content processing, and advanced research. This document provides detailed API specifications for all available tools.
 
-**Server Version:** 3.0.0  
+**Server Version:** 3.0.0 (Wave 3)  
 **MCP Protocol:** 2024-11-05  
 **Node.js Required:** 18.0.0+
 
@@ -27,6 +27,14 @@ The MCP WebScraper server provides 12 comprehensive tools for web scraping, sear
 - [`process_document`](#process_document) - Multi-format document processing
 - [`summarize_content`](#summarize_content) - Intelligent text summarization
 - [`analyze_content`](#analyze_content) - Comprehensive content analysis
+
+### Wave 2 Advanced Tools
+- [`batch_scrape`](#batch_scrape) - Asynchronous batch processing with job management
+- [`scrape_with_actions`](#scrape_with_actions) - Browser automation with stealth mode
+
+### Wave 3 Research & Intelligence Tools
+- [`deep_research`](#deep_research) - Comprehensive multi-stage research with source verification
+- [`track_changes`](#track_changes) - Website change tracking and monitoring
 
 ---
 
@@ -1467,7 +1475,436 @@ Typical resource consumption:
 
 ---
 
+## Wave 3 Tools
+
+### `deep_research`
+
+Comprehensive multi-stage research orchestrator with intelligent query expansion, source verification, conflict detection, and information synthesis.
+
+**Description:** Advanced research tool that conducts systematic investigations across multiple stages, from broad exploration to focused verification and synthesis.
+
+#### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `topic` | string | ✅ | - | Research topic or question (3-500 characters) |
+| `maxDepth` | number | ❌ | `5` | Research depth levels (1-10) |
+| `maxUrls` | number | ❌ | `50` | Maximum URLs to process (1-1000) |
+| `timeLimit` | number | ❌ | `120000` | Time limit in milliseconds (30s-5min) |
+| `researchApproach` | enum | ❌ | `"broad"` | Research strategy |
+| `sourceTypes` | array | ❌ | `["any"]` | Target source types |
+| `credibilityThreshold` | number | ❌ | `0.3` | Minimum source credibility (0-1) |
+| `enableConflictDetection` | boolean | ❌ | `true` | Detect information conflicts |
+| `enableSourceVerification` | boolean | ❌ | `true` | Verify source credibility |
+| `outputFormat` | enum | ❌ | `"comprehensive"` | Output format |
+
+#### Research Approaches
+
+- `"broad"` - Comprehensive coverage with multiple query variations
+- `"focused"` - Targeted investigation with limited scope
+- `"academic"` - Prioritizes scholarly and peer-reviewed sources
+- `"current_events"` - Focuses on recent information and news
+- `"comparative"` - Enables conflict detection and multiple perspectives
+
+#### Output Formats
+
+- `"comprehensive"` - Complete research results with all findings
+- `"summary"` - Condensed results with top findings
+- `"citations_only"` - Source-focused output with metadata
+- `"conflicts_focus"` - Emphasis on conflict analysis
+
+#### Response Schema
+
+```json
+{
+  "success": true,
+  "sessionId": "deep_research_12345_abc123",
+  "researchSummary": {
+    "totalSources": 25,
+    "verifiedSources": 18,
+    "keyFindings": 8,
+    "conflictsFound": 2,
+    "consensusAreas": 5
+  },
+  "findings": [
+    {
+      "finding": "Key research finding text",
+      "confidence": 0.87,
+      "sources": ["https://source1.com", "https://source2.com"],
+      "category": "primary_insight",
+      "significance": "high"
+    }
+  ],
+  "consensus": [
+    {
+      "topic": "Agreed upon finding",
+      "agreement_level": 0.95,
+      "supporting_sources": 8,
+      "evidence_strength": "strong"
+    }
+  ],
+  "conflicts": [
+    {
+      "topic": "Disputed claim",
+      "positions": [
+        {
+          "stance": "Position A",
+          "sources": ["https://source1.com"],
+          "credibility": 0.8
+        },
+        {
+          "stance": "Position B", 
+          "sources": ["https://source2.com"],
+          "credibility": 0.75
+        }
+      ],
+      "severity": "moderate"
+    }
+  ],
+  "credibilityAssessment": {
+    "overallScore": 0.78,
+    "highCredibilitySources": 15,
+    "mediumCredibilitySources": 8,
+    "lowCredibilitySources": 2
+  },
+  "performance": {
+    "totalTime": 89432,
+    "queriesExecuted": 12,
+    "sourcesProcessed": 25,
+    "successRate": 0.92
+  },
+  "metadata": {
+    "approach": "academic",
+    "completedAt": "2024-01-15T10:30:00.000Z"
+  }
+}
+```
+
+#### Error Codes
+
+- `RESEARCH_TIMEOUT` - Research time limit exceeded
+- `INSUFFICIENT_SOURCES` - Too few quality sources found
+- `NETWORK_ISSUES` - Connection problems during research
+- `INVALID_TOPIC` - Topic format or content invalid
+- `RATE_LIMITED` - Too many concurrent requests
+
+#### Example Usage
+
+##### Basic Research
+```javascript
+{
+  "tool": "deep_research",
+  "parameters": {
+    "topic": "renewable energy storage solutions",
+    "researchApproach": "broad",
+    "outputFormat": "summary"
+  }
+}
+```
+
+##### Academic Investigation
+```javascript
+{
+  "tool": "deep_research", 
+  "parameters": {
+    "topic": "machine learning bias in healthcare",
+    "researchApproach": "academic",
+    "sourceTypes": ["academic", "government"],
+    "credibilityThreshold": 0.7,
+    "maxDepth": 7,
+    "maxUrls": 100,
+    "outputFormat": "comprehensive"
+  }
+}
+```
+
+##### Conflict Analysis
+```javascript
+{
+  "tool": "deep_research",
+  "parameters": {
+    "topic": "covid vaccine effectiveness studies",
+    "researchApproach": "comparative",
+    "enableConflictDetection": true,
+    "outputFormat": "conflicts_focus",
+    "timeLimit": 180000
+  }
+}
+```
+
+**Common Use Cases:**
+- Academic research and literature reviews
+- Fact-checking and verification
+- Market research and competitive analysis
+- Policy research and impact assessment
+- Technical documentation research
+
+---
+
+### `track_changes`
+
+Website change tracking and monitoring with baseline capture, comparison, and notification capabilities.
+
+**Description:** Advanced change detection system that creates baselines, compares website states, monitors changes over time, and provides detailed change analysis.
+
+#### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `url` | string | ✅ | - | Website URL to track |
+| `operation` | enum | ❌ | `"compare"` | Operation to perform |
+| `content` | string | ❌ | - | Custom content to compare |
+| `html` | string | ❌ | - | Custom HTML to compare |
+| `trackingOptions` | object | ❌ | `{}` | Change tracking configuration |
+| `monitoringOptions` | object | ❌ | `{}` | Monitoring configuration |
+| `notificationOptions` | object | ❌ | `{}` | Notification settings |
+
+#### Operations
+
+- `"create_baseline"` - Create initial baseline for tracking
+- `"compare"` - Compare current state with baseline
+- `"monitor"` - Enable continuous monitoring 
+- `"get_history"` - Retrieve change history
+- `"get_stats"` - Get tracking statistics
+
+#### Tracking Options Schema
+
+```javascript
+{
+  "granularity": "section",         // 'page', 'section', 'element', 'text'
+  "trackText": true,               // Track text content changes
+  "trackStructure": true,          // Track HTML structure changes
+  "trackAttributes": false,        // Track element attributes
+  "trackImages": false,            // Track image changes
+  "trackLinks": true,              // Track link changes
+  "ignoreWhitespace": true,        // Ignore whitespace differences
+  "ignoreCase": false,             // Ignore case differences
+  "customSelectors": [],           // Custom CSS selectors to track
+  "excludeSelectors": [            // Selectors to exclude
+    "script", "style", "noscript", 
+    ".advertisement", ".ad", "#comments"
+  ],
+  "significanceThresholds": {
+    "minor": 0.1,                  // Minor change threshold
+    "moderate": 0.3,               // Moderate change threshold  
+    "major": 0.7                   // Major change threshold
+  }
+}
+```
+
+#### Monitoring Options Schema
+
+```javascript
+{
+  "enabled": false,                // Enable continuous monitoring
+  "interval": 300000,              // Check interval (5min-24hrs)
+  "maxRetries": 3,                 // Max retries on failure
+  "retryDelay": 5000,              // Delay between retries
+  "notificationThreshold": "moderate", // Minimum change level to notify
+  "enableWebhook": false,          // Enable webhook notifications
+  "webhookUrl": "",                // Webhook endpoint URL
+  "webhookHeaders": {},            // Custom webhook headers
+  "scheduleType": "interval",      // 'interval', 'cron', 'manual'
+  "cronExpression": "",            // Cron schedule expression
+  "timezone": "UTC"                // Timezone for scheduling
+}
+```
+
+#### Response Schema
+
+```json
+{
+  "success": true,
+  "operation": "compare",
+  "url": "https://example.com",
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "baseline": {
+    "created": "2024-01-14T10:00:00.000Z",
+    "checksum": "abc123def456",
+    "contentLength": 15420,
+    "elementCount": 245
+  },
+  "current": {
+    "timestamp": "2024-01-15T10:30:00.000Z",
+    "checksum": "def456ghi789", 
+    "contentLength": 15680,
+    "elementCount": 248
+  },
+  "changes": {
+    "hasChanges": true,
+    "changeCount": 12,
+    "significance": "moderate",
+    "changeScore": 0.34,
+    "categories": {
+      "text": 8,
+      "structure": 2,
+      "links": 2,
+      "images": 0
+    },
+    "details": [
+      {
+        "type": "text_change",
+        "selector": "h1",
+        "oldValue": "Old Heading",
+        "newValue": "New Heading",
+        "changeType": "modification",
+        "significance": "moderate",
+        "position": 1
+      },
+      {
+        "type": "element_added",
+        "selector": "div.new-section",
+        "content": "<div class=\"new-section\">...</div>",
+        "changeType": "addition",
+        "significance": "minor",
+        "position": 15
+      }
+    ]
+  },
+  "statistics": {
+    "totalComparisons": 5,
+    "changesDetected": 3,
+    "lastSignificantChange": "2024-01-15T09:15:00.000Z",
+    "averageChangeScore": 0.12,
+    "trackingDuration": 86400000
+  },
+  "monitoring": {
+    "enabled": true,
+    "nextCheck": "2024-01-15T10:35:00.000Z",
+    "interval": 300000,
+    "status": "active"
+  },
+  "notifications": {
+    "sent": true,
+    "webhookDelivered": true,
+    "lastNotification": "2024-01-15T10:30:05.000Z"
+  }
+}
+```
+
+#### Change Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `text_change` | Text content modified | Heading text updated |
+| `element_added` | New HTML element added | New paragraph inserted |
+| `element_removed` | HTML element removed | Image deleted |
+| `element_moved` | Element position changed | Section reordered |
+| `attribute_change` | Element attribute modified | Class name changed |
+| `link_change` | Link URL or text changed | Button link updated |
+| `structure_change` | HTML structure modified | Div converted to section |
+
+#### Significance Levels
+
+- `"minor"` - Small changes (typos, minor formatting)
+- `"moderate"` - Noticeable changes (content updates, new sections)
+- `"major"` - Significant changes (layout changes, major content updates)
+- `"critical"` - Critical changes (complete page restructure)
+
+#### Error Codes
+
+- `BASELINE_NOT_FOUND` - No baseline exists for the URL
+- `COMPARISON_FAILED` - Failed to compare current with baseline
+- `INVALID_SELECTOR` - Invalid CSS selector provided
+- `MONITORING_ERROR` - Error in monitoring configuration
+- `NOTIFICATION_FAILED` - Failed to send notification
+
+#### Example Usage
+
+##### Create Baseline
+```javascript
+{
+  "tool": "track_changes",
+  "parameters": {
+    "url": "https://news.example.com",
+    "operation": "create_baseline",
+    "trackingOptions": {
+      "granularity": "section",
+      "trackText": true,
+      "trackLinks": true,
+      "customSelectors": ["h1", "h2", ".article-content"]
+    }
+  }
+}
+```
+
+##### Compare Changes
+```javascript
+{
+  "tool": "track_changes",
+  "parameters": {
+    "url": "https://news.example.com",
+    "operation": "compare",
+    "trackingOptions": {
+      "significanceThresholds": {
+        "minor": 0.05,
+        "moderate": 0.2,
+        "major": 0.6
+      }
+    }
+  }
+}
+```
+
+##### Enable Monitoring
+```javascript
+{
+  "tool": "track_changes",
+  "parameters": {
+    "url": "https://competitor.example.com/pricing",
+    "operation": "monitor",
+    "monitoringOptions": {
+      "enabled": true,
+      "interval": 3600000,
+      "notificationThreshold": "minor",
+      "enableWebhook": true,
+      "webhookUrl": "https://your-app.com/webhook",
+      "scheduleType": "cron",
+      "cronExpression": "0 */6 * * *"
+    }
+  }
+}
+```
+
+##### Get Change History
+```javascript
+{
+  "tool": "track_changes",
+  "parameters": {
+    "url": "https://example.com",
+    "operation": "get_history",
+    "options": {
+      "limit": 50,
+      "since": "2024-01-01T00:00:00.000Z",
+      "significanceFilter": "moderate"
+    }
+  }
+}
+```
+
+**Common Use Cases:**
+- Competitor website monitoring
+- Content change tracking for compliance
+- News and blog monitoring
+- Product price monitoring
+- Website maintenance tracking
+- SEO change detection
+
+---
+
 ## Changelog
+
+### Version 3.0.0 (Wave 3)
+- Added 2 new Wave 3 research and intelligence tools
+- Enhanced stealth mode with human behavior simulation
+- Added comprehensive localization management
+- Implemented website change tracking and monitoring
+- Advanced research orchestration capabilities
+
+### Version 2.1.0 (Wave 2)
+- Added asynchronous batch scraping with job management
+- Enhanced browser automation with stealth capabilities
+- Implemented webhook notifications and real-time updates
 
 ### Version 3.0.0
 - Added 4 new advanced content processing tools
