@@ -1087,6 +1087,12 @@ export class ChangeTracker extends EventEmitter {
     
     this.contentHistory.get(url).unshift(snapshot);
     
+    // Also store in snapshots Map for compatibility
+    if (!this.snapshots.has(url)) {
+      this.snapshots.set(url, []);
+    }
+    this.snapshots.get(url).unshift(snapshot);
+    
     // Keep only last 100 snapshots
     const history = this.contentHistory.get(url);
     if (history.length > 100) {
@@ -1151,22 +1157,49 @@ export class ChangeTracker extends EventEmitter {
       score,
       significance
     };
-  }  /**
+  }
+  
+  /**
    * Calculate significance score for changes
    */
   calculateSignificanceScore(changes) {
-    if (!changes || changes.length === 0) return 0;
+    if (!changes) return 0;
     
     let score = 0;
     const weights = {
-      added: 0.3,
-      removed: 0.4,
-      modified: 0.2
+      textChanges: 0.4,
+      structuralChanges: 0.6
     };
     
-    changes.forEach(change => {
-      score += (weights[change.type] || 0.1) * (change.count || 1);
-    });
+    // Handle object format with textChanges and structuralChanges
+    if (typeof changes === "object" && !Array.isArray(changes)) {
+      if (changes.textChanges) {
+        const text = changes.textChanges;
+        const textScore = ((text.additions || 0) + (text.deletions || 0) + (text.modifications || 0)) / (changes.totalLength || 1000);
+        score += textScore * weights.textChanges;
+      }
+      
+      if (changes.structuralChanges) {
+        const struct = changes.structuralChanges;
+        const structScore = ((struct.additions || 0) + (struct.deletions || 0)) / 20; // Normalize
+        score += structScore * weights.structuralChanges;
+      }
+      
+      return Math.min(score, 1.0); // Cap at 1.0
+    }
+    
+    // Handle legacy array format
+    if (Array.isArray(changes)) {
+      const legacyWeights = {
+        added: 0.3,
+        removed: 0.4,
+        modified: 0.2
+      };
+      
+      changes.forEach(change => {
+        score += (legacyWeights[change.type] || 0.1) * (change.count || 1);
+      });
+    }
     
     return Math.min(score, 1.0); // Cap at 1.0
   }

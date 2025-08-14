@@ -1087,6 +1087,12 @@ export class ChangeTracker extends EventEmitter {
     
     this.contentHistory.get(url).unshift(snapshot);
     
+    // Also store in snapshots Map for compatibility
+    if (!this.snapshots.has(url)) {
+      this.snapshots.set(url, []);
+    }
+    this.snapshots.get(url).unshift(snapshot);
+    
     // Keep only last 100 snapshots
     const history = this.contentHistory.get(url);
     if (history.length > 100) {

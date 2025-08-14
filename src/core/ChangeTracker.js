@@ -1075,7 +1075,7 @@ export class ChangeTracker extends EventEmitter {
     const snapshot = {
       url,
       content,
-      hash,
+      contentHash: hash,
       timestamp,
       version: 1
     };
@@ -1087,6 +1087,12 @@ export class ChangeTracker extends EventEmitter {
     
     this.contentHistory.get(url).unshift(snapshot);
     
+    // Also store in snapshots Map for compatibility
+    if (!this.snapshots.has(url)) {
+      this.snapshots.set(url, []);
+    }
+    this.snapshots.get(url).unshift(snapshot);
+    
     // Keep only last 100 snapshots
     const history = this.contentHistory.get(url);
     if (history.length > 100) {
@@ -1096,22 +1102,104 @@ export class ChangeTracker extends EventEmitter {
     return snapshot;
   }
 
+
+  /**
+   * Get snapshot history for a URL
+   */
+  getSnapshotHistory(url) {
+    return this.contentHistory.get(url) || [];
+  }
+
+  /**
+   * Detect changes against the latest snapshot
+   */
+  async detectChanges(url, currentContent) {
+    if (!this.contentHistory.has(url)) {
+      return {
+        hasChanges: false,
+        score: 0,
+        significance: "none"
+      };
+    }
+    
+    const history = this.contentHistory.get(url);
+    if (history.length === 0) {
+      return {
+        hasChanges: false,
+        score: 0,
+        significance: "none"
+      };
+    }
+    
+    const lastSnapshot = history[0]; // Latest snapshot
+    const currentHash = this.generateContentHash(currentContent);
+    
+    if (lastSnapshot.contentHash === currentHash) {
+      return {
+        hasChanges: false,
+        score: 0,
+        significance: "none"
+      };
+    }
+    
+    // Calculate change score based on content difference
+    const similarity = this.calculateSimilarity(lastSnapshot.contentHash, currentHash);
+    const score = 1 - similarity;
+    
+    // Determine significance
+    let significance = "none";
+    if (score > 0.7) significance = "major";
+    else if (score > 0.3) significance = "moderate";
+    else if (score > 0.1) significance = "minor";
+    
+    return {
+      hasChanges: score > 0,
+      score,
+      significance
+    };
+  }
+  
   /**
    * Calculate significance score for changes
    */
   calculateSignificanceScore(changes) {
-    if (!changes || changes.length === 0) return 0;
+    if (!changes) return 0;
     
     let score = 0;
     const weights = {
-      added: 0.3,
-      removed: 0.4,
-      modified: 0.2
+      textChanges: 0.4,
+      structuralChanges: 0.6
     };
     
-    changes.forEach(change => {
-      score += (weights[change.type] || 0.1) * (change.count || 1);
-    });
+    // Handle object format with textChanges and structuralChanges
+    if (typeof changes === "object" && !Array.isArray(changes)) {
+      if (changes.textChanges) {
+        const text = changes.textChanges;
+        const textScore = ((text.additions || 0) + (text.deletions || 0) + (text.modifications || 0)) / (changes.totalLength || 1000);
+        score += textScore * weights.textChanges;
+      }
+      
+      if (changes.structuralChanges) {
+        const struct = changes.structuralChanges;
+        const structScore = ((struct.additions || 0) + (struct.deletions || 0)) / 20; // Normalize
+        score += structScore * weights.structuralChanges;
+      }
+      
+      return Math.min(score, 1.0); // Cap at 1.0
+    }
+    
+    // Handle legacy array format
+    if (Array.isArray(changes)) {
+      const legacyWeights = {
+        added: 0.3,
+        removed: 0.4,
+        modified: 0.2
+      };
+      
+      changes.forEach(change => {
+        score += (legacyWeights[change.type] || 0.1) * (change.count || 1);
+      });
+    }
     
     return Math.min(score, 1.0); // Cap at 1.0
   }
@@ -1132,7 +1220,7 @@ export class ChangeTracker extends EventEmitter {
       changeCount: 0
     };
     
-    this.activeMonitors.set(monitorId, monitor);
+    this.activeMonitors.set(url, monitor); // Store by URL for easy access
     
     return monitor;
   }
@@ -1154,6 +1242,93 @@ export class ChangeTracker extends EventEmitter {
   /**
    * Cleanup resources
    */
+  async performDifferentialAnalysis(url, currentContent, options = {}) {
+    if (!url || !currentContent) {
+      throw new Error("URL and current content required for differential analysis");
+    }
+    
+    if (!this.contentHistory.has(url)) {
+      throw new Error(`No baseline found for URL: ${url}`);
+    }
+    
+    try {
+      const history = this.contentHistory.get(url);
+      const baseline = history[0]; // Get latest snapshot
+      
+      const analysis = {
+        wordDiff: [],
+        statistics: {
+          contentSimilarity: 0,
+          changeScore: 0
+        },
+        similarity: 0,
+        structuralChanges: [],
+        contentChanges: [],
+        semanticChanges: [],
+        changeScore: 0,
+        changeSignificance: "none",
+        metadata: {
+          comparisonTime: new Date().toISOString(),
+          baselineVersion: baseline.version || "unknown",
+          currentVersion: "current"
+        }
+      };
+      
+      // Calculate similarity
+      const currentHash = this.generateContentHash(currentContent);
+      analysis.similarity = this.calculateSimilarity(baseline.contentHash, currentHash);
+      analysis.statistics.contentSimilarity = analysis.similarity;
+      analysis.statistics.changeScore = 1 - analysis.similarity;
+      
+      // Simple word diff
+      const baselineWords = baseline.content.split(/\s+/);
+      const currentWords = currentContent.split(/\s+/);
+      
+      // Basic diff calculation
+      const added = currentWords.filter(word => !baselineWords.includes(word));
+      const removed = baselineWords.filter(word => !currentWords.includes(word));
+      
+      analysis.wordDiff = [
+        ...added.map(word => ({ value: word, added: true })),
+        ...removed.map(word => ({ value: word, removed: true }))
+      ];
+      
+      return analysis;
+    } catch (error) {
+      throw new Error(`Differential analysis failed: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Stop monitoring a URL
+   */
+  stopMonitoring(url) {
+    if (this.activeMonitors.has(url)) {
+      this.activeMonitors.delete(url);
+      return true;
+    }
+    return false;
+  }  
+  /**
+   * Get statistics with proper format
+   */
+  getStatistics() {
+    return {
+      totalBaselines: this.contentHistory.size,
+      totalMonitors: this.activeMonitors.size,
+      totalComparisons: this.stats.changesDetected || 0,
+      totalChanges: this.stats.changesDetected || 0,
+      averageChangeSignificance: this.stats.averageChangeScore || 0,
+      lastActivity: this.stats.lastAnalysis,
+      pagesTracked: this.contentHistory.size,
+      changesDetected: this.stats.changesDetected || 0
+    };
+  }
+
+  async initializeSemanticAnalyzer() {
+    // Placeholder for semantic analysis initialization
+  }
+
   cleanup() {
     this.contentHistory.clear();
     this.baselineContent.clear();
@@ -1161,14 +1336,7 @@ export class ChangeTracker extends EventEmitter {
     this.changeNotifications.clear();
     this.snapshotManager.clear();
   }
-  async initializeSemanticAnalyzer() {
-    // Placeholder for semantic analysis initialization
-    // This would integrate with NLP libraries for deeper content analysis
-    this.semanticAnalyzer = {
-      enabled: true,
-      // Integration with libraries like compromise, natural, etc.
-    };
-  }
+
 }
 
 export default ChangeTracker;

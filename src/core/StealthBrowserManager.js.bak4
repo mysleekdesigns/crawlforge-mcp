@@ -304,7 +304,7 @@ export class StealthBrowserManager {
    */
   generateRandomHeaders(config) {
     const headers = {
-      'Accept-Language': `${(config.locale || 'en-US').toLowerCase()},en;q=0.9`,
+      'Accept-Language': `${config.locale.toLowerCase()},en;q=0.9`,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
       'Accept-Encoding': 'gzip, deflate, br',
       'Cache-Control': 'max-age=0',

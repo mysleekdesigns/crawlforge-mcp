@@ -186,43 +186,43 @@ async function validateResearchOrchestrator() {
       }
     });
 
-//     if (!CONFIG.skipSlowTests) {
-//       await runTest('Full Research Workflow', async () => {
-//         // Mock search and extract tools for testing
-//         orchestrator.searchTool = {
-//           execute: jest.fn().mockResolvedValue({
-//             results: [
-//               { title: 'Test Result', url: 'https://example.com', snippet: 'Test snippet', credibilityScore: 0.8 }
-//             ],
-//             totalResults: 1
-//           })
-//         };
-//         
-//         orchestrator.extractTool = {
-//           execute: jest.fn().mockResolvedValue({
-//             title: 'Test Article',
-//             content: 'Test content about the topic',
-//             metadata: { wordCount: 100 }
-//           })
-//         };
-//         
-//         const result = await orchestrator.conductResearch('AI in healthcare', {
-//           maxUrls: 3,
-//           timeLimit: 10000
-//         });
-//         
-//         if (!result || !result.sessionId) {
-//           throw new Error('Research result missing required fields');
-//         }
-//         if (!result.findings || !Array.isArray(result.findings)) {
-//           throw new Error('Research findings not properly formatted');
-//         }
-//         if (!result.summary) {
-//           throw new Error('Research summary missing');
-//         }
-//       }, { timeout: 60000 });
-//     }
-// 
+    if (!CONFIG.skipSlowTests) {
+      await runTest('Full Research Workflow', async () => {
+        // Mock search and extract tools for testing
+        orchestrator.searchTool = {
+          execute: jest.fn().mockResolvedValue({
+            results: [
+              { title: 'Test Result', url: 'https://example.com', snippet: 'Test snippet', credibilityScore: 0.8 }
+            ],
+            totalResults: 1
+          })
+        };
+        
+        orchestrator.extractTool = {
+          execute: jest.fn().mockResolvedValue({
+            title: 'Test Article',
+            content: 'Test content about the topic',
+            metadata: { wordCount: 100 }
+          })
+        };
+        
+        const result = await orchestrator.conductResearch('AI in healthcare', {
+          maxUrls: 3,
+          timeLimit: 10000
+        });
+        
+        if (!result || !result.sessionId) {
+          throw new Error('Research result missing required fields');
+        }
+        if (!result.findings || !Array.isArray(result.findings)) {
+          throw new Error('Research findings not properly formatted');
+        }
+        if (!result.summary) {
+          throw new Error('Research summary missing');
+        }
+      }, { timeout: 60000 });
+    }
+
     testResults.coverage.researchOrchestrator = 85;
     
   } catch (error) {
@@ -287,46 +287,46 @@ async function validateStealthBrowserManager() {
       }
     });
 
-//     if (!CONFIG.skipSlowTests) {
-//       await runTest('Browser Launch and Context Creation', async () => {
-//         // Mock Playwright for testing
-//         const mockBrowser = {
-//           newContext: jest.fn().mockResolvedValue({
-//             newPage: jest.fn().mockResolvedValue({
-//               setUserAgent: jest.fn(),
-//               setViewportSize: jest.fn(),
-//               evaluateOnNewDocument: jest.fn(),
-//               close: jest.fn()
-//             }),
-//             close: jest.fn()
-//           }),
-//           close: jest.fn()
-//         };
-//         
-//         // Mock Playwright launch
-//         jest.mock('playwright', () => ({
-//           chromium: {
-//             launch: jest.fn().mockResolvedValue(mockBrowser)
-//           }
-//         }));
-//         
-//         await stealthManager.launch();
-//         if (!stealthManager.browser) {
-//           throw new Error('Browser not launched');
-//         }
-//         
-//         const context = await stealthManager.createStealthContext('test-context');
-//         if (!stealthManager.contexts.has('test-context')) {
-//           throw new Error('Stealth context not created');
-//         }
-//         
-//         const page = await stealthManager.createStealthPage('test-context');
-//         if (!page) {
-//           throw new Error('Stealth page not created');
-//         }
-//       }, { timeout: 30000 });
-//     }
-// 
+    if (!CONFIG.skipSlowTests) {
+      await runTest('Browser Launch and Context Creation', async () => {
+        // Mock Playwright for testing
+        const mockBrowser = {
+          newContext: jest.fn().mockResolvedValue({
+            newPage: jest.fn().mockResolvedValue({
+              setUserAgent: jest.fn(),
+              setViewportSize: jest.fn(),
+              evaluateOnNewDocument: jest.fn(),
+              close: jest.fn()
+            }),
+            close: jest.fn()
+          }),
+          close: jest.fn()
+        };
+        
+        // Mock Playwright launch
+        jest.mock('playwright', () => ({
+          chromium: {
+            launch: jest.fn().mockResolvedValue(mockBrowser)
+          }
+        }));
+        
+        await stealthManager.launch();
+        if (!stealthManager.browser) {
+          throw new Error('Browser not launched');
+        }
+        
+        const context = await stealthManager.createStealthContext('test-context');
+        if (!stealthManager.contexts.has('test-context')) {
+          throw new Error('Stealth context not created');
+        }
+        
+        const page = await stealthManager.createStealthPage('test-context');
+        if (!page) {
+          throw new Error('Stealth page not created');
+        }
+      }, { timeout: 30000 });
+    }
+
     await runTest('Configuration Validation', async () => {
       const validConfig = {
         level: 'medium',
@@ -698,7 +698,7 @@ async function validateChangeTracker() {
     });
   } finally {
     if (changeTracker && changeTracker.cleanup) {
-      try { await (changeTracker.cleanup() || Promise.resolve()); } catch {}
+      await changeTracker.cleanup().catch(() => {});
     }
   }
 }

@@ -6,7 +6,8 @@
 import { SSRFProtection } from '../../src/utils/ssrfProtection.js';
 import { InputValidator } from '../../src/utils/inputValidation.js';
 import { RateLimiter } from '../../src/utils/rateLimiter.js';
-import { test, suite, expect, beforeEach, afterEach } from 'node:test';
+import { test, suite, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert';
 
 suite('Security Test Suite', () => {
   
@@ -28,8 +29,8 @@ suite('Security Test Suite', () => {
 
       for (const url of testCases) {
         const result = await ssrfProtection.validateURL(url);
-        expect(result.allowed).toBe(false);
-        expect(result.violations.length).toBeGreaterThan(0);
+        assert.strictEqual(result.allowed, false);
+        assert((result.violations.length) > (0));
       }
     });
 
@@ -44,7 +45,7 @@ suite('Security Test Suite', () => {
 
       for (const url of testCases) {
         const result = await ssrfProtection.validateURL(url);
-        expect(result.allowed).toBe(false);
+        assert.strictEqual(result.allowed, false);
         expect(result.violations.some(v => v.type === 'BLOCKED_IP')).toBe(true);
       }
     });
@@ -60,7 +61,7 @@ suite('Security Test Suite', () => {
 
       for (const url of testCases) {
         const result = await ssrfProtection.validateURL(url);
-        expect(result.allowed).toBe(false);
+        assert.strictEqual(result.allowed, false);
         expect(result.violations.some(v => v.type === 'INVALID_PROTOCOL')).toBe(true);
       }
     });
@@ -75,7 +76,7 @@ suite('Security Test Suite', () => {
 
       for (const url of testCases) {
         const result = await ssrfProtection.validateURL(url);
-        expect(result.allowed).toBe(false);
+        assert.strictEqual(result.allowed, false);
         expect(result.violations.some(v => v.type === 'BLOCKED_HOSTNAME')).toBe(true);
       }
     });
@@ -91,7 +92,7 @@ suite('Security Test Suite', () => {
 
       for (const url of testCases) {
         const result = await ssrfProtection.validateURL(url);
-        expect(result.allowed).toBe(false);
+        assert.strictEqual(result.allowed, false);
         expect(result.violations.some(v => v.type === 'BLOCKED_PORT')).toBe(true);
       }
     });
@@ -110,7 +111,7 @@ suite('Security Test Suite', () => {
           console.log(`URL failed: ${url}`, result.violations);
         }
         // Note: These tests might fail in CI environments without internet
-        // expect(result.allowed).toBe(true);
+        // assert.strictEqual(result.allowed, true);
       }
     });
 
@@ -138,7 +139,7 @@ suite('Security Test Suite', () => {
 
       for (const url of testCases) {
         const result = await ssrfProtection.validateURL(url);
-        expect(result.allowed).toBe(false);
+        assert.strictEqual(result.allowed, false);
         expect(result.violations.some(v => v.type === 'INVALID_URL')).toBe(true);
       }
     });
@@ -148,7 +149,7 @@ suite('Security Test Suite', () => {
       
       try {
         await secureFetch('http://localhost:3000');
-        expect(false).toBe(true); // Should not reach here
+        assert.strictEqual(false, true); // Should not reach here
       } catch (error) {
         expect(error.message).toContain('SSRF Protection');
       }
@@ -171,7 +172,7 @@ suite('Security Test Suite', () => {
 
       try {
         await secureFetch('http://example.com/redirect-to-localhost');
-        expect(false).toBe(true); // Should not reach here
+        assert.strictEqual(false, true); // Should not reach here
       } catch (error) {
         expect(error.message).toContain('SSRF Protection');
       }
@@ -195,7 +196,7 @@ suite('Security Test Suite', () => {
 
       for (const input of testCases) {
         const result = validator.validateSearchQuery(input);
-        expect(result.isValid).toBe(false);
+        assert.strictEqual(result.isValid, false);
         expect(result.violations.some(v => v.type === 'SQL_INJECTION')).toBe(true);
       }
     });
@@ -211,7 +212,7 @@ suite('Security Test Suite', () => {
 
       for (const input of testCases) {
         const result = validator.validateHTML(input);
-        expect(result.isValid).toBe(false);
+        assert.strictEqual(result.isValid, false);
         expect(result.violations.some(v => v.type === 'XSS_ATTEMPT')).toBe(true);
       }
     });
@@ -227,7 +228,7 @@ suite('Security Test Suite', () => {
 
       for (const input of testCases) {
         const result = validator.validateSearchQuery(input);
-        expect(result.isValid).toBe(false);
+        assert.strictEqual(result.isValid, false);
         expect(result.violations.some(v => v.type === 'COMMAND_INJECTION')).toBe(true);
       }
     });
@@ -243,7 +244,7 @@ suite('Security Test Suite', () => {
 
       for (const input of testCases) {
         const result = validator.validateCSSSelector(input);
-        expect(result.isValid).toBe(false);
+        assert.strictEqual(result.isValid, false);
         expect(result.violations.some(v => 
           v.type === 'CSS_INJECTION' || v.type === 'SUSPICIOUS_FUNCTION'
         )).toBe(true);
@@ -260,7 +261,7 @@ suite('Security Test Suite', () => {
 
       for (const pattern of testCases) {
         const result = validator.validateRegex(pattern);
-        expect(result.isValid).toBe(false);
+        assert.strictEqual(result.isValid, false);
         expect(result.violations.some(v => v.type === 'REDOS_RISK')).toBe(true);
       }
     });
@@ -276,7 +277,7 @@ suite('Security Test Suite', () => {
 
       for (const url of badUrls) {
         const result = validator.validateURL(url);
-        expect(result.isValid).toBe(false);
+        assert.strictEqual(result.isValid, false);
       }
 
       const goodUrls = [
@@ -287,7 +288,7 @@ suite('Security Test Suite', () => {
 
       for (const url of goodUrls) {
         const result = validator.validateURL(url);
-        expect(result.isValid).toBe(true);
+        assert.strictEqual(result.isValid, true);
       }
     });
 
@@ -321,9 +322,9 @@ suite('Security Test Suite', () => {
       validator.validateURL('file:///etc/passwd');
 
       const stats = validator.getStats();
-      expect(stats.totalViolations).toBeGreaterThan(0);
+      assert((stats.totalViolations) > (0));
       expect(stats.violationsByType).toHaveProperty('SQL_INJECTION');
-      expect(stats.violationsBySeverity.HIGH).toBeGreaterThan(0);
+      assert((stats.violationsBySeverity.HIGH) > (0));
     });
   });
 
@@ -350,7 +351,7 @@ suite('Security Test Suite', () => {
       await rateLimiter.checkLimit(domain);
       const elapsed = Date.now() - start;
       
-      expect(elapsed).toBeGreaterThan(400); // Should be delayed by ~500ms
+      assert((elapsed) > (400)); // Should be delayed by ~500ms
     });
 
     test('should enforce requests per minute limit', async () => {
@@ -371,7 +372,7 @@ suite('Security Test Suite', () => {
       await rateLimiter.checkLimit(domain);
       const elapsed = Date.now() - start;
       
-      expect(elapsed).toBeGreaterThan(1000); // Should be delayed
+      assert((elapsed) > (1000)); // Should be delayed
     });
 
     test('should handle per-domain rate limiting', async () => {
@@ -387,7 +388,7 @@ suite('Security Test Suite', () => {
       await rateLimiter.checkLimit(domain2);
       const elapsed = Date.now() - start;
       
-      expect(elapsed).toBeLessThan(100); // Should not be delayed
+      assert((elapsed) < (100)); // Should not be delayed
     });
 
     test('should provide accurate statistics', async () => {
@@ -398,8 +399,8 @@ suite('Security Test Suite', () => {
       
       const stats = rateLimiter.getStats();
       expect(stats[domain]).toBeDefined();
-      expect(stats[domain].secondCount).toBe(2);
-      expect(stats[domain].minuteCount).toBe(2);
+      assert.strictEqual(stats[domain].secondCount, 2);
+      assert.strictEqual(stats[domain].minuteCount, 2);
     });
   });
 
@@ -412,10 +413,10 @@ suite('Security Test Suite', () => {
       const maliciousUrl = 'http://localhost:3000/search?q=\'; DROP TABLE users; --';
       
       const urlResult = await ssrfProtection.validateURL(maliciousUrl);
-      expect(urlResult.allowed).toBe(false);
+      assert.strictEqual(urlResult.allowed, false);
       
       const queryResult = validator.validateSearchQuery('\'; DROP TABLE users; --');
-      expect(queryResult.isValid).toBe(false);
+      assert.strictEqual(queryResult.isValid, false);
     });
 
     test('should validate real-world attack patterns', async () => {
@@ -443,7 +444,7 @@ suite('Security Test Suite', () => {
         
         // At least one validation should catch the attack
         const isBlocked = !searchResult.isValid || !htmlResult.isValid || !urlResult.isValid;
-        expect(isBlocked).toBe(true);
+        assert.strictEqual(isBlocked, true);
       }
     });
 
@@ -495,7 +496,7 @@ suite('Security Test Suite', () => {
       const elapsed = Date.now() - start;
       
       // Should process 1000 inputs in reasonable time
-      expect(elapsed).toBeLessThan(5000); // 5 seconds max
+      assert((elapsed) < (5000)); // 5 seconds max
     });
 
     test('should protect against regex DoS attacks', () => {
@@ -503,7 +504,7 @@ suite('Security Test Suite', () => {
       
       // Test with potentially dangerous regex
       const result = validator.validateRegex('(a+)+b');
-      expect(result.isValid).toBe(false);
+      assert.strictEqual(result.isValid, false);
       expect(result.violations.some(v => v.type === 'REDOS_RISK')).toBe(true);
     });
 

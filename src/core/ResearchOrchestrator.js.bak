@@ -243,56 +243,32 @@ export class ResearchOrchestrator extends EventEmitter {
     const scored = queries.map(query => {
       let score = 0.5; // Base score
       
-      // Give original topic highest priority
-      if (query === originalTopic) {
-        score = 1.0; // Highest score for original topic
-      } else {
-        // Prefer queries that include original topic terms
-        const topicWords = originalTopic.toLowerCase().split(" ");
-        const queryWords = query.toLowerCase().split(" ");
-        const overlap = topicWords.filter(word => queryWords.includes(word));
-        score += (overlap.length / topicWords.length) * 0.3;
-        
-        // Prefer research-oriented queries
-        const researchKeywords = ["research", "study", "analysis", "academic", "scientific"];
-        if (researchKeywords.some(keyword => query.toLowerCase().includes(keyword))) {
-          score += 0.2;
-        }
-        
-        // Prefer specific over generic
-        if (query.length > 10 && query.length < 100) {
-          score += 0.1;
-        }
+      // Prefer queries that include original topic terms
+      const topicWords = originalTopic.toLowerCase().split(' ');
+      const queryWords = query.toLowerCase().split(' ');
+      const overlap = topicWords.filter(word => queryWords.includes(word));
+      score += (overlap.length / topicWords.length) * 0.3;
+      
+      // Prefer research-oriented queries
+      const researchKeywords = ['research', 'study', 'analysis', 'academic', 'scientific'];
+      if (researchKeywords.some(keyword => query.toLowerCase().includes(keyword))) {
+        score += 0.2;
+      }
+      
+      // Prefer specific over generic
+      if (query.length > 10 && query.length < 100) {
+        score += 0.1;
       }
       
       return { query, score };
     });
 
-    const sortedQueries = scored
+    return scored
       .sort((a, b) => b.score - a.score)
-      .map(item => item.query);
-    
-    // Ensure original topic is always included at the top
-    const result = [];
-    if (sortedQueries.includes(originalTopic)) {
-      result.push(originalTopic);
-      sortedQueries.forEach(query => {
-        if (query !== originalTopic && result.length < this.maxDepth) {
-          result.push(query);
-        }
-      });
-    } else {
-      // Fallback: original topic should always be first
-      result.push(originalTopic);
-      sortedQueries.slice(0, this.maxDepth - 1).forEach(query => {
-        if (query !== originalTopic) {
-          result.push(query);
-        }
-      });
-    }
-    
-    return result.slice(0, this.maxDepth);
+      .map(item => item.query)
+      .slice(0, this.maxDepth); // Limit to max depth
   }
+
   /**
    * Gather initial sources using expanded queries
    */

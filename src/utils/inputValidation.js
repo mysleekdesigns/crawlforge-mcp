@@ -33,7 +33,7 @@ const SECURITY_PATTERNS = {
   // Path traversal patterns
   pathTraversal: [
     /\.\.\//g,
-    /\.\.\\g,
+    /\.\.\\/g,
     /%2e%2e%2f/gi,
     /%2e%2e%5c/gi,
     /\.\.\%2f/gi,

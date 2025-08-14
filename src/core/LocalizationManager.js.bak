@@ -304,7 +304,7 @@ export class LocalizationManager extends EventEmitter {
     const targetCountry = countryCode || this.currentSettings.countryCode;
     const config = await this.getLocalizationConfig(targetCountry);
     
-    const timezoneOffset = await this.getTimezoneOffset(config.timezone);
+    const timezoneOffset = this.getTimezoneOffset(config.timezone);
     
     const injectionScript = `
       // Override timezone and locale detection
@@ -560,7 +560,43 @@ export class LocalizationManager extends EventEmitter {
     }
   }
   
-  async getTimezoneOffset(timezone) {
+  /**
+   * Validate timezone string
+   */
+  validateTimezone(timezone) {
+    if (!timezone || typeof timezone !== "string") {
+      throw new Error("Timezone must be a non-empty string");
+    }
+    
+    // Check if timezone is in the supported countries
+    const validTimezones = Object.values(SUPPORTED_COUNTRIES).map(c => c.timezone);
+    const commonTimezones = [
+      "America/New_York", "America/Los_Angeles", "America/Chicago",
+      "Europe/London", "Europe/Berlin", "Europe/Paris", "Europe/Rome",
+      "Asia/Tokyo", "Asia/Shanghai", "Asia/Kolkata", "Asia/Seoul",
+      "Australia/Sydney", "America/Toronto", "America/Sao_Paulo",
+      "America/Mexico_City", "Europe/Moscow", "Europe/Madrid"
+    ];
+    
+    if (!validTimezones.includes(timezone) && !commonTimezones.includes(timezone)) {
+      throw new Error(`Unsupported timezone: ${timezone}`);
+    }
+    
+    // Test if timezone is valid by trying to use it
+    try {
+      new Date().toLocaleString("en-US", { timeZone: timezone });
+    } catch (error) {
+      throw new Error(`Invalid timezone: ${timezone}`);
+    }
+    
+    return true;
+  }
+
+  getCountryCoordinates(countryCode) {
+    return this.geoLocationCache.get(countryCode) || null;
+  }
+
+  getTimezoneOffset(timezone) {
     if (this.timezoneCache.has(timezone)) {
       return this.timezoneCache.get(timezone);
     }
@@ -752,6 +788,71 @@ export class LocalizationManager extends EventEmitter {
     };
   }
   
+
+  /**
+   * Get country configuration
+   */
+  getCountryConfig(countryCode) {
+    return SUPPORTED_COUNTRIES[countryCode] || null;
+  }
+
+  /**
+   * Generate Accept-Language header
+   */
+  generateAcceptLanguageHeader(language) {
+    const langCode = language.split("-")[0];
+    return `${language},${langCode};q=0.9,en;q=0.8`;
+  }
+
+  /**
+   * Create browser locale configuration
+   */
+  createBrowserLocale(countryCode) {
+    const config = this.getCountryConfig(countryCode);
+    if (!config) return null;
+    
+    return {
+      language: config.language,
+      timezone: config.timezone,
+      currency: config.currency,
+      dateFormat: this.getDateFormat(countryCode),
+      numberFormat: this.getNumberFormat(countryCode)
+    };
+  }
+
+  /**
+   * Generate localized headers
+   */
+  generateLocalizedHeaders(countryCode) {
+    const config = this.getCountryConfig(countryCode);
+    if (!config) return {};
+    
+    return {
+      "Accept-Language": this.generateAcceptLanguageHeader(config.language),
+      "Accept-Encoding": "gzip, deflate, br",
+      "Cache-Control": "no-cache",
+      "DNT": "1"
+    };
+  }
+
+  /**
+   * Detect content language
+   */
+  detectContentLanguage(content) {
+    // Look for lang attribute in HTML
+    const langMatch = content.match(/<html[^>]+lang=["']([^"']+)["']/i);
+    if (langMatch) {
+      return langMatch[1];
+    }
+    
+    // Look for meta tag
+    const metaMatch = content.match(/<meta[^>]+http-equiv=["']content-language["'][^>]+content=["']([^"']+)["']/i);
+    if (metaMatch) {
+      return metaMatch[1];
+    }
+    
+    return null;
+  }
   clearCache() {
     this.localeCache.clear();
     this.geoLocationCache.clear();

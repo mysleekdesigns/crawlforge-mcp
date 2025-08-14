@@ -1087,6 +1087,12 @@ export class ChangeTracker extends EventEmitter {
     
     this.contentHistory.get(url).unshift(snapshot);
     
+    // Also store in snapshots Map for compatibility
+    if (!this.snapshots.has(url)) {
+      this.snapshots.set(url, []);
+    }
+    this.snapshots.get(url).unshift(snapshot);
+    
     // Keep only last 100 snapshots
     const history = this.contentHistory.get(url);
     if (history.length > 100) {
@@ -1145,31 +1151,6 @@ export class ChangeTracker extends EventEmitter {
     if (score > 0.7) significance = "major";
     else if (score > 0.3) significance = "moderate";
     else if (score > 0.1) significance = "minor";
-    
-    return {
-      hasChanges: score > 0,
-      score,
-      significance
-    };
-  }  /**
-   * Calculate significance score for changes
-   */
-  calculateSignificanceScore(changes) {
-    if (!changes || changes.length === 0) return 0;
-    
-    let score = 0;
-    const weights = {
-      added: 0.3,
-      removed: 0.4,
-      modified: 0.2
-    };
-    
-    changes.forEach(change => {
-      score += (weights[change.type] || 0.1) * (change.count || 1);
-    });
-    
-    return Math.min(score, 1.0); // Cap at 1.0
-  }
 
   /**
    * Start monitoring URL for changes

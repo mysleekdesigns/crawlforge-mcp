@@ -241,7 +241,7 @@ export class StealthBrowserManager {
   /**
    * Generate randomized browser fingerprint
    */
-  generateFingerprint(config) {
+  generateFingerprint(config = {}) {
     const fingerprint = {
       userAgent: this.selectUserAgent(config),
       viewport: config.customViewport || this.selectViewport(),
@@ -304,7 +304,7 @@ export class StealthBrowserManager {
    */
   generateRandomHeaders(config) {
     const headers = {
-      'Accept-Language': `${config.locale.toLowerCase()},en;q=0.9`,
+      'Accept-Language': `${(config.locale || 'en-US').toLowerCase()},en;q=0.9`,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
       'Accept-Encoding': 'gzip, deflate, br',
       'Cache-Control': 'max-age=0',
@@ -688,7 +688,8 @@ export class StealthBrowserManager {
   generateAntiDetectionScripts() {
     return [
       // Webdriver detection evasion
-      `Object.defineProperty(navigator, "webdriver", { get: () => false });`,
+      `// Override navigator.webdriver property
+Object.defineProperty(navigator, "webdriver", { get: () => false });`,
       
       // Chrome object evasion
       `window.chrome = { runtime: { onConnect: null, onMessage: null } };`,
@@ -786,6 +787,98 @@ export class StealthBrowserManager {
       browserRunning: !!this.browser
     };
   }
-}
+
+  /**
+   * Validate stealth configuration
+   */
+  validateConfig(config) {
+    try {
+      // Use the existing schema to validate
+      const StealthConfigSchema = this.getStealthConfigSchema();
+      return StealthConfigSchema.parse(config);
+    } catch (error) {
+      throw new Error(`Invalid stealth configuration: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get the stealth configuration schema
+   */
+  getStealthConfigSchema() {
+    return z.object({
+      level: z.enum(["basic", "medium", "advanced"]).default("medium"),
+      randomizeFingerprint: z.boolean().default(true),
+      hideWebDriver: z.boolean().default(true),
+      blockWebRTC: z.boolean().default(true),
+      spoofTimezone: z.boolean().default(true),
+      randomizeHeaders: z.boolean().default(true),
+      useRandomUserAgent: z.boolean().default(true),
+      simulateHumanBehavior: z.boolean().default(true),
+      customUserAgent: z.string().optional(),
+      customViewport: z.object({
+        width: z.number().min(800).max(1920),
+        height: z.number().min(600).max(1080)
+      }).optional(),
+      locale: z.string().default("en-US"),
+      timezone: z.string().optional(),
+      webRTCPublicIP: z.string().optional(),
+      webRTCLocalIPs: z.array(z.string()).optional()
+    });
+  }
+  /**
+   * Simulate human behavior patterns
+   */
+  simulateHumanBehavior(page, options = {}) {
+    const patterns = {
+      mouseMovements: options.mouseMovements !== false,
+      randomDelays: options.randomDelays !== false,
+      typingSpeed: options.typingSpeed !== false,
+      scrollBehavior: options.scrollBehavior !== false
+    };
+    
+    return {
+      patterns,
+      execute: async () => {
+        // Implement human-like behavior simulation
+        if (patterns.mouseMovements) {
+          await this.simulateMouseMovements(page);
+        }
+        if (patterns.randomDelays) {
+          await this.addRandomDelays();
+        }
+        return true;
+      }
+    };
+  }
+
+  /**
+   * Simulate random mouse movements
+   */
+  async simulateMouseMovements(page) {
+    const viewport = await page.viewportSize();
+    const movements = Math.floor(Math.random() * 5) + 1;
+    
+    for (let i = 0; i < movements; i++) {
+      const x = Math.floor(Math.random() * viewport.width);
+      const y = Math.floor(Math.random() * viewport.height);
+      await page.mouse.move(x, y, { steps: Math.floor(Math.random() * 10) + 1 });
+      await this.randomDelay(100, 500);
+    }
+  }
+
+  /**
+   * Add random delays between actions
+   */
+  async addRandomDelays() {
+    await this.randomDelay(50, 200);
+  }
+
+  /**
+   * Generate random delay
+   */
+  async randomDelay(min, max) {
+    const delay = Math.floor(Math.random() * (max - min + 1)) + min;
+    return new Promise(resolve => setTimeout(resolve, delay));
+  }}
 
 export default StealthBrowserManager;

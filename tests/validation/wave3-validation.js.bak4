@@ -698,7 +698,7 @@ async function validateChangeTracker() {
     });
   } finally {
     if (changeTracker && changeTracker.cleanup) {
-      try { await (changeTracker.cleanup() || Promise.resolve()); } catch {}
+      await changeTracker.cleanup().catch(() => {});
     }
   }
 }

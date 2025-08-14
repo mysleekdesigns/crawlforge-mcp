@@ -304,7 +304,7 @@ export class LocalizationManager extends EventEmitter {
     const targetCountry = countryCode || this.currentSettings.countryCode;
     const config = await this.getLocalizationConfig(targetCountry);
     
-    const timezoneOffset = await this.getTimezoneOffset(config.timezone);
+    const timezoneOffset = this.getTimezoneOffset(config.timezone);
     
     const injectionScript = `
       // Override timezone and locale detection
@@ -560,7 +560,43 @@ export class LocalizationManager extends EventEmitter {
     }
   }
   
-  async getTimezoneOffset(timezone) {
+  /**
+   * Validate timezone string
+   */
+  validateTimezone(timezone) {
+    if (!timezone || typeof timezone !== "string") {
+      throw new Error("Timezone must be a non-empty string");
+    }
+    
+    // Check if timezone is in the supported countries
+    const validTimezones = Object.values(SUPPORTED_COUNTRIES).map(c => c.timezone);
+    const commonTimezones = [
+      "America/New_York", "America/Los_Angeles", "America/Chicago",
+      "Europe/London", "Europe/Berlin", "Europe/Paris", "Europe/Rome",
+      "Asia/Tokyo", "Asia/Shanghai", "Asia/Kolkata", "Asia/Seoul",
+      "Australia/Sydney", "America/Toronto", "America/Sao_Paulo",
+      "America/Mexico_City", "Europe/Moscow", "Europe/Madrid"
+    ];
+    
+    if (!validTimezones.includes(timezone) && !commonTimezones.includes(timezone)) {
+      throw new Error(`Unsupported timezone: ${timezone}`);
+    }
+    
+    // Test if timezone is valid by trying to use it
+    try {
+      new Date().toLocaleString("en-US", { timeZone: timezone });
+    } catch (error) {
+      throw new Error(`Invalid timezone: ${timezone}`);
+    }
+    
+    return true;
+  }
+
+  getCountryCoordinates(countryCode) {
+    return this.geoLocationCache.get(countryCode) || null;
+  }
+
+  getTimezoneOffset(timezone) {
     if (this.timezoneCache.has(timezone)) {
       return this.timezoneCache.get(timezone);
     }
@@ -776,7 +812,7 @@ export class LocalizationManager extends EventEmitter {
     if (!config) return null;
     
     return {
-      language: config.language,
+      languages: [config.language, config.language.split("-")[0], "en"],
       timezone: config.timezone,
       currency: config.currency,
       dateFormat: this.getDateFormat(countryCode),

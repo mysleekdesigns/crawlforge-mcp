@@ -3,11 +3,11 @@ Wave 3 Features Validation Report
 ================================
 
 Summary:
-- Total Tests: 24
-- Passed: 10
-- Failed: 14
+- Total Tests: 26
+- Passed: 21
+- Failed: 5
 - Skipped: 0
-- Success Rate: 42%
+- Success Rate: 81%
 - Duration: 0s
 
 Component Coverage:
@@ -17,31 +17,21 @@ Component Coverage:
 - ChangeTracker: 88%
 
 Performance:
-- Average Test Time: 0ms
+- Average Test Time: 1ms
 - Memory Usage: N/A
 
 
 Errors:
-- Query Expansion Functionality: Original topic should be included in expanded queries
-- Full Research Workflow: jest is not defined
-- Fingerprint Generation: Cannot read properties of undefined (reading 'customUserAgent')
-- Anti-Detection Scripts Generation: WebDriver detection script missing
-- Browser Launch and Context Creation: jest is not defined
-- Configuration Validation: Valid configuration rejected
-- Browser Locale Configuration: Incomplete browser locale for: US
-- Timezone and Geolocation Management: Valid timezone rejected: America/New_York
-- Snapshot Management: Snapshot missing required fields
-- Change Detection: Cannot read properties of undefined (reading 'page')
-- Change Significance Scoring: changes.forEach is not a function
-- Differential Analysis: changeTracker.performDifferentialAnalysis is not a function
-- Real-time Monitoring: Monitoring not started
-- Statistics and Reporting: Invalid page tracking statistics
-- undefined: Cannot read properties of undefined (reading 'catch')
+- Deep Research MCP Tool: Deep research tool not available
+- Track Changes MCP Tool: Track changes tool not available
+- MCP Protocol Compliance: Cannot read properties of undefined (reading 'name')
+- Component Integration: Integration test failed: components.research.cleanup is not a function
+- Error Handling and Recovery: Error handling test failed: Should have thrown error for nonexistent URL
 
 
 Warnings:
 - English text detection may be inaccurate
 - German text detection may be inaccurate
 
-Generated: 2025-08-14T20:57:56.809Z
+Generated: 2025-08-14T21:43:51.881Z
   
