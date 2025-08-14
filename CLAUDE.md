@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MCP (Model Context Protocol) server implementation providing 14 comprehensive web scraping, crawling, and content processing tools. Version 3.0 includes advanced content extraction, document processing, summarization, and analysis capabilities. Wave 2 adds asynchronous batch processing and browser automation features. Wave 3 adds deep research orchestration, stealth scraping, localization, and change tracking.
+MCP (Model Context Protocol) server implementation providing 16 comprehensive web scraping, crawling, and content processing tools. Version 3.0 includes advanced content extraction, document processing, summarization, and analysis capabilities. Wave 2 adds asynchronous batch processing and browser automation features. Wave 3 introduces deep research orchestration, stealth scraping, localization, and change tracking.
 
 ## Technical Stack
 
@@ -178,7 +178,7 @@ RESPECT_ROBOTS_TXT=true
 ### MCP Server Entry Point
 The main server implementation is in `server.js` which:
 1. Uses stdio transport for MCP protocol communication
-2. Registers all 14 tools using `server.registerTool()` pattern
+2. Registers all 16 tools using `server.registerTool()` pattern
 3. Each tool has its own Zod schema for parameter validation
 4. Tools are implemented as classes in `src/tools/` directory
 
@@ -196,9 +196,9 @@ GitHub Actions workflow (`/.github/workflows/ci.yml`) handles:
 - Performance tests in `tests/performance/` for load and memory testing
 - Integration tests in `tests/integration/` for end-to-end scenarios
 - Security tests in `tests/security/` for vulnerability scanning
-- Validation tests in `tests/validation/` for Wave 2 features
+- Validation tests in `tests/validation/` for Wave 2 and Wave 3 features
 - Test files follow `*.test.js` naming convention
-- Run `npm test` for protocol compliance
+- Run `npm test` for basic protocol compliance
 - Run `npm run test:all` for comprehensive test suite
 - Test results uploaded as artifacts in CI pipeline
 - Note: No linter configured yet (npm run lint is placeholder)
@@ -243,3 +243,46 @@ GitHub Actions workflow (`/.github/workflows/ci.yml`) handles:
 - Tool-specific documentation in `docs/TOOLS_GUIDE.md`
 - Deployment guides in `docs/DEPLOYMENT.md`
 - API reference in `docs/API_REFERENCE.md`
+
+## Common Development Tasks
+
+### Running a Single Test
+```bash
+# Run a specific test file
+node tests/unit/linkAnalyzer.test.js
+
+# Run a specific Wave test
+node tests/validation/test-batch-scrape.js
+
+# Run Wave 3 tests with verbose output
+npm run test:wave3:verbose
+```
+
+### Testing Tool Integration
+```bash
+# Test MCP protocol compliance
+npm test
+
+# Test specific tool functionality
+node tests/validation/test-batch-scrape.js
+node tests/validation/test-scrape-with-actions.js
+
+# Test research features
+node tests/validation/wave3-validation.js
+```
+
+### Debugging Tips
+- Server logs are written to console via Winston logger
+- Set `NODE_ENV=development` for verbose logging
+- Use `--expose-gc` flag for memory profiling tests
+- Check `cache/` directory for cached responses
+- Review `logs/` directory for application logs
+
+### NPM Installation for End Users
+```bash
+# Install globally (coming soon)
+npx mcp-webscraper-setup
+
+# Configure with Claude Code or Cursor IDE
+# Follow prompts to set up MCP configuration
+```

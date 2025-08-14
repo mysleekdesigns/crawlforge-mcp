@@ -3,11 +3,11 @@ Wave 3 Features Validation Report
 ================================
 
 Summary:
-- Total Tests: 30
-- Passed: 6
-- Failed: 24
+- Total Tests: 24
+- Passed: 10
+- Failed: 14
 - Skipped: 0
-- Success Rate: 20%
+- Success Rate: 42%
 - Duration: 0s
 
 Component Coverage:
@@ -17,37 +17,31 @@ Component Coverage:
 - ChangeTracker: 88%
 
 Performance:
-- Average Test Time: NaNms
-- Memory Usage: 1.96 MB
+- Average Test Time: 0ms
+- Memory Usage: N/A
 
 
 Errors:
 - Query Expansion Functionality: Original topic should be included in expanded queries
 - Full Research Workflow: jest is not defined
 - Fingerprint Generation: Cannot read properties of undefined (reading 'customUserAgent')
-- Anti-Detection Scripts Generation: stealthManager.generateAntiDetectionScripts is not a function
+- Anti-Detection Scripts Generation: WebDriver detection script missing
 - Browser Launch and Context Creation: jest is not defined
 - Configuration Validation: Valid configuration rejected
-- Country Configuration Management: localizationManager.getCountryConfig is not a function
-- Language and Locale Management: localizationManager.generateAcceptLanguageHeader is not a function
-- Browser Locale Configuration: localizationManager.createBrowserLocale is not a function
+- Browser Locale Configuration: Incomplete browser locale for: US
 - Timezone and Geolocation Management: Valid timezone rejected: America/New_York
-- HTTP Headers Generation: localizationManager.generateLocalizedHeaders is not a function
-- Content Localization: localizationManager.detectContentLanguage is not a function
-- Content Hashing: changeTracker.generateContentHash is not a function
-- Snapshot Management: changeTracker.createSnapshot is not a function
-- Change Detection: changeTracker.createSnapshot is not a function
-- Change Significance Scoring: changeTracker.calculateSignificanceScore is not a function
-- Differential Analysis: changeTracker.createSnapshot is not a function
-- Real-time Monitoring: changeTracker.startMonitoring is not a function
-- Statistics and Reporting: changeTracker.getStatistics is not a function
-- Deep Research MCP Tool: Deep research tool not available
-- Track Changes MCP Tool: Track changes tool not available
-- MCP Protocol Compliance: Cannot read properties of undefined (reading 'name')
-- Component Integration: Integration test failed: Cannot read properties of undefined (reading 'customUserAgent')
-- Error Handling and Recovery: Error handling test failed: tracker.cleanup is not a function
+- Snapshot Management: Snapshot missing required fields
+- Change Detection: Cannot read properties of undefined (reading 'page')
+- Change Significance Scoring: changes.forEach is not a function
+- Differential Analysis: changeTracker.performDifferentialAnalysis is not a function
+- Real-time Monitoring: Monitoring not started
+- Statistics and Reporting: Invalid page tracking statistics
+- undefined: Cannot read properties of undefined (reading 'catch')
 
 
+Warnings:
+- English text detection may be inaccurate
+- German text detection may be inaccurate
 
-Generated: 2025-08-14T15:44:39.240Z
+Generated: 2025-08-14T20:57:56.809Z
   

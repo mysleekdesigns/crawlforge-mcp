@@ -683,44 +683,6 @@ export class StealthBrowserManager {
   }
 
   /**
-   * Generate anti-detection scripts
-   */
-  generateAntiDetectionScripts() {
-    return [
-      // Webdriver detection evasion
-      `Object.defineProperty(navigator, "webdriver", { get: () => false });`,
-      
-      // Chrome object evasion
-      `window.chrome = { runtime: { onConnect: null, onMessage: null } };`,
-      
-      // Notification permission evasion
-      `const originalQuery = window.navigator.permissions.query;
-      window.navigator.permissions.query = (parameters) => (
-        parameters.name === "notifications" ?
-          Promise.resolve({ state: Notification.permission }) :
-          originalQuery(parameters)
-      );`,
-      
-      // Plugin array evasion
-      `Object.defineProperty(navigator, "plugins", {
-        get: () => {
-          const plugins = [];
-          plugins.item = function(index) { return this[index] || null; };
-          plugins.namedItem = function(name) { 
-            return this.find(plugin => plugin.name === name) || null; 
-          };
-          return plugins;
-        }
-      });`,
-      
-      // Languages evasion
-      `Object.defineProperty(navigator, "languages", {
-        get: () => ["en-US", "en"]
-      });`
-    ];
-  }
-
-  /**
    * Get context information
    */
   getContextInfo(contextId) {

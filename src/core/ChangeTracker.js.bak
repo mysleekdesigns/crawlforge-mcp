@@ -72,11 +72,6 @@ export class ChangeTracker extends EventEmitter {
     this.activeMonitors = new Map();
     this.lastProcessedTimestamps = new Map();
     
-    // Content history and snapshots management
-    this.contentHistory = new Map();
-    this.baselineContent = new Map();
-    this.changeNotifications = new Map();
-    this.snapshotManager = new Map();
     // Statistics
     this.stats = {
       pagesTracked: 0,
