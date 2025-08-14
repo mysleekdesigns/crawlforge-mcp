@@ -541,43 +541,81 @@ These are the most powerful tools for specialized use cases.
 
 ## 🎯 Common Workflows
 
+Learn the most effective combinations of tools for common tasks:
+
 ### Research Workflow
-1. Use `search_web` to find relevant sources
-2. Use `deep_research` for comprehensive analysis
-3. Use `summarize_content` for key findings
+1. **Find Sources**: `search_web` to discover relevant websites
+2. **Deep Dive**: `deep_research` for comprehensive analysis
+3. **Summarize**: `summarize_content` to extract key findings
+4. **Monitor**: `track_changes` to stay updated
 
 ### E-commerce Monitoring
-1. Use `map_site` to find all product pages
-2. Use `batch_scrape` to extract prices
-3. Use `track_changes` to monitor updates
+1. **Map Structure**: `map_site` to find all product pages
+2. **Extract Data**: `batch_scrape` to get prices and details
+3. **Track Changes**: `track_changes` to monitor updates
+4. **Alert**: Set up webhooks for price changes
 
 ### Content Aggregation
-1. Use `crawl_deep` to find all articles
-2. Use `extract_content` for main content
-3. Use `analyze_content` for categorization
+1. **Discover Pages**: `crawl_deep` to find all content
+2. **Extract Content**: `extract_content` for main articles
+3. **Categorize**: `analyze_content` for topic classification
+4. **Process**: `summarize_content` for brief overviews
+
+### Competitive Intelligence
+1. **Research Market**: `deep_research` for industry analysis
+2. **Monitor Competitors**: `track_changes` on key pages
+3. **Stealth Analysis**: `scrape_with_actions` for detailed investigation
+4. **Batch Processing**: `batch_scrape` for systematic data collection
 
 ---
 
-## 💡 Tips for Success
+## 💡 Best Practices
 
 ### For Beginners
-- Start with simple tools like `fetch_url` and `extract_text`
-- Test on simple websites first
-- Use small limits (10-20 pages) initially
-- Check robots.txt compliance
+- **Start Simple**: Begin with `fetch_url` and `extract_text`
+- **Test Small**: Use limits of 10-20 pages initially
+- **Check Robots**: Always respect robots.txt
+- **Handle Errors**: Expect some websites to fail
 
-### Performance Tips
-- Use `batch_scrape` for multiple URLs instead of sequential calls
-- Enable caching for repeated requests
-- Set appropriate timeouts
-- Use connection pooling for large crawls
+### For Performance
+- **Use Batch Tools**: `batch_scrape` is faster than sequential calls
+- **Enable Caching**: Avoid re-fetching the same content
+- **Set Timeouts**: Prevent hanging requests
+- **Monitor Resources**: Watch memory and CPU usage
 
-### Best Practices
-- Always respect robots.txt
-- Add delays between requests
-- Use descriptive User-Agent headers
-- Handle errors gracefully
-- Monitor rate limits
+### For Reliability
+- **Add Delays**: Don't overwhelm target servers
+- **Use Rate Limits**: Respect website policies
+- **Handle Failures**: Implement retry logic
+- **Monitor Health**: Use health check endpoints
+
+### For Security
+- **Validate URLs**: Check for malicious or private addresses
+- **Sanitize Content**: Clean extracted data
+- **Use HTTPS**: Secure connections only
+- **Limit Scope**: Don't crawl entire internet
+
+### Tool-Specific Tips
+
+**Search Tools:**
+- Use specific keywords for better results
+- Try different search providers if one fails
+- Filter by date for recent information
+
+**Crawling Tools:**
+- Start with shallow depth (2-3 levels)
+- Use include/exclude patterns wisely
+- Monitor progress with smaller batches first
+
+**Content Tools:**
+- Check content quality scores
+- Use structured data when available
+- Handle different languages appropriately
+
+**Advanced Tools:**
+- Test stealth mode on non-critical sites first
+- Set up proper webhook endpoints
+- Monitor change detection carefully
 
 ---
 

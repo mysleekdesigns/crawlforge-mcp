@@ -2,155 +2,76 @@
 
 > 16 powerful tools to give your AI assistant web scraping superpowers 🚀
 
-## 🎯 Quick Navigation
+## Quick Start
 
-| I want to... | Go here |
-|-------------|---------|
-| **Get started quickly** | 📚 [Getting Started Guide](./GETTING_STARTED.md) |
-| **Learn the tools** | 🔧 [Tools Guide](./TOOLS_GUIDE.md) |
-| **See examples** | 💡 [Examples](./EXAMPLES.md) |
-| **Fix issues** | 🔍 [Troubleshooting](./TROUBLESHOOTING.md) |
-| **Deploy to production** | 🚀 [Deployment Guide](./DEPLOYMENT.md) |
-| **Technical details** | 📖 [API Reference](./API_REFERENCE.md) |
-| **Advanced features** | ⚡ [Advanced Guide](./ADVANCED.md) |
-
----
-
-## 🤔 What is MCP WebScraper?
-
-MCP WebScraper is a collection of 16 specialized tools that allow AI assistants (like Claude or Cursor) to interact with websites. Think of it as giving your AI assistant the ability to:
-
-- 🔍 **Search** the web using Google or DuckDuckGo
-- 📄 **Extract** text, links, and data from any website
-- 🕷️ **Crawl** entire websites systematically
-- 📊 **Analyze** content and detect changes
-- 🤖 **Automate** browser interactions (forms, clicks)
-- 🧠 **Research** topics comprehensively
-
----
-
-## 🚀 Start Here
-
-### For Beginners (New to Web Scraping)
-
-1. **[Getting Started](./GETTING_STARTED.md)** - 10-minute setup guide
-2. **[Tools Guide](./TOOLS_GUIDE.md)** - Learn tools progressively by difficulty
-3. **[Examples](./EXAMPLES.md)** - Copy-paste examples to try
-
-### For Developers
-
-1. **[API Reference](./API_REFERENCE.md)** - Complete technical specifications
-2. **[Advanced Guide](./ADVANCED.md)** - Architecture and optimization
-3. **[Deployment](./DEPLOYMENT.md)** - Production deployment options
-
----
-
-## 📦 The 16 Tools at a Glance
-
-### 🟢 Basic Tools (Start Here)
-- `fetch_url` - Download any webpage
-- `extract_text` - Get clean, readable text
-- `extract_links` - Find all links on a page
-- `extract_metadata` - Get page title, description, tags
-- `scrape_structured` - Extract specific data using selectors
-
-### 🟡 Intermediate Tools
-- `search_web` - Search Google/DuckDuckGo
-- `crawl_deep` - Explore entire websites
-- `map_site` - Discover website structure
-- `extract_content` - Smart content extraction
-- `process_document` - Handle PDFs and dynamic pages
-- `summarize_content` - Create content summaries
-- `analyze_content` - Analyze text (language, topics)
-
-### 🔴 Advanced Tools
-- `batch_scrape` - Process multiple URLs efficiently
-- `scrape_with_actions` - Automate browser interactions
-- `deep_research` - Comprehensive AI-powered research
-- `track_changes` - Monitor websites for changes
-
----
-
-## 💬 Common Questions
-
-### "Which tool should I use?"
-Check the [Tools Guide](./TOOLS_GUIDE.md#quick-tool-selection-guide) for a simple decision chart.
-
-### "How do I extract specific data?"
-See [Examples](./EXAMPLES.md) for real-world scenarios.
-
-### "It's not working!"
-Visit [Troubleshooting](./TROUBLESHOOTING.md) for common fixes.
-
-### "Can I use this in production?"
-Yes! See [Deployment Guide](./DEPLOYMENT.md) for Docker and cloud options.
-
----
-
-## 📚 Documentation Structure
-
-```
-docs/
-├── README.md                # You are here 👋
-├── GETTING_STARTED.md       # Setup and first steps
-├── TOOLS_GUIDE.md          # All 16 tools explained
-├── EXAMPLES.md             # Practical examples
-├── API_REFERENCE.md        # Technical specifications
-├── TROUBLESHOOTING.md      # Problem solving
-├── DEPLOYMENT.md           # Production deployment
-└── ADVANCED.md             # Architecture & optimization
+```bash
+# Install and run in 30 seconds
+npx mcp-webscraper@latest
 ```
 
----
+That's it! Follow the prompts to configure your AI assistant.
 
-## 🎓 Learning Path
+## What is MCP WebScraper?
 
-### Week 1: Basics
-- ✅ Install and connect to your AI assistant
-- ✅ Try the 5 basic tools
-- ✅ Extract data from a simple website
+A comprehensive web scraping toolkit that enables AI assistants (Claude, Cursor) to:
 
-### Week 2: Intermediate
-- ✅ Learn search and crawling tools
-- ✅ Process different content types
-- ✅ Build your first automation
+- 🔍 Search the web using Google or DuckDuckGo
+- 📄 Extract text, links, and metadata from any website
+- 🕷️ Crawl entire websites systematically
+- 📊 Analyze content with NLP capabilities
+- 🤖 Automate browser interactions
+- 🔬 Conduct AI-powered research
+- 📈 Track website changes over time
 
-### Week 3: Advanced
-- ✅ Master batch processing
-- ✅ Create browser automations
-- ✅ Conduct deep research
+## Documentation
 
----
+| Guide | Description | For Who |
+|-------|-------------|---------|
+| **[Getting Started](./GETTING_STARTED.md)** | Installation and first steps | Beginners |
+| **[Tools Guide](./TOOLS_GUIDE.md)** | Learn all 16 tools | All users |
+| **[Examples](./EXAMPLES.md)** | Real-world use cases | All users |
+| **[API Reference](./API_REFERENCE.md)** | Technical specifications | Developers |
+| **[Troubleshooting](./TROUBLESHOOTING.md)** | Fix common issues | All users |
+| **[Deployment](./DEPLOYMENT.md)** | Production setup | Administrators |
+| **[Security](./SECURITY.md)** | Security best practices | Administrators |
+| **[Performance](./PERFORMANCE.md)** | Optimization guide | Power users |
+| **[Development](./DEVELOPMENT.md)** | Contributing guide | Contributors |
+| **[Advanced](./ADVANCED.md)** | Architecture details | Developers |
+| **[Changelog](./CHANGELOG.md)** | Version history | All users |
 
-## 🛠️ Requirements
+## The 16 Tools
+
+### 🟢 Basic (5 tools)
+`fetch_url` • `extract_text` • `extract_links` • `extract_metadata` • `scrape_structured`
+
+### 🟡 Intermediate (7 tools)
+`search_web` • `crawl_deep` • `map_site` • `extract_content` • `process_document` • `summarize_content` • `analyze_content`
+
+### 🔴 Advanced (4 tools)
+`batch_scrape` • `scrape_with_actions` • `deep_research` • `track_changes`
+
+## System Requirements
 
 - **Node.js**: Version 18 or higher
 - **AI Assistant**: Claude Code or Cursor IDE
-- **Optional**: Google API credentials for better search
+- **Optional**: Google API credentials for enhanced search
 
----
-
-## 🆘 Getting Help
+## Support
 
 - **Issues**: [GitHub Issues](https://github.com/your-username/mcp-webscraper/issues)
-- **Questions**: [GitHub Discussions](https://github.com/your-username/mcp-webscraper/discussions)
-- **Updates**: Watch the repository for new features
+- **Discussions**: [GitHub Discussions](https://github.com/your-username/mcp-webscraper/discussions)
+- **Security**: See [Security Policy](./SECURITY.md)
 
----
+## License
 
-## 📈 Project Stats
-
-- **Version**: 3.0
-- **Tools**: 16
-- **License**: MIT
-- **Status**: Production Ready
+MIT License - See [LICENSE](../LICENSE) file
 
 ---
 
 <div align="center">
 
-### Ready to give your AI web scraping powers?
+**Ready to start?** → [Getting Started Guide](./GETTING_STARTED.md)
 
-## [📚 Start with the Getting Started Guide →](./GETTING_STARTED.md)
+**Version 3.0** | **16 Tools** | **Production Ready**
 
 </div>

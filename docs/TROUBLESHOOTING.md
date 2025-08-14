@@ -1,133 +1,173 @@
 # Troubleshooting Guide
 
-🎯 **Purpose**: Fix common issues with MCP WebScraper  
-⏱️ **Time Needed**: 2-10 minutes per issue  
-📚 **Difficulty**: 🟢 Easy to 🟡 Intermediate
+Quick fixes for common MCP WebScraper issues. Most problems can be solved in under 5 minutes.
 
-## 🔍 Quick Diagnostics
+## 🚨 Emergency Quick Fixes
 
-**Run this one-liner to check everything:**
+| Problem | Quick Fix | Time |
+|---------|-----------|------|
+| Tools not showing | Check config path is absolute | 1 min |
+| Server won't start | Run `npm install` | 2 min |
+| Permission errors | Run `chmod +x server.js` | 30 sec |
+| Tools don't work | Restart IDE completely | 1 min |
+| Memory errors | Add `MAX_WORKERS=4` to .env | 30 sec |
+
+## 🔍 Quick Health Check
+
+**Run this diagnostic:**
 ```bash
-node --version && npm --version && cd mcp-webscraper && npm start && echo "✅ All systems go!" || echo "❌ Check the error above"
+# One-liner health check
+node --version && npm --version && cd mcp-webscraper && timeout 3s npm start && echo "✅ Healthy" || echo "❌ Check errors below"
 ```
 
-### Manual Diagnostic Steps
+**Manual check:**
 ```bash
 # 1. Check Node version (need v18+)
 node --version
 
 # 2. Test server starts
-cd /path/to/mcp-webscraper
 npm start
 
-# 3. Test a tool works
-curl http://localhost:3000/health
+# 3. Verify tools load
+echo "Tools should appear in your IDE now"
 ```
 
-## ❓ FAQ - Top 10 Issues
+## 🏷️ Issues by Category
 
-### 1. "I can't see the tools in Claude/Cursor"
-👉 **Solution**: Check your config path is ABSOLUTE (starts with / or C:\)
+### 🔧 Setup Issues
 
-### 2. "Server won't start"
-👉 **Solution**: Run `npm install` in the mcp-webscraper folder
+#### "Tools don't show up in my IDE"
+**Cause**: Configuration problems  
+**Fix**: 
+1. Ensure path is absolute: `/full/path/to/server.js`
+2. Validate JSON syntax at [jsonlint.com](https://jsonlint.com)
+3. Restart IDE completely (Quit → Reopen)
 
-### 3. "Permission denied errors"
-👉 **Solution**: Run `chmod +x server.js` (Mac/Linux)
+#### "Server won't start"
+**Cause**: Missing dependencies or wrong Node version  
+**Fix**:
+```bash
+# Check Node version (need 18+)
+node --version
 
-### 4. "Tools appear but don't work"
-👉 **Solution**: Restart your IDE completely (quit and reopen)
+# Fresh install
+rm -rf node_modules package-lock.json
+npm install
+```
 
-### 5. "Search returns no results"
-👉 **Solution**: You're using DuckDuckGo by default - this is normal, just slower
+#### "Permission denied"
+**Cause**: File permissions  
+**Fix**:
+```bash
+# Mac/Linux
+chmod +x server.js
 
-### 6. "Out of memory errors"
-👉 **Solution**: Add to .env: `MAX_WORKERS=4`
+# Windows (run as Administrator)
+Set-ExecutionPolicy RemoteSigned
+```
 
-### 7. "Can't install dependencies"
-👉 **Solution**: Delete node_modules and run `npm install` again
+### 🌐 Network Issues
 
-### 8. "Wrong Node version"
-👉 **Solution**: Download Node.js 18+ from https://nodejs.org
+#### "Request timeouts"
+**Cause**: Slow network or large pages  
+**Fix**: Increase timeout in .env
+```env
+REQUEST_TIMEOUT=120000  # 2 minutes
+```
 
-### 9. "Port already in use"
-👉 **Solution**: Another app is using port 3000 - stop it or change the port
+#### "Rate limit errors"
+**Cause**: Too many requests  
+**Fix**: Reduce request rate
+```env
+RATE_LIMIT_REQUESTS_PER_SECOND=5
+DELAY_BETWEEN_REQUESTS=2000
+```
 
-### 10. "JSON syntax error in config"
-👉 **Solution**: Validate your JSON at https://jsonlint.com
+#### "Can't reach website"
+**Cause**: Network restrictions or proxy  
+**Fix**: Check network settings
+```bash
+# Test connectivity
+curl -I https://example.com
 
-## Claude Code Issues
+# Set proxy if needed
+export HTTP_PROXY=http://proxy.company.com:8080
+```
 
-### Tools Not Showing
+### 💾 Performance Issues
 
-**Problem**: WebScraper tools don't appear in Claude Code
+#### "Out of memory errors"
+**Cause**: Large crawls or too many workers  
+**Fix**: Reduce resource usage
+```env
+MAX_WORKERS=4
+QUEUE_CONCURRENCY=5
+MAX_PAGES_PER_CRAWL=50
+```
 
-**Solutions**:
+#### "Slow response times"
+**Cause**: Resource constraints  
+**Fix**: Enable caching and optimization
+```env
+CACHE_TTL=7200000
+ENABLE_CONNECTION_POOLING=true
+```
 
-1. **Check Config Location**:
-   ```bash
-   # macOS/Linux
-   cat ~/.config/claude/mcp.json
-   
-   # Windows
-   type %APPDATA%\claude\mcp.json
-   ```
+### 🖥️ IDE-Specific Issues
 
-2. **Verify Path is Absolute**:
-   ```json
-   {
-     "mcpServers": {
-       "webscraper": {
-         "command": "node",
-         "args": ["/absolute/path/to/server.js"]  // ✅ Absolute
-         // NOT: ["./server.js"]  // ❌ Relative
-       }
-     }
-   }
-   ```
+#### Claude Code
 
-3. **Check JSON Syntax**:
-   ```bash
-   # Validate JSON
-   python -m json.tool ~/.config/claude/mcp.json
-   ```
+**Configuration Location**:
+```bash
+# macOS/Linux
+~/.config/claude/mcp.json
 
-4. **Restart Claude Code**:
-   - Quit Claude Code completely (Cmd+Q / Alt+F4)
-   - Start Claude Code again
-   - Check MCP panel
+# Windows  
+%APPDATA%\claude\mcp.json
+```
 
-### Connection Errors
+**Correct Config Format**:
+```json
+{
+  "mcpServers": {
+    "webscraper": {
+      "command": "node",
+      "args": ["/absolute/path/to/server.js"],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    }
+  }
+}
+```
 
-**Problem**: "Failed to connect to MCP server"
+**Common Fixes**:
+1. Use absolute paths only
+2. Restart Claude completely (Cmd+Q → Reopen)
+3. Clear cache: `rm -rf ~/.config/claude/cache`
+4. Validate JSON syntax
 
-**Solutions**:
+#### Cursor IDE
 
-1. **Test Server Directly**:
-   ```bash
-   cd /path/to/mcp-webscraper
-   npm start
-   # Should see: "MCP WebScraper server v3.0.0 running"
-   ```
+**Enable MCP Support**:
+```json
+// settings.json
+{
+  "mcp.enabled": true,
+  "mcp.servers": {
+    "webscraper": {
+      "command": "node",
+      "args": ["/path/to/server.js"]
+    }
+  }
+}
+```
 
-2. **Check Permissions**:
-   ```bash
-   # Make server executable
-   chmod +x server.js
-   
-   # Fix npm permissions
-   npm config set prefix ~/.npm-global
-   export PATH=~/.npm-global/bin:$PATH
-   ```
-
-3. **Clear Claude Cache**:
-   ```bash
-   # macOS/Linux
-   rm -rf ~/.config/claude/cache
-   
-   # Windows
-   rmdir /s %APPDATA%\claude\cache
-   ```
+**Debug Steps**:
+1. Check Cursor version (need 0.8+)
+2. Open Output panel → Select "MCP"
+3. Run "MCP: Reload Servers" command
+4. Use full Node.js path if needed: `/usr/local/bin/node`
 
 ## Cursor IDE Issues
 
@@ -414,7 +454,65 @@ NO_PROXY=localhost,127.0.0.1
    NODE_EXTRA_CA_CERTS=/path/to/ca-cert.pem
    ```
 
-## Debug Mode
+## 🔧 Tool-Specific Problems
+
+### Search Tools
+
+#### "No search results"
+**Cause**: Using DuckDuckGo (default, slower)  
+**Fix**: Switch to Google or wait longer
+```env
+# For Google (requires API key)
+SEARCH_PROVIDER=google
+GOOGLE_API_KEY=your_key
+GOOGLE_SEARCH_ENGINE_ID=your_id
+
+# Or be patient with DuckDuckGo
+SEARCH_PROVIDER=duckduckgo
+```
+
+### Crawling Tools
+
+#### "Crawl stops early"
+**Cause**: Robots.txt restrictions or rate limits  
+**Fix**: Adjust settings
+```env
+# For testing only
+RESPECT_ROBOTS_TXT=false
+
+# Reduce load
+DELAY_BETWEEN_REQUESTS=2000
+MAX_CONCURRENT_REQUESTS=3
+```
+
+### Content Processing
+
+#### "PDF processing fails"
+**Cause**: Missing dependencies  
+**Fix**: Install PDF tools
+```bash
+npm install pdf-parse canvas
+
+# On Linux, you might need:
+sudo apt-get install libcairo2-dev libjpeg-dev libpango1.0-dev
+```
+
+#### "JavaScript pages empty"
+**Cause**: Content loaded by JavaScript  
+**Fix**: Use browser-based tools
+```javascript
+{
+  "tool": "scrape_with_actions",
+  "parameters": {
+    "url": "https://spa-website.com",
+    "actions": [
+      {"type": "wait", "timeout": 3000}
+    ]
+  }
+}
+```
+
+## 🐛 Debug Mode
 
 ### Enable Detailed Logging
 
@@ -422,45 +520,49 @@ NO_PROXY=localhost,127.0.0.1
 # .env file
 LOG_LEVEL=debug
 DEBUG=mcp:*
+NODE_ENV=development
 ```
 
-### View Logs
+### View Real-time Logs
 
 ```bash
 # Application logs
 tail -f logs/app.log
 
-# Error logs
-tail -f logs/error.log
+# Error logs only
+tail -f logs/error.log | grep ERROR
 
-# Performance logs
+# Performance metrics
 tail -f logs/performance.log
 ```
 
-### Test Individual Tools
+### Test Individual Components
 
-```javascript
-// test-tool.js
-import { SearchWebTool } from './src/tools/search/searchWeb.js';
+```bash
+# Test server startup
+node server.js
 
-const tool = new SearchWebTool();
-const result = await tool.execute({
-  query: "test search",
-  limit: 5
-});
-console.log(result);
+# Test specific tool
+node -e "console.log('Testing basic functionality...')"
+
+# Check memory usage
+node --inspect server.js
 ```
 
-## Common Error Codes
+## 📋 Error Code Reference
 
-| Code | Meaning | Solution |
-|------|---------|----------|
-| `EACCES` | Permission denied | Check file permissions |
-| `ENOENT` | File not found | Verify paths are correct |
-| `ETIMEDOUT` | Request timeout | Increase timeout values |
-| `ECONNREFUSED` | Connection refused | Check if server is running |
-| `ENOMEM` | Out of memory | Increase memory limit |
-| `EADDRINUSE` | Port in use | Kill other process or change port |
+| Error Code | What It Means | Quick Fix |
+|------------|---------------|----------|
+| `EACCES` | Permission denied | `chmod +x server.js` |
+| `ENOENT` | File not found | Check paths are absolute |
+| `ETIMEDOUT` | Request timeout | Increase `REQUEST_TIMEOUT` |
+| `ECONNREFUSED` | Connection refused | Check server is running |
+| `ENOMEM` | Out of memory | Reduce `MAX_WORKERS` |
+| `EADDRINUSE` | Port in use | `lsof -ti:3000 \| xargs kill` |
+| `MODULE_NOT_FOUND` | Missing dependency | `npm install` |
+| `JSON_PARSE_ERROR` | Invalid JSON config | Validate at jsonlint.com |
+| `SSRF_BLOCKED` | Security restriction | Check URL is public |
+| `RATE_LIMITED` | Too many requests | Reduce request rate |
 
 ## 🗺️ Troubleshooting Flowchart
 
@@ -546,51 +648,69 @@ echo "================================="
 echo "Diagnostics complete!"
 ```
 
-## Getting Help
+## 🆘 Still Need Help?
 
-### 🚑 Quick Help
+### Self-Help Checklist
+- [ ] Tried the quick fixes above
+- [ ] Checked error codes reference  
+- [ ] Ran diagnostic script
+- [ ] Searched existing GitHub issues
+- [ ] Verified system requirements
 
-1. **Read the FAQ** above first
-2. **Run the diagnostic script**
-3. **Check the flowchart**
-4. **Search existing issues** on GitHub
+### Getting Support
 
-### 📞 Contact Channels
+**For Quick Questions**: Check our FAQ or search GitHub Issues  
+**For Bug Reports**: Use GitHub Issues with details below  
+**For Feature Requests**: Use GitHub Discussions  
+**For Security Issues**: Email privately (don't post publicly)
 
-- 💬 **[GitHub Issues](https://github.com/your-username/mcp-webscraper/issues)** - Bug reports
-- 💡 **[GitHub Discussions](https://github.com/your-username/mcp-webscraper/discussions)** - Questions
-- 📖 **[Documentation](./README.md)** - Full guides
-- 🔒 **[Security Issues](mailto:security@example.com)** - Private disclosure
+### Perfect Bug Report
 
-### 🐛 Reporting Bugs
-
-**Good bug report template:**
 ```markdown
 ## Environment
-- Node.js: v18.12.0
-- OS: macOS 13.0
-- IDE: Claude Code v1.2.3
+- Node.js: v18.12.0 (run `node --version`)
+- OS: macOS 13.0 / Windows 11 / Ubuntu 22.04
+- IDE: Claude Code v1.2.3 / Cursor v0.9.0
+- WebScraper: v3.0.0
 
-## Problem
-Tools don't appear in Claude Code
+## Problem  
+Clear description of what's wrong
 
 ## Steps to Reproduce
-1. Installed with `npm install`
-2. Added config to mcp.json
-3. Restarted Claude Code
-4. No tools visible
+1. Specific step
+2. Another step  
+3. Result that occurs
+
+## Expected vs Actual
+**Expected**: Tools should appear  
+**Actual**: No tools visible
 
 ## Error Messages
-[Paste any error messages]
+```
+[Paste exact error messages here]
+```
 
 ## What I've Tried
-- Checked path is absolute ✅
-- Validated JSON ✅
-- Restarted IDE ✅
+- [x] Checked config path is absolute
+- [x] Restarted IDE completely
+- [ ] Cleared cache (didn't help)
+
+## Config File
+```json
+[Paste your mcp.json config]
 ```
+```
+
+**Response Time**: Usually within 24 hours for bugs, longer for questions.
 
 ---
 
-<div align="center">
-<b>Still stuck? We're here to help! Open an issue on GitHub.</b>
-</div>
+## ⚡ Pro Tips
+
+- **Keep it simple**: Start with basic examples before complex workflows
+- **Check logs first**: Most issues show clear error messages
+- **Update regularly**: `npm update` fixes many problems
+- **Use absolute paths**: Relative paths cause 80% of setup issues
+- **Restart everything**: When in doubt, restart your IDE
+
+**Remember**: Most issues are solved in under 5 minutes with the right approach!

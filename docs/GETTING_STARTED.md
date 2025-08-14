@@ -1,364 +1,344 @@
 # Getting Started with MCP WebScraper
 
-🎯 **Goal**: Get you scraping websites in 10 minutes  
+🎯 **Goal**: Get you scraping websites in under 5 minutes  
 📚 **Difficulty**: Beginner-friendly  
-⏱️ **Time**: 5-10 minutes
+⏱️ **Time Required**: 2-5 minutes for basic setup
 
-## What You'll Learn
+## Table of Contents
 
-1. ✅ What web scraping is and why it's useful
-2. ✅ How to install MCP WebScraper
-3. ✅ How to connect it to your AI assistant (Claude or Cursor)
-4. ✅ Your first successful web scrape
-5. ✅ Which tool to use for different tasks
+- [What is MCP WebScraper?](#what-is-mcp-webscraper)
+- [Prerequisites](#prerequisites)
+- [Quick Start (30 seconds)](#quick-start-30-seconds)
+- [Installation Methods](#installation-methods)
+- [Configuration](#configuration)
+- [Your First Scrape](#your-first-scrape)
+- [Next Steps](#next-steps)
+- [Troubleshooting](#troubleshooting)
 
----
+## What is MCP WebScraper?
 
-## 🤔 What is Web Scraping?
+MCP WebScraper gives your AI assistant (Claude or Cursor) 16 powerful tools to interact with websites:
 
-**Web scraping** is extracting data from websites automatically. Instead of copying information manually, you tell the computer what to get.
+- 📄 **Extract** text, links, and metadata from any webpage
+- 🔍 **Search** the web using Google or DuckDuckGo
+- 🕷️ **Crawl** entire websites systematically
+- 📊 **Analyze** content with NLP capabilities
+- 🤖 **Automate** browser interactions (forms, clicks)
+- 🔬 **Research** topics comprehensively with AI
+- 📈 **Track** website changes over time
 
-**MCP WebScraper** gives your AI assistant 16 specialized tools to:
-- 📄 Download web pages
-- 🔍 Search Google or DuckDuckGo
-- 📊 Extract specific data
-- 🔄 Monitor websites for changes
-- 🧠 Conduct deep research
-- And much more!
+## Prerequisites
 
----
+### Required
+- **Node.js 18+** - Check with: `node --version`
+- **AI Assistant** - Claude Code or Cursor IDE
 
-## 📋 Before You Start
+### Optional
+- **Google API credentials** - For better search results (works without them using DuckDuckGo)
 
-You need Node.js installed. Check with this command:
+**Need Node.js?** Download from [nodejs.org](https://nodejs.org) (get the LTS version)
+
+## Quick Start (30 seconds)
+
+The fastest way to get started:
 
 ```bash
-node --version
+# Run this single command
+npx mcp-webscraper@latest
+
+# The installer will:
+# 1. Set up the server
+# 2. Show you the configuration to add
+# 3. Guide you through the setup
 ```
 
-**Need to install Node.js?**
-- Download from [nodejs.org](https://nodejs.org) (get the LTS version)
-- After installing, restart your terminal
+After running, restart your AI assistant and you're ready to scrape!
 
----
+## Installation Methods
 
-## 🚀 Installation (5 minutes)
+### Method 1: Automatic Setup (Recommended)
 
-### Step 1: Download and Setup
-
-Copy and paste this entire block:
+Best for beginners - handles everything automatically:
 
 ```bash
-# Download the code
-git clone https://github.com/your-username/mcp-webscraper.git
+# Interactive setup with prompts
+npx mcp-webscraper-setup
 
-# Go into the folder
+# Or with Google API credentials
+npx mcp-webscraper-setup --google-api-key=YOUR_KEY --google-search-engine-id=YOUR_ID
+
+# Or silent install (DuckDuckGo only)
+npx mcp-webscraper-setup --no-interactive
+```
+
+This will:
+1. Prompt for optional Google API credentials
+2. Automatically configure your AI assistant
+3. Verify the installation
+
+### Method 2: Manual Installation
+
+For more control over the setup process:
+
+```bash
+# Clone the repository
+git clone https://github.com/your-username/mcp-webscraper.git
 cd mcp-webscraper
 
 # Install dependencies
 npm install
 
-# Create configuration file
+# Copy environment template
 cp .env.example .env
 
-echo "✅ Installation complete!"
-```
-
-### Step 2: Test It Works
-
-```bash
+# Test the server
 npm start
 ```
 
-You should see:
+### Method 3: Global Installation
+
+Install once, use anywhere:
+
+```bash
+# Install globally
+npm install -g mcp-webscraper
+
+# Run from anywhere
+mcp-webscraper
 ```
-MCP WebScraper server v3.0 running on stdio
-Environment: development
-Tools available: fetch_url, extract_text, extract_links...
+
+### Method 4: Docker Installation
+
+For production deployments or isolation:
+
+```bash
+# Using Docker Compose
+docker-compose up -d mcp-webscraper-prod
+
+# Or using Docker directly
+docker run -d --name mcp-webscraper \
+  -e SEARCH_PROVIDER=auto \
+  mcp-webscraper:latest
 ```
 
-Press `Ctrl+C` to stop.
-
----
-
-## 🤖 Connect to Your AI Assistant
-
-<details>
-<summary><b>Using Claude Code? Click here</b></summary>
+## Configuration
 
 ### For Claude Code
 
-#### 1. Find Your Config File
+Add to your Claude configuration file:
 
-**Mac/Linux:**
-```bash
-nano ~/.config/claude/mcp.json
-```
+**File Locations:**
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux**: `~/.config/claude/claude_desktop_config.json`
 
-**Windows:**
-```powershell
-notepad %APPDATA%\claude\mcp.json
-```
-
-#### 2. Add This Configuration
-
-Replace `/YOUR/PATH/` with your actual path:
-
+**Configuration:**
 ```json
 {
   "mcpServers": {
     "webscraper": {
       "command": "node",
-      "args": ["/YOUR/PATH/mcp-webscraper/server.js"]
+      "args": ["/absolute/path/to/mcp-webscraper/server.js"],
+      "env": {
+        "SEARCH_PROVIDER": "auto",
+        "GOOGLE_API_KEY": "your_key_here_or_leave_empty",
+        "GOOGLE_SEARCH_ENGINE_ID": "your_id_here_or_leave_empty"
+      }
     }
   }
 }
 ```
-
-**How to find your path:**
-```bash
-# In the mcp-webscraper folder, run:
-pwd  # This shows your current path
-```
-
-#### 3. Restart Claude
-
-1. Completely quit Claude Code (Cmd+Q or Alt+F4)
-2. Start Claude Code again
-3. Test by asking: "What MCP tools are available?"
-
-</details>
-
-<details>
-<summary><b>Using Cursor IDE? Click here</b></summary>
 
 ### For Cursor IDE
 
-#### 1. Open Settings
-- **Mac**: `Cmd + ,`
-- **Windows/Linux**: `Ctrl + ,`
-
-#### 2. Search for "MCP"
-
-#### 3. Add Configuration
+Add to `.cursor/mcp.json` in your project:
 
 ```json
 {
-  "mcp.servers": {
+  "mcpServers": {
     "webscraper": {
-      "command": "node",
-      "args": ["/YOUR/PATH/mcp-webscraper/server.js"]
+      "command": "npx",
+      "args": ["mcp-webscraper@latest"],
+      "env": {
+        "SEARCH_PROVIDER": "auto"
+      }
     }
   }
 }
 ```
 
-#### 4. Reload
-1. Open Command Palette (`Cmd+Shift+P` or `Ctrl+Shift+P`)
-2. Type: `MCP: Reload Servers`
-3. Press Enter
+### Environment Variables (Optional)
 
-</details>
+Create a `.env` file for advanced configuration:
 
----
+```env
+# Search Configuration
+SEARCH_PROVIDER=auto              # auto, google, or duckduckgo
+GOOGLE_API_KEY=your_key          # Optional: for Google search
+GOOGLE_SEARCH_ENGINE_ID=your_id  # Optional: for Google search
 
-## 🎯 Your First Web Scrape!
+# Performance Settings
+MAX_WORKERS=10                    # Concurrent operations
+QUEUE_CONCURRENCY=10              # Queue processing threads
+CACHE_TTL=3600000                # Cache duration (1 hour)
+RATE_LIMIT_REQUESTS_PER_SECOND=10
 
-Try these commands with your AI assistant:
-
-### 1. Get a Web Page
-```
-Get the content from https://example.com
-```
-
-### 2. Extract Clean Text
-```
-Extract just the text from https://en.wikipedia.org/wiki/Web_scraping
-```
-
-### 3. Find All Links
-```
-Find all the links on https://news.ycombinator.com
+# Crawling Settings
+MAX_CRAWL_DEPTH=5                # Maximum crawl depth
+MAX_PAGES_PER_CRAWL=100         # Maximum pages per crawl
+RESPECT_ROBOTS_TXT=true          # Honor robots.txt
 ```
 
-### 4. Search the Web
+### Getting Google API Credentials (Optional)
+
+For better search results (free tier available):
+
+1. **Get API Key:**
+   - Go to [Google Cloud Console](https://console.cloud.google.com/)
+   - Create a new project or select existing
+   - Enable "Custom Search API"
+   - Create credentials → API Key
+
+2. **Get Search Engine ID:**
+   - Go to [Programmable Search Engine](https://programmablesearchengine.google.com/)
+   - Create a new search engine
+   - Set to search the entire web
+   - Copy the Search Engine ID
+
+3. **Add to Configuration:**
+   ```env
+   GOOGLE_API_KEY=AIzaSy...your_key
+   GOOGLE_SEARCH_ENGINE_ID=123456...your_id
+   ```
+
+**Note:** The system works perfectly with DuckDuckGo (no API key needed) if you skip this step.
+
+## Your First Scrape
+
+Once configured, try these commands with your AI assistant:
+
+### 1. Extract Text from a Webpage
 ```
-Search for "best programming languages 2024" and show me the top 5 results
-```
-
-### Success! 🎉
-If you see actual website content in the responses, everything is working!
-
----
-
-## 🔧 Which Tool Should I Use?
-
-Here's a simple decision guide:
-
-| I want to... | Use this tool |
-|-------------|---------------|
-| Get a webpage | `fetch_url` |
-| Extract readable text | `extract_text` |
-| Find all links | `extract_links` |
-| Get page title/description | `extract_metadata` |
-| Extract specific data (prices, names) | `scrape_structured` |
-| Search Google/DuckDuckGo | `search_web` |
-| Explore an entire website | `crawl_deep` |
-| Map a website's structure | `map_site` |
-| Process PDFs | `process_document` |
-| Summarize content | `summarize_content` |
-| Scrape multiple pages | `batch_scrape` |
-| Fill forms/click buttons | `scrape_with_actions` |
-| Research a topic deeply | `deep_research` |
-| Monitor for changes | `track_changes` |
-
----
-
-## 🔍 Optional: Better Search Results (5 minutes)
-
-By default, MCP WebScraper uses DuckDuckGo (free, no setup). For better results, you can use Google Search.
-
-### Setting Up Google Search
-
-#### 1. Get a Google API Key
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project (or use existing)
-3. Go to "APIs & Services" → "Library"
-4. Search for "Custom Search API" and enable it
-5. Go to "APIs & Services" → "Credentials"
-6. Click "Create Credentials" → "API Key"
-7. Copy your API key
-
-#### 2. Create Search Engine
-
-1. Go to [Google Custom Search](https://cse.google.com/cse/create/new)
-2. Choose "Search the entire web"
-3. Name it "MCP WebScraper"
-4. Click "Create"
-5. Copy the Search Engine ID
-
-#### 3. Add to Configuration
-
-Edit your `.env` file:
-
-```bash
-GOOGLE_API_KEY=your_api_key_here
-GOOGLE_SEARCH_ENGINE_ID=your_search_engine_id_here
-SEARCH_PROVIDER=google
+Extract the main text from https://example.com/article
 ```
 
-#### 4. Test It
-
-Restart the server and try:
+### 2. Search the Web
 ```
-Search Google for "artificial intelligence news"
+Search for "machine learning tutorials" and show me the top 5 results
 ```
 
-**Note:** Google gives 100 free searches per day. After that, it's $5 per 1000 searches.
-
----
-
-## 🚨 Troubleshooting
-
-### "Tools not available"
-1. Check the server is running: `npm start`
-2. Verify your config path is correct
-3. Restart your AI assistant completely
-
-### "Permission denied"
-```bash
-# Mac/Linux:
-chmod +x server.js
-
-# Windows: Run as Administrator
+### 3. Extract All Links
+```
+Find all links on https://news.ycombinator.com
 ```
 
-### "Cannot find module"
-```bash
-# Reinstall dependencies:
-npm install
+### 4. Get Page Metadata
+```
+Get the metadata (title, description, social tags) from https://github.com
 ```
 
-### Still Having Issues?
-
-Run this diagnostic:
-```bash
-# Check Node version (need 18+)
-node --version
-
-# Test the server
-cd mcp-webscraper
-npm start
-
-# Should see "MCP WebScraper server v3.0 running"
+### 5. Extract Specific Data
+```
+Extract all product prices from https://example.com/products using the CSS selector ".price"
 ```
 
----
+## Next Steps
 
-## 📚 Next Steps
-
-### Learn More Tools
-👉 **[Tools Guide](./TOOLS_GUIDE.md)** - Learn all 16 tools, organized by difficulty
-
-### See Examples
-👉 **[Examples](./EXAMPLES.md)** - Copy-paste examples for common tasks
-
-### Advanced Topics
+### Learn the Tools
+- **[Tools Guide](./TOOLS_GUIDE.md)** - Detailed guide for all 16 tools
+- **[Examples](./EXAMPLES.md)** - Real-world use cases and workflows
 - **[API Reference](./API_REFERENCE.md)** - Complete technical documentation
-- **[Deployment](./DEPLOYMENT.md)** - Deploy to production
-- **[Advanced Features](./ADVANCED.md)** - Performance tuning and customization
 
----
+### Explore Advanced Features
+- **Batch Processing**: Process multiple URLs efficiently
+- **Browser Automation**: Fill forms, click buttons, take screenshots
+- **Deep Research**: AI-powered comprehensive research
+- **Change Tracking**: Monitor websites for updates
 
-## 💡 Pro Tips for Beginners
+### Common Workflows
 
-1. **Start Simple**: Use `extract_text` before trying `deep_research`
-2. **Small Tests**: Test on simple sites like example.com first
-3. **Read Errors**: Error messages usually tell you exactly what's wrong
-4. **Use Limits**: Start with small limits (10 pages) to avoid overwhelming results
-5. **Be Patient**: Some sites load slowly; increase timeout if needed
+1. **Research Workflow:**
+   - Search for sources → Deep research → Summarize findings
 
----
+2. **E-commerce Monitoring:**
+   - Map product pages → Extract prices → Track changes
 
-## 🎓 Quick Tutorial: Your First Project
+3. **Content Aggregation:**
+   - Crawl website → Extract articles → Analyze content
 
-Let's extract news headlines:
+## Troubleshooting
 
-1. **Ask your AI:**
-   ```
-   Extract all the headlines from https://news.ycombinator.com using the scrape_structured tool with the selector ".titleline"
-   ```
+### Tools Not Appearing
 
-2. **AI will use:**
-   ```javascript
-   {
-     "tool": "scrape_structured",
-     "url": "https://news.ycombinator.com",
-     "selectors": {
-       "headlines": ".titleline"
-     }
-   }
+1. **Check Configuration Path:**
+   ```bash
+   # Verify config exists
+   cat ~/.config/claude/mcp.json  # Linux/Mac
+   type %APPDATA%\claude\mcp.json  # Windows
    ```
 
-3. **You'll get:**
-   - A list of current headlines
-   - Ready to analyze or save
+2. **Verify Absolute Paths:**
+   - ✅ Good: `"/home/user/mcp-webscraper/server.js"`
+   - ❌ Bad: `"./server.js"` or `"~/mcp-webscraper/server.js"`
 
-Congratulations! You just scraped your first website! 🎉
+3. **Restart Your AI Assistant:**
+   - Completely quit (not just close)
+   - Start fresh
+
+### Server Won't Start
+
+1. **Check Node Version:**
+   ```bash
+   node --version  # Must be 18.0.0 or higher
+   ```
+
+2. **Reinstall Dependencies:**
+   ```bash
+   cd mcp-webscraper
+   rm -rf node_modules package-lock.json
+   npm install
+   ```
+
+3. **Check Permissions (Mac/Linux):**
+   ```bash
+   chmod +x server.js
+   ```
+
+### Search Not Working
+
+- **No API Key?** That's fine! DuckDuckGo works without configuration
+- **Have API Key?** Verify it's correctly added to your config
+- **Rate Limited?** Google free tier has limits; wait or use DuckDuckGo
+
+### Common Error Messages
+
+| Error | Solution |
+|-------|----------|
+| "Cannot find module" | Run `npm install` in the project directory |
+| "Permission denied" | Mac/Linux: Run `chmod +x server.js` |
+| "Invalid JSON in config" | Validate at [jsonlint.com](https://jsonlint.com) |
+| "Port already in use" | The server uses stdio, not ports - restart your AI assistant |
+| "Tools not available" | Check config path is absolute, restart AI assistant |
+
+### Getting Help
+
+- **More Issues?** See [Troubleshooting Guide](./TROUBLESHOOTING.md)
+- **GitHub Issues**: [Report bugs](https://github.com/your-username/mcp-webscraper/issues)
+- **Discussions**: [Ask questions](https://github.com/your-username/mcp-webscraper/discussions)
 
 ---
 
-## 🆘 Getting Help
+## Ready to Start Scraping?
 
-- **Common Issues:** [Troubleshooting Guide](./TROUBLESHOOTING.md)
-- **Tool Details:** [Tools Guide](./TOOLS_GUIDE.md)
-- **Ask Questions:** [GitHub Discussions](https://github.com/your-username/mcp-webscraper/discussions)
-- **Report Bugs:** [GitHub Issues](https://github.com/your-username/mcp-webscraper/issues)
+You now have everything needed to begin web scraping with your AI assistant!
+
+1. ✅ Installation complete
+2. ✅ Configuration added
+3. ✅ AI assistant restarted
+4. 🚀 **Try your first command:** "Search for today's tech news"
+
+For a complete guide to all 16 tools, continue to the **[Tools Guide](./TOOLS_GUIDE.md)**.
 
 ---
 
-<div align="center">
-<h3>🚀 You're Ready to Scrape the Web!</h3>
-<p>Start with simple tools and work your way up. Happy scraping!</p>
-</div>
+*Need help? Check the [Troubleshooting Guide](./TROUBLESHOOTING.md) or [ask for help](https://github.com/your-username/mcp-webscraper/discussions)*

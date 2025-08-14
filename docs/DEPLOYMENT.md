@@ -400,15 +400,84 @@ htop  # or top
 5. **Regular updates**: `npm audit fix`
 6. **Monitor logs** for suspicious activity
 
-## Next Steps
+---
 
-- 🐳 **[Docker Guide](./docker.md)** - Complete container documentation
-- 🏗️ **[Architecture](./ADVANCED.md)** - System internals
-- ❓ **[Troubleshooting](./TROUBLESHOOTING.md)** - Common issues
-- 📊 **[Performance](./ADVANCED.md#performance)** - Optimization guide
+## 🔄 Maintenance & Updates
+
+### Regular Maintenance Tasks
+
+**Weekly:**
+```bash
+# Check logs for errors
+tail -n 100 logs/error.log
+
+# Update dependencies
+npm audit fix
+
+# Check resource usage
+df -h && free -h && top -p $(pgrep -f server.js)
+```
+
+**Monthly:**
+```bash
+# Update to latest version
+git pull
+npm install
+pm2 restart mcp-webscraper  # or docker-compose restart
+
+# Clean up logs
+logrotate -f /etc/logrotate.d/mcp-webscraper
+
+# Backup configuration
+tar -czf backup-$(date +%Y%m%d).tar.gz .env logs/ config/
+```
+
+### Health Monitoring
+
+**Setup Health Checks:**
+```bash
+# Add to crontab (crontab -e)
+*/5 * * * * curl -f http://localhost:3000/health || systemctl restart mcp-webscraper
+```
+
+**Monitor Key Metrics:**
+- Response time < 2 seconds
+- Memory usage < 80% of available
+- Error rate < 5%
+- Disk space > 10% free
+
+### Rollback Plan
+
+**If deployment fails:**
+```bash
+# PM2 rollback
+pm2 restart mcp-webscraper --update-env
+
+# Docker rollback
+docker-compose down
+docker-compose up -d --force-recreate
+
+# Git rollback
+git checkout HEAD~1
+npm install
+pm2 restart mcp-webscraper
+```
 
 ---
 
-<div align="center">
-<b>Need help with deployment? Open an issue on GitHub!</b>
-</div>
+## 📈 Next Steps
+
+**After deployment:**
+1. 🔍 **Monitor logs** for first 24 hours
+2. 📊 **Set up alerts** for critical metrics
+3. 🔄 **Schedule backups** of configuration
+4. 📈 **Plan scaling** based on usage patterns
+5. 🔒 **Review security** settings monthly
+
+**Learn More:**
+- [Architecture Details](./ADVANCED.md) - System internals
+- [Troubleshooting](./TROUBLESHOOTING.md) - Common issues  
+- [Performance Tuning](./ADVANCED.md#performance) - Optimization
+- [API Reference](./API_REFERENCE.md) - Tool documentation
+
+**Need Help?** Open an issue on GitHub with your deployment details.
