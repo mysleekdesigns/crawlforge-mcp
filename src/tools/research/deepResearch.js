@@ -650,3 +650,36 @@ export class DeepResearchTool {
 }
 
 export default DeepResearchTool;
+// Create and export tool instance for MCP compatibility
+export const deepResearchTool = new DeepResearchTool();
+
+// Add name property for MCP protocol compliance
+deepResearchTool.name = 'deep_research';
+
+// Add validateParameters method for MCP protocol compliance
+deepResearchTool.validateParameters = function(params) {
+  return DeepResearchSchema.parse(params);
+};
+
+// Add description property for MCP protocol compliance
+deepResearchTool.description = 'Conduct comprehensive multi-stage research with intelligent query expansion, source verification, and information synthesis';
+
+// Add inputSchema property for MCP protocol compliance
+deepResearchTool.inputSchema = {
+  type: 'object',
+  properties: {
+    topic: {
+      type: 'string',
+      description: 'The research topic or question to investigate'
+    },
+    maxDepth: {
+      type: 'number',
+      description: 'Maximum depth for research exploration'
+    },
+    maxUrls: {
+      type: 'number', 
+      description: 'Maximum number of URLs to process'
+    }
+  },
+  required: ['topic']
+};

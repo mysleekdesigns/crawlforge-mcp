@@ -1010,6 +1010,51 @@ export class ResearchOrchestrator extends EventEmitter {
   stopResearch() {
     this.emit('researchStopped', { sessionId: this.researchState.sessionId });
   }
+
+  /**
+   * Cleanup method for proper resource disposal
+   */
+  async cleanup() {
+    try {
+      // Stop any active research
+      this.stopResearch();
+      
+      // Clear cache if available
+      if (this.cache && typeof this.cache.clear === "function") {
+        await this.cache.clear();
+      }
+      
+      // Clear all event listeners
+      this.removeAllListeners();
+      
+      // Reset research state
+      this.researchState = {
+        sessionId: null,
+        currentDepth: 0,
+        visitedUrls: new Set(),
+        searchResults: new Map(),
+        extractedContent: new Map(),
+        researchFindings: [],
+        credibilityScores: new Map(),
+        conflictMap: new Map(),
+        activityLog: []
+      };
+      
+      // Reset metrics
+      this.metrics = {
+        searchQueries: 0,
+        urlsProcessed: 0,
+        contentExtracted: 0,
+        conflictsDetected: 0,
+        sourcesVerified: 0,
+        cacheHits: 0,
+        totalProcessingTime: 0
+      };
+      
+    } catch (error) {
+      // Silent cleanup - do not throw errors during cleanup
+      console.warn("Warning during ResearchOrchestrator cleanup:", error.message);
+    }
+  }
 }
 
-export default ResearchOrchestrator;

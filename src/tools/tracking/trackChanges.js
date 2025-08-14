@@ -977,3 +977,36 @@ export class TrackChangesTool extends EventEmitter {
 }
 
 export default TrackChangesTool;
+// Create and export tool instance for MCP compatibility
+export const trackChangesTool = new TrackChangesTool();
+
+// Add name property for MCP protocol compliance
+trackChangesTool.name = 'track_changes';
+
+// Add validateParameters method for MCP protocol compliance
+trackChangesTool.validateParameters = function(params) {
+  return TrackChangesSchema.parse(params);
+};
+
+// Add description property for MCP protocol compliance
+trackChangesTool.description = 'Track and analyze content changes with baseline capture, comparison, and monitoring capabilities';
+
+// Add inputSchema property for MCP protocol compliance
+trackChangesTool.inputSchema = {
+  type: 'object',
+  properties: {
+    url: {
+      type: 'string',
+      description: 'URL to track for changes'
+    },
+    operation: {
+      type: 'string',
+      description: 'Operation to perform: create_baseline, compare, monitor, get_history, get_stats'
+    },
+    content: {
+      type: 'string',
+      description: 'Content to analyze or compare'
+    }
+  },
+  required: ['url']
+};

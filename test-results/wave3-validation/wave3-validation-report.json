@@ -1,12 +1,12 @@
 {
   "summary": {
     "totalTests": 26,
-    "passedTests": 21,
-    "failedTests": 5,
+    "passedTests": 26,
+    "failedTests": 0,
     "skippedTests": 0,
-    "successRate": "81%",
+    "successRate": "100%",
     "duration": "0s",
-    "timestamp": "2025-08-14T21:43:51.881Z"
+    "timestamp": "2025-08-14T22:03:21.419Z"
   },
   "coverage": {
     "researchOrchestrator": 85,
@@ -15,56 +15,35 @@
     "changeTracker": 88
   },
   "performance": {
-    "Research Orchestrator Initialization": 0.06420899999994845,
-    "Query Expansion Functionality": 0.4357079999999769,
-    "Research Session Management": 0.7747079999999755,
-    "Stealth Manager Initialization": 0.015958000000011907,
-    "Fingerprint Generation": 0.2934579999999869,
-    "Anti-Detection Scripts Generation": 0.029209000000037122,
-    "Configuration Validation": 0.9473330000000146,
-    "Localization Manager Initialization": 0.016999999999995907,
-    "Country Configuration Management": 0.0337910000000079,
-    "Language and Locale Management": 0.038665999999977885,
-    "Browser Locale Configuration": 0.059292000000027656,
-    "Timezone and Geolocation Management": 8.824375000000032,
-    "HTTP Headers Generation": 0.041917000000012195,
-    "Content Localization": 0.13574999999997317,
-    "Change Tracker Initialization": 0.01095900000001393,
-    "Content Hashing": 0.1635830000000169,
-    "Snapshot Management": 0.059583000000031916,
-    "Change Detection": 0.09575000000000955,
-    "Change Significance Scoring": 0.05941699999999628,
-    "Differential Analysis": 0.11866700000001629,
-    "Statistics and Reporting": 0.030167000000005828,
+    "Research Orchestrator Initialization": 0.066833000000031,
+    "Query Expansion Functionality": 0.4648329999999987,
+    "Research Session Management": 0.7589169999999967,
+    "Stealth Manager Initialization": 0.018832999999972344,
+    "Fingerprint Generation": 0.2750829999999951,
+    "Anti-Detection Scripts Generation": 0.02945799999997689,
+    "Configuration Validation": 0.9642499999999927,
+    "Localization Manager Initialization": 0.017459000000030755,
+    "Country Configuration Management": 0.03550000000001319,
+    "Language and Locale Management": 0.038374999999973625,
+    "Browser Locale Configuration": 0.051375000000007276,
+    "Timezone and Geolocation Management": 8.71283299999999,
+    "HTTP Headers Generation": 0.037750000000016826,
+    "Content Localization": 0.13904200000001765,
+    "Change Tracker Initialization": 0.012000000000000455,
+    "Content Hashing": 0.16995900000000574,
+    "Snapshot Management": 0.052791000000013355,
+    "Change Detection": 0.1014589999999771,
+    "Change Significance Scoring": 0.058667000000014013,
+    "Differential Analysis": 0.13537499999995362,
+    "Statistics and Reporting": 0.023167000000000826,
+    "Deep Research MCP Tool": 1.3497919999999795,
+    "Track Changes MCP Tool": 1.5968750000000114,
+    "MCP Protocol Compliance": 0.05479099999996606,
+    "Component Integration": 0.7397499999999582,
+    "Error Handling and Recovery": 0.11283299999996643,
     "averageTestTime": 1
   },
-  "errors": [
-    {
-      "test": "Deep Research MCP Tool",
-      "error": "Deep research tool not available",
-      "stack": "Error: Deep research tool not available\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:717:15\n    at async runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:5)\n    at async validateMCPToolIntegration (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:713:5)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1013:5)"
-    },
-    {
-      "test": "Track Changes MCP Tool",
-      "error": "Track changes tool not available",
-      "stack": "Error: Track changes tool not available\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:745:15\n    at async runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:5)\n    at async validateMCPToolIntegration (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:741:5)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1013:5)"
-    },
-    {
-      "test": "MCP Protocol Compliance",
-      "error": "Cannot read properties of undefined (reading 'name')",
-      "stack": "TypeError: Cannot read properties of undefined (reading 'name')\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:776:19\n    at async runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:5)\n    at async validateMCPToolIntegration (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:769:5)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1013:5)"
-    },
-    {
-      "test": "Component Integration",
-      "error": "Integration test failed: components.research.cleanup is not a function",
-      "stack": "Error: Integration test failed: components.research.cleanup is not a function\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:839:13\n    at async runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:5)\n    at async validateIntegrationAndPerformance (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:805:3)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1014:5)"
-    },
-    {
-      "test": "Error Handling and Recovery",
-      "error": "Error handling test failed: Should have thrown error for nonexistent URL",
-      "stack": "Error: Error handling test failed: Should have thrown error for nonexistent URL\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:911:13\n    at async runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:5)\n    at async validateIntegrationAndPerformance (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:882:3)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1014:5)"
-    }
-  ],
+  "errors": [],
   "warnings": [
     "English text detection may be inaccurate",
     "German text detection may be inaccurate"
@@ -74,11 +53,11 @@
     "platform": "darwin",
     "architecture": "arm64",
     "memoryUsage": {
-      "rss": 248283136,
+      "rss": 250822656,
       "heapTotal": 215072768,
-      "heapUsed": 131051288,
-      "external": 4068608,
-      "arrayBuffers": 475925
+      "heapUsed": 132399232,
+      "external": 4077635,
+      "arrayBuffers": 484952
     }
   }
 }

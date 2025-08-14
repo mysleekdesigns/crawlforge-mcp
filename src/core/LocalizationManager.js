@@ -859,6 +859,19 @@ export class LocalizationManager extends EventEmitter {
     this.timezoneCache.clear();
     this.emit('cacheCleared');
   }
+
+  /**
+   * Cleanup method for proper resource disposal
+   */
+  async cleanup() {
+    try {
+      this.clearCache();
+      this.removeAllListeners();
+      this.resetStats();
+    } catch (error) {
+      console.warn("Warning during LocalizationManager cleanup:", error.message);
+    }
+  }
 }
 
 export default LocalizationManager;

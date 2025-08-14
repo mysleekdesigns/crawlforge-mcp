@@ -1114,6 +1114,12 @@ export class ChangeTracker extends EventEmitter {
    * Detect changes against the latest snapshot
    */
   async detectChanges(url, currentContent) {
+    // Validate URL format
+    try {
+      new URL(url);
+    } catch (error) {
+      throw new Error(`Invalid URL format: ${url}`);
+    }
     if (!this.contentHistory.has(url)) {
       return {
         hasChanges: false,

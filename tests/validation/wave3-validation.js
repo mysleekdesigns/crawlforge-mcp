@@ -724,7 +724,7 @@ async function validateMCPToolIntegration() {
       const validRequest = {
         arguments: {
           topic: 'Test research topic',
-          options: {
+          trackingOptions: {
             maxDepth: 2,
             maxUrls: 5
           }
@@ -751,9 +751,9 @@ async function validateMCPToolIntegration() {
       // Test parameter validation
       const validRequest = {
         arguments: {
-          baselineUrl: 'https://example.com/test',
-          currentContent: 'Test content',
-          options: {
+          url: 'https://example.com/test',
+          content: 'Test content',
+          trackingOptions: {
             granularity: 'section'
           }
         }
@@ -830,10 +830,10 @@ async function validateIntegrationAndPerformance() {
       // Cleanup
       await Promise.all([
         components.research.cleanup(),
-        components.stealth.close(),
+        components.stealth.cleanup(),
         components.localization.cleanup(),
         components.changeTracker.cleanup()
-      ].map(p => p.catch(() => {})));
+      ].map(p => Promise.resolve(p).catch(() => {})));
       
     } catch (error) {
       throw new Error(`Integration test failed: ${error.message}`);
@@ -873,7 +873,7 @@ async function validateIntegrationAndPerformance() {
       } finally {
         // Cleanup instances
         await Promise.all(instances.map(instance => 
-          instance.cleanup ? instance.cleanup().catch(() => {}) : Promise.resolve()
+          instance.cleanup ? (instance.cleanup() || Promise.resolve()).catch(() => {}) : Promise.resolve()
         ));
       }
     }, { timeout: 30000 });
