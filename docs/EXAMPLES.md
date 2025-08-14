@@ -1,15 +1,157 @@
-# Wave 3 Usage Examples
+# MCP WebScraper Examples
 
-This document provides comprehensive, real-world examples of using the Wave 3 features of MCP WebScraper. These examples demonstrate advanced workflows combining multiple tools and features.
+Practical, copy-paste examples organized by use case. Start with simple examples and work your way up!
 
-## 📚 Table of Contents
+## 📚 Quick Links
 
-- [Deep Research Examples](#deep-research-examples)
-- [Stealth Mode Examples](#stealth-mode-examples)
-- [Change Tracking Examples](#change-tracking-examples)
-- [Localization Examples](#localization-examples)
-- [Combined Workflow Examples](#combined-workflow-examples)
-- [Enterprise Use Cases](#enterprise-use-cases)
+- [Simple Web Scraping](#simple-web-scraping)
+- [Search and Discovery](#search-and-discovery)
+- [Data Extraction](#data-extraction)
+- [Content Processing](#content-processing)
+- [Automation](#automation)
+- [Research and Monitoring](#research-and-monitoring)
+- [Complete Workflows](#complete-workflows)
+
+---
+
+## 🟢 Simple Web Scraping
+
+Start with these basic examples to understand how web scraping works.
+
+### Get a Web Page
+
+**Ask your AI:**
+```
+Get the HTML content from https://example.com
+```
+
+**Tool used:** `fetch_url`
+```javascript
+{
+  "url": "https://example.com"
+}
+```
+
+### Extract Text from Article
+
+**Ask your AI:**
+```
+Extract just the text from this article: https://en.wikipedia.org/wiki/Artificial_intelligence
+```
+
+**Tool used:** `extract_text`
+```javascript
+{
+  "url": "https://en.wikipedia.org/wiki/Artificial_intelligence"
+}
+```
+
+### Find All Links
+
+**Ask your AI:**
+```
+Find all the links on the Hacker News homepage
+```
+
+**Tool used:** `extract_links`
+```javascript
+{
+  "url": "https://news.ycombinator.com",
+  "filter_external": false
+}
+```
+
+---
+
+## 🔍 Search and Discovery
+
+### Basic Web Search
+
+**Ask your AI:**
+```
+Search for "best programming languages 2024" and show me the top 10 results
+```
+
+**Tool used:** `search_web`
+```javascript
+{
+  "query": "best programming languages 2024",
+  "limit": 10
+}
+```
+
+### Search Specific Website
+
+**Ask your AI:**
+```
+Search for machine learning articles only on MIT's website
+```
+
+**Tool used:** `search_web`
+```javascript
+{
+  "query": "machine learning",
+  "site": "mit.edu",
+  "limit": 20
+}
+```
+
+### Map Website Structure
+
+**Ask your AI:**
+```
+Show me all the pages on example.com
+```
+
+**Tool used:** `map_site`
+```javascript
+{
+  "url": "https://example.com",
+  "max_urls": 100
+}
+```
+
+---
+
+## 📊 Data Extraction
+
+### Extract Product Information
+
+**Ask your AI:**
+```
+Extract the product title and price from this Amazon page: [URL]
+```
+
+**Tool used:** `scrape_structured`
+```javascript
+{
+  "url": "https://example-shop.com/product",
+  "selectors": {
+    "title": "h1.product-title",
+    "price": ".price-now",
+    "description": ".product-description",
+    "rating": ".star-rating"
+  }
+}
+```
+
+### Extract News Headlines
+
+**Ask your AI:**
+```
+Get all the headlines from CNN's homepage
+```
+
+**Tool used:** `scrape_structured`
+```javascript
+{
+  "url": "https://cnn.com",
+  "selectors": {
+    "headlines": "h2, h3",
+    "links": "h2 a, h3 a"
+  }
+}
+```
 
 ---
 

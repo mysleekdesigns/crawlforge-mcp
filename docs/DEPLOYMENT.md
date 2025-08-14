@@ -8,18 +8,57 @@
 
 ### Option 1: Docker (Recommended) 🐳
 
-The easiest and most reliable way to deploy:
+The easiest and most reliable way to deploy. Docker provides consistent environments and easy scaling.
 
+#### Quick Docker Setup
+
+**Prerequisites:**
+- Install [Docker Desktop](https://www.docker.com/products/docker-desktop) (Windows/Mac)
+- Or on Linux: `curl -fsSL https://get.docker.com | sh`
+
+**Development Mode:**
 ```bash
-# Production deployment with Docker
+# Start development container with hot reload
+docker-compose up mcp-webscraper-dev
+```
+
+**Production Mode:**
+```bash
+# Start production container with optimizations
 docker-compose up -d mcp-webscraper-prod
 ```
 
-📖 **[Complete Docker Guide](./docker.md)** - Includes:
-- Development & production configurations
-- Monitoring stack setup (Prometheus, Grafana)
-- Scaling and resource management
-- Troubleshooting Docker issues
+**With Monitoring Stack:**
+```bash
+# Start with Prometheus & Grafana
+docker-compose --profile monitoring up -d
+```
+
+#### Docker Benefits
+- ✅ **No installation hassles** - Everything pre-configured
+- ✅ **Consistent environment** - Works the same everywhere
+- ✅ **Easy cleanup** - Remove with one command
+- ✅ **Resource isolation** - Won't affect other programs
+- ✅ **Built-in health checks** - Auto-restart on failures
+
+#### Essential Docker Commands
+```bash
+# View running containers
+docker ps
+
+# View logs
+docker logs mcp-webscraper
+
+# Stop containers
+docker-compose down
+
+# Remove everything (including data)
+docker-compose down -v
+
+# Update to latest version
+docker-compose pull
+docker-compose up -d
+```
 
 ### Option 2: PM2 Process Manager
 

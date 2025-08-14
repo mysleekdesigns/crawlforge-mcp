@@ -214,3 +214,4 @@ GitHub Actions workflow (`/.github/workflows/ci.yml`) handles:
 - Input sanitization across all tools
 - Security audit completed (see SECURITY_AUDIT_REPORT.md)
 - No hardcoded secrets, uses .env configuration
+- everytime you create a new documentation.md file make sure to put it in the docs folder

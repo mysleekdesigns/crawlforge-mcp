@@ -1,0 +1,162 @@
+{
+  "summary": {
+    "totalTests": 30,
+    "passedTests": 6,
+    "failedTests": 24,
+    "skippedTests": 0,
+    "successRate": "20%",
+    "duration": "0s",
+    "timestamp": "2025-08-14T15:44:39.240Z"
+  },
+  "coverage": {
+    "researchOrchestrator": 85,
+    "stealthBrowserManager": 80,
+    "localizationManager": 90,
+    "changeTracker": 88
+  },
+  "performance": {
+    "Research Orchestrator Initialization": 0.05725000000001046,
+    "Research Session Management": 0.8027500000000032,
+    "Stealth Manager Initialization": 0.014708000000041466,
+    "Localization Manager Initialization": 0.025915999999995165,
+    "Change Tracker Initialization": 0.020875000000046384,
+    "memoryUsage": "1.96 MB",
+    "Memory Usage Assessment": 2.120166999999981,
+    "averageTestTime": null
+  },
+  "errors": [
+    {
+      "test": "Query Expansion Functionality",
+      "error": "Original topic should be included in expanded queries",
+      "stack": "Error: Original topic should be included in expanded queries\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:167:15\n    at async runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:5)\n    at async validateResearchOrchestrator (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:156:5)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1008:5)"
+    },
+    {
+      "test": "Full Research Workflow",
+      "error": "jest is not defined",
+      "stack": "ReferenceError: jest is not defined\n    at runTest.timeout (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:192:20)\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateResearchOrchestrator (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:189:13)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1008:5)"
+    },
+    {
+      "test": "Fingerprint Generation",
+      "error": "Cannot read properties of undefined (reading 'customUserAgent')",
+      "stack": "TypeError: Cannot read properties of undefined (reading 'customUserAgent')\n    at StealthBrowserManager.selectUserAgent (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/src/core/StealthBrowserManager.js:272:16)\n    at StealthBrowserManager.generateFingerprint (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/src/core/StealthBrowserManager.js:246:23)\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:259:43\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateStealthBrowserManager (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:258:11)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1009:5)"
+    },
+    {
+      "test": "Anti-Detection Scripts Generation",
+      "error": "stealthManager.generateAntiDetectionScripts is not a function",
+      "stack": "TypeError: stealthManager.generateAntiDetectionScripts is not a function\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:274:38\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateStealthBrowserManager (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:273:11)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1009:5)"
+    },
+    {
+      "test": "Browser Launch and Context Creation",
+      "error": "jest is not defined",
+      "stack": "ReferenceError: jest is not defined\n    at runTest.timeout (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:293:23)\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateStealthBrowserManager (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:290:13)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1009:5)"
+    },
+    {
+      "test": "Configuration Validation",
+      "error": "Valid configuration rejected",
+      "stack": "Error: Valid configuration rejected\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:344:15\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateStealthBrowserManager (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:329:11)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1009:5)"
+    },
+    {
+      "test": "Country Configuration Management",
+      "error": "localizationManager.getCountryConfig is not a function",
+      "stack": "TypeError: localizationManager.getCountryConfig is not a function\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:391:44\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateLocalizationManager (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:387:11)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1010:5)"
+    },
+    {
+      "test": "Language and Locale Management",
+      "error": "localizationManager.generateAcceptLanguageHeader is not a function",
+      "stack": "TypeError: localizationManager.generateAcceptLanguageHeader is not a function\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:410:44\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateLocalizationManager (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:406:11)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1010:5)"
+    },
+    {
+      "test": "Browser Locale Configuration",
+      "error": "localizationManager.createBrowserLocale is not a function",
+      "stack": "TypeError: localizationManager.createBrowserLocale is not a function\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:429:44\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateLocalizationManager (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:425:11)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1010:5)"
+    },
+    {
+      "test": "Timezone and Geolocation Management",
+      "error": "Valid timezone rejected: America/New_York",
+      "stack": "Error: Valid timezone rejected: America/New_York\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:446:17\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateLocalizationManager (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:439:11)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1010:5)"
+    },
+    {
+      "test": "HTTP Headers Generation",
+      "error": "localizationManager.generateLocalizedHeaders is not a function",
+      "stack": "TypeError: localizationManager.generateLocalizedHeaders is not a function\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:468:45\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateLocalizationManager (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:464:11)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1010:5)"
+    },
+    {
+      "test": "Content Localization",
+      "error": "localizationManager.detectContentLanguage is not a function",
+      "stack": "TypeError: localizationManager.detectContentLanguage is not a function\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:482:47\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateLocalizationManager (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:478:11)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1010:5)"
+    },
+    {
+      "test": "Content Hashing",
+      "error": "changeTracker.generateContentHash is not a function",
+      "stack": "TypeError: changeTracker.generateContentHash is not a function\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:533:35\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateChangeTracker (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:529:11)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1011:5)"
+    },
+    {
+      "test": "Snapshot Management",
+      "error": "changeTracker.createSnapshot is not a function",
+      "stack": "TypeError: changeTracker.createSnapshot is not a function\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:555:44\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateChangeTracker (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:551:11)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1011:5)"
+    },
+    {
+      "test": "Change Detection",
+      "error": "changeTracker.createSnapshot is not a function",
+      "stack": "TypeError: changeTracker.createSnapshot is not a function\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:579:27\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateChangeTracker (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:573:11)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1011:5)"
+    },
+    {
+      "test": "Change Significance Scoring",
+      "error": "changeTracker.calculateSignificanceScore is not a function",
+      "stack": "TypeError: changeTracker.calculateSignificanceScore is not a function\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:617:40\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateChangeTracker (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:604:11)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1011:5)"
+    },
+    {
+      "test": "Differential Analysis",
+      "error": "changeTracker.createSnapshot is not a function",
+      "stack": "TypeError: changeTracker.createSnapshot is not a function\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:636:27\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateChangeTracker (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:631:11)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1011:5)"
+    },
+    {
+      "test": "Real-time Monitoring",
+      "error": "changeTracker.startMonitoring is not a function",
+      "stack": "TypeError: changeTracker.startMonitoring is not a function\n    at runTest.timeout (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:660:29)\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateChangeTracker (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:652:13)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1011:5)"
+    },
+    {
+      "test": "Statistics and Reporting",
+      "error": "changeTracker.getStatistics is not a function",
+      "stack": "TypeError: changeTracker.getStatistics is not a function\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:678:35\n    at runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:25)\n    at validateChangeTracker (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:677:11)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1011:5)"
+    },
+    {
+      "test": "Deep Research MCP Tool",
+      "error": "Deep research tool not available",
+      "stack": "Error: Deep research tool not available\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:716:15\n    at async runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:5)\n    at async validateMCPToolIntegration (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:712:5)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1012:5)"
+    },
+    {
+      "test": "Track Changes MCP Tool",
+      "error": "Track changes tool not available",
+      "stack": "Error: Track changes tool not available\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:744:15\n    at async runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:5)\n    at async validateMCPToolIntegration (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:740:5)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1012:5)"
+    },
+    {
+      "test": "MCP Protocol Compliance",
+      "error": "Cannot read properties of undefined (reading 'name')",
+      "stack": "TypeError: Cannot read properties of undefined (reading 'name')\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:775:19\n    at async runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:5)\n    at async validateMCPToolIntegration (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:768:5)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1012:5)"
+    },
+    {
+      "test": "Component Integration",
+      "error": "Integration test failed: Cannot read properties of undefined (reading 'customUserAgent')",
+      "stack": "Error: Integration test failed: Cannot read properties of undefined (reading 'customUserAgent')\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:838:13\n    at async runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:5)\n    at async validateIntegrationAndPerformance (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:804:3)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1013:5)"
+    },
+    {
+      "test": "Error Handling and Recovery",
+      "error": "Error handling test failed: tracker.cleanup is not a function",
+      "stack": "Error: Error handling test failed: tracker.cleanup is not a function\n    at file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:910:13\n    at async runTest (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:100:5)\n    at async validateIntegrationAndPerformance (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:881:3)\n    at async runValidation (file:///Users/simonlacey/Documents/GitHub/mcp-server/webScraper-1.0/tests/validation/wave3-validation.js:1013:5)"
+    }
+  ],
+  "warnings": [],
+  "systemInfo": {
+    "nodeVersion": "v24.3.0",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "memoryUsage": {
+      "rss": 248479744,
+      "heapTotal": 215859200,
+      "heapUsed": 134171200,
+      "external": 4354084,
+      "arrayBuffers": 630289
+    }
+  }
+}

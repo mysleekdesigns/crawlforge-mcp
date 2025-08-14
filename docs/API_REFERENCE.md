@@ -1,5 +1,9 @@
 # MCP WebScraper API Reference
 
+> ⚠️ **Note for Beginners**: This is the complete technical reference for advanced users.  
+> 👉 **New to web scraping?** Start with the [Tools Guide](./TOOLS_GUIDE.md) for friendly explanations and examples.  
+> 💡 **Looking for examples?** Check out [Examples](./EXAMPLES.md) for practical use cases.
+
 ## Overview
 
 The MCP WebScraper server provides 16 comprehensive tools for web scraping, searching, crawling, content processing, and advanced research. This document provides detailed API specifications for all available tools.
