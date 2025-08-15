@@ -137,9 +137,28 @@ cache/*.json
 cache/mapsite/*
 cache/sitemaps/*
 
+# Backup files
+*.bak
+*.bak[0-9]
+*.bak[0-9][0-9]
+*.backup
+*.old
+*.orig
+*.save
+*~
+
 # Test files
 test-*.js
 test-*.mjs
+
+# Test results
+test-results/
+test-security-integration/*.json
+
+# Snapshots
+snapshots/*.snap
+snapshots/metadata/*.meta
+snapshots/temp/
 
 # Editor directories and files
 .idea
