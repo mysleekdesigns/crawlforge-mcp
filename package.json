@@ -13,9 +13,9 @@
     "dev": "cross-env NODE_ENV=development node server.js",
     "test": "node tests/integration/mcp-protocol-compliance.test.js",
     "postinstall": "echo '\n🎉 CrawlForge MCP Server installed!\n\nRun \"npx crawlforge-setup\" to configure your API key and get started.\n'",
-    "docker:build": "docker build -t mcp-webscraper .",
-    "docker:dev": "docker-compose up mcp-webscraper-dev",
-    "docker:prod": "docker-compose up mcp-webscraper-prod"
+    "docker:build": "docker build -t crawlforge .",
+    "docker:dev": "docker-compose up crawlforge-dev",
+    "docker:prod": "docker-compose up crawlforge-prod"
   },
   "keywords": [
     "mcp",

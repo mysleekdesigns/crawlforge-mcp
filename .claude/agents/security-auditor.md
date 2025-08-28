@@ -1,6 +1,6 @@
 ---
 name: security-auditor
-description: Security specialist for MCP WebScraper. Audits code for vulnerabilities, ensures secure practices, validates input sanitization, and maintains compliance. Use PROACTIVELY before deployments and after major changes.
+description: Security specialist for CrawlForge MCP Server. Audits code for vulnerabilities, ensures secure practices, validates input sanitization, and maintains compliance. Use PROACTIVELY before deployments and after major changes.
 tools: Read, Grep, Glob, WebFetch, Bash, TodoWrite
 ---
 
@@ -160,7 +160,7 @@ if (safePath.startsWith(allowedDir)) {
 // Check before crawling
 async function canCrawl(url) {
   const robotsRules = await getRobotsRules(url);
-  return robotsRules.isAllowed(url, 'MCP-WebScraper');
+  return robotsRules.isAllowed(url, 'CrawlForge');
 }
 ```
 
@@ -197,10 +197,10 @@ npm audit fix
 eslint --plugin security .
 
 # OWASP dependency check
-dependency-check --project "MCP-WebScraper" --scan .
+dependency-check --project "CrawlForge" --scan .
 
 # Container scanning (if using Docker)
-docker scan mcp-webscraper:latest
+docker scan crawlforge:latest
 ```
 
 ### Manual Testing

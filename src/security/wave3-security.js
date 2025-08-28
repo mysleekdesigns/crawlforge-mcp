@@ -1,7 +1,7 @@
 /**
  * Wave 3 Security Validation Utilities
  * Provides security validation, sanitization, and protection functions
- * for Wave 3 features in the MCP WebScraper project.
+ * for Wave 3 features in the CrawlForge MCP Server project.
  */
 
 import { z } from 'zod';
@@ -125,7 +125,7 @@ export class SSRFProtection {
     const fetchOptions = {
       timeout: options.timeout || 30000,
       headers: {
-        'User-Agent': 'MCP-WebScraper/3.0 (Security-Hardened)',
+        'User-Agent': 'CrawlForge/3.0 (Security-Hardened)',
         ...options.headers
       },
       ...options

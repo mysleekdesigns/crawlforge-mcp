@@ -1,6 +1,6 @@
 ---
 name: performance-monitor
-description: Performance monitoring and optimization specialist for MCP WebScraper. Tracks system performance, identifies bottlenecks, and ensures optimal resource usage. Use PROACTIVELY during load testing and performance optimization phases.
+description: Performance monitoring and optimization specialist for CrawlForge MCP Server. Tracks system performance, identifies bottlenecks, and ensures optimal resource usage. Use PROACTIVELY during load testing and performance optimization phases.
 tools: Bash, Read, WebFetch, mcp__firecrawl__firecrawl_check_crawl_status, Grep, TodoWrite
 ---
 

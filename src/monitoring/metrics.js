@@ -1,5 +1,5 @@
 /**
- * Metrics Collection System for MCP WebScraper
+ * Metrics Collection System for CrawlForge MCP Server
  * Comprehensive performance metrics, analytics, and reporting
  */
 

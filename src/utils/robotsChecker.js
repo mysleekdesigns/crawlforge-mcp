@@ -1,7 +1,7 @@
 import robotsParser from 'robots-parser';
 
 export class RobotsChecker {
-  constructor(userAgent = 'MCP-WebScraper/1.0') {
+  constructor(userAgent = 'CrawlForge/1.0') {
     this.userAgent = userAgent;
     this.robotsCache = new Map();
   }

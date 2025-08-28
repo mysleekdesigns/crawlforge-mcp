@@ -993,7 +993,7 @@ class MCPProtocolComplianceTestSuite {
       let stderr = '';
       this.serverProcess.stderr.on('data', (data) => {
         stderr += data.toString();
-        if (stderr.includes('MCP WebScraper server')) {
+        if (stderr.includes('CrawlForge MCP Server')) {
           resolve();
         }
       });

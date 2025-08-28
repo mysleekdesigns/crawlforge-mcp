@@ -563,7 +563,7 @@ export class SSRFProtection {
         timeout: Math.min(fetchOptions.timeout || 30000, this.config.maxTimeout),
         redirect: 'manual', // Handle redirects manually
         headers: {
-          'User-Agent': 'MCP-WebScraper/3.0 (Security Enhanced)',
+          'User-Agent': 'CrawlForge/3.0 (Security Enhanced)',
           ...fetchOptions.headers
         }
       };

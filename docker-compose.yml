@@ -2,12 +2,12 @@ version: '3.8'
 
 services:
   # Development environment
-  mcp-webscraper-dev:
+  crawlforge-dev:
     build:
       context: .
       dockerfile: Dockerfile
       target: development
-    container_name: mcp-webscraper-dev
+    container_name: crawlforge-dev
     environment:
       - NODE_ENV=development
       - LOG_LEVEL=debug
@@ -35,12 +35,12 @@ services:
       start_period: 40s
 
   # Production environment
-  mcp-webscraper-prod:
+  crawlforge-prod:
     build:
       context: .
       dockerfile: Dockerfile
       target: production
-    container_name: mcp-webscraper-prod
+    container_name: crawlforge-prod
     environment:
       - NODE_ENV=production
       - LOG_LEVEL=info
@@ -73,12 +73,12 @@ services:
           cpus: '0.5'
 
   # Testing environment
-  mcp-webscraper-test:
+  crawlforge-test:
     build:
       context: .
       dockerfile: Dockerfile
       target: testing
-    container_name: mcp-webscraper-test
+    container_name: crawlforge-test
     environment:
       - NODE_ENV=test
       - CACHE_ENABLE_DISK=false
@@ -93,12 +93,12 @@ services:
       - testing
 
   # Performance testing environment
-  mcp-webscraper-perf:
+  crawlforge-perf:
     build:
       context: .
       dockerfile: Dockerfile
       target: development
-    container_name: mcp-webscraper-perf
+    container_name: crawlforge-perf
     environment:
       - NODE_ENV=test
       - LOG_LEVEL=info
@@ -123,7 +123,7 @@ services:
   # Redis cache (optional for advanced caching)
   redis:
     image: redis:7-alpine
-    container_name: mcp-webscraper-redis
+    container_name: crawlforge-redis
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     volumes:
@@ -138,7 +138,7 @@ services:
   # Monitoring with Prometheus (optional)
   prometheus:
     image: prom/prometheus:latest
-    container_name: mcp-webscraper-prometheus
+    container_name: crawlforge-prometheus
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -158,7 +158,7 @@ services:
   # Grafana for metrics visualization (optional)
   grafana:
     image: grafana/grafana:latest
-    container_name: mcp-webscraper-grafana
+    container_name: crawlforge-grafana
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
     volumes:
@@ -176,7 +176,7 @@ services:
   # Log aggregation with ELK stack (optional)
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.8.0
-    container_name: mcp-webscraper-elasticsearch
+    container_name: crawlforge-elasticsearch
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
@@ -191,7 +191,7 @@ services:
 
   logstash:
     image: docker.elastic.co/logstash/logstash:8.8.0
-    container_name: mcp-webscraper-logstash
+    container_name: crawlforge-logstash
     volumes:
       - ./monitoring/logstash/pipeline:/usr/share/logstash/pipeline:ro
       - logs_dev:/logs/dev:ro
@@ -206,7 +206,7 @@ services:
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.8.0
-    container_name: mcp-webscraper-kibana
+    container_name: crawlforge-kibana
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     ports:
@@ -258,5 +258,5 @@ volumes:
 
 networks:
   default:
-    name: mcp-webscraper-network
+    name: crawlforge-network
     driver: bridge

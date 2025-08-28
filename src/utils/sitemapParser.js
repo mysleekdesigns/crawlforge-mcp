@@ -9,7 +9,7 @@ const gunzip = promisify(zlib.gunzip);
 export class SitemapParser {
   constructor(options = {}) {
     const {
-      userAgent = 'MCP-WebScraper/1.0',
+      userAgent = 'CrawlForge/1.0',
       timeout = 10000,
       maxRecursionDepth = 3,
       maxUrlsPerSitemap = 50000,

@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile for MCP WebScraper
+# Multi-stage Dockerfile for CrawlForge MCP Server
 # Optimized for security, performance, and minimal image size
 
 # Build stage

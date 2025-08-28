@@ -16,6 +16,14 @@ class AuthManager {
     this.lastCreditCheck = null;
     this.CREDIT_CHECK_INTERVAL = 60000; // Check credits every minute max
     this.initialized = false;
+    this.creatorMode = process.env.CRAWLFORGE_CREATOR_MODE === 'true';
+  }
+
+  /**
+   * Check if running in creator mode (unlimited access, no API required)
+   */
+  isCreatorMode() {
+    return this.creatorMode;
   }
 
   /**
@@ -23,6 +31,13 @@ class AuthManager {
    */
   async initialize() {
     if (this.initialized) return;
+    
+    // Skip config loading in creator mode
+    if (this.isCreatorMode()) {
+      console.log('🚀 Creator Mode Active - Unlimited Access Enabled');
+      this.initialized = true;
+      return;
+    }
     
     try {
       await this.loadConfig();
@@ -144,6 +159,11 @@ class AuthManager {
    * Check if user has enough credits for a tool
    */
   async checkCredits(estimatedCredits = 1) {
+    // Creator mode has unlimited credits
+    if (this.isCreatorMode()) {
+      return true;
+    }
+    
     if (!this.config) {
       throw new Error('CrawlForge not configured. Run setup first.');
     }
@@ -183,6 +203,11 @@ class AuthManager {
    * Report usage to backend for credit deduction
    */
   async reportUsage(tool, creditsUsed, requestData = {}, responseStatus = 200, processingTime = 0) {
+    // Skip usage reporting in creator mode
+    if (this.isCreatorMode()) {
+      return;
+    }
+    
     if (!this.config) {
       return; // Silently skip if not configured
     }
@@ -257,6 +282,10 @@ class AuthManager {
    * Check if authenticated
    */
   isAuthenticated() {
+    // Creator mode is always authenticated
+    if (this.isCreatorMode()) {
+      return true;
+    }
     return this.config !== null && this.config.apiKey !== undefined;
   }
 

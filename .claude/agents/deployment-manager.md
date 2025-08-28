@@ -1,6 +1,6 @@
 ---
 name: deployment-manager
-description: Deployment and release management specialist for MCP WebScraper. Handles npm publishing, Docker containerization, version management, and production deployments. Use PROACTIVELY before releases and deployments.
+description: Deployment and release management specialist for CrawlForge MCP Server. Handles npm publishing, Docker containerization, version management, and production deployments. Use PROACTIVELY before releases and deployments.
 tools: Bash, Read, Write, Edit, Glob, TodoWrite
 ---
 

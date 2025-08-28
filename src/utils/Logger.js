@@ -15,7 +15,7 @@ export class Logger {
   constructor(options = {}) {
     const {
       level = process.env.LOG_LEVEL || 'info',
-      service = 'mcp-webscraper',
+      service = 'crawlforge',
       enableConsole = true,
       enableFile = true,
       enableJson = process.env.NODE_ENV === 'production',

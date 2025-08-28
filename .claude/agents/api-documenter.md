@@ -1,6 +1,6 @@
 ---
 name: api-documenter
-description: Documentation specialist for MCP WebScraper APIs and tools. Creates comprehensive documentation, usage examples, and integration guides. Use PROACTIVELY when adding new features or updating APIs.
+description: Documentation specialist for CrawlForge MCP Server APIs and tools. Creates comprehensive documentation, usage examples, and integration guides. Use PROACTIVELY when adding new features or updating APIs.
 tools: Read, Write, Edit, mcp__context7__get-library-docs, WebSearch, MultiEdit, Glob
 ---
 

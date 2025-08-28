@@ -31,8 +31,8 @@ import AuthManager from "./src/core/AuthManager.js";
 // Initialize Authentication Manager
 await AuthManager.initialize();
 
-// Check if first time setup is needed
-if (!AuthManager.isAuthenticated()) {
+// Check if first time setup is needed (skip in creator mode)
+if (!AuthManager.isAuthenticated() && !AuthManager.isCreatorMode()) {
   const apiKey = process.env.CRAWLFORGE_API_KEY;
   if (apiKey) {
     // Auto-setup if API key is provided via environment
@@ -72,7 +72,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 }
 
 // Create the server
-const server = new McpServer({ name: "mcp_webScraper", version: "3.0.0" });
+const server = new McpServer({ name: "crawlforge", version: "3.0.0" });
 
 // Helper function to wrap tool handlers with authentication and credit tracking
 function withAuth(toolName, handler) {
@@ -80,47 +80,55 @@ function withAuth(toolName, handler) {
     const startTime = Date.now();
     
     try {
-      // Check credits before executing
-      const creditCost = AuthManager.getToolCost(toolName);
-      const hasCredits = await AuthManager.checkCredits(creditCost);
-      
-      if (!hasCredits) {
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              error: "Insufficient credits",
-              message: `This operation requires ${creditCost} credits. Please upgrade your plan at https://crawlforge.com/pricing`,
-              creditsRequired: creditCost
-            }, null, 2)
-          }]
-        };
+      // Skip credit checks in creator mode
+      if (!AuthManager.isCreatorMode()) {
+        // Check credits before executing
+        const creditCost = AuthManager.getToolCost(toolName);
+        const hasCredits = await AuthManager.checkCredits(creditCost);
+        
+        if (!hasCredits) {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                error: "Insufficient credits",
+                message: `This operation requires ${creditCost} credits. Please upgrade your plan at https://crawlforge.com/pricing`,
+                creditsRequired: creditCost
+              }, null, 2)
+            }]
+          };
+        }
       }
       
       // Execute the tool
       const result = await handler(params);
       
-      // Report usage for successful execution
+      // Report usage for successful execution (skip in creator mode)
       const processingTime = Date.now() - startTime;
-      await AuthManager.reportUsage(
-        toolName,
-        creditCost,
-        params,
-        200,
-        processingTime
-      );
+      if (!AuthManager.isCreatorMode()) {
+        const creditCost = AuthManager.getToolCost(toolName);
+        await AuthManager.reportUsage(
+          toolName,
+          creditCost,
+          params,
+          200,
+          processingTime
+        );
+      }
       
       return result;
     } catch (error) {
-      // Report usage even for errors (reduced credit cost)
+      // Report usage even for errors (reduced credit cost) - skip in creator mode
       const processingTime = Date.now() - startTime;
-      await AuthManager.reportUsage(
-        toolName,
-        Math.max(1, Math.floor(AuthManager.getToolCost(toolName) * 0.5)), // Half credits for errors
-        params,
-        500,
-        processingTime
-      );
+      if (!AuthManager.isCreatorMode()) {
+        await AuthManager.reportUsage(
+          toolName,
+          Math.max(1, Math.floor(AuthManager.getToolCost(toolName) * 0.5)), // Half credits for errors
+          params,
+          500,
+          processingTime
+        );
+      }
       
       throw error;
     }
@@ -571,7 +579,7 @@ async function fetchWithTimeout(url, options = {}) {
     const response = await fetch(url, {
       signal: controller.signal,
       headers: {
-        'User-Agent': 'MCP-WebScraper/1.0.0',
+        'User-Agent': 'CrawlForge/1.0.0',
         ...headers
       }
     });
@@ -1010,7 +1018,7 @@ server.registerTool("crawl_deep", {
       isError: true
     };
   }
-}));
+});
 
 // Tool: map_site - Discover and map website structure
 server.registerTool("map_site", {
@@ -1050,7 +1058,7 @@ server.registerTool("map_site", {
       isError: true
     };
   }
-}));
+});
 
 // Phase 3 Tools: Enhanced Content Processing
 
@@ -1089,7 +1097,7 @@ server.registerTool("extract_content", {
       isError: true
     };
   }
-}));
+});
 
 // Tool: process_document - Multi-format document processing
 server.registerTool("process_document", {
@@ -1127,7 +1135,7 @@ server.registerTool("process_document", {
       isError: true
     };
   }
-}));
+});
 
 // Tool: summarize_content - Intelligent content summarization
 server.registerTool("summarize_content", {
@@ -1164,7 +1172,7 @@ server.registerTool("summarize_content", {
       isError: true
     };
   }
-}));
+});
 
 // Tool: analyze_content - Comprehensive content analysis
 server.registerTool("analyze_content", {
@@ -1201,7 +1209,7 @@ server.registerTool("analyze_content", {
       isError: true
     };
   }
-}));
+});
 
 
 // Wave 2 Advanced Tools
@@ -1259,7 +1267,7 @@ server.registerTool("batch_scrape", {
       isError: true
     };
   }
-}));
+});
 
 // Tool: scrape_with_actions - Execute action chains before scraping
 server.registerTool("scrape_with_actions", {
@@ -1325,7 +1333,7 @@ server.registerTool("scrape_with_actions", {
       isError: true
     };
   }
-}));
+});
 
 // Tool: deep_research - Comprehensive multi-stage research with source verification
 server.registerTool("deep_research", {
@@ -1391,7 +1399,7 @@ server.registerTool("deep_research", {
       isError: true
     };
   }
-}));
+});
 
 // Tool: track_changes - Enhanced Content change tracking with baseline capture and monitoring (Phase 2.4)
 // Temporarily disabled due to import issue
@@ -1518,7 +1526,7 @@ server.registerTool("track_changes", {
       isError: true
     };
   }
-}));
+});
 
 // Tool: generate_llms_txt - Generate LLMs.txt and LLMs-full.txt files (Phase 2.5)
 server.registerTool("generate_llms_txt", {
@@ -1562,7 +1570,7 @@ server.registerTool("generate_llms_txt", {
       isError: true
     };
   }
-}));
+});
 */
 
 // Tool: stealth_mode - Advanced anti-detection browser management (Wave 3)
@@ -1684,7 +1692,7 @@ server.registerTool("stealth_mode", {
       isError: true
     };
   }
-}));
+});
 
 // Tool: localization - Multi-language and geo-location management (Wave 3)
 server.registerTool("localization", {
@@ -1820,13 +1828,13 @@ server.registerTool("localization", {
       isError: true
     };
   }
-}));
+});
 
 // Set up the stdio transport and start the server
 async function runServer() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("MCP WebScraper server v3.0 running on stdio");
+  console.error("CrawlForge MCP Server v3.0 running on stdio");
   console.error(`Environment: ${config.server.nodeEnv}`);
   
   if (isSearchConfigured()) {

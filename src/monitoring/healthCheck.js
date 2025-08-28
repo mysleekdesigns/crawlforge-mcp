@@ -1,5 +1,5 @@
 /**
- * Health Check System for MCP WebScraper
+ * Health Check System for CrawlForge MCP Server
  * Provides comprehensive health monitoring for production environments
  */
 
@@ -550,7 +550,7 @@ export class HealthCheckManager extends EventEmitter {
    */
   generateTextReport(status) {
     const lines = [];
-    lines.push(`MCP WebScraper Health Report`);
+    lines.push(`CrawlForge MCP Server Health Report`);
     lines.push(`Generated: ${new Date(status.lastCheck).toISOString()}`);
     lines.push(`Overall Status: ${status.overall.toUpperCase()}`);
     lines.push(`Uptime: ${Math.floor((Date.now() - status.uptime) / 1000)}s`);

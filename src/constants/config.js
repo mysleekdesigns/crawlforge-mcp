@@ -23,7 +23,7 @@ export const config = {
       timeout: parseInt(process.env.DUCKDUCKGO_TIMEOUT || '30000'),
       maxRetries: parseInt(process.env.DUCKDUCKGO_MAX_RETRIES || '3'),
       retryDelay: parseInt(process.env.DUCKDUCKGO_RETRY_DELAY || '1000'),
-      userAgent: process.env.DUCKDUCKGO_USER_AGENT || process.env.USER_AGENT || 'MCP-WebScraper/1.0'
+      userAgent: process.env.DUCKDUCKGO_USER_AGENT || process.env.USER_AGENT || 'CrawlForge/1.0'
     }
   },
 
@@ -49,7 +49,7 @@ export const config = {
     maxDepth: parseInt(process.env.MAX_CRAWL_DEPTH || '5'),
     maxPages: parseInt(process.env.MAX_PAGES_PER_CRAWL || '100'),
     respectRobots: process.env.RESPECT_ROBOTS_TXT !== 'false',
-    userAgent: process.env.USER_AGENT || 'MCP-WebScraper/1.0',
+    userAgent: process.env.USER_AGENT || 'CrawlForge/1.0',
     timeout: parseInt(process.env.CRAWL_TIMEOUT || '30000'),
     followExternal: process.env.FOLLOW_EXTERNAL_LINKS === 'true'
   },
