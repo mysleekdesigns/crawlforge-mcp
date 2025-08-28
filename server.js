@@ -25,6 +25,44 @@ import { StealthBrowserManager } from "./src/core/StealthBrowserManager.js";
 import { LocalizationManager } from "./src/core/LocalizationManager.js";
 import { memoryMonitor } from "./src/utils/MemoryMonitor.js";
 import { config, validateConfig, isSearchConfigured, getToolConfig, getActiveSearchProvider } from "./src/constants/config.js";
+// Authentication Manager
+import AuthManager from "./src/core/AuthManager.js";
+
+// Initialize Authentication Manager
+await AuthManager.initialize();
+
+// Check if first time setup is needed
+if (!AuthManager.isAuthenticated()) {
+  const apiKey = process.env.CRAWLFORGE_API_KEY;
+  if (apiKey) {
+    // Auto-setup if API key is provided via environment
+    console.log('🔧 Auto-configuring CrawlForge with provided API key...');
+    const success = await AuthManager.runSetup(apiKey);
+    if (!success) {
+      console.error('❌ Failed to authenticate with provided API key');
+      console.error('Please check your API key or run: npm run setup');
+      process.exit(1);
+    }
+  } else {
+    console.log('');
+    console.log('╔═══════════════════════════════════════════════════════╗');
+    console.log('║        CrawlForge MCP Server - Setup Required         ║');
+    console.log('╚═══════════════════════════════════════════════════════╝');
+    console.log('');
+    console.log('Welcome! This appears to be your first time using CrawlForge.');
+    console.log('');
+    console.log('To get started, please run:');
+    console.log('  npm run setup');
+    console.log('');
+    console.log('Or set your API key via environment variable:');
+    console.log('  export CRAWLFORGE_API_KEY="your_api_key_here"');
+    console.log('');
+    console.log('Get your free API key at: https://crawlforge.com/signup');
+    console.log('(Includes 1,000 free credits!)');
+    console.log('');
+    process.exit(0);
+  }
+}
 
 // Validate configuration
 const configErrors = validateConfig();
@@ -35,6 +73,59 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 
 // Create the server
 const server = new McpServer({ name: "mcp_webScraper", version: "3.0.0" });
+
+// Helper function to wrap tool handlers with authentication and credit tracking
+function withAuth(toolName, handler) {
+  return async (params) => {
+    const startTime = Date.now();
+    
+    try {
+      // Check credits before executing
+      const creditCost = AuthManager.getToolCost(toolName);
+      const hasCredits = await AuthManager.checkCredits(creditCost);
+      
+      if (!hasCredits) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              error: "Insufficient credits",
+              message: `This operation requires ${creditCost} credits. Please upgrade your plan at https://crawlforge.com/pricing`,
+              creditsRequired: creditCost
+            }, null, 2)
+          }]
+        };
+      }
+      
+      // Execute the tool
+      const result = await handler(params);
+      
+      // Report usage for successful execution
+      const processingTime = Date.now() - startTime;
+      await AuthManager.reportUsage(
+        toolName,
+        creditCost,
+        params,
+        200,
+        processingTime
+      );
+      
+      return result;
+    } catch (error) {
+      // Report usage even for errors (reduced credit cost)
+      const processingTime = Date.now() - startTime;
+      await AuthManager.reportUsage(
+        toolName,
+        Math.max(1, Math.floor(AuthManager.getToolCost(toolName) * 0.5)), // Half credits for errors
+        params,
+        500,
+        processingTime
+      );
+      
+      throw error;
+    }
+  };
+}
 
 // Initialize tools
 let searchWebTool = null;
@@ -504,7 +595,7 @@ server.registerTool("fetch_url", {
     headers: z.record(z.string()).optional(),
     timeout: z.number().min(1000).max(30000).optional().default(10000)
   }
-}, async ({ url, headers, timeout }) => {
+}, withAuth("fetch_url", async ({ url, headers, timeout }) => {
   try {
     const response = await fetchWithTimeout(url, {
       timeout: timeout || 10000,
@@ -540,7 +631,7 @@ server.registerTool("fetch_url", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: extract_text - Extract clean text content from HTML
 server.registerTool("extract_text", {
@@ -550,7 +641,7 @@ server.registerTool("extract_text", {
     remove_scripts: z.boolean().optional().default(true),
     remove_styles: z.boolean().optional().default(true)
   }
-}, async ({ url, remove_scripts, remove_styles }) => {
+}, withAuth("extract_text", async ({ url, remove_scripts, remove_styles }) => {
   try {
     const response = await fetchWithTimeout(url);
     if (!response.ok) {
@@ -594,7 +685,7 @@ server.registerTool("extract_text", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: extract_links - Extract all links from a webpage with optional filtering
 server.registerTool("extract_links", {
@@ -604,7 +695,7 @@ server.registerTool("extract_links", {
     filter_external: z.boolean().optional().default(false),
     base_url: z.string().url().optional()
   }
-}, async ({ url, filter_external, base_url }) => {
+}, withAuth("extract_links", async ({ url, filter_external, base_url }) => {
   try {
     const response = await fetchWithTimeout(url);
     if (!response.ok) {
@@ -678,7 +769,7 @@ server.registerTool("extract_links", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: extract_metadata - Extract page metadata
 server.registerTool("extract_metadata", {
@@ -686,7 +777,7 @@ server.registerTool("extract_metadata", {
   inputSchema: {
     url: z.string().url()
   }
-}, async ({ url }) => {
+}, withAuth("extract_metadata", async ({ url }) => {
   try {
     const response = await fetchWithTimeout(url);
     if (!response.ok) {
@@ -757,7 +848,7 @@ server.registerTool("extract_metadata", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: scrape_structured - Extract structured data using CSS selectors
 server.registerTool("scrape_structured", {
@@ -766,7 +857,7 @@ server.registerTool("scrape_structured", {
     url: z.string().url(),
     selectors: z.record(z.string())
   }
-}, async ({ url, selectors }) => {
+}, withAuth("scrape_structured", async ({ url, selectors }) => {
   try {
     const response = await fetchWithTimeout(url);
     if (!response.ok) {
@@ -819,7 +910,7 @@ server.registerTool("scrape_structured", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: search_web - Web search with configurable providers
 if (searchWebTool) {
@@ -919,7 +1010,7 @@ server.registerTool("crawl_deep", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: map_site - Discover and map website structure
 server.registerTool("map_site", {
@@ -959,7 +1050,7 @@ server.registerTool("map_site", {
       isError: true
     };
   }
-});
+}));
 
 // Phase 3 Tools: Enhanced Content Processing
 
@@ -998,7 +1089,7 @@ server.registerTool("extract_content", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: process_document - Multi-format document processing
 server.registerTool("process_document", {
@@ -1036,7 +1127,7 @@ server.registerTool("process_document", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: summarize_content - Intelligent content summarization
 server.registerTool("summarize_content", {
@@ -1073,7 +1164,7 @@ server.registerTool("summarize_content", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: analyze_content - Comprehensive content analysis
 server.registerTool("analyze_content", {
@@ -1110,7 +1201,7 @@ server.registerTool("analyze_content", {
       isError: true
     };
   }
-});
+}));
 
 
 // Wave 2 Advanced Tools
@@ -1168,7 +1259,7 @@ server.registerTool("batch_scrape", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: scrape_with_actions - Execute action chains before scraping
 server.registerTool("scrape_with_actions", {
@@ -1234,7 +1325,7 @@ server.registerTool("scrape_with_actions", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: deep_research - Comprehensive multi-stage research with source verification
 server.registerTool("deep_research", {
@@ -1300,7 +1391,7 @@ server.registerTool("deep_research", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: track_changes - Enhanced Content change tracking with baseline capture and monitoring (Phase 2.4)
 // Temporarily disabled due to import issue
@@ -1427,7 +1518,7 @@ server.registerTool("track_changes", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: generate_llms_txt - Generate LLMs.txt and LLMs-full.txt files (Phase 2.5)
 server.registerTool("generate_llms_txt", {
@@ -1471,7 +1562,7 @@ server.registerTool("generate_llms_txt", {
       isError: true
     };
   }
-});
+}));
 */
 
 // Tool: stealth_mode - Advanced anti-detection browser management (Wave 3)
@@ -1593,7 +1684,7 @@ server.registerTool("stealth_mode", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: localization - Multi-language and geo-location management (Wave 3)
 server.registerTool("localization", {
@@ -1729,7 +1820,7 @@ server.registerTool("localization", {
       isError: true
     };
   }
-});
+}));
 
 // Set up the stdio transport and start the server
 async function runServer() {

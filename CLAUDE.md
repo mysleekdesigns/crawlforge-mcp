@@ -6,7 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MCP (Model Context Protocol) server implementation providing 16 comprehensive web scraping, crawling, and content processing tools. Version 3.0 includes advanced content extraction, document processing, summarization, and analysis capabilities. Wave 2 adds asynchronous batch processing and browser automation features. Wave 3 introduces deep research orchestration, stealth scraping, localization, and change tracking.
 
-
 ## Development Commands
 
 ```bash
@@ -21,7 +20,8 @@ cp .env.example .env
 npm start
 
 # Test MCP protocol compliance
-npm test
+# NOTE: test-server.js doesn't exist, use integration tests instead
+npm run test:integration      # Integration tests including MCP compliance
 
 # Lint checks (no linter configured yet, placeholder)
 npm run lint
@@ -69,6 +69,11 @@ npm run release:major       # Major version bump
 
 # Cleanup
 npm run clean              # Remove cache, logs, test results
+
+# Running specific test files
+node tests/unit/linkAnalyzer.test.js          # Unit test for link analyzer
+node tests/validation/wave3-validation.js     # Wave 3 validation suite
+node tests/security/security-test-suite.js    # Security test suite
 ```
 
 ## High-Level Architecture

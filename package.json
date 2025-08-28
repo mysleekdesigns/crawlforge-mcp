@@ -1,47 +1,21 @@
 {
-  "name": "mcp-webscraper",
-  "version": "3.0.0",
-  "description": "Comprehensive MCP server for web scraping with 12 advanced tools including content extraction, document processing, search, crawling, and analysis capabilities",
+  "name": "@crawlforge/mcp-server",
+  "version": "1.0.0",
+  "description": "CrawlForge MCP Server - Professional web scraping tools with 1000 free credits. Features 18+ advanced tools for content extraction, deep research, stealth browsing, and more.",
   "main": "server.js",
   "bin": {
-    "mcp-webscraper": "server.js",
-    "mcp-webscraper-setup": "install.js"
+    "crawlforge": "server.js",
+    "crawlforge-setup": "setup.js"
   },
   "scripts": {
     "start": "node server.js",
+    "setup": "node setup.js",
     "dev": "cross-env NODE_ENV=development node server.js",
-    "test": "node test-server.js",
-    "test:performance": "node --expose-gc tests/performance/test-runner.js",
-    "test:load": "node --expose-gc tests/performance/load-test.js",
-    "test:memory": "node --expose-gc tests/performance/memory-test.js",
-    "test:benchmark": "node --expose-gc tests/performance/benchmark.js",
-    "test:integration": "node --expose-gc tests/integration/performance-integration.test.js",
-    "test:performance:quick": "node tests/performance/test-runner.js",
-    "test:security": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/security/security-test-suite.test.js",
-    "test:wave3": "node tests/validation/wave3-validation.js",
-    "test:wave3:quick": "node tests/validation/wave3-validation.js --quick",
-    "test:wave3:verbose": "node tests/validation/wave3-validation.js --verbose",
-    "test:unit:wave3": "jest tests/unit/ResearchOrchestrator.test.js tests/unit/StealthMode.test.js tests/unit/LocalizationManager.test.js tests/unit/ChangeTracker.test.js",
-    "test:integration:wave3": "jest tests/integration/wave3-integration.test.js",
-    "test:stealth": "node tests/stealth-mode-validation.js",
-    "demo:stealth": "node examples/stealth-mode-demo.js",
-    "test:llmstxt": "node tests/validation/test-llmstxt-generator.js",
-    "test:llmstxt:unit": "node tests/unit/LLMsTxtAnalyzer.test.js",
-    "test:llmstxt:integration": "node tests/integration/llmstxt-mcp-integration.test.js",
-    "test:llmstxt:all": "npm run test:llmstxt:unit && npm run test:llmstxt && npm run test:llmstxt:integration",
-    "test:all": "npm test && npm run test:integration && npm run test:performance:quick && npm run test:security && npm run test:wave3 && npm run test:stealth && npm run test:llmstxt:all",
-    "lint": "echo 'No linter configured yet'",
-    "build": "echo 'No build step required for Node.js project'",
-    "clean": "shx rm -rf cache/*.json logs/*.log performance-results/ test-results/",
+    "test": "node tests/integration/mcp-protocol-compliance.test.js",
+    "postinstall": "echo '\n🎉 CrawlForge MCP Server installed!\n\nRun \"npx crawlforge-setup\" to configure your API key and get started.\n'",
     "docker:build": "docker build -t mcp-webscraper .",
     "docker:dev": "docker-compose up mcp-webscraper-dev",
-    "docker:prod": "docker-compose up mcp-webscraper-prod",
-    "docker:test": "docker-compose --profile testing up mcp-webscraper-test",
-    "docker:perf": "docker-compose --profile performance up mcp-webscraper-perf",
-    "release:patch": "npm version patch && git push && git push --tags",
-    "release:minor": "npm version minor && git push && git push --tags",
-    "release:major": "npm version major && git push && git push --tags",
-    "prepublishOnly": "npm run test:all && npm run clean"
+    "docker:prod": "docker-compose up mcp-webscraper-prod"
   },
   "keywords": [
     "mcp",
@@ -70,25 +44,19 @@
     "website-analysis"
   ],
   "author": {
-    "name": "MCP WebScraper Team",
-    "email": "support@mcp-webscraper.com",
-    "url": "https://github.com/mcp-webscraper"
+    "name": "CrawlForge",
+    "email": "support@crawlforge.com",
+    "url": "https://crawlforge.com"
   },
-  "contributors": [
-    {
-      "name": "Development Team",
-      "email": "dev@mcp-webscraper.com"
-    }
-  ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mcp-webscraper/mcp-webscraper.git"
+    "url": "git+https://github.com/crawlforge/mcp-server.git"
   },
   "bugs": {
-    "url": "https://github.com/mcp-webscraper/mcp-webscraper/issues"
+    "url": "https://github.com/crawlforge/mcp-server/issues"
   },
-  "homepage": "https://github.com/mcp-webscraper/mcp-webscraper#readme",
+  "homepage": "https://crawlforge.com",
   "type": "module",
   "engines": {
     "node": ">=18.0.0",
@@ -110,14 +78,12 @@
   },
   "files": [
     "server.js",
-    "install.js",
+    "setup.js",
     "src/",
     "README.md",
-    "INSTALL.md",
     "LICENSE",
-    "package.json",
-    "package-lock.json",
-    ".env.example"
+    "CLAUDE.md",
+    "package.json"
   ],
   "dependencies": {
     "@googleapis/customsearch": "^5.0.1",
@@ -143,8 +109,6 @@
   },
   "devDependencies": {
     "@jest/globals": "^30.0.5",
-    "artillery": "^2.0.0",
-    "clinic": "^13.0.0",
     "cross-env": "^10.0.0",
     "jest": "^30.0.5",
     "shx": "^0.4.0"
