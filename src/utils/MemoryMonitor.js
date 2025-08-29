@@ -116,6 +116,46 @@ export class MemoryMonitor {
   }
   
   /**
+   * Analyze memory trend for potential leaks
+   */
+  analyzeMemoryTrend() {
+    if (this.samples.length < 5) {
+      return; // Need at least 5 samples for trend analysis
+    }
+    
+    // Check if memory is consistently increasing
+    const recentSamples = this.samples.slice(-10); // Last 10 samples
+    let increasingCount = 0;
+    
+    for (let i = 1; i < recentSamples.length; i++) {
+      if (recentSamples[i].heapUsed > recentSamples[i - 1].heapUsed) {
+        increasingCount++;
+      }
+    }
+    
+    // If memory increased in 80% of recent samples, potential leak
+    if (increasingCount > recentSamples.length * 0.8) {
+      const memoryGrowth = recentSamples[recentSamples.length - 1].heapUsed - recentSamples[0].heapUsed;
+      
+      if (memoryGrowth > this.options.leakThreshold) {
+        this.leakWarnings++;
+        const growthMB = Math.round(memoryGrowth / 1024 / 1024 * 100) / 100;
+        
+        this.log(`Warning: Potential memory leak detected. Memory grew by ${growthMB}MB over ${recentSamples.length} samples`);
+        
+        if (this.options.alertCallback) {
+          this.options.alertCallback({
+            type: 'memory_leak',
+            growthMB,
+            samples: recentSamples.length,
+            warnings: this.leakWarnings
+          });
+        }
+      }
+    }
+  }
+  
+  /**
    * Log messages if logging is enabled
    */
   log(message) {

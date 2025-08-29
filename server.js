@@ -938,7 +938,7 @@ if (searchWebTool) {
       site: z.string().optional(),
       file_type: z.string().optional()
     }
-  }, async ({ query, limit, offset, lang, safe_search, time_range, site, file_type }) => {
+  }, withAuth("search_web", async ({ query, limit, offset, lang, safe_search, time_range, site, file_type }) => {
     try {
       if (!query) {
         return {
@@ -966,7 +966,7 @@ if (searchWebTool) {
         isError: true
       };
     }
-  });
+  }));
 } else {
   const activeProvider = getActiveSearchProvider();
   if (activeProvider === 'google') {
@@ -990,7 +990,7 @@ server.registerTool("crawl_deep", {
     extract_content: z.boolean().optional(),
     concurrency: z.number().min(1).max(20).optional()
   }
-}, async ({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, concurrency }) => {
+}, withAuth("crawl_deep", async ({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, concurrency }) => {
   try {
     if (!url) {
       return {
@@ -1018,7 +1018,7 @@ server.registerTool("crawl_deep", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: map_site - Discover and map website structure
 server.registerTool("map_site", {
@@ -1030,7 +1030,7 @@ server.registerTool("map_site", {
     group_by_path: z.boolean().optional(),
     include_metadata: z.boolean().optional()
   }
-}, async ({ url, include_sitemap, max_urls, group_by_path, include_metadata }) => {
+}, withAuth("map_site", async ({ url, include_sitemap, max_urls, group_by_path, include_metadata }) => {
   try {
     if (!url) {
       return {
@@ -1058,7 +1058,7 @@ server.registerTool("map_site", {
       isError: true
     };
   }
-});
+}));
 
 // Phase 3 Tools: Enhanced Content Processing
 
@@ -1069,7 +1069,7 @@ server.registerTool("extract_content", {
     url: z.string().url(),
     options: z.object({}).optional()
   }
-}, async ({ url, options }) => {
+}, withAuth("extract_content", async ({ url, options }) => {
   try {
     if (!url) {
       return {
@@ -1097,7 +1097,7 @@ server.registerTool("extract_content", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: process_document - Multi-format document processing
 server.registerTool("process_document", {
@@ -1107,7 +1107,7 @@ server.registerTool("process_document", {
     sourceType: z.enum(['url', 'pdf_url', 'file', 'pdf_file']).optional(),
     options: z.object({}).optional()
   }
-}, async ({ source, sourceType, options }) => {
+}, withAuth("process_document", async ({ source, sourceType, options }) => {
   try {
     if (!source) {
       return {
@@ -1135,7 +1135,7 @@ server.registerTool("process_document", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: summarize_content - Intelligent content summarization
 server.registerTool("summarize_content", {
@@ -1144,7 +1144,7 @@ server.registerTool("summarize_content", {
     text: z.string(),
     options: z.object({}).optional()
   }
-}, async ({ text, options }) => {
+}, withAuth("summarize_content", async ({ text, options }) => {
   try {
     if (!text) {
       return {
@@ -1172,7 +1172,7 @@ server.registerTool("summarize_content", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: analyze_content - Comprehensive content analysis
 server.registerTool("analyze_content", {
@@ -1181,7 +1181,7 @@ server.registerTool("analyze_content", {
     text: z.string(),
     options: z.object({}).optional()
   }
-}, async ({ text, options }) => {
+}, withAuth("analyze_content", async ({ text, options }) => {
   try {
     if (!text) {
       return {
@@ -1209,7 +1209,7 @@ server.registerTool("analyze_content", {
       isError: true
     };
   }
-});
+}));
 
 
 // Wave 2 Advanced Tools
@@ -1249,7 +1249,7 @@ server.registerTool("batch_scrape", {
       tags: z.array(z.string()).default([])
     }).optional()
   }
-}, async (params) => {
+}, withAuth("batch_scrape", async (params) => {
   try {
     const result = await batchScrapeTool.execute(params);
     return {
@@ -1267,7 +1267,7 @@ server.registerTool("batch_scrape", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: scrape_with_actions - Execute action chains before scraping
 server.registerTool("scrape_with_actions", {
@@ -1315,7 +1315,7 @@ server.registerTool("scrape_with_actions", {
     maxRetries: z.number().min(0).max(3).default(1),
     screenshotOnError: z.boolean().default(true)
   }
-}, async (params) => {
+}, withAuth("scrape_with_actions", async (params) => {
   try {
     const result = await scrapeWithActionsTool.execute(params);
     return {
@@ -1333,7 +1333,7 @@ server.registerTool("scrape_with_actions", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: deep_research - Comprehensive multi-stage research with source verification
 server.registerTool("deep_research", {
@@ -1381,7 +1381,7 @@ server.registerTool("deep_research", {
       headers: z.record(z.string()).optional()
     }).optional()
   }
-}, async (params) => {
+}, withAuth("deep_research", async (params) => {
   try {
     const result = await deepResearchTool.execute(params);
     return {
@@ -1399,7 +1399,7 @@ server.registerTool("deep_research", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: track_changes - Enhanced Content change tracking with baseline capture and monitoring (Phase 2.4)
 // Temporarily disabled due to import issue
@@ -1507,7 +1507,7 @@ server.registerTool("track_changes", {
       includeTrends: z.boolean().default(true),
       includeMonitorStatus: z.boolean().default(true)
     }).optional()
-  }
+  })
 }, async (params) => {
   try {
     const result = await trackChangesTool.execute(params);
@@ -1552,7 +1552,7 @@ server.registerTool("generate_llms_txt", {
     complianceLevel: z.enum(['basic', 'standard', 'strict']).optional().default('standard'),
     format: z.enum(['both', 'llms-txt', 'llms-full-txt']).optional().default('both')
   }
-}, async (params) => {
+}, withAuth("generate_llms_txt", async (params) => {
   try {
     const result = await generateLLMsTxtTool.execute(params);
     return {
@@ -1619,7 +1619,7 @@ server.registerTool("stealth_mode", {
     contextId: z.string().optional(),
     urlToTest: z.string().url().optional()
   }
-}, async ({ operation, stealthConfig, contextId, urlToTest }) => {
+}, withAuth("stealth_mode", async ({ operation, stealthConfig, contextId, urlToTest }) => {
   try {
     let result;
     
@@ -1692,7 +1692,7 @@ server.registerTool("stealth_mode", {
       isError: true
     };
   }
-});
+}));
 
 // Tool: localization - Multi-language and geo-location management (Wave 3)
 server.registerTool("localization", {
@@ -1750,7 +1750,7 @@ server.registerTool("localization", {
       statusText: z.string().optional()
     }).optional()
   }
-}, async (params) => {
+}, withAuth("localization", async (params) => {
   try {
     const { operation } = params;
     let result;
@@ -1828,7 +1828,7 @@ server.registerTool("localization", {
       isError: true
     };
   }
-});
+}));
 
 // Set up the stdio transport and start the server
 async function runServer() {
