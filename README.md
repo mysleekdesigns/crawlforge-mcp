@@ -5,7 +5,7 @@ Professional web scraping and content extraction server implementing the Model C
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
 [![MCP Protocol](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io/)
-[![npm version](https://img.shields.io/npm/v/@crawlforge/mcp-server.svg)](https://www.npmjs.com/package/@crawlforge/mcp-server)
+[![npm version](https://img.shields.io/npm/v/crawlforge-mcp-server.svg)](https://www.npmjs.com/package/crawlforge-mcp-server)
 
 ## 🎯 Features
 
@@ -20,7 +20,7 @@ Professional web scraping and content extraction server implementing the Model C
 ### 1. Install from NPM
 
 ```bash
-npm install -g @crawlforge/mcp-server
+npm install -g crawlforge-mcp-server
 ```
 
 ### 2. Setup Your API Key
@@ -47,7 +47,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "crawlforge": {
       "command": "npx",
-      "args": ["@crawlforge/mcp-server"]
+      "args": ["crawlforge-mcp-server"]
     }
   }
 }
@@ -69,7 +69,7 @@ Add to `.cursorrules` in your project:
 mcp_servers:
   crawlforge:
     command: npx
-    args: ["@crawlforge/mcp-server"]
+    args: ["crawlforge-mcp-server"]
 ```
 
 Or use the MCP plugin in Cursor settings.

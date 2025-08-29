@@ -28,6 +28,11 @@ import { config, validateConfig, isSearchConfigured, getToolConfig, getActiveSea
 // Authentication Manager
 import AuthManager from "./src/core/AuthManager.js";
 
+// Enable creator mode if BYPASS_API_KEY is set
+if (process.env.BYPASS_API_KEY === 'true') {
+  process.env.CRAWLFORGE_CREATOR_MODE = 'true';
+}
+
 // Initialize Authentication Manager
 await AuthManager.initialize();
 

@@ -1,7 +1,7 @@
 {
-  "name": "@crawlforge/mcp-server",
-  "version": "1.0.0",
-  "description": "CrawlForge MCP Server - Professional web scraping tools with 1000 free credits. Features 18+ advanced tools for content extraction, deep research, stealth browsing, and more.",
+  "name": "crawlforge-mcp-server",
+  "version": "3.0.0",
+  "description": "CrawlForge MCP Server - Professional Model Context Protocol server with 16+ comprehensive web scraping, crawling, and content processing tools.",
   "main": "server.js",
   "bin": {
     "crawlforge": "server.js",
@@ -44,9 +44,8 @@
     "website-analysis"
   ],
   "author": {
-    "name": "CrawlForge",
-    "email": "support@crawlforge.com",
-    "url": "https://crawlforge.com"
+    "name": "Simon Lacey",
+    "email": "your-email@example.com"
   },
   "license": "MIT",
   "repository": {

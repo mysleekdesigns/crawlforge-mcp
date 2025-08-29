@@ -1,212 +1,85 @@
-# NPM package ignore file - optimizes package size
-# Only include essential files for production deployment
-
-# Documentation (keep only essential docs)
-*.md
-!README.md
-!LICENSE
-docs/
-examples/
-ARCHITECTURE.md
-IMPLEMENTATION_PLAN.md
-PERFORMANCE_OPTIMIZATION.md
-PHASE3_IMPLEMENTATION.md
-SEARCH_RANKING_SYSTEM.md
-link-analysis-system.md
-sitemap-parser-enhancement.md
-API_REFERENCE.md
-INTEGRATION_GUIDE.md
-SECURITY_AUDIT_REPORT.md
-SECURITY_IMPLEMENTATION_GUIDE.md
-TROUBLESHOOTING.md
-USAGE_EXAMPLES.md
-
-# Development and testing files
+# Development and testing
 tests/
-test/
-coverage/
-.nyc_output
 *.test.js
 *.spec.js
-test-*.js
-test-*.mjs
-benchmark/
-performance/
+coverage/
+.nyc_output/
 
-# Build and development tools
+# CI/CD
 .github/
-.vscode/
-.idea/
-tasks/
-scripts/
-tools/
-build/
-dist/
+.circleci/
+.travis.yml
+.gitlab-ci.yml
 
-# Configuration files for development
-.eslintrc*
-.prettierrc*
-.babelrc*
-jest.config.*
-rollup.config.*
-webpack.config.*
-tsconfig.json
-tslint.json
-.editorconfig
-
-# Environment and configuration
-.env*
+# Environment and config
+.env
+.env.*
 !.env.example
-docker-compose*.yml
-Dockerfile*
-.dockerignore
-.gitignore
-.gitattributes
+*.local
 
-# Cache and temporary files
-cache/
+# Logs and temp files
 logs/
 *.log
-tmp/
-temp/
-.tmp/
-.cache/
-.DS_Store
-Thumbs.db
-
-# Runtime data
-pids/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.npm
 *.pid
 *.seed
 *.pid.lock
+tmp/
+temp/
 
-# Coverage directory used by tools like istanbul
-coverage/
-*.lcov
+# Cache directories
+cache/
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+dist/
+build/
 
-# Dependency directories (will be installed by npm)
-node_modules/
-jspm_packages/
-
-# Optional npm cache directory
-.npm
-
-# Optional eslint cache
-.eslintcache
-
-# Optional stylelint cache
-.stylelintcache
-
-# Microbundle cache
-.rpt2_cache/
-.rts2_cache_cjs/
-.rts2_cache_es/
-.rts2_cache_umd/
-
-# Optional REPL history
-.node_repl_history
-
-# Output of 'npm pack'
-*.tgz
-
-# Yarn files
-yarn.lock
-.yarn/
-.pnp.*
-
-# Editor-specific files
-*.swp
-*.swo
-*.vim
-*~
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# IDE files
+# Editor and IDE
 .vscode/
 .idea/
-*.sublime-project
-*.sublime-workspace
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
 
-# Monitoring and analysis
-monitoring/
-grafana/
-prometheus/
-elastic/
+# Documentation (keep only essential docs)
+docs/
+*.md
+!README.md
+!LICENSE
+!CLAUDE.md
 
-# Security scan results
-security-reports/
-.snyk
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
 
-# Performance results
-performance-results/
-benchmark-results/
-
-# Git files
+# Git
 .git/
-.gitmodules
+.gitignore
+.gitattributes
 
-# CI/CD files (keep package-specific CI if any)
-.travis.yml
-.circleci/
-.gitlab-ci.yml
-appveyor.yml
-azure-pipelines.yml
+# Node modules (npm handles this automatically)
+node_modules/
 
-# Linting and formatting
-.eslintignore
-.prettierignore
+# Performance and security test results
+performance-results/
+security-results/
+test-results/
 
-# TypeScript
-*.tsbuildinfo
-
-# Lock files (package-lock.json should be included)
-yarn.lock
-
-# Development scripts
-dev/
-development/
-
-# Backup files
+# Misc development files
+TODO.md
+todo.md
+todo2.md
+NOTES.md
+PRIVATE_NOTES.md
+publish.md
 *.bak
-*.backup
-*.old
 *.orig
-
-# Archive files
-*.zip
-*.tar.gz
-*.tar.bz2
-*.rar
-
-# Local configuration
-local.json
-local.js
-local.config.js
-
-# Runtime files
-.runtime/
-runtime/
-
-# Certificates and keys (security)
-*.pem
-*.key
-*.crt
-*.cert
-
-# Database files
-*.db
-*.sqlite
-*.sqlite3
-
-# Analysis and profiling
-profile/
-*.prof
-*.heapsnapshot
