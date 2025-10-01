@@ -53,10 +53,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/crawlforge/mcp-server.git"
+    "url": "git+https://github.com/mysleekdesigns/crawlforge-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/crawlforge/mcp-server/issues"
+    "url": "https://github.com/mysleekdesigns/crawlforge-mcp/issues"
   },
   "homepage": "https://www.crawlforge.dev",
   "type": "module",
