@@ -168,3 +168,9 @@ snapshots/temp/
 *.njsproj
 *.sln
 *.sw?
+
+# Private development files
+PRIVATE_NOTES.md
+TEST-RESULTS.md
+FIX-TRACK-CHANGES-TOOL.md
+publish.md

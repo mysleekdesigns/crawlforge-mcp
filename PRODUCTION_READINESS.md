@@ -77,7 +77,6 @@ Premium Tools (5-10 credits):
 - [x] Usage reporting implemented for all tools
 - [x] Config stored securely in ~/.crawlforge directory
 - [x] Error handling for all API failure modes
-- [x] Creator mode properly gated for development
 - [ ] End-to-end authentication flow tested (manual verification pending)
 - [ ] Credit deduction accuracy verified in production
 - [ ] Rate limiting behavior tested under load

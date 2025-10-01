@@ -31,11 +31,6 @@ The CrawlForge MCP Server has undergone a comprehensive security audit covering 
 - **Caching Strategy:** 60-second cache to reduce API load (acceptable trade-off)
 - **Fail-Open Policy:** Network failures allow operation (availability over strict enforcement)
 
-#### Creator Mode
-- **Development Safety:** Proper `BYPASS_API_KEY` flag for development
-- **Clear Separation:** Creator mode clearly identified in logs
-- **No Production Leakage:** Explicitly gated behind environment variable
-
 ### ⚠️ Recommendations
 
 1. **Config File Permissions** (LOW PRIORITY)
@@ -435,7 +430,6 @@ The CrawlForge MCP Server has undergone a comprehensive security audit covering 
    - Test distributed rate limit evasion
 
 4. **Authentication Bypass**
-   - Test creator mode escape
    - Verify credit check enforcement
 
 5. **Browser Automation Exploits**

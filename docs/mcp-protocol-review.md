@@ -212,7 +212,7 @@ function withAuth(toolName, handler) {
     const startTime = Date.now();
     
     try {
-      // 1. Check credits (skip in creator mode)
+      // 1. Check credits
       if (!AuthManager.isCreatorMode()) {
         const creditCost = AuthManager.getToolCost(toolName);
         const hasCredits = await AuthManager.checkCredits(creditCost);
@@ -250,9 +250,8 @@ function withAuth(toolName, handler) {
 1. **Pre-Execution Check:** Credits verified before tool runs
 2. **Post-Execution Reporting:** Usage tracked accurately
 3. **Error Handling:** Partial credits deducted on errors
-4. **Creator Mode:** Properly bypassed for development
-5. **No Protocol Pollution:** Auth layer transparent to MCP protocol
-6. **Performance Tracking:** Processing time measured
+4. **No Protocol Pollution:** Auth layer transparent to MCP protocol
+5. **Performance Tracking:** Processing time measured
 
 **Authentication Integration Rating:** ✅ 10/10
 

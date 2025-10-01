@@ -12,14 +12,10 @@ CrawlForge MCP Server - A professional MCP (Model Context Protocol) server imple
 # Install dependencies
 npm install
 
-# Setup (required for first run unless in creator mode)
+# Setup (required for first run)
 npm run setup
 # Or provide API key via environment:
 export CRAWLFORGE_API_KEY="your_api_key_here"
-
-# Creator Mode (bypass API key requirement for development)
-export BYPASS_API_KEY=true
-npm start
 
 # Run the server (production)
 npm start
@@ -68,7 +64,7 @@ node test-real-world.js                                 # Real-world scenarios t
 
 ### Core Infrastructure (`src/core/`)
 
-- **AuthManager**: Authentication, credit tracking, and usage reporting (supports creator mode)
+- **AuthManager**: Authentication, credit tracking, and usage reporting
 - **PerformanceManager**: Centralized performance monitoring and optimization
 - **JobManager**: Asynchronous job tracking and management for batch operations
 - **WebhookDispatcher**: Event notification system for job completion callbacks
@@ -109,9 +105,8 @@ Tools are organized in subdirectories by category:
 The main server implementation is in `server.js` which:
 
 1. **Authentication Flow**: Uses AuthManager for API key validation and credit tracking
-   - Checks for authentication on startup (skipped in creator mode)
+   - Checks for authentication on startup
    - Auto-setup if CRAWLFORGE_API_KEY environment variable is present
-   - Creator mode enabled via BYPASS_API_KEY=true
 2. **Tool Registration**: All tools registered via `server.registerTool()` pattern
    - Wrapped with `withAuth()` function for credit tracking and authentication
    - Each tool has inline Zod schema for parameter validation
@@ -123,7 +118,7 @@ The main server implementation is in `server.js` which:
 
 Each tool wrapped with `withAuth(toolName, handler)`:
 
-- Checks credits before execution (skipped in creator mode)
+- Checks credits before execution
 - Reports usage with credit deduction on success
 - Charges half credits on error
 - Returns credit error if insufficient balance
@@ -133,9 +128,8 @@ Each tool wrapped with `withAuth(toolName, handler)`:
 Critical environment variables defined in `src/constants/config.js`:
 
 ```bash
-# Authentication (required unless in creator mode)
+# Authentication (required)
 CRAWLFORGE_API_KEY=your_api_key_here
-BYPASS_API_KEY=true  # Enable creator mode for development
 
 # Search Provider (auto, google, duckduckgo)
 SEARCH_PROVIDER=auto
@@ -198,7 +192,6 @@ node tests/validation/wave3-validation.js
 - Use `--expose-gc` flag for memory profiling: `node --expose-gc server.js`
 - Check `cache/` directory for cached responses
 - Review `logs/` directory for application logs
-- Use creator mode during development to bypass authentication: `BYPASS_API_KEY=true npm start`
 - Memory monitoring automatically enabled in development mode (logs every 60s if >200MB)
 
 ### Adding New Tools
