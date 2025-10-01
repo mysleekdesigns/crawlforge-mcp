@@ -82,4 +82,5 @@ NOTES.md
 PRIVATE_NOTES.md
 publish.md
 *.bak
+*.backup
 *.orig

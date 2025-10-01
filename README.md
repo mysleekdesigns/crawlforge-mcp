@@ -166,7 +166,7 @@ Once configured, use these tools in your AI assistant:
 ## 🆘 Support
 
 - **Documentation**: [https://www.crawlforge.dev/docs](https://www.crawlforge.dev/docs)
-- **Issues**: [GitHub Issues](https://github.com/crawlforge/mcp-server/issues)
+- **Issues**: [GitHub Issues](https://github.com/mysleekdesigns/crawlforge-mcp/issues)
 - **Email**: support@crawlforge.dev
 - **Discord**: [Join our community](https://discord.gg/crawlforge)
 

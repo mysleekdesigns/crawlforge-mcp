@@ -48,7 +48,7 @@
   ],
   "author": {
     "name": "Simon Lacey",
-    "email": "your-email@example.com"
+    "email": "support@crawlforge.dev"
   },
   "license": "MIT",
   "repository": {
@@ -58,7 +58,7 @@
   "bugs": {
     "url": "https://github.com/mysleekdesigns/crawlforge-mcp/issues"
   },
-  "homepage": "https://www.crawlforge.dev",
+  "homepage": "https://crawlforge.dev",
   "type": "module",
   "engines": {
     "node": ">=18.0.0",
