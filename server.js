@@ -1,5 +1,30 @@
 #!/usr/bin/env node
 
+// Secure Creator Mode Authentication - MUST run before any imports
+// Only the creator can enable unlimited access with their secret
+import crypto from 'crypto';
+import dotenv from 'dotenv';
+
+// Load .env file early to check for creator secret
+dotenv.config({ path: '.env', quiet: true });
+
+const CREATOR_SECRET_HASH = 'cfef62e5068d48e7dd6a39c9e16f0be2615510c6b68274fc8abe3156feb5050b';
+
+if (process.env.CRAWLFORGE_CREATOR_SECRET) {
+  const providedHash = crypto
+    .createHash('sha256')
+    .update(process.env.CRAWLFORGE_CREATOR_SECRET)
+    .digest('hex');
+
+  if (providedHash === CREATOR_SECRET_HASH) {
+    process.env.CRAWLFORGE_CREATOR_MODE = 'true';
+    console.log('🔓 Creator Mode Enabled - Unlimited Access');
+  } else {
+    console.warn('⚠️  Invalid creator secret provided');
+  }
+}
+
+// Now import everything else
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -27,11 +52,6 @@ import { memoryMonitor } from "./src/utils/MemoryMonitor.js";
 import { config, validateConfig, isSearchConfigured, getToolConfig, getActiveSearchProvider } from "./src/constants/config.js";
 // Authentication Manager
 import AuthManager from "./src/core/AuthManager.js";
-
-// Enable creator mode if BYPASS_API_KEY is set
-if (process.env.BYPASS_API_KEY === 'true') {
-  process.env.CRAWLFORGE_CREATOR_MODE = 'true';
-}
 
 // Initialize Authentication Manager
 await AuthManager.initialize();

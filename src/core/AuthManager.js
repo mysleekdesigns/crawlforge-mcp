@@ -16,14 +16,15 @@ class AuthManager {
     this.lastCreditCheck = null;
     this.CREDIT_CHECK_INTERVAL = 60000; // Check credits every minute max
     this.initialized = false;
-    this.creatorMode = process.env.CRAWLFORGE_CREATOR_MODE === 'true';
+    // NOTE: Don't read creator mode in constructor - it's set dynamically in server.js
   }
 
   /**
    * Check if running in creator mode (unlimited access, no API required)
+   * Reads from environment variable dynamically to ensure proper initialization order
    */
   isCreatorMode() {
-    return this.creatorMode;
+    return process.env.CRAWLFORGE_CREATOR_MODE === 'true';
   }
 
   /**
