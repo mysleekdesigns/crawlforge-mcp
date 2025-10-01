@@ -90,7 +90,7 @@ Add to your MCP client configuration (e.g., Claude Desktop):
 - It's set to public access by default
 - The main executable is `crawlforge` which runs the MCP server
 - `crawlforge-setup` helps with initial configuration
-- All 16+ tools are included and ready to use
+- All 19 tools are included and ready to use
 
 ## Troubleshooting
 

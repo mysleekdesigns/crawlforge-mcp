@@ -16,7 +16,7 @@ import { BatchScrapeTool } from "./src/tools/advanced/BatchScrapeTool.js";
 import { ScrapeWithActionsTool } from "./src/tools/advanced/ScrapeWithActionsTool.js";
 // Deep Research Tool
 import { DeepResearchTool } from "./src/tools/research/deepResearch.js";
-// Change Tracking Tool - commented out due to import issue
+// Change Tracking Tool (temporarily disabled - file corrupted)
 // import { TrackChangesTool } from "./src/tools/tracking/trackChanges.js";
 // LLMs.txt Generator Tool (Phase 2.5)
 import { GenerateLLMsTxtTool } from "./src/tools/llmstxt/generateLLMsTxt.js";
@@ -161,7 +161,7 @@ const scrapeWithActionsTool = new ScrapeWithActionsTool();
 // Initialize Deep Research Tool
 const deepResearchTool = new DeepResearchTool();
 
-// Initialize Change Tracking Tool - temporarily disabled due to import issue
+// Initialize Change Tracking Tool (temporarily disabled - file corrupted)
 // const trackChangesTool = new TrackChangesTool();
 
 // Initialize LLMs.txt Generator Tool (Phase 2.5)
@@ -1407,7 +1407,7 @@ server.registerTool("deep_research", {
 }));
 
 // Tool: track_changes - Enhanced Content change tracking with baseline capture and monitoring (Phase 2.4)
-// Temporarily disabled due to import issue
+// Temporarily disabled - ChangeTracker.js file is corrupted (literal \n instead of newlines)
 /*
 server.registerTool("track_changes", {
   description: "Enhanced content change tracking with baseline capture, comparison, scheduled monitoring, advanced comparison engine, alert system, and historical analysis",
@@ -1512,8 +1512,8 @@ server.registerTool("track_changes", {
       includeTrends: z.boolean().default(true),
       includeMonitorStatus: z.boolean().default(true)
     }).optional()
-  })
-}, async (params) => {
+  }
+}, withAuth("track_changes", async (params) => {
   try {
     const result = await trackChangesTool.execute(params);
     return {
@@ -1531,7 +1531,8 @@ server.registerTool("track_changes", {
       isError: true
     };
   }
-});
+}));
+*/
 
 // Tool: generate_llms_txt - Generate LLMs.txt and LLMs-full.txt files (Phase 2.5)
 server.registerTool("generate_llms_txt", {
@@ -1575,8 +1576,7 @@ server.registerTool("generate_llms_txt", {
       isError: true
     };
   }
-});
-*/
+}));
 
 // Tool: stealth_mode - Advanced anti-detection browser management (Wave 3)
 server.registerTool("stealth_mode", {
@@ -1854,7 +1854,7 @@ async function runServer() {
   const phase3Tools = ', extract_content, process_document, summarize_content, analyze_content';
   const wave2Tools = ', batch_scrape, scrape_with_actions';
   const researchTools = ', deep_research';
-  const trackingTools = ''; // track_changes temporarily disabled
+  const trackingTools = ''; // track_changes temporarily disabled - file corrupted
   const llmsTxtTools = ', generate_llms_txt';
   const wave3Tools = ', stealth_mode, localization';
   console.error(`Tools available: ${baseTools}${searchTool}${phase3Tools}${wave2Tools}${researchTools}${trackingTools}${llmsTxtTools}${wave3Tools}`);
@@ -1890,7 +1890,7 @@ async function gracefulShutdown(signal) {
       batchScrapeTool,
       scrapeWithActionsTool,
       deepResearchTool,
-      // trackChangesTool, // temporarily disabled
+      // trackChangesTool, // temporarily disabled - file corrupted
       generateLLMsTxtTool,
       stealthBrowserManager,
       localizationManager

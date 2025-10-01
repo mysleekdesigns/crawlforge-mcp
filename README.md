@@ -9,7 +9,7 @@ Professional web scraping and content extraction server implementing the Model C
 
 ## 🎯 Features
 
-- **18+ Advanced Tools**: Web scraping, deep research, stealth browsing, content analysis
+- **19 Professional Tools**: Web scraping, deep research, stealth browsing, content analysis
 - **Free Tier**: 1,000 credits to get started instantly
 - **MCP Compatible**: Works with Claude, Cursor, and other MCP-enabled AI tools
 - **Enterprise Ready**: Scale up with paid plans for production use
@@ -105,13 +105,17 @@ Or use the MCP plugin in Cursor settings.
 
 ## 💳 Pricing
 
-| Plan | Credits/Month | Price | Best For |
-|------|---------------|-------|----------|
-| **Free** | 1,000 | $0 | Testing & personal projects |
-| **Hobby** | 10,000 | $19 | Small projects |
-| **Pro** | 50,000 | $49 | Professional use |
-| **Business** | 200,000 | $149 | Teams & automation |
-| **Enterprise** | Unlimited | Custom | Large scale operations |
+| Plan | Credits/Month | Best For |
+|------|---------------|----------|
+| **Free** | 1,000 | Testing & personal projects |
+| **Starter** | 5,000 | Small projects & development |
+| **Professional** | 50,000 | Professional use & production |
+| **Enterprise** | 250,000 | Large scale operations |
+
+**All plans include:**
+- Access to all 19 tools
+- Credits never expire and roll over month-to-month
+- API access and webhook notifications
 
 [View full pricing](https://www.crawlforge.dev/pricing)
 
