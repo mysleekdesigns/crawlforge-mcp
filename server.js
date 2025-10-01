@@ -62,7 +62,7 @@ if (!AuthManager.isAuthenticated() && !AuthManager.isCreatorMode()) {
     console.log('Or set your API key via environment variable:');
     console.log('  export CRAWLFORGE_API_KEY="your_api_key_here"');
     console.log('');
-    console.log('Get your free API key at: https://crawlforge.dev/signup');
+    console.log('Get your free API key at: https://www.crawlforge.dev/signup');
     console.log('(Includes 1,000 free credits!)');
     console.log('');
     process.exit(0);
@@ -97,7 +97,7 @@ function withAuth(toolName, handler) {
               type: "text",
               text: JSON.stringify({
                 error: "Insufficient credits",
-                message: `This operation requires ${creditCost} credits. Please upgrade your plan at https://crawlforge.dev/pricing`,
+                message: `This operation requires ${creditCost} credits. Please upgrade your plan at https://www.crawlforge.dev/pricing`,
                 creditsRequired: creditCost
               }, null, 2)
             }]

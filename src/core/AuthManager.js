@@ -95,7 +95,7 @@ class AuthManager {
     
     if (!apiKey) {
       console.log('❌ API key is required for setup');
-      console.log('Get your API key from: https://crawlforge.dev/dashboard/api-keys');
+      console.log('Get your API key from: https://www.crawlforge.dev/dashboard/api-keys');
       return false;
     }
 
