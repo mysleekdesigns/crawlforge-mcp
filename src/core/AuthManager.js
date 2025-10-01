@@ -9,7 +9,7 @@ import path from 'path';
 
 class AuthManager {
   constructor() {
-    this.apiEndpoint = process.env.CRAWLFORGE_API_URL || 'https://api.crawlforge.com';
+    this.apiEndpoint = process.env.CRAWLFORGE_API_URL || 'https://api.crawlforge.dev';
     this.configPath = path.join(process.env.HOME || process.env.USERPROFILE, '.crawlforge', 'config.json');
     this.config = null;
     this.creditCache = new Map();
@@ -95,7 +95,7 @@ class AuthManager {
     
     if (!apiKey) {
       console.log('❌ API key is required for setup');
-      console.log('Get your API key from: https://crawlforge.com/dashboard/api-keys');
+      console.log('Get your API key from: https://crawlforge.dev/dashboard/api-keys');
       return false;
     }
 

@@ -34,7 +34,7 @@ This will:
 - Configure your credentials securely
 - Verify your setup is working
 
-**Don't have an API key?** Get one free at [https://crawlforge.com/signup](https://crawlforge.com/signup)
+**Don't have an API key?** Get one free at [https://crawlforge.dev/signup](https://crawlforge.dev/signup)
 
 ### 3. Configure Your IDE
 
@@ -113,7 +113,7 @@ Or use the MCP plugin in Cursor settings.
 | **Business** | 200,000 | $149 | Teams & automation |
 | **Enterprise** | Unlimited | Custom | Large scale operations |
 
-[View full pricing](https://crawlforge.com/pricing)
+[View full pricing](https://crawlforge.dev/pricing)
 
 ## 🔧 Advanced Configuration
 
@@ -124,7 +124,7 @@ Or use the MCP plugin in Cursor settings.
 export CRAWLFORGE_API_KEY="sk_live_your_api_key_here"
 
 # Optional: Custom API endpoint (for enterprise)
-export CRAWLFORGE_API_URL="https://api.crawlforge.com"
+export CRAWLFORGE_API_URL="https://api.crawlforge.dev"
 ```
 
 ### Manual Configuration
@@ -161,9 +161,9 @@ Once configured, use these tools in your AI assistant:
 
 ## 🆘 Support
 
-- **Documentation**: [https://crawlforge.com/docs](https://crawlforge.com/docs)
+- **Documentation**: [https://crawlforge.dev/docs](https://crawlforge.dev/docs)
 - **Issues**: [GitHub Issues](https://github.com/crawlforge/mcp-server/issues)
-- **Email**: support@crawlforge.com
+- **Email**: support@crawlforge.dev
 - **Discord**: [Join our community](https://discord.gg/crawlforge)
 
 ## 📄 License
@@ -178,4 +178,4 @@ Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md)
 
 **Built with ❤️ by the CrawlForge team**
 
-[Website](https://crawlforge.com) | [Documentation](https://crawlforge.com/docs) | [API Reference](https://crawlforge.com/api)
+[Website](https://crawlforge.dev) | [Documentation](https://crawlforge.dev/docs) | [API Reference](https://crawlforge.dev/api)

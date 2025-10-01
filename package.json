@@ -58,7 +58,7 @@
   "bugs": {
     "url": "https://github.com/crawlforge/mcp-server/issues"
   },
-  "homepage": "https://crawlforge.com",
+  "homepage": "https://crawlforge.dev",
   "type": "module",
   "engines": {
     "node": ">=18.0.0",

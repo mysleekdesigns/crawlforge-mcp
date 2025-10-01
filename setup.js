@@ -29,7 +29,7 @@ async function main() {
   console.log('  • An internet connection');
   console.log('');
   console.log('Don\'t have an API key yet?');
-  console.log('Get one free at: https://crawlforge.com/signup');
+  console.log('Get one free at: https://crawlforge.dev/signup');
   console.log('(Includes 1,000 free credits to get started!)');
   console.log('');
   console.log('────────────────────────────────────────────────────────');
@@ -57,7 +57,7 @@ async function main() {
   if (!apiKey || !apiKey.trim()) {
     console.log('');
     console.log('❌ API key is required');
-    console.log('Get your free API key at: https://crawlforge.com/signup');
+    console.log('Get your free API key at: https://crawlforge.dev/signup');
     rl.close();
     process.exit(1);
   }
@@ -78,15 +78,15 @@ async function main() {
     console.log('  npm start              # Start the MCP server');
     console.log('  npm run test           # Test your setup');
     console.log('');
-    console.log('Need help? Visit: https://crawlforge.com/docs');
+    console.log('Need help? Visit: https://crawlforge.dev/docs');
     console.log('');
   } else {
     console.log('');
     console.log('Setup failed. Please check your API key and try again.');
     console.log('');
     console.log('Need help?');
-    console.log('  • Documentation: https://crawlforge.com/docs');
-    console.log('  • Support: support@crawlforge.com');
+    console.log('  • Documentation: https://crawlforge.dev/docs');
+    console.log('  • Support: support@crawlforge.dev');
     console.log('');
     rl.close();
     process.exit(1);
