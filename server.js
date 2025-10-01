@@ -77,7 +77,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 }
 
 // Create the server
-const server = new McpServer({ name: "crawlforge", version: "3.0.0" });
+const server = new McpServer({ name: "crawlforge", version: "3.0.1" });
 
 // Helper function to wrap tool handlers with authentication and credit tracking
 function withAuth(toolName, handler) {

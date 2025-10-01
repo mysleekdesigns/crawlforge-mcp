@@ -704,7 +704,23 @@ export class ActionExecutor extends EventEmitter {
    * @param {Object} action - JavaScript action
    * @returns {Promise<Object>} JavaScript result
    */
+
   async executeJavaScriptAction(page, action) {
+    // SECURITY: JavaScript execution is disabled by default for security
+    // Set ALLOW_JAVASCRIPT_EXECUTION=true to enable (NOT recommended in production)
+    const allowJsExecution = process.env.ALLOW_JAVASCRIPT_EXECUTION === 'true';
+    
+    if (!allowJsExecution) {
+      throw new Error(
+        'JavaScript execution is disabled for security reasons. ' +
+        'Set ALLOW_JAVASCRIPT_EXECUTION=true environment variable to enable (NOT recommended in production). ' +
+        'This feature allows arbitrary code execution and should only be used in trusted environments.'
+      );
+    }
+    
+    // Log security warning when JS execution is enabled
+    console.warn('⚠️  SECURITY WARNING: JavaScript execution is enabled. This allows arbitrary code execution!');
+    
     const result = await page.evaluate(
       new Function('...args', action.script),
       ...action.args
@@ -716,7 +732,6 @@ export class ActionExecutor extends EventEmitter {
       result: action.returnResult ? result : undefined
     };
   }
-
   /**
    * Capture screenshot
    * @param {Page} page - Playwright page

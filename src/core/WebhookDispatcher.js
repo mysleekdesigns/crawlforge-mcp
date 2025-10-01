@@ -125,6 +125,10 @@ export class WebhookDispatcher extends EventEmitter {
     } else {
       throw new Error('Invalid webhook configuration: URL is required');
     }
+    // SECURITY: Enforce HTTPS-only webhook URLs to prevent data leakage
+    if (!url.startsWith('https://')) {
+      throw new Error('Webhook URLs must use HTTPS protocol for security. Received: ' + url);
+    }
 
     const webhookConfig = {
       id: this.generateEventId(), // Add unique ID

@@ -565,7 +565,13 @@ class MCPProtocolComplianceTestSuite {
           const response = await this.sendRequest(request);
           
           const hasResult = !response.error && !!response.result;
-          const validResponse = hasResult && test.validateResponse(response.result.content[0]);
+          
+          // Parse JSON from content[0].text for validation
+          let parsedResult = null;
+          if (hasResult && response.result.content && response.result.content[0]) {
+            parsedResult = JSON.parse(response.result.content[0].text);
+          }
+          const validResponse = hasResult && parsedResult && test.validateResponse(parsedResult);
           
           executionResults.push({
             name: test.name,
@@ -789,7 +795,8 @@ class MCPProtocolComplianceTestSuite {
             continue;
           }
           
-          const result = response.result.content[0];
+          // Parse JSON from content[0].text for schema validation
+          const result = JSON.parse(response.result.content[0].text);
           const schemaValid = test.validateSchema(result);
           
           schemaResults.push({
