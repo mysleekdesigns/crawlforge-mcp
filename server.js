@@ -16,8 +16,8 @@ import { BatchScrapeTool } from "./src/tools/advanced/BatchScrapeTool.js";
 import { ScrapeWithActionsTool } from "./src/tools/advanced/ScrapeWithActionsTool.js";
 // Deep Research Tool
 import { DeepResearchTool } from "./src/tools/research/deepResearch.js";
-// Change Tracking Tool (temporarily disabled - file corrupted)
-// import { TrackChangesTool } from "./src/tools/tracking/trackChanges.js";
+// Change Tracking Tool
+import { TrackChangesTool } from "./src/tools/tracking/trackChanges.js";
 // LLMs.txt Generator Tool (Phase 2.5)
 import { GenerateLLMsTxtTool } from "./src/tools/llmstxt/generateLLMsTxt.js";
 // Wave 3-4 Core Managers
@@ -161,8 +161,8 @@ const scrapeWithActionsTool = new ScrapeWithActionsTool();
 // Initialize Deep Research Tool
 const deepResearchTool = new DeepResearchTool();
 
-// Initialize Change Tracking Tool (temporarily disabled - file corrupted)
-// const trackChangesTool = new TrackChangesTool();
+// Initialize Change Tracking Tool
+const trackChangesTool = new TrackChangesTool();
 
 // Initialize LLMs.txt Generator Tool (Phase 2.5)
 const generateLLMsTxtTool = new GenerateLLMsTxtTool();
@@ -1407,8 +1407,6 @@ server.registerTool("deep_research", {
 }));
 
 // Tool: track_changes - Enhanced Content change tracking with baseline capture and monitoring (Phase 2.4)
-// Temporarily disabled - ChangeTracker.js file is corrupted (literal \n instead of newlines)
-/*
 server.registerTool("track_changes", {
   description: "Enhanced content change tracking with baseline capture, comparison, scheduled monitoring, advanced comparison engine, alert system, and historical analysis",
   inputSchema: {
@@ -1532,7 +1530,6 @@ server.registerTool("track_changes", {
     };
   }
 }));
-*/
 
 // Tool: generate_llms_txt - Generate LLMs.txt and LLMs-full.txt files (Phase 2.5)
 server.registerTool("generate_llms_txt", {
@@ -1854,7 +1851,7 @@ async function runServer() {
   const phase3Tools = ', extract_content, process_document, summarize_content, analyze_content';
   const wave2Tools = ', batch_scrape, scrape_with_actions';
   const researchTools = ', deep_research';
-  const trackingTools = ''; // track_changes temporarily disabled - file corrupted
+  const trackingTools = ', track_changes';
   const llmsTxtTools = ', generate_llms_txt';
   const wave3Tools = ', stealth_mode, localization';
   console.error(`Tools available: ${baseTools}${searchTool}${phase3Tools}${wave2Tools}${researchTools}${trackingTools}${llmsTxtTools}${wave3Tools}`);
@@ -1890,7 +1887,7 @@ async function gracefulShutdown(signal) {
       batchScrapeTool,
       scrapeWithActionsTool,
       deepResearchTool,
-      // trackChangesTool, // temporarily disabled - file corrupted
+      trackChangesTool,
       generateLLMsTxtTool,
       stealthBrowserManager,
       localizationManager
