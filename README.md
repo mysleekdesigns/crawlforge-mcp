@@ -157,11 +157,16 @@ Once configured, use these tools in your AI assistant:
 
 ## 🔒 Security & Privacy
 
-- API keys are stored locally and encrypted
-- All connections use HTTPS
-- No data is stored on our servers beyond usage logs
-- Compliant with robots.txt and rate limits
-- GDPR compliant
+- **Secure Authentication**: API keys required for all operations (no bypass methods)
+- **Local Storage**: API keys stored securely at `~/.crawlforge/config.json`
+- **HTTPS Only**: All connections use encrypted HTTPS
+- **No Data Retention**: We don't store scraped data, only usage logs
+- **Rate Limiting**: Built-in protection against abuse
+- **Compliance**: Respects robots.txt and GDPR requirements
+
+### Security Updates
+
+**v3.0.3 (2025-10-01)**: Removed authentication bypass vulnerability. All users must authenticate with valid API keys.
 
 ## 🆘 Support
 

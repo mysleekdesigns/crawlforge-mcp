@@ -4,7 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CrawlForge MCP Server - A professional MCP (Model Context Protocol) server implementation providing 19 comprehensive web scraping, crawling, and content processing tools. Version 3.0 includes advanced content extraction, document processing, summarization, and analysis capabilities. Wave 2 adds asynchronous batch processing and browser automation features. Wave 3 introduces deep research orchestration, stealth scraping, localization, and change tracking.
+CrawlForge MCP Server - A professional MCP (Model Context Protocol) server implementation providing 19 comprehensive web scraping, crawling, and content processing tools. Version 3.0.3 includes advanced content extraction, document processing, summarization, and analysis capabilities. Wave 2 adds asynchronous batch processing and browser automation features. Wave 3 introduces deep research orchestration, stealth scraping, localization, and change tracking.
+
+**Current Version:** 3.0.3
+**Security Status:** Secure (authentication bypass vulnerability fixed in v3.0.3)
 
 ## Development Commands
 
@@ -12,10 +15,15 @@ CrawlForge MCP Server - A professional MCP (Model Context Protocol) server imple
 # Install dependencies
 npm install
 
-# Setup (required for first run)
+# Setup (required for first run - users only)
 npm run setup
 # Or provide API key via environment:
 export CRAWLFORGE_API_KEY="your_api_key_here"
+
+# Creator Mode (for package maintainer only)
+# Set your creator secret in .env file:
+# CRAWLFORGE_CREATOR_SECRET=your-secret-uuid
+# This enables unlimited access for development/testing
 
 # Run the server (production)
 npm start
@@ -104,32 +112,47 @@ Tools are organized in subdirectories by category:
 
 The main server implementation is in `server.js` which:
 
-1. **Authentication Flow**: Uses AuthManager for API key validation and credit tracking
+1. **Secure Creator Mode** (server.js lines 3-25):
+   - Loads `.env` file early to check for `CRAWLFORGE_CREATOR_SECRET`
+   - Validates secret using SHA256 hash comparison
+   - Only creator with valid secret UUID can enable unlimited access
+   - Hash stored in code is safe to commit (one-way cryptographic hash)
+
+2. **Authentication Flow**: Uses AuthManager for API key validation and credit tracking
    - Checks for authentication on startup
    - Auto-setup if CRAWLFORGE_API_KEY environment variable is present
-2. **Tool Registration**: All tools registered via `server.registerTool()` pattern
+   - Creator mode bypasses credit checks for development/testing
+
+3. **Tool Registration**: All tools registered via `server.registerTool()` pattern
    - Wrapped with `withAuth()` function for credit tracking and authentication
    - Each tool has inline Zod schema for parameter validation
    - Response format uses `content` array with text objects
-3. **Transport**: Uses stdio transport for MCP protocol communication
-4. **Graceful Shutdown**: Cleans up browser instances, job managers, and other resources
+
+4. **Transport**: Uses stdio transport for MCP protocol communication
+
+5. **Graceful Shutdown**: Cleans up browser instances, job managers, and other resources
 
 ### Tool Credit System
 
 Each tool wrapped with `withAuth(toolName, handler)`:
 
-- Checks credits before execution
+- Checks credits before execution (skipped in creator mode)
 - Reports usage with credit deduction on success
 - Charges half credits on error
 - Returns credit error if insufficient balance
+- Creator mode: Unlimited access for package maintainer
 
 ### Key Configuration
 
 Critical environment variables defined in `src/constants/config.js`:
 
 ```bash
-# Authentication (required)
+# Authentication (required for users)
 CRAWLFORGE_API_KEY=your_api_key_here
+
+# Creator Mode (maintainer only - KEEP SECRET!)
+# CRAWLFORGE_CREATOR_SECRET=your-uuid-secret
+# Enables unlimited access for development/testing
 
 # Search Provider (auto, google, duckduckgo)
 SEARCH_PROVIDER=auto
