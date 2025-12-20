@@ -1,11 +1,12 @@
 import * as cheerio from 'cheerio';
+import { search as ddgSearch, SafeSearchType, SearchTimeType } from 'duck-duck-scrape';
 
 export class DuckDuckGoSearchAdapter {
   constructor(options = {}) {
     this.timeout = options.timeout || 30000;
     this.maxRetries = options.maxRetries || 3;
-    this.userAgent = options.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
-    this.retryDelay = options.retryDelay || 1000;
+    this.userAgent = options.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    this.retryDelay = options.retryDelay || 2000; // Increased base delay
     this.baseUrl = 'https://html.duckduckgo.com/html/';
   }
 
@@ -19,19 +20,36 @@ export class DuckDuckGoSearchAdapter {
       dateRestrict
     } = params;
 
-    // Calculate pagination offset for DuckDuckGo
+    // Try duck-duck-scrape library first (more reliable API access)
+    try {
+      const results = await this.searchWithLibrary(query, num, safe, dateRestrict);
+      if (results.items && results.items.length > 0) {
+        return results;
+      }
+    } catch (libraryError) {
+      console.warn('DuckDuckGo library search failed:', libraryError.message);
+      // Check if it's a CAPTCHA/anomaly error
+      if (libraryError.message.includes('anomaly') || libraryError.message.includes('too quickly')) {
+        throw new Error(
+          'DuckDuckGo is blocking automated requests. ' +
+          'To use web search reliably, please configure Google Custom Search API by setting ' +
+          'GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID environment variables. ' +
+          'See: https://developers.google.com/custom-search/v1/introduction'
+        );
+      }
+    }
+
+    // Fallback to HTML scraping (legacy method)
     const offset = (start - 1) * num;
 
-    // Build form data for POST request to DuckDuckGo HTML endpoint
     const formData = new URLSearchParams({
       q: query,
-      b: offset.toString(), // DuckDuckGo uses 'b' for pagination offset
-      kl: 'us-en',         // Default language
-      df: '',              // Date filter
-      safe: 'moderate'     // Safe search setting
+      b: offset.toString(),
+      kl: 'us-en',
+      df: '',
+      safe: 'moderate'
     });
 
-    // Update safe search parameter
     if (safe === 'active') {
       formData.set('safe', 'strict');
     } else if (safe === 'off') {
@@ -40,13 +58,11 @@ export class DuckDuckGoSearchAdapter {
       formData.set('safe', 'moderate');
     }
 
-    // Add language if specified
     if (lr && lr.startsWith('lang_')) {
       const lang = lr.replace('lang_', '');
       formData.set('kl', this.mapLanguageCode(lang));
     }
 
-    // Add date filter if specified
     if (dateRestrict) {
       const timeFilter = this.mapDateRestrict(dateRestrict);
       if (timeFilter) {
@@ -57,20 +73,86 @@ export class DuckDuckGoSearchAdapter {
     let lastError;
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
+        // Add delay between attempts to avoid rate limiting
+        if (attempt > 1) {
+          await new Promise(resolve =>
+            setTimeout(resolve, this.retryDelay * Math.pow(2, attempt - 1))
+          );
+        }
+
         const htmlResponse = await this.makeRequest(formData);
         return this.parseHtmlResponse(htmlResponse, query, num, start);
       } catch (error) {
         lastError = error;
-        if (attempt < this.maxRetries) {
-          // Exponential backoff
-          await new Promise(resolve => 
-            setTimeout(resolve, this.retryDelay * Math.pow(2, attempt - 1))
-          );
+        // If it's a CAPTCHA error, don't retry - it won't help
+        if (error.message.includes('CAPTCHA') || error.message.includes('automated requests')) {
+          throw error;
         }
       }
     }
 
     throw new Error(`DuckDuckGo search failed after ${this.maxRetries} attempts: ${lastError.message}`);
+  }
+
+  async searchWithLibrary(query, num, safe, dateRestrict) {
+    // Map safe search settings
+    let safeSearch = SafeSearchType.MODERATE;
+    if (safe === 'active' || safe === 'strict') {
+      safeSearch = SafeSearchType.STRICT;
+    } else if (safe === 'off') {
+      safeSearch = SafeSearchType.OFF;
+    }
+
+    // Map time filter
+    let time = undefined;
+    if (dateRestrict) {
+      const timeMap = {
+        'd1': SearchTimeType.DAY,
+        'w1': SearchTimeType.WEEK,
+        'm1': SearchTimeType.MONTH,
+        'y1': SearchTimeType.YEAR
+      };
+      time = timeMap[dateRestrict];
+    }
+
+    const searchResults = await ddgSearch(query, {
+      safeSearch,
+      time,
+      locale: 'en-us'
+    });
+
+    // Transform results to match expected format
+    const items = (searchResults.results || []).slice(0, num).map(result => ({
+      title: result.title || '',
+      link: result.url || '',
+      snippet: result.description || '',
+      displayLink: this.extractDomain(result.url),
+      formattedUrl: result.url || '',
+      htmlSnippet: result.description || '',
+      pagemap: {
+        metatags: {
+          title: result.title || '',
+          description: result.description || ''
+        }
+      },
+      metadata: {
+        source: 'duckduckgo_api',
+        type: 'web_result',
+        hostname: result.hostname || '',
+        icon: result.icon || ''
+      }
+    }));
+
+    return {
+      kind: 'duckduckgo#search',
+      searchInformation: {
+        searchTime: 0.1,
+        formattedSearchTime: '0.10',
+        totalResults: items.length.toString(),
+        formattedTotalResults: items.length.toLocaleString()
+      },
+      items: items
+    };
   }
 
   async makeRequest(formData) {
@@ -120,6 +202,26 @@ export class DuckDuckGoSearchAdapter {
     try {
       const $ = cheerio.load(html);
       const items = [];
+
+      // Check for CAPTCHA challenge (DuckDuckGo bot protection)
+      const captchaIndicators = [
+        'anomaly-modal',
+        'Unfortunately, bots use DuckDuckGo too',
+        'Select all squares containing a duck',
+        'confirm this search was made by a human',
+        'challenge-form'
+      ];
+
+      for (const indicator of captchaIndicators) {
+        if (html.includes(indicator)) {
+          throw new Error(
+            'DuckDuckGo CAPTCHA detected - automated requests are being blocked. ' +
+            'To use web search reliably, please configure Google Custom Search API by setting ' +
+            'GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID environment variables. ' +
+            'See: https://developers.google.com/custom-search/v1/introduction'
+          );
+        }
+      }
 
       // Look for search result containers - DuckDuckGo uses various selectors
       const resultSelectors = [

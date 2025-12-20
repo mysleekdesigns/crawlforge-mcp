@@ -95,6 +95,7 @@
     "compromise": "^14.14.4",
     "diff": "^8.0.2",
     "dotenv": "^17.2.1",
+    "duck-duck-scrape": "^2.2.7",
     "franc": "^6.2.0",
     "isomorphic-dompurify": "^2.26.0",
     "jsdom": "^26.1.0",
