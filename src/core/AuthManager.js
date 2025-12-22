@@ -221,7 +221,7 @@ class AuthManager {
         responseStatus,
         processingTime,
         timestamp: new Date().toISOString(),
-        version: '3.0.0'
+        version: '3.0.3'
       };
 
       await fetch(`${this.apiEndpoint}/api/v1/usage`, {
@@ -268,12 +268,13 @@ class AuthManager {
       deep_research: 10,
       stealth_mode: 10,
       
-      // Heavy processing (10+ credits)
+      // Heavy processing (3-5 credits)
       process_document: 3,
       extract_content: 3,
       scrape_with_actions: 5,
       generate_llms_txt: 3,
-      localization: 5
+      localization: 5,
+      track_changes: 3
     };
 
     return costs[tool] || 1;
