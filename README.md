@@ -125,7 +125,7 @@ Or use the MCP plugin in Cursor settings.
 
 ```bash
 # Optional: Set API key via environment
-export CRAWLFORGE_API_KEY="sk_live_your_api_key_here"
+export CRAWLFORGE_API_KEY="cf_live_your_api_key_here"
 
 # Optional: Custom API endpoint (for enterprise)
 export CRAWLFORGE_API_URL="https://api.crawlforge.dev"
@@ -137,7 +137,7 @@ Your configuration is stored at `~/.crawlforge/config.json`:
 
 ```json
 {
-  "apiKey": "sk_live_...",
+  "apiKey": "cf_live_...",
   "userId": "user_...",
   "email": "you@example.com"
 }

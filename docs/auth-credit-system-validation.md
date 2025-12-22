@@ -209,7 +209,7 @@ async saveConfig(apiKey, userId, email) {
 
 ```json
 {
-  "apiKey": "sk_live_...",
+  "apiKey": "cf_live_...",
   "userId": "user_...",
   "email": "you@example.com",
   "createdAt": "2025-12-22T10:30:00.000Z",
@@ -764,7 +764,7 @@ Get one free at: https://www.crawlforge.dev/signup
 
 ────────────────────────────────────────────────────────
 
-Enter your CrawlForge API key: sk_live_***
+Enter your CrawlForge API key: cf_live_***
 ```
 **✅ Status:** Professional, clear, user-friendly
 

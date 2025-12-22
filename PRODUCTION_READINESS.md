@@ -115,6 +115,12 @@ A comprehensive multi-agent review was conducted to ensure that when a user runs
    - Impact: Proper credit charging for change tracking operations
    - Status: ✅ All 19 tools now have explicit credit costs
 
+3. **API Key Format Mismatch** (2025-12-22)
+   - Fixed: Documentation showed `sk_live_` prefix but CrawlForge.dev issues `cf_live_` keys
+   - Files Updated: `README.md` (lines 128, 140), `docs/auth-credit-system-validation.md` (lines 212, 767)
+   - Impact: User documentation now matches actual API key format from website
+   - Status: ✅ All documentation references updated to `cf_live_` prefix
+
 ### 📦 NPM Package Configuration: ✅ EXCELLENT
 
 | Aspect | Status | Details |
