@@ -101,7 +101,6 @@
     "jsdom": "^26.1.0",
     "lru-cache": "^11.1.0",
     "node-cron": "^3.0.3",
-    "node-fetch": "^3.3.2",
     "node-summarizer": "^1.0.7",
     "p-queue": "^8.1.0",
     "pdf-parse": "^1.1.1",

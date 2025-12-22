@@ -218,7 +218,7 @@ export class ConnectionPool extends EventEmitter {
    * @returns {Promise<Object>} - Request result
    */
   async executeRequest(options, requestId) {
-    const { fetch } = await import('node-fetch');
+    // Using native fetch (Node.js 18+)
     
     const {
       url,

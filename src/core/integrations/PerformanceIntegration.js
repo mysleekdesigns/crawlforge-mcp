@@ -109,8 +109,7 @@ export async function enhancedFetch(url, options = {}) {
     const requestOptions = typeof url === 'string' ? { url, ...options } : url;
     return await connectionPoolInstance.request(requestOptions);
   } else {
-    // Fallback to regular fetch
-    const { default: fetch } = await import('node-fetch');
+    // Fallback to native fetch (Node.js 18+)
     return await fetch(url, options);
   }
 }
@@ -182,8 +181,7 @@ export async function enhancedConcurrentRequests(requests, options = {}) {
   if (connectionPoolInstance) {
     return await connectionPoolInstance.requestBatch(requests, options);
   } else {
-    // Fallback to Promise.all with regular fetch
-    const { default: fetch } = await import('node-fetch');
+    // Fallback to Promise.all with native fetch (Node.js 18+)
     const promises = requests.map(request => fetch(request.url || request, request));
     return await Promise.all(promises);
   }

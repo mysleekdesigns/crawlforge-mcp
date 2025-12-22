@@ -3,7 +3,7 @@
  * Handles API key validation, credit tracking, and usage reporting
  */
 
-import fetch from 'node-fetch';
+// Using native fetch (Node.js 18+)
 import fs from 'fs/promises';
 import path from 'path';
 

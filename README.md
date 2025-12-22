@@ -9,7 +9,7 @@ Professional web scraping and content extraction server implementing the Model C
 
 ## 🎯 Features
 
-- **19 Professional Tools**: Web scraping, deep research, stealth browsing, content analysis
+- **18 Professional Tools**: Web scraping, deep research, stealth browsing, content analysis
 - **Free Tier**: 1,000 credits to get started instantly
 - **MCP Compatible**: Works with Claude, Cursor, and other MCP-enabled AI tools
 - **Enterprise Ready**: Scale up with paid plans for production use
@@ -113,7 +113,7 @@ Or use the MCP plugin in Cursor settings.
 | **Enterprise** | 250,000 | Large scale operations |
 
 **All plans include:**
-- Access to all 19 tools
+- Access to all 18 tools
 - Credits never expire and roll over month-to-month
 - API access and webhook notifications
 
