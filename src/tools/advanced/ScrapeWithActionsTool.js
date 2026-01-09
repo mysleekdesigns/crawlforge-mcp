@@ -147,7 +147,12 @@ export class ScrapeWithActionsTool extends EventEmitter {
       enableLogging = true,
       enableCaching = false,
       maxConcurrentSessions = 3,
-      defaultBrowserOptions = {},
+      defaultBrowserOptions = {
+        viewportWidth: 1280,
+        viewportHeight: 720,
+        headless: true,
+        timeout: 30000
+      },
       screenshotPath = './screenshots'
     } = options;
 
@@ -317,7 +322,10 @@ export class ScrapeWithActionsTool extends EventEmitter {
       sessionId: sessionContext.id,
       url: params.url,
       executionTime,
-      
+
+      // Include error message if action chain failed
+      error: chainResult.error || undefined,
+
       actionResults,
       totalActions: params.actions.length,
       successfulActions: actionResults.filter(r => r.success).length,

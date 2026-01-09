@@ -333,8 +333,8 @@ export class BrowserProcessor {
     const { context, contextId } = await this.stealthManager.createStealthContext({
       level: options.stealthMode.level,
       customViewport: {
-        width: options.viewportWidth,
-        height: options.viewportHeight
+        width: options.viewportWidth || 1280,
+        height: options.viewportHeight || 720
       }
     });
 
@@ -475,8 +475,8 @@ export class BrowserProcessor {
   async createPage(options) {
     const contextOptions = {
       viewport: {
-        width: options.viewportWidth,
-        height: options.viewportHeight
+        width: options.viewportWidth || 1280,
+        height: options.viewportHeight || 720
       },
       userAgent: options.userAgent,
       extraHTTPHeaders: options.extraHeaders,
