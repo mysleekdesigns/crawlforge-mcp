@@ -166,10 +166,20 @@ export class SnapshotManager extends EventEmitter {
    */
   async storeSnapshot(url, content, metadata = {}, options = {}) {
     const operationId = this.generateOperationId();
-    
+
     try {
+      // Validate content is not null/undefined
+      if (content === null || content === undefined) {
+        throw new Error('Content cannot be null or undefined');
+      }
+
+      // Ensure content is a string
+      if (typeof content !== 'string') {
+        content = String(content);
+      }
+
       this.activeOperations.set(operationId, { type: 'store', url, startTime: Date.now() });
-      
+
       const snapshotId = this.generateSnapshotId(url, metadata.timestamp || Date.now());
       const contentHash = this.hashContent(content);
       

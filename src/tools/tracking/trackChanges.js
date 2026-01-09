@@ -285,29 +285,40 @@ export class TrackChangesTool extends EventEmitter {
    * @returns {Object} - Baseline creation results
    */
   async createBaseline(params) {
-    const { url, content, html, trackingOptions, storageOptions } = params;
-    
+    const { url, content, html, trackingOptions, storageOptions = {} } = params;
+
+    // Apply defaults for storageOptions fields
+    const enableSnapshots = storageOptions.enableSnapshots !== false; // Default to true
+
     try {
       // Fetch content if not provided
       let sourceContent = content || html;
       let fetchMetadata = {};
-      
+
       if (!sourceContent) {
         const fetchResult = await this.fetchContent(url);
+        if (!fetchResult || !fetchResult.content) {
+          throw new Error('Failed to fetch content from URL');
+        }
         sourceContent = fetchResult.content;
-        fetchMetadata = fetchResult.metadata;
+        fetchMetadata = fetchResult.metadata || {};
       }
-      
+
+      // Validate sourceContent
+      if (!sourceContent || typeof sourceContent !== 'string') {
+        throw new Error('Invalid content: content must be a non-empty string');
+      }
+
       // Create baseline with change tracker
       const baseline = await this.changeTracker.createBaseline(
         url,
         sourceContent,
         trackingOptions
       );
-      
-      // Store snapshot if enabled
+
+      // Store snapshot if enabled (defaults to true)
       let snapshotInfo = null;
-      if (storageOptions.enableSnapshots) {
+      if (enableSnapshots) {
         const snapshotResult = await this.snapshotManager.storeSnapshot(
           url,
           sourceContent,
@@ -347,29 +358,40 @@ export class TrackChangesTool extends EventEmitter {
    * @returns {Object} - Comparison results
    */
   async compareWithBaseline(params) {
-    const { url, content, html, trackingOptions, storageOptions, notificationOptions } = params;
-    
+    const { url, content, html, trackingOptions, storageOptions = {}, notificationOptions } = params;
+
+    // Apply defaults for storageOptions fields
+    const enableSnapshots = storageOptions.enableSnapshots !== false; // Default to true
+
     try {
       // Fetch current content if not provided
       let currentContent = content || html;
       let fetchMetadata = {};
-      
+
       if (!currentContent) {
         const fetchResult = await this.fetchContent(url);
+        if (!fetchResult || !fetchResult.content) {
+          throw new Error('Failed to fetch content from URL');
+        }
         currentContent = fetchResult.content;
-        fetchMetadata = fetchResult.metadata;
+        fetchMetadata = fetchResult.metadata || {};
       }
-      
+
+      // Validate currentContent
+      if (!currentContent || typeof currentContent !== 'string') {
+        throw new Error('Invalid content: content must be a non-empty string');
+      }
+
       // Perform comparison
       const comparisonResult = await this.changeTracker.compareWithBaseline(
         url,
         currentContent,
         trackingOptions
       );
-      
-      // Store snapshot if changes detected and storage enabled
+
+      // Store snapshot if changes detected and storage enabled (defaults to true)
       let snapshotInfo = null;
-      if (comparisonResult.hasChanges && storageOptions.enableSnapshots) {
+      if (comparisonResult.hasChanges && enableSnapshots) {
         const snapshotResult = await this.snapshotManager.storeSnapshot(
           url,
           currentContent,
