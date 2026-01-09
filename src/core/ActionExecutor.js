@@ -739,11 +739,16 @@ export class ActionExecutor extends EventEmitter {
    * @returns {Promise<Object>} Screenshot result
    */
   async captureScreenshot(page, options = {}) {
+    const format = options.format || 'png';
     const screenshotOptions = {
-      type: options.format || 'png',
-      quality: options.quality || 80,
+      type: format,
       fullPage: options.fullPage || false
     };
+
+    // Quality option is only supported for JPEG screenshots
+    if (format === 'jpeg' || format === 'jpg') {
+      screenshotOptions.quality = options.quality || 80;
+    }
 
     let screenshot;
     if (options.selector) {
