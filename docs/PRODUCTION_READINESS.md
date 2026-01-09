@@ -1,7 +1,7 @@
 # CrawlForge MCP Server - Production Readiness Status
 
 **Last Updated:** 2026-01-09
-**Version:** 3.0.6
+**Version:** 3.0.7
 **Status:** ✅ PRODUCTION READY & DEPLOYED
 
 ---
@@ -320,6 +320,39 @@ if (format === 'jpeg' || format === 'jpg') {
 **Deployment:**
 - Commit: `2925294`
 - Version: `3.0.6`
+- Published to npm: ✅
+
+---
+
+### ✅ Fix: HIGH Severity Dependency Vulnerabilities (v3.0.7)
+
+**Issue:** Security audit identified 2 HIGH severity vulnerabilities in dependencies.
+
+**Vulnerabilities Fixed:**
+
+| Package | Previous | Updated | Vulnerability | CVSS |
+|---------|----------|---------|---------------|------|
+| `@modelcontextprotocol/sdk` | 1.25.1 | 1.25.2 | ReDoS (GHSA-8r9q-7v3j-jr4g) | HIGH |
+| `qs` | 6.14.0 | 6.14.1 | DoS via memory exhaustion (GHSA-6rw7-vpxm-498p) | 7.5 |
+
+**Resolution:**
+```bash
+npm audit fix
+```
+
+**Verification:**
+```
+found 0 vulnerabilities
+```
+
+**Impact:**
+- ✅ All HIGH severity vulnerabilities resolved
+- ✅ npm audit now shows 0 vulnerabilities
+- ✅ No breaking changes to API
+
+**Deployment:**
+- Commit: `b9e85e1`
+- Version: `3.0.7`
 - Published to npm: ✅
 
 ---
