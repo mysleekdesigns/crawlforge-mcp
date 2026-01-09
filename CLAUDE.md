@@ -473,7 +473,7 @@ try {
 ## 🎯 Project Management Rules
 
 - always have the project manager work with the appropriate sub agents in parallel
-- i want the project manager to always be in charge and then get the appropriate sub agents to work on the tasks in parallel. each sub agent must work on their strengths. when they are done they let the project manager know and the project manager updates the @PRODUCTION_READINESS.md file.
+- i want the project manager to always be in charge and then get the appropriate sub agents to work on the tasks in parallel. each sub agent must work on their strengths. when they are done they let the project manager know and the project manager updates the @docs/PRODUCTION_READINESS.md file.
 - whenever a phase is completed push all changes to github
 - put all the documentation md files into the docs folders to keep everything organized
 - every time you finish a phase run npm run build and fix all errors. do this before you push to github.
