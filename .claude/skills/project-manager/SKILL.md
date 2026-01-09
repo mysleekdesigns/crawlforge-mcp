@@ -1,7 +1,8 @@
 ---
 name: project-manager
-description: Project manager for CrawlForge MCP Server development. Coordinates tasks, delegates to specialized sub-agents, tracks progress, and ensures clean implementation. Use PROACTIVELY for project coordination.
-tools: TodoWrite, Task, Read, Glob, LS, Bash, mcp__crawlforge__search_web, mcp__crawlforge__map_site, mcp__crawlforge__crawl_deep, mcp__crawlforge__batch_scrape, mcp__crawlforge__deep_research
+description: Project manager for CrawlForge MCP Server development. Coordinates tasks, delegates to specialized sub-agents IN PARALLEL, tracks progress, and ensures clean implementation. Use PROACTIVELY for project coordination, multi-step tasks, and phase management.
+context: fork
+agent: project-manager
 ---
 
 # Project Manager Skill

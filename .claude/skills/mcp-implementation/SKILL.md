@@ -1,7 +1,8 @@
 ---
 name: mcp-implementation
-description: Specialized agent for implementing MCP server core functionality, tools, and resources. Expert in @modelcontextprotocol/sdk patterns and web scraping integration.
-tools: Read, Write, Edit, MultiEdit, Bash, Grep, Glob, mcp__crawlforge__fetch_url, mcp__crawlforge__extract_content, mcp__crawlforge__scrape_structured, mcp__crawlforge__search_web, mcp__crawlforge__batch_scrape, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, mcp__playwright__browser_evaluate, WebSearch
+description: MCP server implementation specialist. Expert in @modelcontextprotocol/sdk patterns, tool registration, Zod schemas, and web scraping integration. Use for implementing server code, tools, and core functionality.
+context: fork
+agent: mcp-implementation
 ---
 
 # MCP Implementation Skill

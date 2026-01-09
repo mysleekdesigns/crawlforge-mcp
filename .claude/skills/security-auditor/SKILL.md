@@ -1,7 +1,8 @@
 ---
 name: security-auditor
-description: Security specialist for CrawlForge MCP Server. Audits code for vulnerabilities, ensures secure practices, validates input sanitization, and maintains compliance. Use PROACTIVELY before deployments and after major changes.
-tools: Read, Grep, Glob, WebFetch, Bash, TodoWrite
+description: Security specialist for CrawlForge MCP Server. Audits code for vulnerabilities, ensures secure practices, validates input sanitization, and maintains compliance. Use before deployments, after major changes, and for security reviews.
+context: fork
+agent: security-auditor
 ---
 
 # Security Auditor Skill
