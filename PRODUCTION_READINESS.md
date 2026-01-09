@@ -1,7 +1,7 @@
 # CrawlForge MCP Server - Production Readiness Status
 
-**Last Updated:** 2025-12-22
-**Version:** 3.0.3
+**Last Updated:** 2026-01-09
+**Version:** 3.0.6
 **Status:** ✅ PRODUCTION READY & DEPLOYED
 
 ---
@@ -263,6 +263,64 @@ New reports created in `/docs/`:
 **User Experience:** Excellent (9.5/10)
 **Technical Implementation:** Complete (100%)
 **Signup Enforcement:** Verified (9.5/10)
+
+---
+
+## 🐛 Phase 4: Bug Fixes (2026-01-09)
+
+**Version:** 3.0.6
+**Published:** npm registry
+
+### ✅ Fix: Screenshot Quality Option for PNG Format
+
+**Issue:** The `scrape_with_actions` tool was failing when using screenshot actions with the default PNG format.
+
+**Error Message:**
+```
+Action failed: page.screenshot: options.quality is unsupported for the png screenshots
+```
+
+**Root Cause:**
+The `captureScreenshot` method in `ActionExecutor.js` was always setting the `quality` option (defaulting to 80), but Playwright's screenshot API only supports the `quality` parameter for JPEG format, not PNG.
+
+**Location:** `src/core/ActionExecutor.js:741-751`
+
+**Fix Applied:**
+```javascript
+// Before (broken):
+const screenshotOptions = {
+  type: options.format || 'png',
+  quality: options.quality || 80,  // Invalid for PNG
+  fullPage: options.fullPage || false
+};
+
+// After (fixed):
+const format = options.format || 'png';
+const screenshotOptions = {
+  type: format,
+  fullPage: options.fullPage || false
+};
+// Quality option is only supported for JPEG screenshots
+if (format === 'jpeg' || format === 'jpg') {
+  screenshotOptions.quality = options.quality || 80;
+}
+```
+
+**Testing Results:**
+| Test | Actions | Result |
+|------|---------|--------|
+| Basic screenshot (PNG) | wait, screenshot, click | ✅ All 3 actions successful |
+| Form interaction | wait, type, screenshot | ✅ All 3 actions successful |
+
+**Impact:**
+- ✅ Screenshot actions now work correctly with default PNG format
+- ✅ JPEG screenshots still support quality option
+- ✅ All 19 MCP tools verified working
+
+**Deployment:**
+- Commit: `2925294`
+- Version: `3.0.6`
+- Published to npm: ✅
 
 ---
 
