@@ -430,10 +430,16 @@ Credits: 2 credits per search
 
 ### Deployment Status
 
-- Commit: `73f8ee0`
-- Version: `3.0.8` (pending npm publish after backend endpoint)
-- Backend endpoint: ⏸️ Pending implementation on CrawlForge.dev
-- Published to npm: ⏸️ Pending backend
+- Commit: `44796dc`
+- Version: `3.0.8`
+- Published to npm: ✅ **DEPLOYED** (2026-01-12)
+- Git tag: `v3.0.8`
+
+**What's New in v3.0.8:**
+- Simplified search architecture using CrawlForge API proxy
+- All search requests go through CrawlForge.dev (Google Search backend)
+- Users only need CrawlForge API key - no Google credentials required
+- 2 credits per search query
 
 ---
 
@@ -457,7 +463,7 @@ The MCP server requires users to sign up at **https://www.crawlforge.dev/signup*
 | `/api/v1/auth/validate` | POST | Validate API key & get user info | ✅ Implemented |
 | `/api/v1/credits` | GET | Check remaining credits | ✅ Implemented |
 | `/api/v1/usage` | POST | Report tool usage & deduct credits | ✅ Implemented |
-| `/api/v1/search` | POST | Proxy Google Search requests | ⏸️ Pending |
+| `/api/v1/search` | POST | Proxy Google Search requests | ✅ Implemented |
 
 #### Credit System Integration
 **Status:** ✅ Verified

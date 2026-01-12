@@ -418,20 +418,12 @@ export class ToolName {
 
 ### Search Provider Architecture
 
-Search uses a factory pattern with two providers (Google Search only):
+All search requests are proxied through the CrawlForge.dev API:
 
-**Production (users with CrawlForge API key):**
 - `crawlforgeSearch.js` - Proxies through CrawlForge.dev API (Google Search backend)
 - No Google API credentials needed from users
+- Users only need their CrawlForge API key
 - Credit cost: 2 credits per search
-
-**Creator Mode (development with Google API credentials):**
-- `googleSearch.js` - Direct Google Custom Search API
-- Requires: `GOOGLE_API_KEY` and `GOOGLE_SEARCH_ENGINE_ID` environment variables
-- Console shows: "🔍 Creator Mode: Using Google Search API directly"
-- Get credentials at:
-  - API Key: https://console.cloud.google.com/apis/credentials
-  - Search Engine ID: https://programmablesearchengine.google.com/
 
 Factory in `src/tools/search/adapters/searchProviderFactory.js`
 
