@@ -72,15 +72,20 @@ export class SearchWebTool {
       deduplicationOptions = {}
     } = options;
 
-    if (!apiKey) {
+    // Check for Creator Mode - allows search without API key for development/testing
+    const isCreatorMode = process.env.CRAWLFORGE_CREATOR_MODE === 'true';
+
+    if (!apiKey && !isCreatorMode) {
       throw new Error('CrawlForge API key is required for search functionality');
     }
 
-    // Create the CrawlForge search adapter
+    // Create the search adapter (CrawlForge API or DuckDuckGo fallback for Creator Mode)
     try {
       this.searchAdapter = SearchProviderFactory.createAdapter(apiKey, {
-        apiBaseUrl
+        apiBaseUrl,
+        creatorMode: isCreatorMode
       });
+      this.isCreatorModeFallback = !apiKey && isCreatorMode;
     } catch (error) {
       throw new Error(`Failed to initialize search adapter: ${error.message}`);
     }
@@ -286,7 +291,12 @@ export class SearchWebTool {
         cached: false,
         
         // Add provider information
-        provider: {
+        provider: this.isCreatorModeFallback ? {
+          name: 'google',
+          backend: 'Google Custom Search API (Creator Mode)',
+          note: 'Using Google Search API directly. Production users use CrawlForge API.',
+          capabilities: SearchProviderFactory.getProviderCapabilities('google')
+        } : {
           name: 'crawlforge',
           backend: 'Google Search',
           capabilities: SearchProviderFactory.getProviderCapabilities('crawlforge')
@@ -437,11 +447,16 @@ export class SearchWebTool {
 
   getStats() {
     return {
-      provider: {
+      provider: this.isCreatorModeFallback ? {
+        name: 'google',
+        backend: 'Google Custom Search API (Creator Mode)',
+        note: 'Using Google Search API directly'
+      } : {
         name: 'crawlforge',
         backend: 'Google Search',
         capabilities: SearchProviderFactory.getProviderCapabilities('crawlforge')
       },
+      creatorMode: this.isCreatorModeFallback || false,
       cacheStats: this.cache ? this.cache.getStats() : null,
       queryExpanderStats: this.queryExpander ? this.queryExpander.getStats() : null,
       rankingStats: this.resultRanker ? this.resultRanker.getStats() : null,
@@ -451,10 +466,15 @@ export class SearchWebTool {
 
   getProviderInfo() {
     return {
-      activeProvider: 'crawlforge',
-      backend: 'Google Search via CrawlForge API',
-      capabilities: SearchProviderFactory.getProviderCapabilities('crawlforge'),
-      supportedProviders: SearchProviderFactory.getSupportedProviders()
+      activeProvider: this.isCreatorModeFallback ? 'google' : 'crawlforge',
+      backend: this.isCreatorModeFallback
+        ? 'Google Custom Search API (Creator Mode)'
+        : 'Google Search via CrawlForge API',
+      capabilities: SearchProviderFactory.getProviderCapabilities(
+        this.isCreatorModeFallback ? 'google' : 'crawlforge'
+      ),
+      supportedProviders: SearchProviderFactory.getSupportedProviders(),
+      isCreatorMode: this.isCreatorModeFallback || false
     };
   }
 }
