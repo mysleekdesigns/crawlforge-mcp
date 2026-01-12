@@ -1,6 +1,6 @@
 {
   "name": "crawlforge-mcp-server",
-  "version": "3.0.8",
+  "version": "3.0.9",
   "description": "CrawlForge MCP Server - Professional Model Context Protocol server with 19 comprehensive web scraping, crawling, and content processing tools.",
   "main": "server.js",
   "bin": {
@@ -95,7 +95,6 @@
     "compromise": "^14.14.4",
     "diff": "^8.0.2",
     "dotenv": "^17.2.1",
-    "duck-duck-scrape": "^2.2.7",
     "franc": "^6.2.0",
     "isomorphic-dompurify": "^2.26.0",
     "jsdom": "^26.1.0",

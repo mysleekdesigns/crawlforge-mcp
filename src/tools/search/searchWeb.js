@@ -79,7 +79,7 @@ export class SearchWebTool {
       throw new Error('CrawlForge API key is required for search functionality');
     }
 
-    // Create the search adapter (CrawlForge API or DuckDuckGo fallback for Creator Mode)
+    // Create the search adapter (CrawlForge API proxy or Google Search API direct in Creator Mode)
     try {
       this.searchAdapter = SearchProviderFactory.createAdapter(apiKey, {
         apiBaseUrl,
