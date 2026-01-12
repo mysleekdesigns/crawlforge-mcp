@@ -1,7 +1,7 @@
 # CrawlForge MCP Server - Production Readiness Status
 
-**Last Updated:** 2026-01-09
-**Version:** 3.0.7
+**Last Updated:** 2026-01-12
+**Version:** 3.0.8
 **Status:** ✅ PRODUCTION READY & DEPLOYED
 
 ---
@@ -357,6 +357,86 @@ found 0 vulnerabilities
 
 ---
 
+## 🔍 Phase 5: Search API Proxy Architecture (2026-01-12)
+
+**Version:** 3.0.8
+**Issue:** search_web tool was silently using DuckDuckGo instead of Google Search API when installed via npm
+
+### Problem Analysis
+
+When CrawlForge MCP Server was installed via npm in other projects, the search_web tool always defaulted to DuckDuckGo because:
+
+1. `setup.js` only prompted for CrawlForge API key - no Google credentials
+2. Config read Google credentials ONLY from environment variables
+3. Default `SEARCH_PROVIDER='auto'` silently fell back to DuckDuckGo when no Google credentials found
+4. No warning was displayed to users about which search provider was being used
+
+### Solution: CrawlForge.dev Proxy Architecture
+
+**Decision:** All search requests now go through the CrawlForge.dev API, which uses Google Search on the backend.
+
+| Before | After |
+|--------|-------|
+| Users needed Google API credentials | Users only need CrawlForge API key |
+| Silent DuckDuckGo fallback | Always Google Search via proxy |
+| Complex provider selection logic | Single adapter architecture |
+| Multiple adapter files | One CrawlForge adapter |
+
+### Files Changed
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/tools/search/adapters/crawlforgeSearch.js` | **CREATE** | New CrawlForge proxy adapter |
+| `src/tools/search/adapters/searchProviderFactory.js` | MODIFY | Simplified to use only CrawlForge adapter |
+| `src/tools/search/adapters/googleSearch.js` | DELETE | No longer needed |
+| `src/tools/search/adapters/duckduckgoSearch.js` | DELETE | No longer needed |
+| `src/tools/search/searchWeb.js` | MODIFY | Removed provider selection logic |
+| `src/constants/config.js` | MODIFY | Removed search provider configuration |
+| `server.js` | MODIFY | Simplified search tool initialization |
+| `README.md` | MODIFY | Updated search documentation |
+| `CLAUDE.md` | MODIFY | Removed search provider config docs |
+
+### Architecture Benefits
+
+| Benefit | Description |
+|---------|-------------|
+| **Simpler UX** | Users only need one API key for everything |
+| **No credential leakage** | Google API keys stay on CrawlForge servers |
+| **Better control** | Rate limiting, caching, monitoring on backend |
+| **Monetization** | Every search costs credits from user account |
+| **No confusion** | Always Google Search, no silent fallback |
+| **Reduced codebase** | 291 lines added, 1,038 lines removed |
+
+### Backend Requirement
+
+**NEW API ENDPOINT NEEDED:** `/api/v1/search`
+
+The CrawlForge.dev backend must implement this endpoint:
+
+```javascript
+POST /api/v1/search
+Headers: X-API-Key: <user_api_key>
+Body: { query, limit, offset, lang, safe_search, time_range, site, file_type }
+
+Response: Google Search API compatible format
+Credits: 2 credits per search
+```
+
+### Verification Steps
+
+1. **Fresh install test:** `npm install -g crawlforge-mcp-server && crawlforge-setup`
+2. **Search test:** Call search_web → should return Google Search results via CrawlForge API
+3. **Credit deduction:** Search costs 2 credits
+
+### Deployment Status
+
+- Commit: `73f8ee0`
+- Version: `3.0.8` (pending npm publish after backend endpoint)
+- Backend endpoint: ⏸️ Pending implementation on CrawlForge.dev
+- Published to npm: ⏸️ Pending backend
+
+---
+
 ## 🌐 CrawlForge.dev Integration
 
 ### Authentication & API Integration
@@ -377,6 +457,7 @@ The MCP server requires users to sign up at **https://www.crawlforge.dev/signup*
 | `/api/v1/auth/validate` | POST | Validate API key & get user info | ✅ Implemented |
 | `/api/v1/credits` | GET | Check remaining credits | ✅ Implemented |
 | `/api/v1/usage` | POST | Report tool usage & deduct credits | ✅ Implemented |
+| `/api/v1/search` | POST | Proxy Google Search requests | ⏸️ Pending |
 
 #### Credit System Integration
 **Status:** ✅ Verified
