@@ -49,7 +49,7 @@ import { GenerateLLMsTxtTool } from "./src/tools/llmstxt/generateLLMsTxt.js";
 import { StealthBrowserManager } from "./src/core/StealthBrowserManager.js";
 import { LocalizationManager } from "./src/core/LocalizationManager.js";
 import { memoryMonitor } from "./src/utils/MemoryMonitor.js";
-import { config, validateConfig, isSearchConfigured, getToolConfig, getActiveSearchProvider } from "./src/constants/config.js";
+import { config, validateConfig, getToolConfig } from "./src/constants/config.js";
 // Authentication Manager
 import AuthManager from "./src/core/AuthManager.js";
 
@@ -160,11 +160,8 @@ function withAuth(toolName, handler) {
   };
 }
 
-// Initialize tools
-let searchWebTool = null;
-if (isSearchConfigured()) {
-  searchWebTool = new SearchWebTool(getToolConfig('search_web'));
-}
+// Initialize Search Web Tool - always available with CrawlForge API key
+const searchWebTool = new SearchWebTool(getToolConfig("search_web"));
 const crawlDeepTool = new CrawlDeepTool(getToolConfig('crawl_deep'));
 const mapSiteTool = new MapSiteTool(getToolConfig('map_site'));
 
@@ -946,60 +943,48 @@ server.registerTool("scrape_structured", {
 }));
 
 // Tool: search_web - Web search with configurable providers
-if (searchWebTool) {
-  const activeProvider = getActiveSearchProvider();
-  const providerName = activeProvider === 'google' ? 'Google Custom Search API' : 
-                      activeProvider === 'duckduckgo' ? 'DuckDuckGo' : 'Auto-selected provider';
-  
-  server.registerTool("search_web", {
-    description: `Search the web using ${providerName}`,
-    inputSchema: {
-      query: z.string(),
-      limit: z.number().min(1).max(100).optional(),
-      offset: z.number().min(0).optional(),
-      lang: z.string().optional(),
-      safe_search: z.boolean().optional(),
-      time_range: z.enum(['day', 'week', 'month', 'year', 'all']).optional(),
-      site: z.string().optional(),
-      file_type: z.string().optional()
-    }
-  }, withAuth("search_web", async ({ query, limit, offset, lang, safe_search, time_range, site, file_type }) => {
-    try {
-      if (!query) {
-        return {
-          content: [{
-            type: "text",
-            text: "Query parameter is required"
-          }],
-          isError: true
-        };
-      }
-      
-      const result = await searchWebTool.execute({ query, limit, offset, lang, safe_search, time_range, site, file_type });
+// Tool: search_web - Search the web using Google Search via CrawlForge proxy
+server.registerTool("search_web", {
+  description: "Search the web using Google Search API (proxied through CrawlForge)",
+  inputSchema: {
+    query: z.string(),
+    limit: z.number().min(1).max(100).optional(),
+    offset: z.number().min(0).optional(),
+    lang: z.string().optional(),
+    safe_search: z.boolean().optional(),
+    time_range: z.enum(["day", "week", "month", "year", "all"]).optional(),
+    site: z.string().optional(),
+    file_type: z.string().optional()
+  }
+}, withAuth("search_web", async ({ query, limit, offset, lang, safe_search, time_range, site, file_type }) => {
+  try {
+    if (!query) {
       return {
         content: [{
           type: "text",
-          text: JSON.stringify(result, null, 2)
-        }]
-      };
-    } catch (error) {
-      return {
-        content: [{
-          type: "text",
-          text: `Search failed: ${error.message}`
+          text: "Query parameter is required"
         }],
         isError: true
       };
     }
-  }));
-} else {
-  const activeProvider = getActiveSearchProvider();
-  if (activeProvider === 'google') {
-    console.error("Warning: search_web tool not configured. Set GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID to enable Google search.");
-  } else {
-    console.error("Warning: search_web tool initialization failed. Check your SEARCH_PROVIDER configuration.");
+    
+    const result = await searchWebTool.execute({ query, limit, offset, lang, safe_search, time_range, site, file_type });
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{
+        type: "text",
+        text: `Search failed: ${error.message}`
+      }],
+      isError: true
+    };
   }
-}
+}));
 
 // Tool: crawl_deep - Deep crawl websites with BFS algorithm
 server.registerTool("crawl_deep", {
@@ -1859,34 +1844,19 @@ async function runServer() {
   console.error("CrawlForge MCP Server v3.0 running on stdio");
   console.error(`Environment: ${config.server.nodeEnv}`);
   
-  if (isSearchConfigured()) {
-    const activeProvider = getActiveSearchProvider();
-    console.error(`Search enabled: ${isSearchConfigured()} (provider: ${activeProvider})`);
-  } else {
-    console.error(`Search enabled: ${isSearchConfigured()}`);
-  }
+  console.error("Search enabled: true (via CrawlForge proxy)");
   
-  const baseTools = 'fetch_url, extract_text, extract_links, extract_metadata, scrape_structured, crawl_deep, map_site';
-  const searchTool = isSearchConfigured() ? ', search_web' : '';
-  const phase3Tools = ', extract_content, process_document, summarize_content, analyze_content';
-  const wave2Tools = ', batch_scrape, scrape_with_actions';
-  const researchTools = ', deep_research';
-  const trackingTools = ', track_changes';
-  const llmsTxtTools = ', generate_llms_txt';
-  const wave3Tools = ', stealth_mode, localization';
+  const baseTools = "fetch_url, extract_text, extract_links, extract_metadata, scrape_structured, crawl_deep, map_site";
+  const searchTool = ", search_web";
+  const phase3Tools = ", extract_content, process_document, summarize_content, analyze_content";
+  const wave2Tools = ", batch_scrape, scrape_with_actions";
+  const researchTools = ", deep_research";
+  const trackingTools = ", track_changes";
+  const llmsTxtTools = ", generate_llms_txt";
+  const wave3Tools = ", stealth_mode, localization";
   console.error(`Tools available: ${baseTools}${searchTool}${phase3Tools}${wave2Tools}${researchTools}${trackingTools}${llmsTxtTools}${wave3Tools}`);
 
-  // Start memory monitoring in development
-  if (config.server.nodeEnv === "development") {
-    memoryMonitor.start();
-    console.error("Memory monitoring started");
-  }
-}
 
-runServer().catch((error) => {
-  console.error("Server error:", error);
-  process.exit(1);
-});
 // === MEMORY LEAK PREVENTION ===
 // Add graceful shutdown handling to prevent memory leaks
 
@@ -1978,3 +1948,15 @@ if (config.server.nodeEnv === 'development') {
     }
   }, 60000); // Check every minute
 }
+
+  // Start memory monitoring in development
+  if (config.server.nodeEnv === "development") {
+    memoryMonitor.start();
+    console.error("Memory monitoring started");
+  }
+}
+
+runServer().catch((error) => {
+  console.error("Server error:", error);
+  process.exit(1);
+});

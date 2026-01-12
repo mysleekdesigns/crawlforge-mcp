@@ -8,23 +8,10 @@ const __dirname = dirname(__filename);
 dotenv.config({ path: join(__dirname, '../../.env'), quiet: true });
 
 export const config = {
-  // Search Provider Configuration
-  search: {
-    provider: process.env.SEARCH_PROVIDER || 'auto', // 'google', 'duckduckgo', or 'auto'
-    
-    // Google Search API
-    google: {
-      apiKey: process.env.GOOGLE_API_KEY || '',
-      searchEngineId: process.env.GOOGLE_SEARCH_ENGINE_ID || ''
-    },
-    
-    // DuckDuckGo Configuration
-    duckduckgo: {
-      timeout: parseInt(process.env.DUCKDUCKGO_TIMEOUT || '30000'),
-      maxRetries: parseInt(process.env.DUCKDUCKGO_MAX_RETRIES || '3'),
-      retryDelay: parseInt(process.env.DUCKDUCKGO_RETRY_DELAY || '1000'),
-      userAgent: process.env.DUCKDUCKGO_USER_AGENT || process.env.USER_AGENT || 'CrawlForge/1.0'
-    }
+  // CrawlForge API Configuration
+  crawlforge: {
+    apiKey: process.env.CRAWLFORGE_API_KEY || '',
+    apiBaseUrl: process.env.CRAWLFORGE_API_URL || 'https://api.crawlforge.dev'
   },
 
   // Performance
@@ -286,30 +273,6 @@ export const config = {
 export function validateConfig() {
   const errors = [];
 
-  // Check search provider configuration
-  const provider = getActiveSearchProvider();
-  
-  if (config.server.nodeEnv === 'production') {
-    if (provider === 'google') {
-      if (!config.search.google.apiKey) {
-        errors.push('GOOGLE_API_KEY is required when using Google search provider in production');
-      }
-      if (!config.search.google.searchEngineId) {
-        errors.push('GOOGLE_SEARCH_ENGINE_ID is required when using Google search provider in production');
-      }
-    }
-    
-    if (!isSearchConfigured()) {
-      errors.push('Search provider is not properly configured');
-    }
-  }
-  
-  // Validate search provider setting
-  const validProviders = ['google', 'duckduckgo', 'auto'];
-  if (!validProviders.includes(config.search.provider.toLowerCase())) {
-    errors.push(`Invalid SEARCH_PROVIDER value. Must be one of: ${validProviders.join(', ')}`);
-  }
-
   // Validate numeric ranges
   if (config.crawling.maxDepth > 10) {
     errors.push('MAX_CRAWL_DEPTH should not exceed 10 for performance reasons');
@@ -330,60 +293,12 @@ export function validateConfig() {
   return errors;
 }
 
-// Check if search is properly configured
-export function isSearchConfigured() {
-  const provider = getActiveSearchProvider();
-  
-  switch (provider) {
-    case 'google':
-      return !!(config.search.google.apiKey && config.search.google.searchEngineId);
-    case 'duckduckgo':
-      return true; // DuckDuckGo doesn't require API credentials
-    default:
-      return false;
-  }
-}
-
-// Get the active search provider based on configuration and availability
-export function getActiveSearchProvider() {
-  const configuredProvider = config.search.provider.toLowerCase();
-  
-  switch (configuredProvider) {
-    case 'google':
-      return 'google';
-    case 'duckduckgo':
-      return 'duckduckgo';
-    case 'auto':
-    default:
-      // Auto mode: prefer Google if credentials available, otherwise use DuckDuckGo
-      if (config.search.google.apiKey && config.search.google.searchEngineId) {
-        return 'google';
-      }
-      return 'duckduckgo';
-  }
-}
-
 // Get configuration for a specific tool
 export function getToolConfig(toolName) {
-  const provider = getActiveSearchProvider();
-  
   const toolConfigs = {
     search_web: {
-      provider: provider,
-      
-      // Google-specific configuration
-      google: {
-        apiKey: config.search.google.apiKey,
-        searchEngineId: config.search.google.searchEngineId
-      },
-      
-      // DuckDuckGo-specific configuration
-      duckduckgo: {
-        timeout: config.search.duckduckgo.timeout,
-        maxRetries: config.search.duckduckgo.maxRetries,
-        retryDelay: config.search.duckduckgo.retryDelay,
-        userAgent: config.search.duckduckgo.userAgent
-      },
+      apiKey: config.crawlforge.apiKey,
+      apiBaseUrl: config.crawlforge.apiBaseUrl,
       
       // Common configuration
       cacheEnabled: config.performance.cacheEnableDisk,
@@ -593,7 +508,8 @@ export function validateLocalizationConfig() {
     if (localizationConfig.translation.enabled) {
       const validProviders = ['google', 'azure', 'libre'];
       if (!validProviders.includes(localizationConfig.translation.defaultProvider)) {
-        errors.push(`TRANSLATION_PROVIDER must be one of: ${validProviders.join(', ')}`);
+        const providersString = validProviders.join(', ');
+        errors.push('TRANSLATION_PROVIDER must be one of: ' + providersString);
       }
     }
     

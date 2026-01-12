@@ -91,7 +91,7 @@ Tools are organized in subdirectories by category:
 - `crawl/` - crawlDeep, mapSite
 - `extract/` - analyzeContent, extractContent, processDocument, summarizeContent
 - `research/` - deepResearch
-- `search/` - searchWeb and provider adapters (Google, DuckDuckGo)
+- `search/` - searchWeb (uses CrawlForge proxy for Google Search)
 - `tracking/` - trackChanges
 - `llmstxt/` - generateLLMsTxt
 
@@ -103,7 +103,7 @@ Tools are organized in subdirectories by category:
 
 **Advanced Tools:**
 
-- search_web (conditional - requires search provider), crawl_deep, map_site
+- search_web, crawl_deep, map_site
 - extract_content, process_document, summarize_content, analyze_content
 - batch_scrape, scrape_with_actions, deep_research
 - track_changes, generate_llms_txt, stealth_mode, localization
@@ -154,12 +154,6 @@ CRAWLFORGE_API_KEY=your_api_key_here
 # CRAWLFORGE_CREATOR_SECRET=your-uuid-secret
 # Enables unlimited access for development/testing
 
-# Search Provider (auto, google, duckduckgo)
-SEARCH_PROVIDER=auto
-
-# Google API (optional, only if using Google)
-GOOGLE_API_KEY=your_key
-GOOGLE_SEARCH_ENGINE_ID=your_id
 
 # Performance Settings
 MAX_WORKERS=10
@@ -432,10 +426,9 @@ Search providers implement a factory pattern:
 - Each provider in `src/tools/search/adapters/`
 
 ### Browser Management
-
-- Playwright used for browser automation (ActionExecutor, ScrapeWithActionsTool)
-- Stealth features in StealthBrowserManager
-- Always cleanup browsers in error handlers
+- Searches are proxied through CrawlForge.dev API which uses Google Search
+- No Google API credentials needed from users
+- Search adapter in `src/tools/search/adapters/crawlforgeSearch.js`
 - Context isolation per operation for security
 
 ### Memory Management

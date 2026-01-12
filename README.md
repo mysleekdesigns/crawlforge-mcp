@@ -85,7 +85,7 @@ Or use the MCP plugin in Cursor settings.
 
 ### Advanced Tools (2-3 credits)
 - `scrape_structured` - Extract structured data with CSS selectors
-- `search_web` - Search the web with Google/DuckDuckGo
+- `search_web` - Search the web using Google Search API
 - `summarize_content` - Generate intelligent summaries
 - `analyze_content` - Comprehensive content analysis
 

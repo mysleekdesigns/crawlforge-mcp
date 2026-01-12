@@ -63,9 +63,8 @@ const SearchWebSchema = z.object({
 export class SearchWebTool {
   constructor(options = {}) {
     const {
-      provider = 'auto',
-      google = {},
-      duckduckgo = {},
+      apiKey,
+      apiBaseUrl,
       cacheEnabled = true,
       cacheTTL = 3600000, // 1 hour
       expanderOptions = {},
@@ -73,17 +72,17 @@ export class SearchWebTool {
       deduplicationOptions = {}
     } = options;
 
-    // Determine which provider to use
-    this.provider = this.determineProvider(provider, { google, duckduckgo });
-    
-    // Create the search adapter
+    if (!apiKey) {
+      throw new Error('CrawlForge API key is required for search functionality');
+    }
+
+    // Create the CrawlForge search adapter
     try {
-      this.searchAdapter = SearchProviderFactory.createAdapter(this.provider, {
-        google,
-        duckduckgo
+      this.searchAdapter = SearchProviderFactory.createAdapter(apiKey, {
+        apiBaseUrl
       });
     } catch (error) {
-      throw new Error(`Failed to initialize search provider '${this.provider}': ${error.message}`);
+      throw new Error(`Failed to initialize search adapter: ${error.message}`);
     }
 
     this.cache = cacheEnabled ? new CacheManager({ ttl: cacheTTL }) : null;
@@ -100,27 +99,6 @@ export class SearchWebTool {
       enableGeoBlockingBypass: options.enableGeoBlockingBypass !== false,
       dynamicFingerprinting: options.dynamicFingerprinting !== false
     });
-  }
-
-  determineProvider(configuredProvider, providerOptions) {
-    switch (configuredProvider.toLowerCase()) {
-      case 'google':
-        if (!providerOptions.google?.apiKey || !providerOptions.google?.searchEngineId) {
-          throw new Error('Google provider requires apiKey and searchEngineId');
-        }
-        return 'google';
-        
-      case 'duckduckgo':
-        return 'duckduckgo';
-        
-      case 'auto':
-      default:
-        // Auto mode: prefer Google if credentials available, otherwise use DuckDuckGo
-        if (providerOptions.google?.apiKey && providerOptions.google?.searchEngineId) {
-          return 'google';
-        }
-        return 'duckduckgo';
-    }
   }
 
   async execute(params) {
@@ -309,8 +287,9 @@ export class SearchWebTool {
         
         // Add provider information
         provider: {
-          name: this.provider,
-          capabilities: SearchProviderFactory.getProviderCapabilities(this.provider)
+          name: 'crawlforge',
+          backend: 'Google Search',
+          capabilities: SearchProviderFactory.getProviderCapabilities('crawlforge')
         },
         
         // Add localization information
@@ -459,8 +438,9 @@ export class SearchWebTool {
   getStats() {
     return {
       provider: {
-        name: this.provider,
-        capabilities: SearchProviderFactory.getProviderCapabilities(this.provider)
+        name: 'crawlforge',
+        backend: 'Google Search',
+        capabilities: SearchProviderFactory.getProviderCapabilities('crawlforge')
       },
       cacheStats: this.cache ? this.cache.getStats() : null,
       queryExpanderStats: this.queryExpander ? this.queryExpander.getStats() : null,
@@ -471,10 +451,10 @@ export class SearchWebTool {
 
   getProviderInfo() {
     return {
-      activeProvider: this.provider,
-      capabilities: SearchProviderFactory.getProviderCapabilities(this.provider),
-      supportedProviders: SearchProviderFactory.getSupportedProviders(),
-      allProviders: SearchProviderFactory.compareProviders()
+      activeProvider: 'crawlforge',
+      backend: 'Google Search via CrawlForge API',
+      capabilities: SearchProviderFactory.getProviderCapabilities('crawlforge'),
+      supportedProviders: SearchProviderFactory.getSupportedProviders()
     };
   }
 }
