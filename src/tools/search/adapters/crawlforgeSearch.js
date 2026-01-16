@@ -8,7 +8,7 @@
  */
 
 export class CrawlForgeSearchAdapter {
-  constructor(apiKey, apiBaseUrl = 'https://api.crawlforge.dev') {
+  constructor(apiKey, apiBaseUrl = 'https://www.crawlforge.dev') {
     if (!apiKey) {
       throw new Error('CrawlForge API key is required for search functionality');
     }

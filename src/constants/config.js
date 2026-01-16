@@ -11,7 +11,7 @@ export const config = {
   // CrawlForge API Configuration
   crawlforge: {
     apiKey: process.env.CRAWLFORGE_API_KEY || '',
-    apiBaseUrl: process.env.CRAWLFORGE_API_URL || 'https://api.crawlforge.dev'
+    apiBaseUrl: process.env.CRAWLFORGE_API_URL || 'https://www.crawlforge.dev'
   },
 
   // Performance

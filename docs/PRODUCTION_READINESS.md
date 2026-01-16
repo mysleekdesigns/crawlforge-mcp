@@ -1,7 +1,7 @@
 # CrawlForge MCP Server - Production Readiness Status
 
-**Last Updated:** 2026-01-12
-**Version:** 3.0.8
+**Last Updated:** 2026-01-16
+**Version:** 3.0.9
 **Status:** ✅ PRODUCTION READY & DEPLOYED
 
 ---
@@ -443,11 +443,132 @@ Credits: 2 credits per search
 
 ---
 
+## 🔧 Phase 6: API Endpoint Fix - "fetch failed" Error (2026-01-16)
+
+**Version:** 3.0.9
+**Issue:** Users getting "Connection error: fetch failed" when running `npx crawlforge-setup`
+
+### Problem Analysis
+
+When users ran `npx crawlforge-setup` and entered a valid API key (`cf_live_...`), they received:
+```
+❌ Invalid API key: Connection error: fetch failed
+```
+
+**Root Cause Diagnosis:**
+
+| Check | Result | Evidence |
+|-------|--------|----------|
+| DNS for `api.crawlforge.dev` | **DOES NOT EXIST** | `nslookup` returned NXDOMAIN |
+| DNS for `www.crawlforge.dev` | ✅ Works | Points to Vercel |
+| Backend API routes | **DID NOT EXIST** | Routes were created but not deployed |
+
+The MCP server was configured to call `api.crawlforge.dev` but:
+1. No DNS record existed for `api.crawlforge.dev`
+2. The CrawlForge.dev website is hosted on Vercel at `www.crawlforge.dev`
+3. API routes existed in the website codebase but were not committed/deployed
+
+### Solution Implemented
+
+**Two-part fix:**
+
+#### Part 1: Update MCP Server API Endpoint
+
+**File:** `src/tools/search/adapters/crawlforgeSearch.js` (line 11)
+
+```javascript
+// Before
+constructor(apiKey, apiBaseUrl = 'https://api.crawlforge.dev') {
+
+// After
+constructor(apiKey, apiBaseUrl = 'https://www.crawlforge.dev') {
+```
+
+Note: `AuthManager.js` was already using `www.crawlforge.dev` (no change needed).
+
+#### Part 2: Deploy Backend API Routes
+
+Created and deployed 4 API routes to the CrawlForge.dev Next.js app:
+
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/v1/auth/validate` | POST | Validate API key, return user info |
+| `/api/v1/credits` | GET | Check remaining credit balance |
+| `/api/v1/usage` | POST | Report tool usage, deduct credits |
+| `/api/v1/search` | POST | Proxy Google Search API requests |
+
+**Files Created in crawlforge-website repo:**
+- `src/app/api/v1/auth/validate/route.ts`
+- `src/app/api/v1/credits/route.ts`
+- `src/app/api/v1/usage/route.ts`
+- `src/app/api/v1/search/route.ts`
+
+### API Route Implementation Details
+
+**`/api/v1/auth/validate`:**
+- Validates API key via `validateApiKey()` from `@/lib/api-keys/validator`
+- Returns: `{ userId, email, creditsRemaining, planId }`
+
+**`/api/v1/credits`:**
+- Requires `X-API-Key` header
+- Returns: `{ creditsRemaining, userId, planId }`
+
+**`/api/v1/usage`:**
+- Reports tool usage after execution
+- Deducts credits atomically using Prisma transaction
+- Logs to UsageLog table
+
+**`/api/v1/search`:**
+- Proxies search requests to Google Custom Search API
+- Validates credits before search
+- Deducts 2 credits on success
+- Returns Google Search API compatible response format
+
+### Verification Steps
+
+1. **Build website:** `npm run build` ✅ All 22 v1 routes built successfully
+2. **Deploy website:** `git push origin development` ✅ Pushed to Vercel
+3. **Test MCP server:** `npm test` ✅ All 10 tests passed, 19 tools found
+
+### Deployment Status
+
+**MCP Server:**
+- File changed: `src/tools/search/adapters/crawlforgeSearch.js`
+- Version: `3.0.9`
+
+**CrawlForge Website:**
+- Commit: `551aa1f`
+- Branch: `development`
+- Deployed to: Vercel (automatic deployment on push)
+
+### Expected User Experience After Fix
+
+```bash
+$ npx crawlforge-setup
+Enter your CrawlForge API key: cf_live_xxxxx
+
+🔄 Validating API key...
+✅ Setup complete!
+📧 Account: user@example.com
+💳 Credits remaining: 1000
+📦 Plan: free
+```
+
+### Impact Summary
+
+| Before | After |
+|--------|-------|
+| `api.crawlforge.dev` → DNS NXDOMAIN | `www.crawlforge.dev` → Works |
+| API routes not deployed | 4 API routes live on Vercel |
+| Setup fails with "fetch failed" | Setup completes successfully |
+
+---
+
 ## 🌐 CrawlForge.dev Integration
 
 ### Authentication & API Integration
-**Status:** ✅ Verified  
-**Integration Point:** https://api.crawlforge.dev
+**Status:** ✅ Verified
+**Integration Point:** https://www.crawlforge.dev
 
 #### Authentication Flow
 The MCP server requires users to sign up at **https://www.crawlforge.dev/signup** to obtain an API key:

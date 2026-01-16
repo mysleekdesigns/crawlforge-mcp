@@ -9,7 +9,7 @@ import path from 'path';
 
 class AuthManager {
   constructor() {
-    this.apiEndpoint = process.env.CRAWLFORGE_API_URL || 'https://api.crawlforge.dev';
+    this.apiEndpoint = process.env.CRAWLFORGE_API_URL || 'https://www.crawlforge.dev';
     this.configPath = path.join(process.env.HOME || process.env.USERPROFILE, '.crawlforge', 'config.json');
     this.config = null;
     this.creditCache = new Map();
