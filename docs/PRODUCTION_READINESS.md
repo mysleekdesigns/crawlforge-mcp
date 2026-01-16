@@ -1,7 +1,7 @@
 # CrawlForge MCP Server - Production Readiness Status
 
 **Last Updated:** 2026-01-16
-**Version:** 3.0.9
+**Version:** 3.0.10
 **Status:** ✅ PRODUCTION READY & DEPLOYED
 
 ---
@@ -561,6 +561,70 @@ Enter your CrawlForge API key: cf_live_xxxxx
 | `api.crawlforge.dev` → DNS NXDOMAIN | `www.crawlforge.dev` → Works |
 | API routes not deployed | 4 API routes live on Vercel |
 | Setup fails with "fetch failed" | Setup completes successfully |
+
+---
+
+## 🔧 Phase 7: Auto-Configure MCP Clients (2026-01-16)
+
+**Version:** 3.0.10
+**Issue:** Users had to manually add CrawlForge to their IDE's MCP config after running `npx crawlforge-setup`
+
+### Problem Analysis
+
+After running `npx crawlforge-setup`, users still had to manually edit their `~/.claude.json` or `~/.cursor/mcp.json` to add the CrawlForge MCP server configuration. This was an extra friction point in the setup process.
+
+### Solution Implemented
+
+Enhanced `setup.js` to automatically detect and configure supported MCP clients:
+
+| Client | Config Path | Auto-configured |
+|--------|-------------|-----------------|
+| Claude Code | `~/.claude.json` | ✅ Yes |
+| Cursor | `~/.cursor/mcp.json` | ✅ Yes |
+| Claude Desktop | Various OS paths | ℹ️ Manual (different format) |
+
+### Files Changed
+
+| File | Action | Description |
+|------|--------|-------------|
+| `setup.js` | MODIFY | Added `addToMcpConfig()` and `configureMcpClients()` functions |
+| `README.md` | MODIFY | Updated quick start to reflect auto-configuration |
+| `package.json` | MODIFY | Version bump to 3.0.10 |
+| `server.js` | MODIFY | Version bump to 3.0.10 |
+
+### New User Experience
+
+```bash
+$ npx crawlforge-setup
+Enter your CrawlForge API key: cf_live_xxxxx
+
+🔄 Validating API key...
+✅ Setup complete!
+📧 Account: user@example.com
+💳 Credits remaining: 1000
+📦 Plan: free
+
+🔧 Configuring MCP client integrations...
+✅ Claude Code: Added to MCP config (~/.claude.json)
+✅ Cursor: Added to MCP config (~/.cursor/mcp.json)
+
+⚠️  IMPORTANT: Restart your IDE to load the new MCP server
+```
+
+### Features
+
+1. **Auto-detection**: Detects if Claude Code (`~/.claude.json`) or Cursor (`~/.cursor`) is installed
+2. **Idempotent**: If already configured, shows "Already configured" message
+3. **Safe**: Only adds to existing config, doesn't overwrite
+4. **Fallback**: Shows manual configuration instructions if no clients detected
+
+### Impact Summary
+
+| Before | After |
+|--------|-------|
+| Setup completed but MCP not configured | Setup + MCP auto-configured |
+| Users had to manually edit config files | Zero manual configuration needed |
+| Instructions scattered in README | Setup wizard handles everything |
 
 ---
 

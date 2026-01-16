@@ -6,7 +6,100 @@
  */
 
 import readline from 'readline';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import AuthManager from './src/core/AuthManager.js';
+
+/**
+ * Add CrawlForge to an MCP client configuration file
+ * @param {string} configPath - Path to the config file
+ * @param {string} clientName - Name of the client (for messages)
+ * @returns {object} Result with success status and message
+ */
+function addToMcpConfig(configPath, clientName) {
+  // Check if config exists
+  if (!fs.existsSync(configPath)) {
+    return {
+      success: false,
+      message: `${clientName} config not found (${configPath}). You may need to configure manually.`,
+      notInstalled: true
+    };
+  }
+
+  try {
+    // Read existing config
+    const configContent = fs.readFileSync(configPath, 'utf8');
+    const config = JSON.parse(configContent);
+
+    // Ensure mcpServers object exists
+    if (!config.mcpServers) {
+      config.mcpServers = {};
+    }
+
+    // Check if crawlforge is already configured
+    if (config.mcpServers.crawlforge) {
+      return {
+        success: true,
+        message: `CrawlForge already configured in ${clientName}`,
+        alreadyConfigured: true
+      };
+    }
+
+    // Add crawlforge MCP server configuration
+    config.mcpServers.crawlforge = {
+      type: "stdio",
+      command: "crawlforge",
+      args: [],
+      env: {}
+    };
+
+    // Write updated config
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+    return {
+      success: true,
+      message: `CrawlForge added to ${clientName} MCP config`
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to update ${clientName} config: ${error.message}`
+    };
+  }
+}
+
+/**
+ * Configure all detected MCP clients
+ * @returns {object} Results for each client
+ */
+function configureMcpClients() {
+  const results = {
+    claudeCode: null,
+    cursor: null
+  };
+
+  // Claude Code config path
+  const claudeConfigPath = path.join(os.homedir(), '.claude.json');
+  results.claudeCode = addToMcpConfig(claudeConfigPath, 'Claude Code');
+
+  // Cursor config path (macOS)
+  const cursorConfigPath = path.join(os.homedir(), '.cursor', 'mcp.json');
+  if (fs.existsSync(path.join(os.homedir(), '.cursor'))) {
+    // Cursor directory exists, try to configure
+    if (!fs.existsSync(cursorConfigPath)) {
+      // Create mcp.json if it doesn't exist
+      try {
+        fs.writeFileSync(cursorConfigPath, JSON.stringify({ mcpServers: {} }, null, 2));
+      } catch (e) {
+        // Ignore creation errors
+      }
+    }
+    results.cursor = addToMcpConfig(cursorConfigPath, 'Cursor');
+  }
+
+  return results;
+}
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -74,8 +167,69 @@ async function main() {
     console.log('');
     console.log('🎉 Setup complete! You can now use CrawlForge MCP Server.');
     console.log('');
+
+    // Auto-configure MCP clients (Claude Code, Cursor)
+    console.log('🔧 Configuring MCP client integrations...');
+    const clientResults = configureMcpClients();
+    let anyConfigured = false;
+    let needsRestart = false;
+
+    // Report Claude Code status
+    if (clientResults.claudeCode) {
+      if (clientResults.claudeCode.success) {
+        anyConfigured = true;
+        if (clientResults.claudeCode.alreadyConfigured) {
+          console.log('✅ Claude Code: Already configured');
+        } else {
+          console.log('✅ Claude Code: Added to MCP config (~/.claude.json)');
+          needsRestart = true;
+        }
+      } else if (!clientResults.claudeCode.notInstalled) {
+        console.log(`⚠️  Claude Code: ${clientResults.claudeCode.message}`);
+      }
+    }
+
+    // Report Cursor status
+    if (clientResults.cursor) {
+      if (clientResults.cursor.success) {
+        anyConfigured = true;
+        if (clientResults.cursor.alreadyConfigured) {
+          console.log('✅ Cursor: Already configured');
+        } else {
+          console.log('✅ Cursor: Added to MCP config (~/.cursor/mcp.json)');
+          needsRestart = true;
+        }
+      } else if (!clientResults.cursor.notInstalled) {
+        console.log(`⚠️  Cursor: ${clientResults.cursor.message}`);
+      }
+    }
+
+    // Show restart warning if any client was configured
+    if (needsRestart) {
+      console.log('');
+      console.log('⚠️  IMPORTANT: Restart your IDE to load the new MCP server');
+    }
+
+    // Show manual config instructions if no clients detected
+    if (!anyConfigured && clientResults.claudeCode?.notInstalled && !clientResults.cursor) {
+      console.log('ℹ️  No MCP clients detected. Manual configuration needed:');
+      console.log('');
+      console.log('   Add this to your MCP client config:');
+      console.log('   {');
+      console.log('     "mcpServers": {');
+      console.log('       "crawlforge": {');
+      console.log('         "type": "stdio",');
+      console.log('         "command": "crawlforge"');
+      console.log('       }');
+      console.log('     }');
+      console.log('   }');
+    }
+
+    console.log('');
+    console.log('────────────────────────────────────────────────────────');
+    console.log('');
     console.log('Quick start:');
-    console.log('  npm start              # Start the MCP server');
+    console.log('  crawlforge             # Start the MCP server');
     console.log('  npm run test           # Test your setup');
     console.log('');
     console.log('Need help? Visit: https://www.crawlforge.dev/docs');

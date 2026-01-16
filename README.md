@@ -32,11 +32,12 @@ npx crawlforge-setup
 This will:
 - Guide you through getting your free API key
 - Configure your credentials securely
+- **Auto-configure Claude Code and Cursor** (if installed)
 - Verify your setup is working
 
 **Don't have an API key?** Get one free at [https://www.crawlforge.dev/signup](https://www.crawlforge.dev/signup)
 
-### 3. Configure Your IDE
+### 3. Configure Your IDE (if not auto-configured)
 
 <details>
 <summary>🤖 For Claude Desktop</summary>
@@ -62,17 +63,39 @@ Restart Claude Desktop to activate.
 </details>
 
 <details>
-<summary>💻 For Cursor IDE</summary>
+<summary>🖥️ For Claude Code CLI (Auto-configured)</summary>
 
-Add to `.cursorrules` in your project:
-```bash
-mcp_servers:
-  crawlforge:
-    command: npx
-    args: ["crawlforge-mcp-server"]
+The setup wizard automatically configures Claude Code by adding to `~/.claude.json`:
+```json
+{
+  "mcpServers": {
+    "crawlforge": {
+      "type": "stdio",
+      "command": "crawlforge"
+    }
+  }
+}
 ```
 
-Or use the MCP plugin in Cursor settings.
+After setup, restart Claude Code to activate.
+</details>
+
+<details>
+<summary>💻 For Cursor IDE (Auto-configured)</summary>
+
+The setup wizard automatically configures Cursor by adding to `~/.cursor/mcp.json`:
+```json
+{
+  "mcpServers": {
+    "crawlforge": {
+      "type": "stdio",
+      "command": "crawlforge"
+    }
+  }
+}
+```
+
+Restart Cursor to activate.
 </details>
 
 ## 📊 Available Tools
