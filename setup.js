@@ -15,9 +15,10 @@ import AuthManager from './src/core/AuthManager.js';
  * Add CrawlForge to an MCP client configuration file
  * @param {string} configPath - Path to the config file
  * @param {string} clientName - Name of the client (for messages)
+ * @param {string} apiKey - The CrawlForge API key to include in env
  * @returns {object} Result with success status and message
  */
-function addToMcpConfig(configPath, clientName) {
+function addToMcpConfig(configPath, clientName, apiKey) {
   // Check if config exists
   if (!fs.existsSync(configPath)) {
     return {
@@ -37,8 +38,9 @@ function addToMcpConfig(configPath, clientName) {
       config.mcpServers = {};
     }
 
-    // Check if crawlforge is already configured
-    if (config.mcpServers.crawlforge) {
+    // Check if crawlforge is already configured with the correct API key
+    const existingConfig = config.mcpServers.crawlforge;
+    if (existingConfig && existingConfig.env?.CRAWLFORGE_API_KEY === apiKey) {
       return {
         success: true,
         message: `CrawlForge already configured in ${clientName}`,
@@ -46,12 +48,14 @@ function addToMcpConfig(configPath, clientName) {
       };
     }
 
-    // Add crawlforge MCP server configuration
+    // Add or update crawlforge MCP server configuration with API key
     config.mcpServers.crawlforge = {
       type: "stdio",
       command: "crawlforge",
       args: [],
-      env: {}
+      env: {
+        CRAWLFORGE_API_KEY: apiKey
+      }
     };
 
     // Write updated config
@@ -59,7 +63,9 @@ function addToMcpConfig(configPath, clientName) {
 
     return {
       success: true,
-      message: `CrawlForge added to ${clientName} MCP config`
+      message: existingConfig
+        ? `CrawlForge API key updated in ${clientName} MCP config`
+        : `CrawlForge added to ${clientName} MCP config`
     };
   } catch (error) {
     return {
@@ -71,9 +77,10 @@ function addToMcpConfig(configPath, clientName) {
 
 /**
  * Configure all detected MCP clients
+ * @param {string} apiKey - The CrawlForge API key to include in env
  * @returns {object} Results for each client
  */
-function configureMcpClients() {
+function configureMcpClients(apiKey) {
   const results = {
     claudeCode: null,
     cursor: null
@@ -81,7 +88,7 @@ function configureMcpClients() {
 
   // Claude Code config path
   const claudeConfigPath = path.join(os.homedir(), '.claude.json');
-  results.claudeCode = addToMcpConfig(claudeConfigPath, 'Claude Code');
+  results.claudeCode = addToMcpConfig(claudeConfigPath, 'Claude Code', apiKey);
 
   // Cursor config path (macOS)
   const cursorConfigPath = path.join(os.homedir(), '.cursor', 'mcp.json');
@@ -95,20 +102,47 @@ function configureMcpClients() {
         // Ignore creation errors
       }
     }
-    results.cursor = addToMcpConfig(cursorConfigPath, 'Cursor');
+    results.cursor = addToMcpConfig(cursorConfigPath, 'Cursor', apiKey);
   }
 
   return results;
 }
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
+let rl = null;
 
-const question = (query) => new Promise((resolve) => rl.question(query, resolve));
+function getReadline() {
+  if (!rl) {
+    rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+  }
+  return rl;
+}
+
+const question = (query) => new Promise((resolve) => getReadline().question(query, resolve));
+
+function closeReadline() {
+  if (rl) {
+    rl.close();
+    rl = null;
+  }
+}
 
 async function main() {
+  // Check if running interactively
+  const isInteractive = process.stdin.isTTY;
+
+  if (!isInteractive) {
+    console.log('');
+    console.log('❌ Setup requires an interactive terminal.');
+    console.log('');
+    console.log('Please run this command directly in your terminal:');
+    console.log('  npx crawlforge-setup');
+    console.log('');
+    process.exit(1);
+  }
+
   console.log('');
   console.log('╔═══════════════════════════════════════════════════════╗');
   console.log('║           CrawlForge MCP Server Setup Wizard          ║');
@@ -138,7 +172,7 @@ async function main() {
     
     if (overwrite.toLowerCase() !== 'y') {
       console.log('Setup cancelled.');
-      rl.close();
+      closeReadline();
       process.exit(0);
     }
     console.log('');
@@ -151,7 +185,7 @@ async function main() {
     console.log('');
     console.log('❌ API key is required');
     console.log('Get your free API key at: https://www.crawlforge.dev/signup');
-    rl.close();
+    closeReadline();
     process.exit(1);
   }
 
@@ -168,9 +202,9 @@ async function main() {
     console.log('🎉 Setup complete! You can now use CrawlForge MCP Server.');
     console.log('');
 
-    // Auto-configure MCP clients (Claude Code, Cursor)
+    // Auto-configure MCP clients (Claude Code, Cursor) with API key
     console.log('🔧 Configuring MCP client integrations...');
-    const clientResults = configureMcpClients();
+    const clientResults = configureMcpClients(apiKey.trim());
     let anyConfigured = false;
     let needsRestart = false;
 
@@ -219,7 +253,10 @@ async function main() {
       console.log('     "mcpServers": {');
       console.log('       "crawlforge": {');
       console.log('         "type": "stdio",');
-      console.log('         "command": "crawlforge"');
+      console.log('         "command": "crawlforge",');
+      console.log('         "env": {');
+      console.log(`           "CRAWLFORGE_API_KEY": "${apiKey.trim()}"`);
+      console.log('         }');
       console.log('       }');
       console.log('     }');
       console.log('   }');
@@ -242,11 +279,11 @@ async function main() {
     console.log('  • Documentation: https://www.crawlforge.dev/docs');
     console.log('  • Support: support@crawlforge.dev');
     console.log('');
-    rl.close();
+    closeReadline();
     process.exit(1);
   }
 
-  rl.close();
+  closeReadline();
 }
 
 // Handle errors
@@ -254,13 +291,13 @@ process.on('unhandledRejection', (error) => {
   console.error('');
   console.error('❌ Setup error:', error.message);
   console.error('');
-  rl.close();
+  closeReadline();
   process.exit(1);
 });
 
 // Run setup
 main().catch((error) => {
   console.error('❌ Fatal error:', error);
-  rl.close();
+  closeReadline();
   process.exit(1);
 });
