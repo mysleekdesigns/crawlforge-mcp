@@ -8,7 +8,13 @@ import dotenv from 'dotenv';
 // Load .env file early to check for creator secret
 dotenv.config({ path: '.env', quiet: true });
 
+// SECURITY: Clear any externally-set creator mode env var to prevent bypass
+delete process.env.CRAWLFORGE_CREATOR_MODE;
+
 const CREATOR_SECRET_HASH = 'cfef62e5068d48e7dd6a39c9e16f0be2615510c6b68274fc8abe3156feb5050b';
+
+// Module-scoped flag - cannot be set externally
+let _creatorModeVerified = false;
 
 if (process.env.CRAWLFORGE_CREATOR_SECRET) {
   const providedHash = crypto
@@ -16,12 +22,19 @@ if (process.env.CRAWLFORGE_CREATOR_SECRET) {
     .update(process.env.CRAWLFORGE_CREATOR_SECRET)
     .digest('hex');
 
-  if (providedHash === CREATOR_SECRET_HASH) {
-    process.env.CRAWLFORGE_CREATOR_MODE = 'true';
+  if (crypto.timingSafeEqual(Buffer.from(providedHash, 'hex'), Buffer.from(CREATOR_SECRET_HASH, 'hex'))) {
+    _creatorModeVerified = true;
     console.log('🔓 Creator Mode Enabled - Unlimited Access');
   } else {
     console.warn('⚠️  Invalid creator secret provided');
   }
+  // Clean up the secret from environment
+  delete process.env.CRAWLFORGE_CREATOR_SECRET;
+}
+
+// Export getter for AuthManager to use
+export function isCreatorModeVerified() {
+  return _creatorModeVerified;
 }
 
 // Now import everything else

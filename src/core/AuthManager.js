@@ -6,6 +6,7 @@
 // Using native fetch (Node.js 18+)
 import fs from 'fs/promises';
 import path from 'path';
+import { isCreatorModeVerified } from '../../server.js';
 
 class AuthManager {
   constructor() {
@@ -21,10 +22,10 @@ class AuthManager {
 
   /**
    * Check if running in creator mode (unlimited access, no API required)
-   * Reads from environment variable dynamically to ensure proper initialization order
+   * Uses module-scoped verified flag from server.js - cannot be bypassed via env vars
    */
   isCreatorMode() {
-    return process.env.CRAWLFORGE_CREATOR_MODE === 'true';
+    return isCreatorModeVerified();
   }
 
   /**
@@ -83,8 +84,8 @@ class AuthManager {
     const configDir = path.dirname(this.configPath);
     await fs.mkdir(configDir, { recursive: true });
     
-    // Save config
-    await fs.writeFile(this.configPath, JSON.stringify(config, null, 2));
+    // Save config with owner-only permissions (contains API key)
+    await fs.writeFile(this.configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
     this.config = config;
   }
 
@@ -183,7 +184,8 @@ class AuthManager {
       const response = await fetch(`${this.apiEndpoint}/api/v1/credits`, {
         headers: {
           'X-API-Key': this.config.apiKey
-        }
+        },
+        signal: AbortSignal.timeout(5000)
       });
 
       if (response.ok) {
@@ -193,11 +195,19 @@ class AuthManager {
         return data.creditsRemaining >= estimatedCredits;
       }
     } catch (error) {
-      // If can't check, allow operation but log error
       console.error('Failed to check credits:', error.message);
-    }
 
-    return true; // Allow operation if can't verify
+      // Grace period: allow stale cached credits during transient network failures
+      // This prevents outages from blocking authenticated users while still
+      // failing closed when there's no cached data (no free usage bypass)
+      const cached = this.creditCache.get(this.config.userId);
+      if (cached !== undefined && cached >= estimatedCredits) {
+        console.warn('Using cached credits due to network error — will re-verify on next call');
+        return true;
+      }
+
+      throw new Error('Unable to verify credits. Please check your connection and try again.');
+    }
   }
 
   /**
