@@ -5,7 +5,7 @@ import { QueryExpander } from './queryExpander.js';
 import { ResultRanker } from './ranking/ResultRanker.js';
 import { ResultDeduplicator } from './ranking/ResultDeduplicator.js';
 import LocalizationManager from '../../core/LocalizationManager.js';
-import { isCreatorModeVerified } from '../../../server.js';
+import { isCreatorModeVerified } from '../../core/creatorMode.js';
 
 const SearchWebSchema = z.object({
   query: z.string().min(1),

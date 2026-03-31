@@ -320,6 +320,126 @@ Synthesize these findings into a comprehensive analysis:`;
   }
 
   /**
+   * Extract structured data from content using LLM and a JSON Schema
+   * Follows the same pattern as analyzeRelevance()
+   */
+  async extractStructured(content, schema, options = {}) {
+    const { maxContentLength = 6000, prompt: userPrompt = '', maxTokens = 1000 } = options;
+
+    const truncatedContent = content.length > maxContentLength
+      ? content.substring(0, maxContentLength) + '...'
+      : content;
+
+    // Scale maxTokens with schema complexity
+    const schemaFields = Object.keys(schema.properties || {}).length;
+    const scaledTokens = Math.min(2000, Math.max(maxTokens, schemaFields * 100 + 500));
+
+    const systemPrompt = `You are a structured data extraction expert. Extract data from the provided content and return ONLY valid JSON that conforms to the given JSON Schema. Do not include any explanation or markdown — only the raw JSON object.`;
+
+    const schemaStr = JSON.stringify(schema, null, 2);
+    const guidance = userPrompt ? `\n\nExtraction guidance: ${userPrompt}` : '';
+
+    const extractionPrompt = `JSON Schema to extract:
+${schemaStr}${guidance}
+
+Content to extract from:
+${truncatedContent}
+
+Extract the data and return valid JSON:`;
+
+    try {
+      const response = await this.generateCompletion(extractionPrompt, {
+        systemPrompt,
+        maxTokens: scaledTokens,
+        temperature: 0.1
+      });
+
+      // Strip markdown code fences if present
+      const cleaned = response.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+      const parsed = JSON.parse(cleaned);
+
+      // Lightweight validation
+      const validation = this.validateAgainstSchema(parsed, schema);
+      return {
+        data: parsed,
+        valid: validation.valid,
+        validationErrors: validation.errors
+      };
+    } catch (error) {
+      this.logger.warn('LLM structured extraction failed, using fallback', { error: error.message });
+      return this.fallbackStructuredExtraction(content, schema);
+    }
+  }
+
+  /**
+   * Validate a parsed object against a simple JSON Schema
+   */
+  validateAgainstSchema(data, schema) {
+    const errors = [];
+    const properties = schema.properties || {};
+    const required = schema.required || [];
+
+    for (const field of required) {
+      if (\!(field in data)) {
+        errors.push(`Missing required field: ${field}`);
+      }
+    }
+
+    for (const [key, fieldSchema] of Object.entries(properties)) {
+      if (key in data) {
+        const value = data[key];
+        const expectedType = fieldSchema.type;
+        if (expectedType) {
+          const actualType = Array.isArray(value) ? 'array' : typeof value;
+          if (actualType \!== expectedType) {
+            errors.push(`Field "${key}": expected ${expectedType}, got ${actualType}`);
+          }
+        }
+        if (fieldSchema.enum && \!fieldSchema.enum.includes(value)) {
+          errors.push(`Field "${key}": value "${value}" not in enum ${JSON.stringify(fieldSchema.enum)}`);
+        }
+      }
+    }
+
+    return { valid: errors.length === 0, errors };
+  }
+
+  /**
+   * Fallback structured extraction without LLM — keyword/regex matching for primitives
+   */
+  fallbackStructuredExtraction(content, schema) {
+    const extracted = {};
+    const properties = schema.properties || {};
+
+    for (const [key, fieldSchema] of Object.entries(properties)) {
+      const keyPattern = new RegExp(key.replace(/_/g, '[\\s_-]'), 'i');
+      const lineMatch = content.split('\n').find(line => keyPattern.test(line));
+
+      if (lineMatch) {
+        const valueMatch = lineMatch.match(/:\s*(.+)$/);
+        const rawValue = valueMatch ? valueMatch[1].trim() : null;
+
+        if (rawValue) {
+          if (fieldSchema.type === 'number') {
+            const num = parseFloat(rawValue.replace(/[^0-9.-]/g, ''));
+            if (\!isNaN(num)) extracted[key] = num;
+          } else if (fieldSchema.type === 'boolean') {
+            extracted[key] = /true|yes|1/i.test(rawValue);
+          } else {
+            extracted[key] = rawValue;
+          }
+        }
+      }
+    }
+
+    return {
+      data: extracted,
+      valid: false,
+      validationErrors: ['Used fallback extraction — no LLM provider available']
+    };
+  }
+
+  /**
    * Fallback query expansion without LLM
    */
   fallbackQueryExpansion(query, maxExpansions) {

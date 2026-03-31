@@ -6,7 +6,7 @@
 // Using native fetch (Node.js 18+)
 import fs from 'fs/promises';
 import path from 'path';
-import { isCreatorModeVerified } from '../../server.js';
+import { isCreatorModeVerified } from './creatorMode.js';
 
 class AuthManager {
   constructor() {
@@ -284,7 +284,10 @@ class AuthManager {
       scrape_with_actions: 5,
       generate_llms_txt: 3,
       localization: 5,
-      track_changes: 3
+      track_changes: 3,
+      
+      // Phase 1: LLM-Powered Structured Extraction
+      extract_structured: 4
     };
 
     return costs[tool] || 1;

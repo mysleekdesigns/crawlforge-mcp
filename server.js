@@ -1,43 +1,10 @@
 #!/usr/bin/env node
 
-// Secure Creator Mode Authentication - MUST run before any imports
-// Only the creator can enable unlimited access with their secret
-import crypto from 'crypto';
-import dotenv from 'dotenv';
+// Creator Mode Authentication — imported from src/core/creatorMode.js
+// This MUST be the first import so the secret is verified before any tool code runs.
+export { isCreatorModeVerified } from './src/core/creatorMode.js';
 
-// Load .env file early to check for creator secret
-dotenv.config({ path: '.env', quiet: true });
-
-// SECURITY: Clear any externally-set creator mode env var to prevent bypass
-delete process.env.CRAWLFORGE_CREATOR_MODE;
-
-const CREATOR_SECRET_HASH = 'cfef62e5068d48e7dd6a39c9e16f0be2615510c6b68274fc8abe3156feb5050b';
-
-// Module-scoped flag - cannot be set externally
-let _creatorModeVerified = false;
-
-if (process.env.CRAWLFORGE_CREATOR_SECRET) {
-  const providedHash = crypto
-    .createHash('sha256')
-    .update(process.env.CRAWLFORGE_CREATOR_SECRET)
-    .digest('hex');
-
-  if (crypto.timingSafeEqual(Buffer.from(providedHash, 'hex'), Buffer.from(CREATOR_SECRET_HASH, 'hex'))) {
-    _creatorModeVerified = true;
-    console.log('🔓 Creator Mode Enabled - Unlimited Access');
-  } else {
-    console.warn('⚠️  Invalid creator secret provided');
-  }
-  // Clean up the secret from environment
-  delete process.env.CRAWLFORGE_CREATOR_SECRET;
-}
-
-// Export getter for AuthManager to use
-export function isCreatorModeVerified() {
-  return _creatorModeVerified;
-}
-
-// Now import everything else
+// Import everything else
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -49,6 +16,8 @@ import { ExtractContentTool } from "./src/tools/extract/extractContent.js";
 import { ProcessDocumentTool } from "./src/tools/extract/processDocument.js";
 import { SummarizeContentTool } from "./src/tools/extract/summarizeContent.js";
 import { AnalyzeContentTool } from "./src/tools/extract/analyzeContent.js";
+// Phase 1: LLM-Powered Structured Extraction
+import { ExtractStructuredTool } from "./src/tools/extract/extractStructured.js";
 // Wave 2 Advanced Tools
 import { BatchScrapeTool } from "./src/tools/advanced/BatchScrapeTool.js";
 import { ScrapeWithActionsTool } from "./src/tools/advanced/ScrapeWithActionsTool.js";
@@ -183,6 +152,9 @@ const extractContentTool = new ExtractContentTool();
 const processDocumentTool = new ProcessDocumentTool();
 const summarizeContentTool = new SummarizeContentTool();
 const analyzeContentTool = new AnalyzeContentTool();
+
+// Phase 1: LLM-Powered Structured Extraction Tool
+const extractStructuredTool = new ExtractStructuredTool();
 
 // Initialize Wave 2 Advanced Tools
 const batchScrapeTool = new BatchScrapeTool();
@@ -1235,6 +1207,55 @@ server.registerTool("analyze_content", {
 }));
 
 
+
+// Phase 1: LLM-Powered Structured Extraction
+
+// Tool: extract_structured - Extract structured data from a URL using LLM and JSON Schema
+server.registerTool("extract_structured", {
+  description: "Extract structured data from a webpage using LLM-powered analysis and a JSON Schema. Falls back to CSS selector extraction when no LLM provider is configured.",
+  inputSchema: {
+    url: z.string().url(),
+    schema: z.object({
+      type: z.string().optional(),
+      properties: z.record(z.any()),
+      required: z.array(z.string()).optional()
+    }),
+    prompt: z.string().optional(),
+    llmConfig: z.object({
+      provider: z.string().optional(),
+      apiKey: z.string().optional()
+    }).optional(),
+    fallbackToSelectors: z.boolean().optional().default(true),
+    selectorHints: z.record(z.string()).optional()
+  }
+}, withAuth("extract_structured", async ({ url, schema, prompt, llmConfig, fallbackToSelectors, selectorHints }) => {
+  try {
+    const result = await extractStructuredTool.execute({
+      url,
+      schema,
+      prompt,
+      llmConfig,
+      fallbackToSelectors,
+      selectorHints
+    });
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify(result, null, 2)
+      }]
+    };
+  } catch (error) {
+    return {
+      content: [{
+        type: "text",
+        text: `Structured extraction failed: ${error.message}`
+      }],
+      isError: true
+    };
+  }
+}));
+
+
 // Wave 2 Advanced Tools
 
 // Tool: batch_scrape - Process multiple URLs simultaneously with job management
@@ -1867,7 +1888,8 @@ async function runServer() {
   const trackingTools = ", track_changes";
   const llmsTxtTools = ", generate_llms_txt";
   const wave3Tools = ", stealth_mode, localization";
-  console.error(`Tools available: ${baseTools}${searchTool}${phase3Tools}${wave2Tools}${researchTools}${trackingTools}${llmsTxtTools}${wave3Tools}`);
+  const phase1Tools = ", extract_structured";
+  console.error(`Tools available: ${baseTools}${searchTool}${phase3Tools}${wave2Tools}${researchTools}${trackingTools}${llmsTxtTools}${wave3Tools}${phase1Tools}`);
 
 
 // === MEMORY LEAK PREVENTION ===
@@ -1893,7 +1915,8 @@ async function gracefulShutdown(signal) {
       trackChangesTool,
       generateLLMsTxtTool,
       stealthBrowserManager,
-      localizationManager
+      localizationManager,
+      extractStructuredTool
     ].filter(tool => tool && (typeof tool.destroy === 'function' || typeof tool.cleanup === 'function'));
     
     console.error(`Cleaning up ${toolsToCleanup.length} tools...`);
