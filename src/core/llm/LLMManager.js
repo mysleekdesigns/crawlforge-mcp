@@ -380,7 +380,7 @@ Extract the data and return valid JSON:`;
     const required = schema.required || [];
 
     for (const field of required) {
-      if (\!(field in data)) {
+      if (!(field in data)) {
         errors.push(`Missing required field: ${field}`);
       }
     }
@@ -391,11 +391,11 @@ Extract the data and return valid JSON:`;
         const expectedType = fieldSchema.type;
         if (expectedType) {
           const actualType = Array.isArray(value) ? 'array' : typeof value;
-          if (actualType \!== expectedType) {
+          if (actualType !== expectedType) {
             errors.push(`Field "${key}": expected ${expectedType}, got ${actualType}`);
           }
         }
-        if (fieldSchema.enum && \!fieldSchema.enum.includes(value)) {
+        if (fieldSchema.enum && !fieldSchema.enum.includes(value)) {
           errors.push(`Field "${key}": value "${value}" not in enum ${JSON.stringify(fieldSchema.enum)}`);
         }
       }
@@ -422,7 +422,7 @@ Extract the data and return valid JSON:`;
         if (rawValue) {
           if (fieldSchema.type === 'number') {
             const num = parseFloat(rawValue.replace(/[^0-9.-]/g, ''));
-            if (\!isNaN(num)) extracted[key] = num;
+            if (!isNaN(num)) extracted[key] = num;
           } else if (fieldSchema.type === 'boolean') {
             extracted[key] = /true|yes|1/i.test(rawValue);
           } else {
