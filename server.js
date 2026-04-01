@@ -1965,14 +1965,27 @@ async function runServer() {
       if (req.url === '/.well-known/mcp/server-card.json') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-          name: "crawlforge",
-          version: "3.0.12",
-          description: "Production-ready MCP server with 20 web scraping, crawling, and content processing tools. Features stealth browsing, deep research, structured extraction, and change tracking.",
-          homepage: "https://www.crawlforge.dev",
-          icon: "https://www.crawlforge.dev/icon.png",
+          serverInfo: {
+            name: "crawlforge",
+            version: "3.0.12",
+            description: "Production-ready MCP server with 20 web scraping, crawling, and content processing tools. Features stealth browsing, deep research, structured extraction, and change tracking.",
+            homepage: "https://www.crawlforge.dev",
+            icon: "https://www.crawlforge.dev/icon.png"
+          },
           transport: {
             type: "streamable-http",
             url: "/mcp"
+          },
+          configSchema: {
+            type: "object",
+            properties: {
+              apiKey: {
+                type: "string",
+                description: "Your CrawlForge API key. Get one free at https://www.crawlforge.dev/signup (includes 1,000 credits)",
+                "x-from": { header: "x-api-key" }
+              }
+            },
+            required: ["apiKey"]
           },
           tools: [
             { name: "fetch_url", description: "Fetch content from a URL with optional headers and timeout" },
