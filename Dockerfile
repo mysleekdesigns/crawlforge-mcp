@@ -148,16 +148,3 @@ USER mcp
 
 # Default command for development
 CMD ["npm", "run", "dev"]
-
-# Testing stage
-FROM development AS testing
-
-# Copy test files
-COPY --chown=mcp:mcp tests/ ./tests/
-
-# Set environment for testing
-ENV NODE_ENV=test \
-    CACHE_ENABLE_DISK=false
-
-# Run tests
-RUN npm test
