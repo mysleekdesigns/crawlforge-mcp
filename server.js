@@ -82,7 +82,43 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 }
 
 // Create the server
-const server = new McpServer({ name: "crawlforge", version: "3.0.10" });
+const server = new McpServer({
+  name: "crawlforge",
+  version: "3.0.12",
+  description: "Production-ready MCP server with 20 web scraping, crawling, and content processing tools. Features stealth browsing, deep research, structured extraction, and change tracking.",
+  homepage: "https://www.crawlforge.dev",
+  icon: "https://www.crawlforge.dev/icon.png"
+});
+
+// Register getting-started prompt
+server.prompt("getting-started", {
+  description: "Get started with CrawlForge MCP - learn available tools and best practices",
+}, async () => {
+  return {
+    messages: [{
+      role: "user",
+      content: {
+        type: "text",
+        text: "You have access to CrawlForge MCP with 20 web scraping tools. Key tools:\n\n" +
+          "- fetch_url: Fetch raw HTML/content from any URL\n" +
+          "- extract_text: Extract clean text from a webpage\n" +
+          "- extract_content: Smart content extraction with readability\n" +
+          "- search_web: Search the web and get structured results\n" +
+          "- crawl_deep: Crawl a website following links to a specified depth\n" +
+          "- map_site: Discover all pages on a website\n" +
+          "- batch_scrape: Scrape multiple URLs in parallel\n" +
+          "- scrape_with_actions: Automate browser actions then scrape\n" +
+          "- deep_research: Multi-source research on any topic\n" +
+          "- stealth_mode: Anti-detection browsing for protected sites\n" +
+          "- extract_structured: LLM-powered structured data extraction\n" +
+          "- track_changes: Monitor website changes over time\n" +
+          "- generate_llms_txt: Generate llms.txt for any website\n\n" +
+          "Workflow: search_web -> fetch_url -> extract_content -> analyze_content\n\n" +
+          "Get your API key at https://www.crawlforge.dev/signup (1,000 free credits)"
+      }
+    }]
+  };
+});
 
 // Helper function to wrap tool handlers with authentication and credit tracking
 function withAuth(toolName, handler) {
@@ -608,10 +644,11 @@ async function fetchWithTimeout(url, options = {}) {
 // Tool: fetch_url - Basic URL fetching with headers and response handling
 server.registerTool("fetch_url", {
   description: "Fetch content from a URL with optional headers and timeout",
+  annotations: { title: "Fetch URL", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
-    url: z.string().url(),
-    headers: z.record(z.string()).optional(),
-    timeout: z.number().min(1000).max(30000).optional().default(10000)
+    url: z.string().url().describe("The URL to fetch content from"),
+    headers: z.record(z.string()).optional().describe("Custom HTTP headers to include in the request"),
+    timeout: z.number().min(1000).max(30000).optional().default(10000).describe("Request timeout in milliseconds (1000-30000)")
   }
 }, withAuth("fetch_url", async ({ url, headers, timeout }) => {
   try {
@@ -654,10 +691,11 @@ server.registerTool("fetch_url", {
 // Tool: extract_text - Extract clean text content from HTML
 server.registerTool("extract_text", {
   description: "Extract clean text content from a webpage",
+  annotations: { title: "Extract Text", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
-    url: z.string().url(),
-    remove_scripts: z.boolean().optional().default(true),
-    remove_styles: z.boolean().optional().default(true)
+    url: z.string().url().describe("The URL to extract text from"),
+    remove_scripts: z.boolean().optional().default(true).describe("Remove script tags before extraction"),
+    remove_styles: z.boolean().optional().default(true).describe("Remove style tags before extraction")
   }
 }, withAuth("extract_text", async ({ url, remove_scripts, remove_styles }) => {
   try {
@@ -708,10 +746,11 @@ server.registerTool("extract_text", {
 // Tool: extract_links - Extract all links from a webpage with optional filtering
 server.registerTool("extract_links", {
   description: "Extract all links from a webpage with optional filtering",
+  annotations: { title: "Extract Links", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
-    url: z.string().url(),
-    filter_external: z.boolean().optional().default(false),
-    base_url: z.string().url().optional()
+    url: z.string().url().describe("The URL to extract links from"),
+    filter_external: z.boolean().optional().default(false).describe("Only return external links"),
+    base_url: z.string().url().optional().describe("Base URL for resolving relative links")
   }
 }, withAuth("extract_links", async ({ url, filter_external, base_url }) => {
   try {
@@ -792,8 +831,9 @@ server.registerTool("extract_links", {
 // Tool: extract_metadata - Extract page metadata
 server.registerTool("extract_metadata", {
   description: "Extract metadata from a webpage (title, description, keywords, etc.)",
+  annotations: { title: "Extract Metadata", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
-    url: z.string().url()
+    url: z.string().url().describe("The URL to extract metadata from")
   }
 }, withAuth("extract_metadata", async ({ url }) => {
   try {
@@ -871,9 +911,10 @@ server.registerTool("extract_metadata", {
 // Tool: scrape_structured - Extract structured data using CSS selectors
 server.registerTool("scrape_structured", {
   description: "Extract structured data from a webpage using CSS selectors",
+  annotations: { title: "Scrape Structured Data", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
-    url: z.string().url(),
-    selectors: z.record(z.string())
+    url: z.string().url().describe("The URL to scrape"),
+    selectors: z.record(z.string()).describe("CSS selectors mapping field names to selectors")
   }
 }, withAuth("scrape_structured", async ({ url, selectors }) => {
   try {
@@ -934,15 +975,16 @@ server.registerTool("scrape_structured", {
 // Tool: search_web - Search the web using Google Search via CrawlForge proxy
 server.registerTool("search_web", {
   description: "Search the web using Google Search API (proxied through CrawlForge)",
+  annotations: { title: "Search the Web", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
-    query: z.string(),
-    limit: z.number().min(1).max(100).optional(),
-    offset: z.number().min(0).optional(),
-    lang: z.string().optional(),
-    safe_search: z.boolean().optional(),
-    time_range: z.enum(["day", "week", "month", "year", "all"]).optional(),
-    site: z.string().optional(),
-    file_type: z.string().optional()
+    query: z.string().describe("Search query string"),
+    limit: z.number().min(1).max(100).optional().describe("Maximum number of results to return"),
+    offset: z.number().min(0).optional().describe("Number of results to skip for pagination"),
+    lang: z.string().optional().describe("Language code for results (e.g. 'en', 'fr')"),
+    safe_search: z.boolean().optional().describe("Enable safe search filtering"),
+    time_range: z.enum(["day", "week", "month", "year", "all"]).optional().describe("Filter results by time range"),
+    site: z.string().optional().describe("Limit results to a specific domain"),
+    file_type: z.string().optional().describe("Filter by file type (e.g. 'pdf', 'doc')")
   }
 }, withAuth("search_web", async ({ query, limit, offset, lang, safe_search, time_range, site, file_type }) => {
   try {
@@ -977,16 +1019,17 @@ server.registerTool("search_web", {
 // Tool: crawl_deep - Deep crawl websites with BFS algorithm
 server.registerTool("crawl_deep", {
   description: "Crawl websites deeply using breadth-first search",
+  annotations: { title: "Deep Crawl", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
-    url: z.string().url(),
-    max_depth: z.number().min(1).max(5).optional(),
-    max_pages: z.number().min(1).max(1000).optional(),
-    include_patterns: z.array(z.string()).optional(),
-    exclude_patterns: z.array(z.string()).optional(),
-    follow_external: z.boolean().optional(),
-    respect_robots: z.boolean().optional(),
-    extract_content: z.boolean().optional(),
-    concurrency: z.number().min(1).max(20).optional()
+    url: z.string().url().describe("Starting URL for the crawl"),
+    max_depth: z.number().min(1).max(5).optional().describe("Maximum crawl depth from starting URL"),
+    max_pages: z.number().min(1).max(1000).optional().describe("Maximum number of pages to crawl"),
+    include_patterns: z.array(z.string()).optional().describe("URL patterns to include (regex)"),
+    exclude_patterns: z.array(z.string()).optional().describe("URL patterns to exclude (regex)"),
+    follow_external: z.boolean().optional().describe("Follow links to external domains"),
+    respect_robots: z.boolean().optional().describe("Respect robots.txt directives"),
+    extract_content: z.boolean().optional().describe("Extract page content during crawl"),
+    concurrency: z.number().min(1).max(20).optional().describe("Number of concurrent requests")
   }
 }, withAuth("crawl_deep", async ({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, concurrency }) => {
   try {
@@ -1021,12 +1064,13 @@ server.registerTool("crawl_deep", {
 // Tool: map_site - Discover and map website structure
 server.registerTool("map_site", {
   description: "Discover and map website structure",
+  annotations: { title: "Map Website", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
-    url: z.string().url(),
-    include_sitemap: z.boolean().optional(),
-    max_urls: z.number().min(1).max(10000).optional(),
-    group_by_path: z.boolean().optional(),
-    include_metadata: z.boolean().optional()
+    url: z.string().url().describe("The website URL to map"),
+    include_sitemap: z.boolean().optional().describe("Include sitemap.xml data in results"),
+    max_urls: z.number().min(1).max(10000).optional().describe("Maximum number of URLs to discover"),
+    group_by_path: z.boolean().optional().describe("Group URLs by path segments"),
+    include_metadata: z.boolean().optional().describe("Include page metadata for each URL")
   }
 }, withAuth("map_site", async ({ url, include_sitemap, max_urls, group_by_path, include_metadata }) => {
   try {
@@ -1063,9 +1107,10 @@ server.registerTool("map_site", {
 // Tool: extract_content - Enhanced content extraction with readability detection
 server.registerTool("extract_content", {
   description: "Extract and analyze main content from web pages with enhanced readability detection",
+  annotations: { title: "Extract Content", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
-    url: z.string().url(),
-    options: z.object({}).optional()
+    url: z.string().url().describe("The URL to extract content from"),
+    options: z.object({}).optional().describe("Additional extraction options")
   }
 }, withAuth("extract_content", async ({ url, options }) => {
   try {
@@ -1100,10 +1145,11 @@ server.registerTool("extract_content", {
 // Tool: process_document - Multi-format document processing
 server.registerTool("process_document", {
   description: "Process documents from multiple sources and formats including PDFs and web pages",
+  annotations: { title: "Process Document", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
-    source: z.string(),
-    sourceType: z.enum(['url', 'pdf_url', 'file', 'pdf_file']).optional(),
-    options: z.object({}).optional()
+    source: z.string().describe("Document source - URL or file path"),
+    sourceType: z.enum(['url', 'pdf_url', 'file', 'pdf_file']).optional().describe("Type of document source"),
+    options: z.object({}).optional().describe("Additional processing options")
   }
 }, withAuth("process_document", async ({ source, sourceType, options }) => {
   try {
@@ -1138,9 +1184,10 @@ server.registerTool("process_document", {
 // Tool: summarize_content - Intelligent content summarization
 server.registerTool("summarize_content", {
   description: "Generate intelligent summaries of text content with configurable options",
+  annotations: { title: "Summarize Content", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: {
-    text: z.string(),
-    options: z.object({}).optional()
+    text: z.string().describe("The text content to summarize"),
+    options: z.object({}).optional().describe("Summarization options")
   }
 }, withAuth("summarize_content", async ({ text, options }) => {
   try {
@@ -1175,9 +1222,10 @@ server.registerTool("summarize_content", {
 // Tool: analyze_content - Comprehensive content analysis
 server.registerTool("analyze_content", {
   description: "Perform comprehensive content analysis including language detection and topic extraction",
+  annotations: { title: "Analyze Content", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: {
-    text: z.string(),
-    options: z.object({}).optional()
+    text: z.string().describe("The text content to analyze"),
+    options: z.object({}).optional().describe("Analysis options")
   }
 }, withAuth("analyze_content", async ({ text, options }) => {
   try {
@@ -1216,20 +1264,21 @@ server.registerTool("analyze_content", {
 // Tool: extract_structured - Extract structured data from a URL using LLM and JSON Schema
 server.registerTool("extract_structured", {
   description: "Extract structured data from a webpage using LLM-powered analysis and a JSON Schema. Falls back to CSS selector extraction when no LLM provider is configured.",
+  annotations: { title: "Extract Structured Data", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
-    url: z.string().url(),
+    url: z.string().url().describe("The URL to extract structured data from"),
     schema: z.object({
       type: z.string().optional(),
       properties: z.record(z.any()),
       required: z.array(z.string()).optional()
-    }),
-    prompt: z.string().optional(),
+    }).describe("JSON schema defining the data structure to extract"),
+    prompt: z.string().optional().describe("Natural language instructions for extraction"),
     llmConfig: z.object({
       provider: z.string().optional(),
       apiKey: z.string().optional()
-    }).optional(),
-    fallbackToSelectors: z.boolean().optional().default(true),
-    selectorHints: z.record(z.string()).optional()
+    }).optional().describe("LLM provider configuration for AI-powered extraction"),
+    fallbackToSelectors: z.boolean().optional().default(true).describe("Fall back to CSS selector extraction if LLM is unavailable"),
+    selectorHints: z.record(z.string()).optional().describe("CSS selector hints to guide extraction")
   }
 }, withAuth("extract_structured", async ({ url, schema, prompt, llmConfig, fallbackToSelectors, selectorHints }) => {
   try {
@@ -1264,6 +1313,7 @@ server.registerTool("extract_structured", {
 // Tool: batch_scrape - Process multiple URLs simultaneously with job management
 server.registerTool("batch_scrape", {
   description: "Process multiple URLs simultaneously with support for async job management and webhook notifications",
+  annotations: { title: "Batch Scrape", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     urls: z.array(z.union([
       z.string().url(),
@@ -1274,27 +1324,27 @@ server.registerTool("batch_scrape", {
         timeout: z.number().min(1000).max(30000).optional(),
         metadata: z.record(z.any()).optional()
       })
-    ])).min(1).max(50),
-    formats: z.array(z.enum(['markdown', 'html', 'json', 'text'])).default(['json']),
-    mode: z.enum(['sync', 'async']).default('sync'),
+    ])).min(1).max(50).describe("Array of URLs or URL objects to scrape"),
+    formats: z.array(z.enum(['markdown', 'html', 'json', 'text'])).default(['json']).describe("Output formats for scraped content"),
+    mode: z.enum(['sync', 'async']).default('sync').describe("Processing mode: sync (wait) or async (background)"),
     webhook: z.object({
       url: z.string().url(),
       events: z.array(z.string()).optional().default(['batch_completed', 'batch_failed']),
       headers: z.record(z.string()).optional(),
       signingSecret: z.string().optional()
-    }).optional(),
-    extractionSchema: z.record(z.string()).optional(),
-    maxConcurrency: z.number().min(1).max(20).default(10),
-    delayBetweenRequests: z.number().min(0).max(10000).default(100),
-    includeMetadata: z.boolean().default(true),
-    includeFailed: z.boolean().default(true),
-    pageSize: z.number().min(1).max(100).default(25),
+    }).optional().describe("Webhook configuration for async job notifications"),
+    extractionSchema: z.record(z.string()).optional().describe("Schema for structured data extraction from each URL"),
+    maxConcurrency: z.number().min(1).max(20).default(10).describe("Maximum concurrent scraping requests"),
+    delayBetweenRequests: z.number().min(0).max(10000).default(100).describe("Delay in milliseconds between requests"),
+    includeMetadata: z.boolean().default(true).describe("Include page metadata in results"),
+    includeFailed: z.boolean().default(true).describe("Include failed URLs in results"),
+    pageSize: z.number().min(1).max(100).default(25).describe("Number of results per page"),
     jobOptions: z.object({
       priority: z.number().default(0),
       ttl: z.number().min(60000).default(24 * 60 * 60 * 1000),
       maxRetries: z.number().min(0).max(5).default(1),
       tags: z.array(z.string()).default([])
-    }).optional()
+    }).optional().describe("Job management options for async processing")
   }
 }, withAuth("batch_scrape", async (params) => {
   try {
@@ -1319,8 +1369,9 @@ server.registerTool("batch_scrape", {
 // Tool: scrape_with_actions - Execute action chains before scraping
 server.registerTool("scrape_with_actions", {
   description: "Execute browser action chains before scraping content, with form auto-fill and intermediate state capture",
+  annotations: { title: "Scrape with Browser Actions", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
-    url: z.string().url(),
+    url: z.string().url().describe("The URL to scrape"),
     actions: z.array(z.object({
       type: z.enum(['wait', 'click', 'type', 'press', 'scroll', 'screenshot', 'executeJavaScript']),
       selector: z.string().optional(),
@@ -1331,10 +1382,10 @@ server.registerTool("scrape_with_actions", {
       description: z.string().optional(),
       continueOnError: z.boolean().default(false),
       retries: z.number().min(0).max(5).default(0)
-    })).min(1).max(20),
-    formats: z.array(z.enum(['markdown', 'html', 'json', 'text', 'screenshots'])).default(['json']),
-    captureIntermediateStates: z.boolean().default(false),
-    captureScreenshots: z.boolean().default(true),
+    })).min(1).max(20).describe("Browser actions to perform before scraping"),
+    formats: z.array(z.enum(['markdown', 'html', 'json', 'text', 'screenshots'])).default(['json']).describe("Output formats for scraped content"),
+    captureIntermediateStates: z.boolean().default(false).describe("Capture page state after each action"),
+    captureScreenshots: z.boolean().default(true).describe("Take screenshots during action execution"),
     formAutoFill: z.object({
       fields: z.array(z.object({
         selector: z.string(),
@@ -1344,23 +1395,23 @@ server.registerTool("scrape_with_actions", {
       })),
       submitSelector: z.string().optional(),
       waitAfterSubmit: z.number().min(0).max(30000).default(2000)
-    }).optional(),
+    }).optional().describe("Form auto-fill configuration"),
     browserOptions: z.object({
       headless: z.boolean().default(true),
       userAgent: z.string().optional(),
       viewportWidth: z.number().min(800).max(1920).default(1280),
       viewportHeight: z.number().min(600).max(1080).default(720),
       timeout: z.number().min(10000).max(120000).default(30000)
-    }).optional(),
+    }).optional().describe("Browser configuration options"),
     extractionOptions: z.object({
       selectors: z.record(z.string()).optional(),
       includeMetadata: z.boolean().default(true),
       includeLinks: z.boolean().default(true),
       includeImages: z.boolean().default(true)
-    }).optional(),
-    continueOnActionError: z.boolean().default(false),
-    maxRetries: z.number().min(0).max(3).default(1),
-    screenshotOnError: z.boolean().default(true)
+    }).optional().describe("Content extraction options"),
+    continueOnActionError: z.boolean().default(false).describe("Continue executing actions if one fails"),
+    maxRetries: z.number().min(0).max(3).default(1).describe("Maximum retry attempts on failure"),
+    screenshotOnError: z.boolean().default(true).describe("Capture screenshot when an error occurs")
   }
 }, withAuth("scrape_with_actions", async (params) => {
   try {
@@ -1385,27 +1436,28 @@ server.registerTool("scrape_with_actions", {
 // Tool: deep_research - Comprehensive multi-stage research with source verification
 server.registerTool("deep_research", {
   description: "Conduct comprehensive multi-stage research with intelligent query expansion, source verification, and conflict detection",
+  annotations: { title: "Deep Research", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
-    topic: z.string().min(3).max(500),
-    maxDepth: z.number().min(1).max(10).optional().default(5),
-    maxUrls: z.number().min(1).max(1000).optional().default(50),
-    timeLimit: z.number().min(30000).max(300000).optional().default(120000),
-    researchApproach: z.enum(['broad', 'focused', 'academic', 'current_events', 'comparative']).optional().default('broad'),
-    sourceTypes: z.array(z.enum(['academic', 'news', 'government', 'commercial', 'blog', 'wiki', 'any'])).optional().default(['any']),
-    credibilityThreshold: z.number().min(0).max(1).optional().default(0.3),
-    includeRecentOnly: z.boolean().optional().default(false),
-    enableConflictDetection: z.boolean().optional().default(true),
-    enableSourceVerification: z.boolean().optional().default(true),
-    enableSynthesis: z.boolean().optional().default(true),
-    outputFormat: z.enum(['comprehensive', 'summary', 'citations_only', 'conflicts_focus']).optional().default('comprehensive'),
-    includeRawData: z.boolean().optional().default(false),
-    includeActivityLog: z.boolean().optional().default(false),
+    topic: z.string().min(3).max(500).describe("Research topic or question"),
+    maxDepth: z.number().min(1).max(10).optional().default(5).describe("Maximum research depth"),
+    maxUrls: z.number().min(1).max(1000).optional().default(50).describe("Maximum URLs to analyze"),
+    timeLimit: z.number().min(30000).max(300000).optional().default(120000).describe("Time limit in milliseconds for the research"),
+    researchApproach: z.enum(['broad', 'focused', 'academic', 'current_events', 'comparative']).optional().default('broad').describe("Research methodology approach"),
+    sourceTypes: z.array(z.enum(['academic', 'news', 'government', 'commercial', 'blog', 'wiki', 'any'])).optional().default(['any']).describe("Types of sources to include"),
+    credibilityThreshold: z.number().min(0).max(1).optional().default(0.3).describe("Minimum credibility score for sources (0-1)"),
+    includeRecentOnly: z.boolean().optional().default(false).describe("Only include recent sources"),
+    enableConflictDetection: z.boolean().optional().default(true).describe("Detect conflicting information across sources"),
+    enableSourceVerification: z.boolean().optional().default(true).describe("Verify source credibility"),
+    enableSynthesis: z.boolean().optional().default(true).describe("Synthesize findings into a coherent report"),
+    outputFormat: z.enum(['comprehensive', 'summary', 'citations_only', 'conflicts_focus']).optional().default('comprehensive').describe("Output format for the research report"),
+    includeRawData: z.boolean().optional().default(false).describe("Include raw scraped data in output"),
+    includeActivityLog: z.boolean().optional().default(false).describe("Include detailed activity log"),
     queryExpansion: z.object({
       enableSynonyms: z.boolean().optional().default(true),
       enableSpellCheck: z.boolean().optional().default(true),
       enableContextual: z.boolean().optional().default(true),
       maxVariations: z.number().min(1).max(20).optional().default(8)
-    }).optional(),
+    }).optional().describe("Query expansion settings for broader search coverage"),
     llmConfig: z.object({
       provider: z.enum(['auto', 'openai', 'anthropic']).optional().default('auto'),
       openai: z.object({
@@ -1419,14 +1471,14 @@ server.registerTool("deep_research", {
       }).optional(),
       enableSemanticAnalysis: z.boolean().optional().default(true),
       enableIntelligentSynthesis: z.boolean().optional().default(true)
-    }).optional(),
-    concurrency: z.number().min(1).max(20).optional().default(5),
-    cacheResults: z.boolean().optional().default(true),
+    }).optional().describe("LLM provider configuration for AI-powered analysis"),
+    concurrency: z.number().min(1).max(20).optional().default(5).describe("Number of concurrent research requests"),
+    cacheResults: z.boolean().optional().default(true).describe("Cache research results for reuse"),
     webhook: z.object({
       url: z.string().url(),
       events: z.array(z.enum(['started', 'progress', 'completed', 'failed'])).optional().default(['completed']),
       headers: z.record(z.string()).optional()
-    }).optional()
+    }).optional().describe("Webhook for progress and completion notifications")
   }
 }, withAuth("deep_research", async (params) => {
   try {
@@ -1451,13 +1503,14 @@ server.registerTool("deep_research", {
 // Tool: track_changes - Enhanced Content change tracking with baseline capture and monitoring (Phase 2.4)
 server.registerTool("track_changes", {
   description: "Enhanced content change tracking with baseline capture, comparison, scheduled monitoring, advanced comparison engine, alert system, and historical analysis",
+  annotations: { title: "Track Changes", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
-    url: z.string().url(),
+    url: z.string().url().describe("The URL to track changes for"),
     operation: z.enum([
-      'create_baseline', 
-      'compare', 
-      'monitor', 
-      'get_history', 
+      'create_baseline',
+      'compare',
+      'monitor',
+      'get_history',
       'get_stats',
       'create_scheduled_monitor',
       'stop_scheduled_monitor',
@@ -1466,9 +1519,9 @@ server.registerTool("track_changes", {
       'create_alert_rule',
       'generate_trend_report',
       'get_monitoring_templates'
-    ]).default('compare'),
-    content: z.string().optional(),
-    html: z.string().optional(),
+    ]).default('compare').describe("Tracking operation to perform"),
+    content: z.string().optional().describe("Content to compare against baseline"),
+    html: z.string().optional().describe("HTML content to compare against baseline"),
     trackingOptions: z.object({
       granularity: z.enum(['page', 'section', 'element', 'text']).default('section'),
       trackText: z.boolean().default(true),
@@ -1485,7 +1538,7 @@ server.registerTool("track_changes", {
         moderate: z.number().min(0).max(1).default(0.3),
         major: z.number().min(0).max(1).default(0.7)
       }).optional()
-    }).optional(),
+    }).optional().describe("Options for how changes are tracked and compared"),
     monitoringOptions: z.object({
       enabled: z.boolean().default(false),
       interval: z.number().min(60000).max(24 * 60 * 60 * 1000).default(300000),
@@ -1495,14 +1548,14 @@ server.registerTool("track_changes", {
       enableWebhook: z.boolean().default(false),
       webhookUrl: z.string().url().optional(),
       webhookSecret: z.string().optional()
-    }).optional(),
+    }).optional().describe("Monitoring schedule and notification settings"),
     storageOptions: z.object({
       enableSnapshots: z.boolean().default(true),
       retainHistory: z.boolean().default(true),
       maxHistoryEntries: z.number().min(1).max(1000).default(100),
       compressionEnabled: z.boolean().default(true),
       deltaStorageEnabled: z.boolean().default(true)
-    }).optional(),
+    }).optional().describe("Storage and history retention settings"),
     queryOptions: z.object({
       limit: z.number().min(1).max(500).default(50),
       offset: z.number().min(0).default(0),
@@ -1510,7 +1563,7 @@ server.registerTool("track_changes", {
       endTime: z.number().optional(),
       includeContent: z.boolean().default(false),
       significanceFilter: z.enum(['all', 'minor', 'moderate', 'major', 'critical']).optional()
-    }).optional(),
+    }).optional().describe("Query options for history and stats retrieval"),
     notificationOptions: z.object({
       webhook: z.object({
         enabled: z.boolean().default(false),
@@ -1526,32 +1579,32 @@ server.registerTool("track_changes", {
         channel: z.string().optional(),
         username: z.string().optional()
       }).optional()
-    }).optional(),
+    }).optional().describe("Notification configuration for webhooks and Slack"),
     // Enhanced Phase 2.4 options
     scheduledMonitorOptions: z.object({
       schedule: z.string().optional(), // Cron expression
       templateId: z.string().optional(), // Monitoring template ID
       enabled: z.boolean().default(true)
-    }).optional(),
+    }).optional().describe("Scheduled monitoring options with cron expressions"),
     alertRuleOptions: z.object({
       ruleId: z.string().optional(),
       condition: z.string().optional(), // Condition description
       actions: z.array(z.enum(['webhook', 'email', 'slack'])).optional(),
       throttle: z.number().min(0).optional(),
       priority: z.enum(['low', 'medium', 'high']).optional()
-    }).optional(),
+    }).optional().describe("Alert rule configuration for change notifications"),
     exportOptions: z.object({
       format: z.enum(['json', 'csv']).default('json'),
       startTime: z.number().optional(),
       endTime: z.number().optional(),
       includeContent: z.boolean().default(false),
       includeSnapshots: z.boolean().default(false)
-    }).optional(),
+    }).optional().describe("Export options for change history data"),
     dashboardOptions: z.object({
       includeRecentAlerts: z.boolean().default(true),
       includeTrends: z.boolean().default(true),
       includeMonitorStatus: z.boolean().default(true)
-    }).optional()
+    }).optional().describe("Dashboard display options")
   }
 }, withAuth("track_changes", async (params) => {
   try {
@@ -1576,8 +1629,9 @@ server.registerTool("track_changes", {
 // Tool: generate_llms_txt - Generate LLMs.txt and LLMs-full.txt files (Phase 2.5)
 server.registerTool("generate_llms_txt", {
   description: "Analyze websites and generate standard-compliant LLMs.txt and LLMs-full.txt files defining AI model interaction guidelines",
+  annotations: { title: "Generate llms.txt", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
-    url: z.string().url(),
+    url: z.string().url().describe("The website URL to generate llms.txt for"),
     analysisOptions: z.object({
       maxDepth: z.number().min(1).max(5).optional().default(3),
       maxPages: z.number().min(10).max(500).optional().default(100),
@@ -1585,7 +1639,7 @@ server.registerTool("generate_llms_txt", {
       analyzeContent: z.boolean().optional().default(true),
       checkSecurity: z.boolean().optional().default(true),
       respectRobots: z.boolean().optional().default(true)
-    }).optional(),
+    }).optional().describe("Website analysis options for depth, scope, and detection"),
     outputOptions: z.object({
       includeDetailed: z.boolean().optional().default(true),
       includeAnalysis: z.boolean().optional().default(false),
@@ -1593,9 +1647,9 @@ server.registerTool("generate_llms_txt", {
       organizationName: z.string().optional(),
       customGuidelines: z.array(z.string()).optional(),
       customRestrictions: z.array(z.string()).optional()
-    }).optional(),
-    complianceLevel: z.enum(['basic', 'standard', 'strict']).optional().default('standard'),
-    format: z.enum(['both', 'llms-txt', 'llms-full-txt']).optional().default('both')
+    }).optional().describe("Output customization and organization details"),
+    complianceLevel: z.enum(['basic', 'standard', 'strict']).optional().default('standard').describe("Compliance level for generated guidelines"),
+    format: z.enum(['both', 'llms-txt', 'llms-full-txt']).optional().default('both').describe("Output format: llms.txt, llms-full.txt, or both")
   }
 }, withAuth("generate_llms_txt", async (params) => {
   try {
@@ -1620,8 +1674,9 @@ server.registerTool("generate_llms_txt", {
 // Tool: stealth_mode - Advanced anti-detection browser management (Wave 3)
 server.registerTool("stealth_mode", {
   description: "Advanced anti-detection browser management with stealth features, fingerprint randomization, and human behavior simulation",
+  annotations: { title: "Stealth Mode", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
-    operation: z.enum(['configure', 'enable', 'disable', 'create_context', 'create_page', 'get_stats', 'cleanup']).default('configure'),
+    operation: z.enum(['configure', 'enable', 'disable', 'create_context', 'create_page', 'get_stats', 'cleanup']).default('configure').describe("Stealth operation to perform"),
     stealthConfig: z.object({
       level: z.enum(['basic', 'medium', 'advanced']).default('medium'),
       randomizeFingerprint: z.boolean().default(true),
@@ -1659,9 +1714,9 @@ server.registerTool("stealth_mode", {
         fontSpoofing: z.boolean().default(true),
         hardwareSpoofing: z.boolean().default(true)
       }).optional()
-    }).optional(),
-    contextId: z.string().optional(),
-    urlToTest: z.string().url().optional()
+    }).optional().describe("Stealth browser configuration with anti-detection settings"),
+    contextId: z.string().optional().describe("Browser context ID for page operations"),
+    urlToTest: z.string().url().optional().describe("URL to navigate to when creating a page")
   }
 }, withAuth("stealth_mode", async ({ operation, stealthConfig, contextId, urlToTest }) => {
   try {
@@ -1741,20 +1796,21 @@ server.registerTool("stealth_mode", {
 // Tool: localization - Multi-language and geo-location management (Wave 3)
 server.registerTool("localization", {
   description: "Multi-language and geo-location management with country-specific settings, browser locale emulation, timezone spoofing, and geo-blocked content handling",
+  annotations: { title: "Localization", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
-    operation: z.enum(['configure_country', 'localize_search', 'localize_browser', 'generate_timezone_spoof', 'handle_geo_blocking', 'auto_detect', 'get_stats', 'get_supported_countries']).default('configure_country'),
-    countryCode: z.string().length(2).optional(),
-    language: z.string().optional(),
-    timezone: z.string().optional(),
-    currency: z.string().length(3).optional(),
-    customHeaders: z.record(z.string()).optional(),
-    userAgent: z.string().optional(),
-    acceptLanguage: z.string().optional(),
+    operation: z.enum(['configure_country', 'localize_search', 'localize_browser', 'generate_timezone_spoof', 'handle_geo_blocking', 'auto_detect', 'get_stats', 'get_supported_countries']).default('configure_country').describe("Localization operation to perform"),
+    countryCode: z.string().length(2).optional().describe("ISO 3166-1 alpha-2 country code"),
+    language: z.string().optional().describe("Language code (e.g. 'en', 'fr', 'de')"),
+    timezone: z.string().optional().describe("IANA timezone identifier (e.g. 'America/New_York')"),
+    currency: z.string().length(3).optional().describe("ISO 4217 currency code (e.g. 'USD', 'EUR')"),
+    customHeaders: z.record(z.string()).optional().describe("Custom HTTP headers for localized requests"),
+    userAgent: z.string().optional().describe("Custom user agent string"),
+    acceptLanguage: z.string().optional().describe("Accept-Language header value"),
     geoLocation: z.object({
       latitude: z.number().min(-90).max(90),
       longitude: z.number().min(-180).max(180),
       accuracy: z.number().min(1).max(100).optional()
-    }).optional(),
+    }).optional().describe("GPS coordinates for geolocation emulation"),
     proxySettings: z.object({
       enabled: z.boolean().default(false),
       region: z.string().optional(),
@@ -1773,26 +1829,26 @@ server.registerTool("localization", {
         maxRetries: z.number().default(3),
         timeout: z.number().default(10000)
       }).optional()
-    }).optional(),
+    }).optional().describe("Proxy configuration for geo-targeted requests"),
     searchParams: z.object({
       query: z.string().optional(),
       limit: z.number().optional(),
       offset: z.number().optional(),
       headers: z.record(z.string()).optional()
-    }).optional(),
+    }).optional().describe("Search parameters for localized search queries"),
     browserOptions: z.object({
       locale: z.string().optional(),
       timezoneId: z.string().optional(),
       extraHTTPHeaders: z.record(z.string()).optional(),
       userAgent: z.string().optional()
-    }).optional(),
-    content: z.string().optional(),
-    url: z.string().url().optional(),
+    }).optional().describe("Browser context options for locale emulation"),
+    content: z.string().optional().describe("Content for auto-detection of language and locale"),
+    url: z.string().url().optional().describe("URL for geo-blocking detection or auto-detection"),
     response: z.object({
       status: z.number(),
       body: z.string().optional(),
       statusText: z.string().optional()
-    }).optional()
+    }).optional().describe("HTTP response for geo-blocking analysis")
   }
 }, withAuth("localization", async (params) => {
   try {
