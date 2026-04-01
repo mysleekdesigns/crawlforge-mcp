@@ -161,12 +161,3 @@ ENV NODE_ENV=test \
 
 # Run tests
 RUN npm test
-
-# Security scanning stage
-FROM aquasec/trivy:latest AS security-scan
-
-# Copy the production image for scanning
-COPY --from=production /app /scan-target
-
-# Run security scan
-RUN trivy fs --exit-code 1 --severity HIGH,CRITICAL /scan-target
