@@ -1961,6 +1961,45 @@ async function runServer() {
         return;
       }
 
+      // MCP server card for Smithery discovery
+      if (req.url === '/.well-known/mcp/server-card.json') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          name: "crawlforge",
+          version: "3.0.12",
+          description: "Production-ready MCP server with 20 web scraping, crawling, and content processing tools. Features stealth browsing, deep research, structured extraction, and change tracking.",
+          homepage: "https://www.crawlforge.dev",
+          icon: "https://www.crawlforge.dev/icon.png",
+          transport: {
+            type: "streamable-http",
+            url: "/mcp"
+          },
+          tools: [
+            { name: "fetch_url", description: "Fetch content from a URL with optional headers and timeout" },
+            { name: "extract_text", description: "Extract clean text content from a webpage" },
+            { name: "extract_links", description: "Extract all links from a webpage with filtering options" },
+            { name: "extract_metadata", description: "Extract comprehensive metadata from a webpage" },
+            { name: "scrape_structured", description: "Scrape structured data using CSS selectors" },
+            { name: "search_web", description: "Search the web and get structured results" },
+            { name: "crawl_deep", description: "Recursively crawl a website following links" },
+            { name: "map_site", description: "Discover and map all pages on a website" },
+            { name: "extract_content", description: "Smart content extraction with readability" },
+            { name: "process_document", description: "Process documents from URLs or files" },
+            { name: "summarize_content", description: "Generate summaries of text content" },
+            { name: "analyze_content", description: "Analyze text for sentiment, topics, and entities" },
+            { name: "extract_structured", description: "LLM-powered structured data extraction" },
+            { name: "batch_scrape", description: "Scrape multiple URLs in parallel" },
+            { name: "scrape_with_actions", description: "Automate browser actions then scrape" },
+            { name: "deep_research", description: "Multi-source deep research on any topic" },
+            { name: "track_changes", description: "Monitor and track website changes over time" },
+            { name: "generate_llms_txt", description: "Generate llms.txt for any website" },
+            { name: "stealth_mode", description: "Anti-detection stealth browsing" },
+            { name: "localization", description: "Geo-targeted browsing and localization" }
+          ]
+        }));
+        return;
+      }
+
       // Route /mcp to the transport handler
       if (req.url === '/mcp' || req.url === '/') {
         const sessionId = req.headers['mcp-session-id'];
