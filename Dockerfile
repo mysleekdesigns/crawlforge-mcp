@@ -97,8 +97,8 @@ EXPOSE 3000
 # Use tini as init system
 ENTRYPOINT ["/sbin/tini", "--"]
 
-# Default command
-CMD ["node", "server.js"]
+# Default command (HTTP mode for remote deployment)
+CMD ["node", "server.js", "--http"]
 
 # Development stage
 FROM node:20-alpine AS development

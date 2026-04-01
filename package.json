@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node server.js",
+    "start:http": "node server.js --http",
     "setup": "node setup.js",
     "dev": "cross-env NODE_ENV=development node server.js",
     "test": "node tests/integration/mcp-protocol-compliance.test.js",

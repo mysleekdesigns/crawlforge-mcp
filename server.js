@@ -7,6 +7,9 @@ export { isCreatorModeVerified } from './src/core/creatorMode.js';
 // Import everything else
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { load } from "cheerio";
 import { SearchWebTool } from "./src/tools/search/searchWeb.js";
@@ -1871,11 +1874,58 @@ server.registerTool("localization", {
   }
 }));
 
-// Set up the stdio transport and start the server
+// Determine transport mode: HTTP if --http flag or MCP_HTTP env var is set
+const useHttp = process.argv.includes('--http') || process.env.MCP_HTTP === 'true';
+
+// Set up transport and start the server
 async function runServer() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error("CrawlForge MCP Server v3.0 running on stdio");
+  if (useHttp) {
+    const port = parseInt(process.env.PORT || '3000', 10);
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+    });
+    await server.connect(transport);
+
+    const httpServer = createServer((req, res) => {
+      // CORS headers for Smithery gateway
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id');
+      res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
+
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
+      // Health check endpoint
+      if (req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', version: '3.0' }));
+        return;
+      }
+
+      // Route /mcp to the transport handler
+      if (req.url === '/mcp' || req.url === '/') {
+        transport.handleRequest(req, res);
+        return;
+      }
+
+      res.writeHead(404);
+      res.end('Not Found');
+    });
+
+    httpServer.listen(port, () => {
+      console.error(`CrawlForge MCP Server v3.0 running on HTTP port ${port}`);
+      console.error(`MCP endpoint: http://localhost:${port}/mcp`);
+      console.error(`Health check: http://localhost:${port}/health`);
+    });
+  } else {
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error("CrawlForge MCP Server v3.0 running on stdio");
+  }
   console.error(`Environment: ${config.server.nodeEnv}`);
   
   console.error("Search enabled: true (via CrawlForge proxy)");
