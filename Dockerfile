@@ -121,8 +121,8 @@ COPY --from=builder --chown=mcp:mcp /app/server.js ./
 COPY --from=builder --chown=mcp:mcp /app/src ./src
 
 # Create necessary directories
-RUN mkdir -p /app/cache /app/logs /app/snapshots && \
-    chown -R mcp:mcp /app/cache /app/logs /app/snapshots
+RUN mkdir -p /app/cache /app/logs /app/snapshots /app/jobs /app/webhooks && \
+    chown -R mcp:mcp /app/cache /app/logs /app/snapshots /app/jobs /app/webhooks
 
 # Set environment variables
 ENV NODE_ENV=production \
