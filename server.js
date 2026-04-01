@@ -1937,12 +1937,11 @@ const useHttp = process.argv.includes('--http') || process.env.MCP_HTTP === 'tru
 async function runServer() {
   if (useHttp) {
     const port = parseInt(process.env.PORT || '3000', 10);
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
-    });
-    await server.connect(transport);
 
-    const httpServer = createServer((req, res) => {
+    // Track transports by session ID for stateful mode
+    const transports = new Map();
+
+    const httpServer = createServer(async (req, res) => {
       // CORS headers for Smithery gateway
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
@@ -1964,7 +1963,34 @@ async function runServer() {
 
       // Route /mcp to the transport handler
       if (req.url === '/mcp' || req.url === '/') {
-        transport.handleRequest(req, res);
+        const sessionId = req.headers['mcp-session-id'];
+
+        if (sessionId && transports.has(sessionId)) {
+          // Existing session — route to its transport
+          const transport = transports.get(sessionId);
+          await transport.handleRequest(req, res);
+          return;
+        }
+
+        // New session — create a new transport
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+        });
+
+        // Track the session once assigned
+        transport.onclose = () => {
+          const sid = transport.sessionId;
+          if (sid) transports.delete(sid);
+        };
+
+        await server.connect(transport);
+
+        await transport.handleRequest(req, res);
+
+        // Store transport by its assigned session ID
+        if (transport.sessionId) {
+          transports.set(transport.sessionId, transport);
+        }
         return;
       }
 
