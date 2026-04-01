@@ -1938,8 +1938,12 @@ async function runServer() {
   if (useHttp) {
     const port = parseInt(process.env.PORT || '3000', 10);
 
-    // Track transports by session ID for stateful mode
-    const transports = new Map();
+    // Stateless transport — no session tracking, each request is independent
+    // This avoids the bug where server.connect(newTransport) kills previous sessions
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+    });
+    await server.connect(transport);
 
     const httpServer = createServer(async (req, res) => {
       // CORS headers for Smithery gateway
@@ -1981,68 +1985,20 @@ async function runServer() {
             properties: {
               apiKey: {
                 type: "string",
+                title: "CrawlForge API Key",
                 description: "Your CrawlForge API key. Get one free at https://www.crawlforge.dev/signup (includes 1,000 credits)",
                 "x-from": { header: "x-api-key" }
               }
             },
             required: ["apiKey"]
-          },
-          tools: [
-            { name: "fetch_url", description: "Fetch content from a URL with optional headers and timeout" },
-            { name: "extract_text", description: "Extract clean text content from a webpage" },
-            { name: "extract_links", description: "Extract all links from a webpage with filtering options" },
-            { name: "extract_metadata", description: "Extract comprehensive metadata from a webpage" },
-            { name: "scrape_structured", description: "Scrape structured data using CSS selectors" },
-            { name: "search_web", description: "Search the web and get structured results" },
-            { name: "crawl_deep", description: "Recursively crawl a website following links" },
-            { name: "map_site", description: "Discover and map all pages on a website" },
-            { name: "extract_content", description: "Smart content extraction with readability" },
-            { name: "process_document", description: "Process documents from URLs or files" },
-            { name: "summarize_content", description: "Generate summaries of text content" },
-            { name: "analyze_content", description: "Analyze text for sentiment, topics, and entities" },
-            { name: "extract_structured", description: "LLM-powered structured data extraction" },
-            { name: "batch_scrape", description: "Scrape multiple URLs in parallel" },
-            { name: "scrape_with_actions", description: "Automate browser actions then scrape" },
-            { name: "deep_research", description: "Multi-source deep research on any topic" },
-            { name: "track_changes", description: "Monitor and track website changes over time" },
-            { name: "generate_llms_txt", description: "Generate llms.txt for any website" },
-            { name: "stealth_mode", description: "Anti-detection stealth browsing" },
-            { name: "localization", description: "Geo-targeted browsing and localization" }
-          ]
+          }
         }));
         return;
       }
 
       // Route /mcp to the transport handler
       if (req.url === '/mcp' || req.url === '/') {
-        const sessionId = req.headers['mcp-session-id'];
-
-        if (sessionId && transports.has(sessionId)) {
-          // Existing session — route to its transport
-          const transport = transports.get(sessionId);
-          await transport.handleRequest(req, res);
-          return;
-        }
-
-        // New session — create a new transport
-        const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
-        });
-
-        // Track the session once assigned
-        transport.onclose = () => {
-          const sid = transport.sessionId;
-          if (sid) transports.delete(sid);
-        };
-
-        await server.connect(transport);
-
         await transport.handleRequest(req, res);
-
-        // Store transport by its assigned session ID
-        if (transport.sessionId) {
-          transports.set(transport.sessionId, transport);
-        }
         return;
       }
 
