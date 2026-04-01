@@ -44,62 +44,6 @@ RUN rm -rf \
     .env.example \
     tasks/
 
-# Production stage
-FROM node:20-alpine AS production
-
-# Install runtime dependencies
-RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    dumb-init \
-    tini
-
-# Create non-root user
-RUN addgroup -g 1001 -S mcp && \
-    adduser -S mcp -u 1001 -G mcp
-
-# Set working directory
-WORKDIR /app
-
-# Copy built application from builder stage
-COPY --from=builder --chown=mcp:mcp /app/node_modules ./node_modules
-COPY --from=builder --chown=mcp:mcp /app/package*.json ./
-COPY --from=builder --chown=mcp:mcp /app/server.js ./
-COPY --from=builder --chown=mcp:mcp /app/src ./src
-
-# Create necessary directories
-RUN mkdir -p /app/cache /app/logs && \
-    chown -R mcp:mcp /app/cache /app/logs
-
-# Set environment variables
-ENV NODE_ENV=production \
-    NODE_OPTIONS="--max-old-space-size=512" \
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
-    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser \
-    CACHE_DIR=/app/cache \
-    LOG_LEVEL=info \
-    ENABLE_METRICS=true
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD node -e "console.log('Health check passed')" || exit 1
-
-# Switch to non-root user
-USER mcp
-
-# Expose port (if needed for HTTP mode)
-EXPOSE 3000
-
-# Use tini as init system
-ENTRYPOINT ["/sbin/tini", "--"]
-
-# Default command (HTTP mode for remote deployment)
-CMD ["node", "server.js", "--http"]
-
 # Development stage
 FROM node:20-alpine AS development
 
@@ -148,3 +92,59 @@ USER mcp
 
 # Default command for development
 CMD ["npm", "run", "dev"]
+
+# Production stage (last = default for Render/Docker)
+FROM node:20-alpine AS production
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    dumb-init \
+    tini
+
+# Create non-root user
+RUN addgroup -g 1001 -S mcp && \
+    adduser -S mcp -u 1001 -G mcp
+
+# Set working directory
+WORKDIR /app
+
+# Copy built application from builder stage
+COPY --from=builder --chown=mcp:mcp /app/node_modules ./node_modules
+COPY --from=builder --chown=mcp:mcp /app/package*.json ./
+COPY --from=builder --chown=mcp:mcp /app/server.js ./
+COPY --from=builder --chown=mcp:mcp /app/src ./src
+
+# Create necessary directories
+RUN mkdir -p /app/cache /app/logs && \
+    chown -R mcp:mcp /app/cache /app/logs
+
+# Set environment variables
+ENV NODE_ENV=production \
+    NODE_OPTIONS="--max-old-space-size=512" \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser \
+    CACHE_DIR=/app/cache \
+    LOG_LEVEL=info \
+    ENABLE_METRICS=true
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD node -e "console.log('Health check passed')" || exit 1
+
+# Switch to non-root user
+USER mcp
+
+# Expose port
+EXPOSE 3000
+
+# Use tini as init system
+ENTRYPOINT ["/sbin/tini", "--"]
+
+# Default command (HTTP mode for remote deployment)
+CMD ["node", "server.js", "--http"]
