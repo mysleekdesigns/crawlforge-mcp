@@ -1113,7 +1113,7 @@ export class ChangeTracker extends EventEmitter {
   /**
    * Detect changes against the latest snapshot
    */
-  async detectChanges(url, currentContent) {
+  async detectChangesFromSnapshot(url, currentContent) {
     // Validate URL format
     try {
       new URL(url);

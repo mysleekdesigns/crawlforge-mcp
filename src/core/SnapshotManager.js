@@ -219,8 +219,8 @@ export class SnapshotManager extends EventEmitter {
       let isCompressed = false;
       let isDelta = false;
       
-      // Apply delta storage if similar snapshot found
-      if (deltaInfo && deltaInfo.similarity > this.retentionPolicy.deltaThreshold) {
+      // Apply delta storage if similar snapshot found (skip if base content is null, e.g. exact hash match)
+      if (deltaInfo && deltaInfo.content && deltaInfo.similarity > this.retentionPolicy.deltaThreshold) {
         const deltaData = this.createDelta(deltaInfo.content, content);
         if (deltaData.length < content.length * 0.7) { // Only use delta if it's significantly smaller
           finalContent = deltaData;

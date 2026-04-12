@@ -668,7 +668,7 @@ export class BrowserProcessor {
 
       // Check for dynamic content indicators
       const dynamicIndicators = document.querySelectorAll(
-        '[data-bind], [v-if], [v-for], [ng-if], [ng-repeat], [*ngFor], [*ngIf]'
+        '[data-bind], [v-if], [v-for], [ng-if], [ng-repeat], [ngFor], [ngIf]'
       );
       analysis.hasDynamicContent = dynamicIndicators.length > 0 || analysis.detectedFrameworks.length > 0;
 

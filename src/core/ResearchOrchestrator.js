@@ -462,31 +462,74 @@ export class ResearchOrchestrator extends EventEmitter {
             this.researchState.visitedUrls.add(source.link);
             this.metrics.urlsProcessed++;
 
-            // Extract detailed content
-            const contentData = await this.extractTool.execute({
-              url: source.link,
-              options: { includeMetadata: true, includeStructuredData: true }
-            });
+            // Extract detailed content (with fallback to fetch_url + text extraction)
+            let contentData;
+            try {
+              contentData = await this.extractTool.execute({
+                url: source.link,
+                options: { includeMetadata: true, includeStructuredData: true }
+              });
+            } catch (extractError) {
+              this.logger.warn('Primary extraction failed, trying fallback', {
+                url: source.link,
+                error: extractError.message
+              });
+              // Fallback: use fetch + basic text extraction
+              try {
+                const fetchResponse = await fetch(source.link, {
+                  headers: { 'User-Agent': 'CrawlForge-Research/1.0' },
+                  signal: AbortSignal.timeout(10000)
+                });
+                if (fetchResponse.ok) {
+                  const html = await fetchResponse.text();
+                  // Strip HTML tags for basic text content
+                  const textContent = html
+                    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+                    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+                    .replace(/<[^>]+>/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                  if (textContent.length > 50) {
+                    contentData = {
+                      content: textContent.slice(0, 5000),
+                      metadata: { title: source.title || '' },
+                      structuredData: {},
+                      fallback: true
+                    };
+                  }
+                }
+              } catch (fallbackError) {
+                this.logger.warn('Fallback extraction also failed', {
+                  url: source.link,
+                  error: fallbackError.message
+                });
+              }
+            }
 
             if (contentData && contentData.content) {
               this.metrics.contentExtracted++;
-              
+
+              // Normalize content to string (extract_content returns {text: "..."}, fallback returns string)
+              const contentText = typeof contentData.content === 'string'
+                ? contentData.content
+                : (contentData.content.text || JSON.stringify(contentData.content));
+
               // Enhance source with extracted content
               let enhancedSource = {
                 ...source,
-                extractedContent: contentData.content,
+                extractedContent: contentText,
                 metadata: contentData.metadata,
                 structuredData: contentData.structuredData,
                 extractedAt: new Date().toISOString(),
-                wordCount: contentData.content.split(' ').length,
-                readabilityScore: this.calculateReadabilityScore(contentData.content)
+                wordCount: contentText.split(' ').length,
+                readabilityScore: this.calculateReadabilityScore(contentText)
               };
 
               // LLM-powered relevance analysis
               if (this.enableLLMFeatures && topic) {
                 try {
                   const relevanceAnalysis = await this.llmManager.analyzeRelevance(
-                    contentData.content, 
+                    contentText,
                     topic,
                     { maxContentLength: 2000 }
                   );
@@ -508,11 +551,11 @@ export class ResearchOrchestrator extends EventEmitter {
                     error: llmError.message 
                   });
                   // Set default relevance score
-                  enhancedSource.relevanceScore = this.calculateTraditionalRelevance(contentData.content, topic);
+                  enhancedSource.relevanceScore = this.calculateTraditionalRelevance(contentText, topic);
                 }
               } else {
                 // Fallback relevance calculation
-                enhancedSource.relevanceScore = this.calculateTraditionalRelevance(contentData.content, topic);
+                enhancedSource.relevanceScore = this.calculateTraditionalRelevance(contentText, topic);
               }
 
               this.researchState.extractedContent.set(source.link, enhancedSource);
@@ -700,14 +743,16 @@ export class ResearchOrchestrator extends EventEmitter {
           }
         });
 
-        if (summary.keyPoints) {
-          summary.keyPoints.forEach((point, index) => {
+        // Handle both keypoints (tool output) and keyPoints (legacy) property names
+        const keyPoints = summary.keypoints || summary.keyPoints || [];
+        if (keyPoints.length > 0) {
+          keyPoints.forEach((point, index) => {
             claims.push({
               id: `${source.link}_claim_${index}`,
               claim: point,
               source: source.link,
               sourceTitle: source.title,
-              credibility: source.overallCredibility || 0.5,
+              credibility: source.overallCredibility || 0.65,
               context: summary.supporting?.[index] || '',
               extractedAt: new Date().toISOString()
             });
@@ -1042,7 +1087,7 @@ export class ResearchOrchestrator extends EventEmitter {
 
   generateKeyFindings(claimGroups, sources) {
     return claimGroups
-      .filter(group => group.avgCredibility >= 0.6)
+      .filter(group => group.avgCredibility >= 0.3)
       .sort((a, b) => b.consensusStrength - a.consensusStrength)
       .slice(0, 10)
       .map(group => ({
@@ -1055,7 +1100,7 @@ export class ResearchOrchestrator extends EventEmitter {
 
   compileSupportingEvidence(sources) {
     return sources
-      .filter(source => source.overallCredibility >= 0.7)
+      .filter(source => source.overallCredibility >= 0.3)
       .map(source => ({
         title: source.title,
         url: source.link,

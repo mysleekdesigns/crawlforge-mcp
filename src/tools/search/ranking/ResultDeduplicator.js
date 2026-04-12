@@ -8,10 +8,10 @@ export class ResultDeduplicator {
     this.options = {
       // Similarity thresholds
       thresholds: {
-        url: 0.8,           // URL similarity threshold
-        title: 0.75,        // Title similarity threshold
-        content: 0.7,       // Content similarity threshold
-        combined: 0.6       // Combined similarity threshold for final decision
+        url: 0.9,           // URL similarity threshold
+        title: 0.85,        // Title similarity threshold
+        content: 0.85,      // Content similarity threshold
+        combined: 0.8       // Combined similarity threshold for final decision
       },
       
       // Deduplication strategies
@@ -38,7 +38,7 @@ export class ResultDeduplicator {
         minLength: 10,             // Minimum content length to compare
         ngramSize: 3,              // N-gram size for comparison
         simhashBits: 64,           // SimHash bit size
-        hammingThreshold: 8        // Hamming distance threshold for SimHash
+        hammingThreshold: 16       // Hamming distance threshold for SimHash
       },
       
       // Merge strategy
@@ -200,31 +200,31 @@ export class ResultDeduplicator {
    */
   areDuplicates(result1, result2, options) {
     const similarities = this.computeSimilarities(result1, result2, options);
-    
-    // URL-based duplicate detection
-    if (similarities.url >= options.thresholds.url) {
+
+    // Near-identical URLs are always duplicates (e.g. http vs https of same page)
+    if (similarities.url >= 0.95) {
       this.stats.urlDuplicates++;
       return true;
     }
-    
-    // Title-based duplicate detection
-    if (similarities.title >= options.thresholds.title) {
-      this.stats.titleDuplicates++;
+
+    // Require at least 2 high-similarity signals to mark as duplicate
+    let matchCount = 0;
+    if (similarities.url >= options.thresholds.url) matchCount++;
+    if (similarities.title >= options.thresholds.title) matchCount++;
+    if (similarities.content >= options.thresholds.content) matchCount++;
+
+    if (matchCount >= 2) {
+      if (similarities.title >= options.thresholds.title) this.stats.titleDuplicates++;
+      if (similarities.content >= options.thresholds.content) this.stats.contentDuplicates++;
       return true;
     }
-    
-    // Content-based duplicate detection
-    if (similarities.content >= options.thresholds.content) {
-      this.stats.contentDuplicates++;
-      return true;
-    }
-    
-    // Combined similarity score
+
+    // Combined similarity score (still requires high threshold)
     const combinedScore = this.computeCombinedSimilarity(similarities);
     if (combinedScore >= options.thresholds.combined) {
       return true;
     }
-    
+
     return false;
   }
 

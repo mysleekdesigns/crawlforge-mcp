@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import { ContentAnalyzer } from '../../core/analysis/ContentAnalyzer.js';
+import { splitSentences } from '../../core/analysis/sentenceUtils.js';
 
 const SummarizeContentSchema = z.object({
   text: z.string().min(10),
@@ -182,7 +183,7 @@ export class SummarizeContentTool {
   async extractKeyPoints(originalText, summary) {
     try {
       // Simple key point extraction based on important sentences
-      const sentences = originalText.split(/[.!?]+/).filter(s => s.trim().length > 0);
+      const sentences = splitSentences(originalText);
       
       // Score sentences based on various factors
       const scoredSentences = sentences.map(sentence => {
@@ -248,7 +249,7 @@ export class SummarizeContentTool {
   calculateTextStatistics(text) {
     const characters = text.length;
     const words = text.split(/\s+/).filter(w => w.length > 0);
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    const sentences = splitSentences(text);
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     
     // Estimate reading time (average 200 words per minute)

@@ -7,6 +7,7 @@ import { SummarizerManager } from 'node-summarizer';
 import { franc } from 'franc';
 import nlp from 'compromise';
 import { z } from 'zod';
+import { splitSentences } from './sentenceUtils.js';
 
 const ContentAnalyzerSchema = z.object({
   text: z.string().min(1),
@@ -290,11 +291,29 @@ export class ContentAnalyzer {
       });
 
       if (detected === 'und') {
-        return null; // Undetermined language
+        // Fallback: check if text is predominantly ASCII Latin characters (likely English)
+        const latinChars = (text.match(/[a-zA-Z]/g) || []).length;
+        const totalChars = text.replace(/\s/g, '').length;
+        if (totalChars > 0 && latinChars / totalChars > 0.7) {
+          // Check for common English words as a heuristic
+          const lower = text.toLowerCase();
+          const englishMarkers = ['the ', 'is ', 'are ', 'was ', 'and ', 'for ', 'that ', 'with ', 'this ', 'from '];
+          const matchCount = englishMarkers.filter(w => lower.includes(w)).length;
+          if (matchCount >= 2) {
+            return {
+              code: 'eng',
+              name: 'English',
+              confidence: 0.6,
+              alternative: [],
+              detectionMethod: 'heuristic'
+            };
+          }
+        }
+        return null; // Truly undetermined language
       }
 
-      // Get confidence score (simplified approach)
-      const confidence = Math.min(1, text.length / 100 * 0.01 + 0.5);
+      // Get confidence score based on text length and detection certainty
+      const confidence = Math.min(1, 0.5 + (text.length / 500) * 0.5);
 
       // Get alternative languages using franc.all
       const alternatives = franc.all(text, {
@@ -329,7 +348,7 @@ export class ContentAnalyzer {
    */
   async summarizeText(text, options = {}) {
     try {
-      const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+      const sentences = splitSentences(text);
       
       if (sentences.length < 3) {
         return {
@@ -364,13 +383,13 @@ export class ContentAnalyzer {
       if (options.summaryType === 'extractive') {
         // Use node-summarizer for extractive summarization
         const summary = await this.summarizer.getSummaryByRanking(text, targetSentences);
-        summarySentences = summary.split(/[.!?]+/).filter(s => s.trim().length > 0);
+        summarySentences = splitSentences(summary);
       } else {
         // Simple abstractive approach (for demonstration)
         summarySentences = await this.createAbstractiveSummary(text, targetSentences);
       }
 
-      const summaryText = summarySentences.join('. ').trim() + '.';
+      const summaryText = summarySentences.map(s => s.replace(/[.!?]+$/, '').trim()).join('. ').trim() + '.';
       const compressionRatio = summaryText.length / text.length;
 
       return {
@@ -385,15 +404,15 @@ export class ContentAnalyzer {
       console.warn('Text summarization failed:', error.message);
       
       // Fallback: return first few sentences
-      const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+      const sentences = splitSentences(text);
       const fallbackSentences = sentences.slice(0, 2);
       
       return {
         type: 'fallback',
         length: 'short',
         sentences: fallbackSentences,
-        text: fallbackSentences.join('. ').trim() + '.',
-        compressionRatio: fallbackSentences.join('. ').length / text.length
+        text: fallbackSentences.map(s => s.replace(/[.!?]+$/, '').trim()).join('. ').trim() + '.',
+        compressionRatio: fallbackSentences.map(s => s.replace(/[.!?]+$/, '').trim()).join('. ').length / text.length
       };
     }
   }
@@ -479,13 +498,45 @@ export class ContentAnalyzer {
     try {
       const doc = nlp(text);
 
+      const people = doc.people().out('array');
+      const places = doc.places().out('array');
+      const organizations = doc.organizations().out('array');
+      const dates = doc.dates().out('array');
+      const money = doc.money().out('array');
+      let other = doc.topics().out('array').slice(0, 10);
+
+      // Supplement with capitalized proper nouns that compromise may miss
+      // (technology names, product names, etc.)
+      const existingEntities = new Set([
+        ...people, ...places, ...organizations, ...other
+      ].map(e => e.toLowerCase()));
+
+      const properNouns = text.match(/\b[A-Z][a-zA-Z.]+(?:\s+[A-Z][a-zA-Z.]+)*/g) || [];
+      const supplemental = [...new Set(properNouns)]
+        .filter(n => !existingEntities.has(n.toLowerCase()) && n.length > 1)
+        .slice(0, 10);
+
+      if (supplemental.length > 0) {
+        other = [...other, ...supplemental].slice(0, 15);
+      }
+
+      const allEntities = [...people, ...places, ...organizations, ...dates, ...money, ...other];
+      const uniqueEntities = new Set(allEntities.map(e => e.toLowerCase()));
+
       return {
-        people: doc.people().out('array'),
-        places: doc.places().out('array'),
-        organizations: doc.organizations().out('array'),
-        dates: doc.dates().out('array'),
-        money: doc.money().out('array'),
-        other: doc.topics().out('array').slice(0, 10) // Limit other entities
+        people,
+        places,
+        organizations,
+        dates,
+        money,
+        other,
+        summary: {
+          totalEntities: allEntities.length,
+          uniqueEntities: uniqueEntities.size,
+          entityDensity: text.split(/\s+/).length > 0
+            ? uniqueEntities.size / text.split(/\s+/).length
+            : 0
+        }
       };
 
     } catch (error) {
@@ -496,7 +547,8 @@ export class ContentAnalyzer {
         organizations: [],
         dates: [],
         money: [],
-        other: []
+        other: [],
+        summary: { totalEntities: 0, uniqueEntities: 0, entityDensity: 0 }
       };
     }
   }
@@ -521,10 +573,11 @@ export class ContentAnalyzer {
       const termTypes = {};
       
       [...nouns, ...verbs, ...adjectives].forEach(term => {
-        const cleaned = term.toLowerCase().trim();
+        // Strip leading/trailing punctuation but preserve internal periods (e.g. Node.js)
+        const cleaned = term.toLowerCase().trim().replace(/^[^a-z0-9]+|[^a-z0-9.]+$/gi, '').replace(/\.+$/, '');
         if (cleaned.length > 2 && !this.isStopWord(cleaned)) {
           termFreq[cleaned] = (termFreq[cleaned] || 0) + 1;
-          
+
           if (!termTypes[cleaned]) {
             if (nouns.includes(term)) termTypes[cleaned] = 'noun';
             else if (verbs.includes(term)) termTypes[cleaned] = 'verb';
@@ -561,7 +614,7 @@ export class ContentAnalyzer {
    */
   async calculateReadability(text) {
     try {
-      const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+      const sentences = splitSentences(text);
       const words = text.split(/\s+/).filter(w => w.length > 0);
       const characters = text.length;
       const charactersNoSpaces = text.replace(/\s/g, '').length;
@@ -669,7 +722,7 @@ export class ContentAnalyzer {
     const characters = text.length;
     const charactersNoSpaces = text.replace(/\s/g, '').length;
     const words = text.split(/\s+/).filter(w => w.length > 0);
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    const sentences = splitSentences(text);
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     
     // Estimate reading time (average 200 words per minute)
