@@ -9,7 +9,7 @@ Professional web scraping and content extraction server implementing the Model C
 
 ## 🎯 Features
 
-- **18 Professional Tools**: Web scraping, deep research, stealth browsing, content analysis
+- **20 Professional Tools**: Web scraping, deep research, stealth browsing, content analysis
 - **Free Tier**: 1,000 credits to get started instantly
 - **MCP Compatible**: Works with Claude, Cursor, and other MCP-enabled AI tools
 - **Enterprise Ready**: Scale up with paid plans for production use
@@ -111,6 +111,8 @@ Restart Cursor to activate.
 - `search_web` - Search the web using Google Search API
 - `summarize_content` - Generate intelligent summaries
 - `analyze_content` - Comprehensive content analysis
+- `extract_structured` - LLM-powered schema-driven extraction
+- `track_changes` - Monitor content changes over time
 
 ### Premium Tools (5-10 credits)
 - `crawl_deep` - Deep crawl entire websites
@@ -136,7 +138,7 @@ Restart Cursor to activate.
 | **Enterprise** | 250,000 | Large scale operations |
 
 **All plans include:**
-- Access to all 18 tools
+- Access to all 20 tools
 - Credits never expire and roll over month-to-month
 - API access and webhook notifications
 

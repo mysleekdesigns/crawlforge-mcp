@@ -60,7 +60,7 @@ These guidelines are working if: fewer unnecessary changes in diffs, fewer rewri
 
 ## Project Overview
 
-CrawlForge MCP Server - A professional MCP (Model Context Protocol) server providing 19 web scraping, crawling, and content processing tools.
+CrawlForge MCP Server - A professional MCP (Model Context Protocol) server providing 20 web scraping, crawling, and content processing tools.
 
 **Current Version:** 3.0.12
 
@@ -141,13 +141,13 @@ Tools are organized in subdirectories by category:
 - `tracking/` - trackChanges
 - `llmstxt/` - generateLLMsTxt
 
-### Available MCP Tools (19 total)
+### Available MCP Tools (20 total)
 
 **Basic Tools (server.js inline):**
 fetch_url, extract_text, extract_links, extract_metadata, scrape_structured
 
 **Advanced Tools:**
-search_web, crawl_deep, map_site, extract_content, process_document, summarize_content, analyze_content, batch_scrape, scrape_with_actions, deep_research, track_changes, generate_llms_txt, stealth_mode, localization
+search_web, crawl_deep, map_site, extract_content, process_document, summarize_content, analyze_content, extract_structured, batch_scrape, scrape_with_actions, deep_research, track_changes, generate_llms_txt, stealth_mode, localization
 
 ### MCP Server Entry Point
 

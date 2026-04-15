@@ -6,7 +6,25 @@ CrawlForge MCP Server (v3.0.12) has 20 specialized tools and strong security/ste
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — without breaking any of the 20 existing MCP tools or the current setup flow.
 
-**Last Updated:** 2026-03-30
+**Last Updated:** 2026-04-15
+
+---
+
+## Release History
+
+### v3.0.17 — Security Patch (2026-04-15)
+
+Cleared all 12 `npm audit` advisories (8 high, 3 moderate, 1 low) flagged by Socket.dev against v3.0.16. No public API changes; all 20 MCP tools verified passing post-upgrade.
+
+**Direct dependency bumps:**
+- `@modelcontextprotocol/sdk`: `^1.17.3` → `^1.29.0` (resolves GHSA-345p-7cg4-v4c7 cross-client data leak; cascades fix to `hono`, `@hono/node-server`, `ajv`, `path-to-regexp`)
+- `isomorphic-dompurify`: `^2.26.0` → `^3.9.0` (resolves 4 `dompurify` advisories including mutation-XSS and prototype pollution)
+- `jsdom`: `^26.1.0` → `^29.0.2` (dedupes with isomorphic-dompurify v3's inner dep)
+- `jest` + `@jest/globals` (dev): `^30.0.5` → `^30.3.0` (refreshes `minimatch`, `brace-expansion`, `picomatch` to patched versions)
+
+**Transitive `overrides` added** (for deps whose parents are latest-already or unmaintained): `undici ^7.24.0`, `underscore ^1.13.8`, `qs ^6.14.2`, `path-to-regexp ^8.4.2`, `@hono/node-server ^1.19.13`, `hono ^4.12.4`, `dompurify ^3.4.0`.
+
+**Verification:** `npm audit` reports 0 vulnerabilities. MCP protocol compliance: 10/10. `test-tools.js`: 20/20 tools PASS. `test-real-world.js`: 4/4 scenarios PASS.
 
 ---
 
