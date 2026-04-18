@@ -7,15 +7,18 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { isCreatorModeVerified } from './creatorMode.js';
+import { resolveApiEndpoint } from './endpointGuard.js';
 
 class AuthManager {
   constructor() {
-    this.apiEndpoint = process.env.CRAWLFORGE_API_URL || 'https://www.crawlforge.dev';
+    this.apiEndpoint = resolveApiEndpoint(process.env.CRAWLFORGE_API_URL || 'https://www.crawlforge.dev');
     this.configPath = path.join(process.env.HOME || process.env.USERPROFILE, '.crawlforge', 'config.json');
+    this.pendingUsagePath = path.join(process.env.HOME || process.env.USERPROFILE, '.crawlforge', 'pending-usage.json');
     this.config = null;
     this.creditCache = new Map();
     this.lastCreditCheck = null;
-    this.CREDIT_CHECK_INTERVAL = 60000; // Check credits every minute max
+    this.lastSuccessfulCreditCheck = new Map();
+    this.CREDIT_CHECK_INTERVAL = 15000;
     this.initialized = false;
     // NOTE: Don't read creator mode in constructor - it's set dynamically in server.js
   }
@@ -47,6 +50,12 @@ class AuthManager {
     } catch (error) {
       console.log('No existing CrawlForge configuration found. Run setup to configure.');
       this.initialized = true;
+    }
+
+    try {
+      await this._flushPendingUsage();
+    } catch {
+      // Best-effort flush — do not block startup
     }
   }
 
@@ -192,20 +201,16 @@ class AuthManager {
         const data = await response.json();
         this.creditCache.set(this.config.userId, data.creditsRemaining);
         this.lastCreditCheck = now;
+        this.lastSuccessfulCreditCheck.set(this.config.userId, now);
         return data.creditsRemaining >= estimatedCredits;
       }
     } catch (error) {
       console.error('Failed to check credits:', error.message);
 
-      // Grace period: allow stale cached credits during transient network failures
-      // This prevents outages from blocking authenticated users while still
-      // failing closed when there's no cached data (no free usage bypass)
+      const lastOk = this.lastSuccessfulCreditCheck.get(this.config.userId) ?? 0;
+      const withinGrace = Date.now() - lastOk < 30_000;
       const cached = this.creditCache.get(this.config.userId);
-      if (cached !== undefined && cached >= estimatedCredits) {
-        console.warn('Using cached credits due to network error — will re-verify on next call');
-        return true;
-      }
-
+      if (withinGrace && cached !== undefined && cached >= estimatedCredits) return true;
       throw new Error('Unable to verify credits. Please check your connection and try again.');
     }
   }
@@ -218,39 +223,119 @@ class AuthManager {
     if (this.isCreatorMode()) {
       return;
     }
-    
+
     if (!this.config) {
       return; // Silently skip if not configured
     }
 
-    try {
-      const payload = {
-        tool,
-        creditsUsed,
-        requestData,
-        responseStatus,
-        processingTime,
-        timestamp: new Date().toISOString(),
-        version: '3.0.3'
-      };
+    const userId = this.config.userId;
 
+    // Pre-decrement cache before fetch so network failures still deplete credits
+    const cached = this.creditCache.get(userId);
+    if (cached !== undefined) {
+      this.creditCache.set(userId, Math.max(0, cached - creditsUsed));
+    }
+
+    const payload = {
+      tool,
+      creditsUsed,
+      requestData,
+      responseStatus,
+      processingTime,
+      timestamp: new Date().toISOString(),
+      version: '3.0.3'
+    };
+
+    try {
       await fetch(`${this.apiEndpoint}/api/v1/usage`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-API-Key': this.config.apiKey
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(5000)
       });
 
-      // Update cached credits
-      const cached = this.creditCache.get(this.config.userId);
-      if (cached !== undefined) {
-        this.creditCache.set(this.config.userId, Math.max(0, cached - creditsUsed));
-      }
+      await this._flushPendingUsage();
     } catch (error) {
       // Log but don't throw - usage reporting should not break tool execution
       console.error('Failed to report usage:', error.message);
+      await this._appendPendingUsage({ toolName: tool, creditsUsed, userId, timestamp: payload.timestamp });
+    }
+  }
+
+  async _appendPendingUsage(entry) {
+    try {
+      const configDir = path.dirname(this.pendingUsagePath);
+      await fs.mkdir(configDir, { recursive: true });
+
+      let entries = [];
+      try {
+        const raw = await fs.readFile(this.pendingUsagePath, 'utf-8');
+        entries = JSON.parse(raw);
+      } catch {
+        // File absent or corrupt — start fresh
+      }
+
+      entries.push(entry);
+
+      // Cap at 1 MB — drop oldest entries until serialized size fits
+      let serialized = JSON.stringify(entries);
+      while (serialized.length > 1_048_576 && entries.length > 1) {
+        entries.shift();
+        serialized = JSON.stringify(entries);
+      }
+
+      await fs.writeFile(this.pendingUsagePath, serialized, { mode: 0o600 });
+    } catch (error) {
+      console.error('Failed to append pending usage:', error.message);
+    }
+  }
+
+  async _flushPendingUsage() {
+    if (!this.config) return;
+
+    let entries;
+    try {
+      const raw = await fs.readFile(this.pendingUsagePath, 'utf-8');
+      entries = JSON.parse(raw);
+    } catch {
+      return; // Nothing to flush
+    }
+
+    if (!Array.isArray(entries) || entries.length === 0) return;
+
+    const remaining = [];
+    for (const entry of entries) {
+      try {
+        await fetch(`${this.apiEndpoint}/api/v1/usage`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': this.config.apiKey
+          },
+          body: JSON.stringify({
+            tool: entry.toolName,
+            creditsUsed: entry.creditsUsed,
+            timestamp: entry.timestamp,
+            version: '3.0.3'
+          }),
+          signal: AbortSignal.timeout(5000)
+        });
+      } catch {
+        remaining.push(entry);
+      }
+    }
+
+    try {
+      if (remaining.length === 0) {
+        await fs.unlink(this.pendingUsagePath);
+      } else {
+        await fs.writeFile(this.pendingUsagePath, JSON.stringify(remaining), { mode: 0o600 });
+      }
+    } catch (error) {
+      console.error('Failed to update pending usage file:', error.message);
     }
   }
 

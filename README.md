@@ -154,6 +154,7 @@ export CRAWLFORGE_API_KEY="cf_live_your_api_key_here"
 
 # Optional: Custom API endpoint (for enterprise)
 export CRAWLFORGE_API_URL="https://api.crawlforge.dev"
+# As of v3.0.18, this variable is validated against an allow-list of CrawlForge backend hosts.
 ```
 
 ### Manual Configuration

@@ -5,6 +5,18 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.18] - 2026-04-18
+
+### Security
+- **CRITICAL:** Endpoint allow-list prevents `CRAWLFORGE_API_URL` from pointing to unauthorized/mock backends. Localhost only permitted in creator mode.
+- **CRITICAL:** Credit check fails closed — cached results only trusted within 30 s of last successful backend response. `CREDIT_CHECK_INTERVAL` reduced from 60 s to 15 s.
+- **HIGH:** Usage reporting now has a 5 s timeout and decrements local cache regardless of network success. Failed usage reports queued to `~/.crawlforge/pending-usage.json` and replayed automatically.
+
+### Known Issues (deferred to future release)
+- HTTP transport (`--http`) still uses the server's stored key for every request. Do not expose publicly until Phase 4 lands.
+- API key is not re-validated at startup (Phase 5).
+- Local `config.json` has no integrity check (Phase 6).
+
 ## [3.0.3] - 2025-10-01
 
 ### Security
@@ -82,6 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Type | Description |
 |---------|------|------|-------------|
+| 3.0.18 | 2026-04-18 | Security | Endpoint allow-list, fail-closed credit check, usage-report hardening |
 | 3.0.3 | 2025-10-01 | Security | Critical auth bypass fix |
 | 3.0.2 | 2025-10-01 | Maintenance | Package cleanup & metadata fixes |
 | 3.0.1 | 2025-10-01 | Security | JS execution & webhook security |

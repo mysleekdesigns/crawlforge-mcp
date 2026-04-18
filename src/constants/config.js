@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { resolveApiEndpoint } from '../core/endpointGuard.js';
 
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
@@ -11,7 +12,7 @@ export const config = {
   // CrawlForge API Configuration
   crawlforge: {
     apiKey: process.env.CRAWLFORGE_API_KEY || '',
-    apiBaseUrl: process.env.CRAWLFORGE_API_URL || 'https://www.crawlforge.dev'
+    apiBaseUrl: resolveApiEndpoint(process.env.CRAWLFORGE_API_URL || 'https://www.crawlforge.dev')
   },
 
   // Performance

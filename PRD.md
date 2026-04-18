@@ -12,6 +12,20 @@ CrawlForge MCP Server (v3.0.12) has 20 specialized tools and strong security/ste
 
 ## Release History
 
+### v3.0.18 — Security Patch (2026-04-18)
+
+Closes three critical/high audit findings identified in the 2026-04-18 security audit of v3.0.17. No public API changes; all 20 MCP tools continue to pass.
+
+**Phase 1 — Endpoint allow-list (CRITICAL):** `CRAWLFORGE_API_URL` is now validated against an allow-list of permitted CrawlForge backend hosts (`www.crawlforge.dev`, `crawlforge.dev`, `api.crawlforge.dev`). Localhost is only accepted when verified creator mode is active. The server exits at startup if the endpoint fails validation.
+
+**Phase 2 — Fail-closed credit check (CRITICAL):** Cached credit results are now only trusted within a 30-second window of the last successful backend response. `CREDIT_CHECK_INTERVAL` reduced from 60 s to 15 s. Blocking outbound network no longer grants indefinite free access.
+
+**Phase 3 — Usage-report hardening (HIGH):** Usage-report fetch has a 5-second timeout. Local credit cache is decremented regardless of network outcome. Failed reports are queued to `~/.crawlforge/pending-usage.json` (capped at 1 MB) and replayed on the next successful report or server startup.
+
+**Deferred:** Phases 4 (HTTP transport per-request auth), 5 (startup key re-validation), and 6 (config HMAC) are intentionally deferred; see `docs/PRODUCTION_READINESS.md` for open-item tracking.
+
+---
+
 ### v3.0.17 — Security Patch (2026-04-15)
 
 Cleared all 12 `npm audit` advisories (8 high, 3 moderate, 1 low) flagged by Socket.dev against v3.0.16. No public API changes; all 20 MCP tools verified passing post-upgrade.

@@ -23,6 +23,7 @@
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.0.18 | 2026-04-18 | Security patch — endpoint allow-list, fail-closed credit check, usage-report hardening (audit phases 1/2/3) |
 | 3.0.12 | 2026-03-30 | Add functional test files (test-tools.js, test-real-world.js) |
 | 3.0.10 | 2026-01-16 | Auto-configure Claude Code & Cursor MCP clients |
 | 3.0.9 | 2026-01-16 | Fix API endpoint (api → www.crawlforge.dev) |
@@ -64,6 +65,17 @@ All HIGH priority items resolved:
 - ✅ SHA-256 creator mode authentication
 - ✅ SSRF protection (industry-leading)
 - ✅ Zod input validation on all tools
+
+### Security Audit — Phase Tracker (audit date 2026-04-18, v3.0.17 baseline)
+
+| Phase | Severity | Description | Status |
+|-------|----------|-------------|--------|
+| Phase 1 | CRITICAL | Endpoint allow-list (`CRAWLFORGE_API_URL` validation) | ✅ COMPLETE in v3.0.18 |
+| Phase 2 | CRITICAL | Fail-closed credit check (30 s grace window, interval 15 s) | ✅ COMPLETE in v3.0.18 |
+| Phase 3 | HIGH | Usage-report hardening (5 s timeout, cache decrement, pending queue) | ✅ COMPLETE in v3.0.18 |
+| Phase 4 | HIGH | HTTP transport per-request auth (Track A/B decision required) | OPEN — deferred |
+| Phase 5 | MEDIUM | API key re-validation on startup | OPEN — deferred |
+| Phase 6 | LOW | Config HMAC integrity check (requires backend change) | OPEN — deferred |
 
 ---
 
