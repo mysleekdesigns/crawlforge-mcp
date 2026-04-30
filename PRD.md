@@ -12,6 +12,20 @@ CrawlForge MCP Server (v3.0.12) has 20 specialized tools and strong security/ste
 
 ## Release History
 
+### Unreleased — `deep_research` raw-evidence mode + scope/metric fixes (2026-04-30)
+
+`deep_research` previously appeared broken when called from Claude Code: it returned `success: true` but emitted unreadable text fragments in `keyFindings`, `consensus`, `conflicts`, and `recommendations`. Root cause: the tool tried to do its own LLM-powered synthesis but, when no `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` was configured, silently fell back to a frequency-based keyword extractor that produced garbage. MCP "sampling" (server-to-host LLM calls) is not yet supported in Claude Code ([anthropics/claude-code#1785](https://github.com/anthropics/claude-code/issues/1785)), so the tool cannot route through the user's Max plan.
+
+**Fix 1 — raw-evidence mode:** When no LLM provider is configured, `ResearchOrchestrator.synthesizeInformation` now skips the broken keyword pipeline and returns a clean `synthesisMode: "raw_evidence"` payload — per-source `{title, url, credibility, contentSnippet, topSentences}` plus an explanatory `note` directing the calling LLM (Claude Code on a Max/Pro plan) to do the synthesis itself. The legacy LLM-enhanced path is unchanged when keys are present. `.env.example` and `CLAUDE.md` now document the optional LLM keys.
+
+**Fix 2 — scope-param propagation in `buildOrchestratorConfig()`:** The `academic`, `current_events`, `comparative`, and `focused` (partial) approach branches silently dropped `maxUrls`, `timeLimit`, and `concurrency` from the user's request, falling back to orchestrator defaults (`maxUrls: 100`, `timeLimit: 120000`). For example, calling with `researchApproach: "current_events", maxUrls: 6` returned 15 sources. Each branch now spreads a shared `scopeConfig` so user-supplied scope is honored across all approaches.
+
+**Fix 3 — performance/depth metrics:** `performance.totalProcessingTime` was being snapshot into the result *before* it was assigned (always reported `0`); now set before `compileResearchResults` runs. `metadata.researchDepth` was vestigial — initialized to `0` and never updated; now incremented after each of the five orchestration stages so the field reflects how far the pipeline got (`5` = full success, `<5` = partial completion before failure).
+
+Files: `src/core/ResearchOrchestrator.js`, `src/tools/research/deepResearch.js`, `.env.example`, `CLAUDE.md`, `PRD.md`. All 20 MCP tools continue to pass `node test-tools.js`.
+
+---
+
 ### v3.0.18 — Security Patch (2026-04-18)
 
 Closes three critical/high audit findings identified in the 2026-04-18 security audit of v3.0.17. No public API changes; all 20 MCP tools continue to pass.

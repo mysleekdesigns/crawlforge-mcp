@@ -208,11 +208,20 @@ export class DeepResearchTool {
       baseConfig.llmConfig = params.llmConfig;
     }
     
-    // Adjust configuration based on research approach
+    // Every approach must propagate the user's scope params (maxUrls,
+    // timeLimit, concurrency) — only `broad` did before, so non-broad
+    // approaches silently fell back to orchestrator defaults.
+    const scopeConfig = {
+      maxUrls: params.maxUrls,
+      timeLimit: params.timeLimit,
+      concurrency: params.concurrency
+    };
+
     switch (params.researchApproach) {
       case 'academic':
         return {
           ...baseConfig,
+          ...scopeConfig,
           maxDepth: Math.min(params.maxDepth, 8),
           enableSourceVerification: true,
           searchConfig: {
@@ -225,10 +234,11 @@ export class DeepResearchTool {
             }
           }
         };
-        
+
       case 'current_events':
         return {
           ...baseConfig,
+          ...scopeConfig,
           maxDepth: Math.min(params.maxDepth, 6),
           searchConfig: {
             enableRanking: true,
@@ -240,18 +250,20 @@ export class DeepResearchTool {
             }
           }
         };
-        
+
       case 'focused':
         return {
           ...baseConfig,
+          ...scopeConfig,
           maxDepth: Math.min(params.maxDepth, 4),
           maxUrls: Math.min(params.maxUrls, 30),
           concurrency: Math.min(params.concurrency, 3)
         };
-        
+
       case 'comparative':
         return {
           ...baseConfig,
+          ...scopeConfig,
           enableConflictDetection: true,
           maxDepth: params.maxDepth,
           searchConfig: {
@@ -263,14 +275,13 @@ export class DeepResearchTool {
             }
           }
         };
-        
+
       case 'broad':
       default:
         return {
           ...baseConfig,
-          maxDepth: params.maxDepth,
-          maxUrls: params.maxUrls,
-          timeLimit: params.timeLimit
+          ...scopeConfig,
+          maxDepth: params.maxDepth
         };
     }
   }
@@ -334,6 +345,20 @@ export class DeepResearchTool {
    * Format research results according to output preferences
    */
   formatResults(results, params) {
+    // Raw evidence mode (no LLM configured): pass through the clean shape
+    // designed for the calling LLM to synthesize.
+    if (results.synthesisMode === 'raw_evidence') {
+      return {
+        synthesisMode: 'raw_evidence',
+        note: results.note,
+        sources: results.sources,
+        researchSummary: results.researchSummary,
+        metadata: results.metadata,
+        performance: results.performance,
+        activityLog: params.includeActivityLog ? results.activityLog : undefined
+      };
+    }
+
     const formatted = {
       researchSummary: results.researchSummary,
       metadata: results.metadata

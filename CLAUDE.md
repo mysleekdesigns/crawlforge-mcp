@@ -183,6 +183,8 @@ MAX_PAGES_PER_CRAWL=100
 RESPECT_ROBOTS_TXT=true
 ```
 
+`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` are optional. They only affect `deep_research`: when set, it produces a fully synthesized report internally; when unset, it returns raw evidence for the calling LLM (e.g. Claude Code) to synthesize.
+
 ### Configuration Files
 
 - `~/.crawlforge/config.json` - User authentication and API key storage

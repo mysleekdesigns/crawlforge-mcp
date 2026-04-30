@@ -120,30 +120,35 @@ export class ResearchOrchestrator extends EventEmitter {
       
       // Stage 1: Initial topic exploration and query expansion
       const expandedQueries = await this.expandResearchTopic(topic);
+      this.researchState.currentDepth = 1;
       this.logActivity('topic_expansion', { originalTopic: topic, expandedQueries });
 
       // Stage 2: Broad information gathering
       const initialSources = await this.gatherInitialSources(expandedQueries, options);
+      this.researchState.currentDepth = 2;
       this.logActivity('initial_gathering', { sourcesFound: initialSources.length });
 
       // Stage 3: Deep exploration of promising sources
       const detailedFindings = await this.exploreSourcesInDepth(initialSources, options);
+      this.researchState.currentDepth = 3;
       this.logActivity('deep_exploration', { findingsCount: detailedFindings.length });
 
       // Stage 4: Source credibility assessment
-      const verifiedSources = this.enableSourceVerification ? 
+      const verifiedSources = this.enableSourceVerification ?
         await this.verifySourceCredibility(detailedFindings) : detailedFindings;
+      this.researchState.currentDepth = 4;
       this.logActivity('source_verification', { verifiedCount: verifiedSources.length });
 
       // Stage 5: Information synthesis and conflict detection
       const synthesizedResults = await this.synthesizeInformation(verifiedSources, topic);
+      this.researchState.currentDepth = 5;
       this.logActivity('information_synthesis', { conflictsFound: synthesizedResults.conflicts.length });
+
+      const totalTime = Date.now() - startTime;
+      this.metrics.totalProcessingTime = totalTime;
 
       // Stage 6: Final result compilation
       const finalResults = this.compileResearchResults(topic, synthesizedResults, options);
-      
-      const totalTime = Date.now() - startTime;
-      this.metrics.totalProcessingTime = totalTime;
       
       this.logger.info('Research completed', { 
         sessionId, 
@@ -636,10 +641,22 @@ export class ResearchOrchestrator extends EventEmitter {
       consensus: [],
       gaps: [],
       recommendations: [],
-      llmSynthesis: null
+      llmSynthesis: null,
+      rawEvidence: null,
+      synthesisMode: this.enableLLMFeatures ? 'llm' : 'raw_evidence'
     };
 
     try {
+      // Without an LLM the keyword/frequency-based synthesis produces
+      // unreadable output. Skip it and return raw evidence for the calling
+      // LLM (e.g. Claude Code) to synthesize.
+      if (!this.enableLLMFeatures) {
+        synthesis.rawEvidence = this.buildRawEvidence(sources);
+        synthesis.supportingEvidence = this.compileSupportingEvidence(sources);
+        this.metrics.synthesisTime += Date.now() - startTime;
+        return synthesis;
+      }
+
       // Extract key claims and facts from each source
       const extractedClaims = await this.extractKeyClaims(sources);
       
@@ -1110,6 +1127,36 @@ export class ResearchOrchestrator extends EventEmitter {
       .slice(0, 15);
   }
 
+  buildRawEvidence(sources) {
+    return sources
+      .filter(s => s.extractedContent && s.extractedContent.length > 0)
+      .map(s => ({
+        title: s.title,
+        url: s.link,
+        credibility: s.overallCredibility ?? 0.5,
+        contentSnippet: s.extractedContent.substring(0, 4000),
+        topSentences: this.extractTopSentences(s.extractedContent, 5)
+      }))
+      .slice(0, 20);
+  }
+
+  extractTopSentences(text, n = 5) {
+    if (!text) return [];
+    const sentences = text
+      .split(/(?<=[.!?])\s+/)
+      .map(s => s.trim())
+      .filter(s => s.length >= 40 && s.length <= 500);
+
+    return sentences
+      .map(s => ({
+        text: s,
+        score: s.length * 0.5 + (s.match(/[A-Z][a-z]+/g)?.length || 0) * 5
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, n)
+      .map(item => item.text);
+  }
+
   identifyResearchGaps(claimGroups, topic) {
     const gaps = [];
     
@@ -1158,6 +1205,40 @@ export class ResearchOrchestrator extends EventEmitter {
   }
 
   compileResearchResults(topic, synthesis, options) {
+    if (synthesis.synthesisMode === 'raw_evidence') {
+      const sources = synthesis.rawEvidence || [];
+      return {
+        sessionId: this.researchState.sessionId,
+        topic,
+        synthesisMode: 'raw_evidence',
+        note: "This response contains raw research evidence with no AI synthesis. The calling LLM (you) should synthesize these sources to answer the user's question. To enable internal LLM synthesis instead, set OPENAI_API_KEY or ANTHROPIC_API_KEY in the MCP server environment.",
+        sources,
+        findings: [],
+        researchSummary: {
+          totalSources: this.metrics.urlsProcessed,
+          verifiedSources: this.metrics.sourcesVerified,
+          sourcesReturned: sources.length,
+          llmEnhanced: false
+        },
+        activityLog: this.researchState.activityLog,
+        performance: {
+          ...this.metrics,
+          timeLimit: this.timeLimit,
+          completedWithinLimit: this.metrics.totalProcessingTime < this.timeLimit
+        },
+        metadata: {
+          generatedAt: new Date().toISOString(),
+          researchDepth: this.researchState.currentDepth,
+          configuration: {
+            maxDepth: this.maxDepth,
+            maxUrls: this.maxUrls,
+            timeLimit: this.timeLimit,
+            llmEnabled: false
+          }
+        }
+      };
+    }
+
     const baseResults = {
       sessionId: this.researchState.sessionId,
       topic,
