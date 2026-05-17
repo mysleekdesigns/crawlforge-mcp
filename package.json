@@ -1,6 +1,6 @@
 {
   "name": "crawlforge-mcp-server",
-  "version": "3.0.19",
+  "version": "3.1.0",
   "description": "CrawlForge MCP Server - Professional Model Context Protocol server with 20 comprehensive web scraping, crawling, and content processing tools.",
   "main": "server.js",
   "bin": {
@@ -14,6 +14,8 @@
     "dev": "cross-env NODE_ENV=development node server.js",
     "test": "node tests/integration/mcp-protocol-compliance.test.js",
     "test:unit": "CRAWLFORGE_CREATOR_SECRET= node --test 'tests/unit/*.test.js'",
+    "test:integration": "CRAWLFORGE_CREATOR_SECRET= node --test 'tests/integration/tools/*.test.js'",
+    "test:coverage": "CRAWLFORGE_CREATOR_SECRET= c8 --reporter=text --reporter=lcov --include='src/**/*.js' --exclude='src/**/_*.js' --lines=60 --statements=60 --functions=55 --branches=45 node --test 'tests/unit/*.test.js' 'tests/integration/tools/*.test.js'",
     "test:tools": "node test-tools.js",
     "test:real-world": "node test-real-world.js",
     "test:all": "bash run-all-tests.sh",
@@ -112,6 +114,7 @@
   },
   "devDependencies": {
     "@jest/globals": "^30.3.0",
+    "c8": "^11.0.0",
     "cross-env": "^10.0.0",
     "jest": "^30.3.0",
     "shx": "^0.4.0"

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { load } from 'cheerio';
 import { DomainFilter } from '../../utils/domainFilter.js';
 import { normalizeUrl, getBaseUrl } from '../../utils/urlNormalizer.js';
+import { CacheManager } from '../../core/cache/CacheManager.js';
 
 const MapSiteSchema = z.object({
   url: z.string().url(),
@@ -23,16 +24,28 @@ export class MapSiteTool {
   constructor(options = {}) {
     const {
       userAgent = 'MCP-WebScraper/1.0',
-      timeout = 10000
+      timeout = 10000,
+      cacheEnabled = true,
+      cacheTTL = 3600000
     } = options;
 
     this.userAgent = userAgent;
     this.timeout = timeout;
+    // Per-session result cache: avoids redundant site maps for the same root URL
+    this.cache = cacheEnabled ? new CacheManager({ ttl: cacheTTL }) : null;
   }
 
   async execute(params) {
     try {
       const validated = MapSiteSchema.parse(params);
+
+      // Cache dedup: skip re-mapping the same site within the TTL window
+      if (this.cache) {
+        const cacheKey = this.cache.generateKey('map_site', { url: validated.url, maxUrls: validated.max_urls });
+        const cached = await this.cache.get(cacheKey);
+        if (cached) return cached;
+      }
+
       const baseUrl = getBaseUrl(validated.url);
       const urls = new Set();
       const metadata = new Map();
@@ -94,7 +107,7 @@ export class MapSiteTool {
         ? this.groupByPath(urlArray)
         : urlArray;
 
-      return {
+      const result = {
         base_url: baseUrl,
         total_urls: urlArray.length,
         urls: organized,
@@ -104,6 +117,14 @@ export class MapSiteTool {
         domain_filter_config: domainFilter ? domainFilter.exportConfig() : null,
         filter_stats: domainFilter ? domainFilter.getStats() : null
       };
+
+      // Store in cache before returning
+      if (this.cache) {
+        const cacheKey = this.cache.generateKey('map_site', { url: validated.url, maxUrls: validated.max_urls });
+        await this.cache.set(cacheKey, result);
+      }
+
+      return result;
     } catch (error) {
       throw new Error(`Site mapping failed: ${error.message}`);
     }

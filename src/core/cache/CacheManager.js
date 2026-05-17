@@ -82,10 +82,12 @@ export class CacheManager extends EventEmitter {
       this.startMonitoring(monitoringInterval);
     }
     
-    // Initialize auto cleanup
+    // Initialize auto cleanup. .unref() so the timer never blocks process exit
+    // — short-lived CLI invocations and tests don't need an explicit destroy().
     this.cleanupTimer = setInterval(() => {
       this.cleanupExpired();
     }, autoCleanupInterval);
+    if (typeof this.cleanupTimer.unref === 'function') this.cleanupTimer.unref();
     
     // Eviction tracking is handled in the LRU cache dispose callback above
   }
@@ -546,6 +548,7 @@ export class CacheManager extends EventEmitter {
       this.updateStats();
       this.emit('monitoring', this.getDetailedStats());
     }, interval);
+    if (typeof this.monitoringTimer.unref === 'function') this.monitoringTimer.unref();
   }
 
   /**

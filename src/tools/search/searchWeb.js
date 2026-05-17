@@ -4,6 +4,7 @@ import { CacheManager } from '../../core/cache/CacheManager.js';
 import { QueryExpander } from './queryExpander.js';
 import { ResultRanker } from './ranking/ResultRanker.js';
 import { ResultDeduplicator } from './ranking/ResultDeduplicator.js';
+import { SearchResultCache } from './ranking/SearchResultCache.js';
 import LocalizationManager from '../../core/LocalizationManager.js';
 import { isCreatorModeVerified } from '../../core/creatorMode.js';
 
@@ -92,13 +93,16 @@ export class SearchWebTool {
     }
 
     this.cache = cacheEnabled ? new CacheManager({ ttl: cacheTTL }) : null;
-    
+
     // Initialize query expander
     this.queryExpander = new QueryExpander(expanderOptions);
-    
-    // Initialize ranking and deduplication systems
-    this.resultRanker = new ResultRanker({ cacheEnabled, cacheTTL, ...rankingOptions });
-    this.resultDeduplicator = new ResultDeduplicator({ cacheEnabled, cacheTTL, ...deduplicationOptions });
+
+    // Shared cache for ranking + deduplication — avoids two separate LRU instances
+    const sharedRankingCache = new SearchResultCache({ ttl: cacheTTL, enabled: cacheEnabled });
+
+    // Initialize ranking and deduplication systems (both share the same cache)
+    this.resultRanker = new ResultRanker({ cacheEnabled, cacheTTL, sharedCache: sharedRankingCache, ...rankingOptions });
+    this.resultDeduplicator = new ResultDeduplicator({ cacheEnabled, cacheTTL, sharedCache: sharedRankingCache, ...deduplicationOptions });
     
     // Initialize localization manager
     this.localizationManager = new LocalizationManager({

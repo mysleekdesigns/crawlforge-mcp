@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { BFSCrawler } from '../../core/crawlers/BFSCrawler.js';
 import { DomainFilter } from '../../utils/domainFilter.js';
+import { CacheManager } from '../../core/cache/CacheManager.js';
 
 const CrawlDeepSchema = z.object({
   url: z.string().url(),
@@ -63,17 +64,28 @@ export class CrawlDeepTool {
   constructor(options = {}) {
     const {
       userAgent = 'MCP-WebScraper/1.0',
-      timeout = 30000
+      timeout = 30000,
+      cacheEnabled = true,
+      cacheTTL = 3600000
     } = options;
 
     this.userAgent = userAgent;
     this.timeout = timeout;
+    // Per-session result cache: avoids redundant crawls of the same root URL
+    this.cache = cacheEnabled ? new CacheManager({ ttl: cacheTTL }) : null;
   }
 
   async execute(params) {
     try {
       const validated = CrawlDeepSchema.parse(params);
-      
+
+      // Cache dedup: skip re-crawling the same root URL within the TTL window
+      if (this.cache) {
+        const cacheKey = this.cache.generateKey('crawl_deep', { url: validated.url, depth: validated.max_depth, pages: validated.max_pages });
+        const cached = await this.cache.get(cacheKey);
+        if (cached) return cached;
+      }
+
       // Create domain filter if configuration provided
       let domainFilter = null;
       if (validated.import_filter_config) {
@@ -157,6 +169,12 @@ export class CrawlDeepTool {
         link_analysis: results.linkAnalysis
       };
       
+      // Store in cache before returning
+      if (this.cache) {
+        const cacheKey = this.cache.generateKey('crawl_deep', { url: validated.url, depth: validated.max_depth, pages: validated.max_pages });
+        await this.cache.set(cacheKey, response);
+      }
+
       return response;
     } catch (error) {
       throw new Error(`Crawl failed: ${error.message}`);

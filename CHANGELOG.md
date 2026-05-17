@@ -5,6 +5,48 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-05-17
+
+Ships Phase B "Refactor" of `IMPROVEMENT_PLAN.md` end-to-end. No public-API or tool-schema changes — strictly internal restructuring, bounded browser pool, and a real test suite. All 20 MCP tools continue to pass.
+
+### Added
+- `src/server/registerTool.js` — single tool-registration helper that wraps every handler with `withAuth`. Replaces 20 near-identical registration blocks in `server.js`.
+- `src/server/schemas/common.js` — shared Zod fragments (`urlSchema`, `paginationSchema`, `webhookSchema`, `cacheOptsSchema`).
+- `src/server/transports/stdio.js` and `src/server/transports/http.js` — transport setup extracted from `server.js`.
+- `src/tools/basic/` — 5 inline basic-tool handlers (`fetchUrl`, `extractText`, `extractLinks`, `extractMetadata`, `scrapeStructured`) moved out of `server.js`, plus a shared `_fetch.js` helper.
+- `src/core/BrowserContextPool.js` (187 LOC) — bounded pool with capacity cap, idle eviction, periodic refresh, and a wait queue with timeout. Used by `StealthBrowserManager` instead of an unbounded `Map`. Defaults: `MAX_BROWSER_CONTEXTS=10`, refresh every 200 acquisitions or 30 minutes, `closeIdleAfterMs=300000`.
+- `src/tools/tracking/trackChanges/{schema,monitor,differ,notifier,index}.js` — 1,377 LOC tool split into 5 files; root `trackChanges.js` is now a 15-line re-export shim.
+- `src/tools/advanced/batchScrape/{schema,queue,worker,reporter,index}.js` — 1,089 LOC tool split into 5 files; reuses `JobManager` and `WebhookDispatcher` instead of embedding them. Root `BatchScrapeTool.js` is now a 15-line re-export shim.
+- `src/tools/search/ranking/SearchResultCache.js` — single shared cache passed to `ResultRanker` and `ResultDeduplicator` via `sharedCache` option (was two separate `CacheManager` instances).
+- `src/tools/extract/_fetchAndParse.js` — shared fetch + Cheerio parse helper used by `extractStructured`.
+- `CacheManager` integration in `crawlDeep` and `mapSite` for fetch deduplication.
+- `tests/unit/browserContextPool.test.js` (18 tests) — pool capacity, idle eviction, refresh interval, queue timeout, destroy semantics.
+- `tests/unit/changeTracker.test.js` (33 tests) — `diff()` granularity matrix, text/structure/visual change detection, threshold gating.
+- `tests/unit/jobManager.test.js` (28 tests) — lifecycle, validateJob, generateJobId, stats, destroy.
+- `tests/unit/snapshotManager.test.js` (21 tests) — create/restore, gzip compression path, list/cleanup.
+- `tests/unit/webhookDispatcher.test.js` (21 tests) — dispatch, retries, signing, queue draining.
+- `tests/integration/tools/basicTools.test.js` (17 tests) — happy-path + invalid-input assertions for all 5 basic-tool handlers.
+- `tests/integration/tools/schemas.test.js` (28 tests) — Zod schema acceptance/rejection for `BatchScrape`, `TrackChanges`, `UrlConfig`, plus `SearchResultCache` behaviour.
+- `tests/integration/tools/batchScrape.test.js` (8 tests) — internal `scrapeUrl` worker contract.
+- `npm run test:coverage` — c8 coverage script with a 60% line/statement gate (45% branch / 55% function). Reports 64.3% lines, 60.7% functions, 74.9% branches across `src/`.
+- `npm run test:integration` — convenience script for `tests/integration/tools/*.test.js`.
+
+### Changed
+- `server.js`: **2,138 → 990 LOC** (54% reduction). All tool registrations now flow through `registerTool()`; transport selection delegated to `src/server/transports/*`.
+- `src/core/StealthBrowserManager.js`: context storage swapped from raw `Map` to `BrowserContextPool`. Context limit, refresh, and idle eviction now bounded.
+- `src/core/cache/CacheManager.js`: `cleanupTimer` and `monitoringTimer` now `.unref()` so they don't block process exit in short-lived CLI/test runs.
+- `src/core/JobManager.js`: `validateJob()` now returns a strict boolean (was returning the falsy operand from `&&` short-circuit, breaking strict-equality tests).
+- `src/tools/search/searchWeb.js`: ranker and deduplicator share one `SearchResultCache` instance instead of holding separate `CacheManager`s.
+- `package.json`: version bumped 3.0.19 → 3.1.0.
+
+### Fixed
+- `JobManager.validateJob(null)` previously returned `null`; now returns `false` as the docstring implies.
+
+### Deferred (documented in `IMPROVEMENT_PLAN.md` § B4 / B5)
+- "Wire coverage gate into CI" — no CI workflow exists in this repo. Local gate is enforced via `npm run test:coverage`.
+- "`npm run docker:prod` boots" — Docker is unavailable in the sandboxed verification environment; Dockerfile/compose unchanged from v3.0.19 green baseline.
+- "1,000-call soak test" — requires real Chromium launches and outbound network blocked by sandbox; `BrowserContextPool` unit tests cover the bounded-pool / idle-eviction / refresh behaviour the soak test was meant to validate.
+
 ## [3.0.19] - 2026-05-17
 
 ### Security

@@ -12,6 +12,7 @@ import { chromium } from 'playwright';
 import { z } from 'zod';
 import crypto from 'crypto';
 import HumanBehaviorSimulator from '../utils/HumanBehaviorSimulator.js';
+import { BrowserContextPool } from './BrowserContextPool.js';
 
 const StealthConfigSchema = z.object({
   level: z.enum(['basic', 'medium', 'advanced']).default('medium'),
@@ -59,7 +60,15 @@ const StealthConfigSchema = z.object({
 export class StealthBrowserManager {
   constructor(options = {}) {
     this.browser = null;
-    this.contexts = new Map();
+    this.contexts = new BrowserContextPool({
+      maxContexts: parseInt(process.env.MAX_BROWSER_CONTEXTS || '10', 10),
+      periodicRefreshAfter: 200,
+      closeIdleAfterMs: 30 * 60 * 1000,
+      waitTimeoutMs: 10_000,
+      onContextExpired: (contextId) => {
+        this.fingerprints.delete(contextId);
+      }
+    });
     this.fingerprints = new Map();
     
     // Enhanced stealth components
@@ -367,7 +376,7 @@ export class StealthBrowserManager {
     // Apply stealth scripts and configurations
     await this.applyAdvancedStealthConfigurations(context, validatedConfig, fingerprint);
     
-    this.contexts.set(contextId, { context, fingerprint, config: validatedConfig });
+    await this.contexts.set(contextId, { context, fingerprint, config: validatedConfig });
     this.fingerprints.set(contextId, fingerprint);
 
     return { context, contextId, fingerprint };
@@ -1493,11 +1502,20 @@ export class StealthBrowserManager {
       throw new Error('Context not found');
     }
 
+    // Record use and check if context needs periodic refresh
+    const needsRefresh = this.contexts.recordUse(contextId);
+    if (needsRefresh) {
+      // Dispose old context; caller should create a fresh one
+      await this.contexts.dispose(contextId);
+      this.fingerprints.delete(contextId);
+      throw new Error(`StealthBrowserManager: context ${contextId} has reached its use limit and was recycled. Create a new context.`);
+    }
+
     const page = await contextData.context.newPage();
-    
+
     // Apply additional page-level stealth measures
     await this.applyPageStealthMeasures(page, contextData.config, contextData.fingerprint);
-    
+
     return page;
   }
 
@@ -1678,10 +1696,8 @@ export class StealthBrowserManager {
    * Close specific context
    */
   async closeContext(contextId) {
-    const contextData = this.contexts.get(contextId);
-    if (contextData) {
-      await contextData.context.close();
-      this.contexts.delete(contextId);
+    if (this.contexts.has(contextId)) {
+      await this.contexts.dispose(contextId);
       this.fingerprints.delete(contextId);
     }
   }
@@ -1690,16 +1706,8 @@ export class StealthBrowserManager {
    * Close all contexts and browser
    */
   async cleanup() {
-    // Close all contexts
-    for (const [contextId, contextData] of this.contexts.entries()) {
-      try {
-        await contextData.context.close();
-      } catch (error) {
-        console.warn(`Failed to close context ${contextId}:`, error.message);
-      }
-    }
-
-    this.contexts.clear();
+    // Close all contexts via pool (handles idle timer cleanup + wait queue drain)
+    await this.contexts.destroy();
     this.fingerprints.clear();
 
     // Reset human behavior simulator

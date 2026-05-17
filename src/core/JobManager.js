@@ -573,11 +573,13 @@ export class JobManager extends EventEmitter {
    * @returns {boolean} Whether job is valid
    */
   validateJob(job) {
-    return job &&
-           typeof job.id === 'string' &&
-           typeof job.type === 'string' &&
-           typeof job.status === 'string' &&
-           Object.values(this.JOB_STATES).includes(job.status);
+    return Boolean(
+      job &&
+      typeof job.id === 'string' &&
+      typeof job.type === 'string' &&
+      typeof job.status === 'string' &&
+      Object.values(this.JOB_STATES).includes(job.status)
+    );
   }
 
   /**

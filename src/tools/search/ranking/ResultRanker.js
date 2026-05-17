@@ -1,7 +1,9 @@
 import { CacheManager } from '../../../core/cache/CacheManager.js';
 
 /**
- * Advanced search result ranking system with multiple scoring algorithms
+ * Advanced search result ranking system with multiple scoring algorithms.
+ * Accepts an optional `sharedCache` (SearchResultCache instance) to avoid
+ * creating a duplicate CacheManager when used alongside ResultDeduplicator.
  */
 export class ResultRanker {
   constructor(options = {}) {
@@ -13,13 +15,13 @@ export class ResultRanker {
         authority: 0.2,      // URL/domain authority
         freshness: 0.1       // Content freshness
       },
-      
+
       // BM25 parameters
       bm25: {
         k1: 1.5,             // Term frequency saturation parameter
         b: 0.75              // Length normalization parameter
       },
-      
+
       // Authority scoring parameters
       authority: {
         domainBoosts: {      // Domain authority boosts
@@ -32,23 +34,24 @@ export class ResultRanker {
         httpsBoost: 0.1,     // HTTPS boost
         pathDepthPenalty: 0.02 // Penalty per path segment
       },
-      
+
       // Freshness parameters
       freshness: {
         maxAgeMonths: 24,    // Content older than this gets 0 freshness score
         decayRate: 0.1       // Exponential decay rate per month
       },
-      
+
       // Performance options
       cacheEnabled: true,
       cacheTTL: 3600000,     // 1 hour
       ...options
     };
 
-    // Initialize cache for score computation
-    this.cache = this.options.cacheEnabled ? 
-      new CacheManager({ ttl: this.options.cacheTTL }) : null;
-    
+    // Use shared cache if provided, otherwise create own CacheManager instance
+    this.cache = options.sharedCache || (this.options.cacheEnabled
+      ? new CacheManager({ ttl: this.options.cacheTTL })
+      : null);
+
     // Precompute domain authority scores
     this.domainAuthorityMap = new Map();
     this.initializeDomainAuthority();

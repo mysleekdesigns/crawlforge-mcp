@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import { load } from 'cheerio';
 import { LLMManager } from '../../core/llm/LLMManager.js';
+import { fetchAndParse } from './_fetchAndParse.js';
 
 const ExtractStructuredSchema = z.object({
   url: z.string().url(),
@@ -73,25 +74,8 @@ export class ExtractStructuredTool {
       const validated = ExtractStructuredSchema.parse(params);
       const { url, schema, prompt, llmConfig, fallbackToSelectors, selectorHints } = validated;
 
-      // Step 1: Fetch URL
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': this.userAgent,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-        },
-        signal: AbortSignal.timeout(15000)
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const html = await response.text();
-
-      // Step 2: Parse HTML with Cheerio, strip scripts/styles
-      const $ = load(html);
-      $('script, style, noscript, iframe, svg').remove();
-      const textContent = $('body').text().replace(/\s+/g, ' ').trim();
+      // Step 1: Fetch and parse — shared helper strips scripts/styles/iframes/svgs
+      const { html, $, textContent } = await fetchAndParse(url, { userAgent: this.userAgent });
 
       // Step 3: Try LLM extraction first
       let extractionResult = null;

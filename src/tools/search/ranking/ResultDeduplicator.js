@@ -1,7 +1,9 @@
 import { CacheManager } from '../../../core/cache/CacheManager.js';
 
 /**
- * Advanced search result deduplication system using multiple similarity algorithms
+ * Advanced search result deduplication system using multiple similarity algorithms.
+ * Accepts an optional `sharedCache` (SearchResultCache instance) to avoid
+ * creating a duplicate CacheManager when used alongside ResultRanker.
  */
 export class ResultDeduplicator {
   constructor(options = {}) {
@@ -13,7 +15,7 @@ export class ResultDeduplicator {
         content: 0.85,      // Content similarity threshold
         combined: 0.8       // Combined similarity threshold for final decision
       },
-      
+
       // Deduplication strategies
       strategies: {
         urlNormalization: true,    // Normalize URLs for comparison
@@ -21,7 +23,7 @@ export class ResultDeduplicator {
         contentSimhash: true,      // Use SimHash for content comparison
         domainClustering: true     // Cluster results by domain
       },
-      
+
       // URL normalization options
       urlNormalization: {
         removeProtocol: true,      // Remove http/https difference
@@ -32,7 +34,7 @@ export class ResultDeduplicator {
         removeEmptyParams: true,   // Remove empty query parameters
         lowercaseDomain: true      // Convert domain to lowercase
       },
-      
+
       // Content similarity options
       contentSimilarity: {
         minLength: 10,             // Minimum content length to compare
@@ -40,7 +42,7 @@ export class ResultDeduplicator {
         simhashBits: 64,           // SimHash bit size
         hammingThreshold: 16       // Hamming distance threshold for SimHash
       },
-      
+
       // Merge strategy
       mergeStrategy: {
         preserveBestRank: true,    // Keep the best ranking result as primary
@@ -48,17 +50,18 @@ export class ResultDeduplicator {
         preferHttps: true,         // Prefer HTTPS URLs when merging
         preferShorterUrl: true     // Prefer shorter, cleaner URLs
       },
-      
+
       // Performance options
       cacheEnabled: true,
       cacheTTL: 3600000,          // 1 hour
       ...options
     };
 
-    // Initialize cache for deduplication computation
-    this.cache = this.options.cacheEnabled ? 
-      new CacheManager({ ttl: this.options.cacheTTL }) : null;
-    
+    // Use shared cache if provided, otherwise create own CacheManager instance
+    this.cache = options.sharedCache || (this.options.cacheEnabled
+      ? new CacheManager({ ttl: this.options.cacheTTL })
+      : null);
+
     // Statistics tracking
     this.stats = {
       totalProcessed: 0,

@@ -1,6 +1,6 @@
 # CrawlForge MCP Server - Production Readiness
 
-**Version:** 3.0.19 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-17
+**Version:** 3.1.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-17
 
 ---
 
@@ -23,6 +23,7 @@
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.1.0 | 2026-05-17 | Refactor — `server.js` 2,138 → 990 LOC, bounded `BrowserContextPool`, trackChanges/batchScrape decomposed, shared `SearchResultCache`, 188 unit + integration tests (64.3% line coverage on `src/`) |
 | 3.0.19 | 2026-05-17 | Cleanup — close audit phases 4 & 5, structured tool-invocation logging, request IDs + idempotency keys on usage reports, dead-code removal in LocalizationManager/ActionExecutor |
 | 3.0.18 | 2026-04-18 | Security patch — endpoint allow-list, fail-closed credit check, usage-report hardening (audit phases 1/2/3) |
 | 3.0.12 | 2026-03-30 | Add functional test files (test-tools.js, test-real-world.js) |
