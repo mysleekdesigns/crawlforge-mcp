@@ -12,6 +12,16 @@ CrawlForge MCP Server (v3.0.12) has 20 specialized tools and strong security/ste
 
 ## Release History
 
+### Unreleased — `/next-phase` orchestration skill + IMPROVEMENT_PLAN.md (2026-05-17)
+
+Added `IMPROVEMENT_PLAN.md` at the repo root: a three-release roadmap (Phase A v3.0.19 "Cleanup" → Phase B v3.1.0 "Refactor" → Phase C v3.2.0 "Modernize") drafted from a full audit of the codebase and current MCP best practices (Streamable HTTP, OAuth 2.1, structured outputs).
+
+Added `.claude/skills/next-phase/SKILL.md` — a workflow skill that drives one phase of the plan to completion end-to-end. Invoking `/next-phase` auto-detects the first phase with unchecked `[ ]` items, fires the right sub-agents (`security-auditor`, `mcp-implementation`, `testing-validation`, `performance-monitor`, `api-documenter`, `deployment-manager`) **in parallel**, runs that phase's verification block (`npm test`, `node test-tools.js`, `npm audit`, `npm run build`, plus phase-specific soak / Inspector / OAuth / `/metrics` checks), then flips `[ ]` → `[x]` in `IMPROVEMENT_PLAN.md`, appends entries to `PRD.md` and `CHANGELOG.md`, and commits + pushes to the current branch. Safety rails: never amends, never `--no-verify`, never force-pushes, never `git add -A`; halts before commit if any verification step fails.
+
+No source/runtime code changed. Files: `IMPROVEMENT_PLAN.md` (new), `.claude/skills/next-phase/SKILL.md` (new), `PRD.md`.
+
+---
+
 ### Unreleased — `deep_research` raw-evidence mode + scope/metric fixes (2026-04-30)
 
 `deep_research` previously appeared broken when called from Claude Code: it returned `success: true` but emitted unreadable text fragments in `keyFindings`, `consensus`, `conflicts`, and `recommendations`. Root cause: the tool tried to do its own LLM-powered synthesis but, when no `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` was configured, silently fell back to a frequency-based keyword extractor that produced garbage. MCP "sampling" (server-to-host LLM calls) is not yet supported in Claude Code ([anthropics/claude-code#1785](https://github.com/anthropics/claude-code/issues/1785)), so the tool cannot route through the user's Max plan.
