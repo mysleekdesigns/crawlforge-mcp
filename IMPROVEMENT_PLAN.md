@@ -1,6 +1,6 @@
 # CrawlForge MCP Server — Improvement Plan
 
-**Status:** Proposal | **Drafted:** 2026-05-17 | **Current version:** v3.0.18 | **Target end state:** v3.2.0
+**Status:** Phase A shipped | **Drafted:** 2026-05-17 | **Current version:** v3.0.19 | **Target end state:** v3.2.0
 
 ---
 
@@ -26,44 +26,45 @@ The plan is three releases. Each is independently shippable.
 ---
 
 ## Phase A — v3.0.19 "Cleanup" (target: 1–2 days)
+**Completed:** 2026-05-17
 
 Goal: Close the deferred security phases, remove dead weight, fix the silent-failure bugs. No new features, no schema changes, no breaking changes.
 
 ### A1 — Security hardening (close audit phases 4 & 5)
 
-- [ ] Implement Phase 5: re-validate API key on startup in `src/core/AuthManager.js`; refuse to start if the cached key has been revoked
-- [ ] Implement Phase 4 (HTTP path only): require `Authorization: Bearer <key>` per request when `--http` is used; reject unauthenticated requests
-- [ ] Document Phase 6 (config HMAC) as future work blocked on backend changes — link from `docs/PRODUCTION_READINESS.md`
+- [x] Implement Phase 5: re-validate API key on startup in `src/core/AuthManager.js`; refuse to start if the cached key has been revoked
+- [x] Implement Phase 4 (HTTP path only): require `Authorization: Bearer <key>` per request when `--http` is used; reject unauthenticated requests
+- [x] Document Phase 6 (config HMAC) as future work blocked on backend changes — link from `docs/PRODUCTION_READINESS.md`
 
 ### A2 — Reliability fixes
 
-- [ ] Replace silent `catch { return; }` at `src/core/AuthManager.js:303–305` with structured Winston logging that records dropped usage entry IDs
-- [ ] Add a request ID + idempotency key to every entry in `~/.crawlforge/pending-usage.json`
-- [ ] Wrap the `withAuth()` handler call (`server.js:124–182`) in `try/finally`; always log `{ toolName, paramHash, durationMs, outcome }`
-- [ ] Remove the redundant inner credit check in `withAuth()`
+- [x] Replace silent `catch { return; }` at `src/core/AuthManager.js:303–305` with structured Winston logging that records dropped usage entry IDs
+- [x] Add a request ID + idempotency key to every entry in `~/.crawlforge/pending-usage.json`
+- [x] Wrap the `withAuth()` handler call (`server.js:124–182`) in `try/finally`; always log `{ toolName, paramHash, durationMs, outcome }`
+- [x] Remove the redundant inner credit check in `withAuth()`
 
 ### A3 — Dead code & dependencies
 
-- [ ] Delete `LocalizationManager.js` proxy/translation stubs (lines ~67–100); keep only the locale switching that actually works
-- [ ] Remove `isomorphic-dompurify` from `package.json` (zero references in `src/`)
-- [ ] Delete the `example.com` mock branch in `src/core/ActionExecutor.js:174–197`
-- [ ] Pick one: delete the compression claim comment in `SnapshotManager.js` OR actually implement gzip on `snapshots/` writes
+- [x] Delete `LocalizationManager.js` proxy/translation stubs (lines ~67–100); keep only the locale switching that actually works
+- [ ] Remove `isomorphic-dompurify` from `package.json` (zero references in `src/`) — **left unchanged in v3.0.19:** plan claim is incorrect. `isomorphic-dompurify` is actively imported by `src/security/wave3-security.js:11` and `src/utils/inputValidation.js:7` (both call `DOMPurify.sanitize(...)`). Removing it would break HTML sanitization. Item should be re-scoped or struck from the plan in a follow-up.
+- [x] Delete the `example.com` mock branch in `src/core/ActionExecutor.js:174–197`
+- [ ] Pick one: delete the compression claim comment in `SnapshotManager.js` OR actually implement gzip on `snapshots/` writes — **left unchanged in v3.0.19:** plan premise is incorrect. `SnapshotManager.js` already implements real gzip compression (lines 240–260) using `zlib.gzip` via `gzipAsync`, with a configurable threshold and 20% ratio guard. The "compression claim" is not just a comment — it's working code. Nothing to do.
 
 ### A4 — Documentation
 
-- [ ] Fix `docs/PRODUCTION_READINESS.md` header (v3.0.12 → v3.0.18; "19 Tools" → "20 Tools")
-- [ ] Append v3.0.19 entry to root `PRD.md` (per the standing project rule)
-- [ ] Add `CHANGELOG.md` entry
+- [x] Fix `docs/PRODUCTION_READINESS.md` header (v3.0.12 → v3.0.18; "19 Tools" → "20 Tools") — bumped to v3.0.19 / 20 Tools
+- [x] Append v3.0.19 entry to root `PRD.md` (per the standing project rule)
+- [x] Add `CHANGELOG.md` entry
 
 ### A5 — Verification
 
-- [ ] `npm test` passes
-- [ ] `node test-tools.js` passes
-- [ ] New unit test: server refuses to start with a revoked API key
-- [ ] New unit test: every `withAuth` invocation produces a log line
-- [ ] `npm audit` clean
-- [ ] `npm run build` succeeds (per project rule)
-- [ ] Push to GitHub and bump version
+- [x] `npm test` passes (MCP protocol compliance unchanged from HEAD baseline)
+- [x] `node test-tools.js` passes (14 PASS / 6 SKIP for sandboxed network; 100% non-sandboxed pass rate)
+- [x] New unit test: server refuses to start with a revoked API key (`tests/unit/authManagerPhaseA.test.js`)
+- [x] New unit test: every `withAuth` invocation produces a log line (`tests/unit/withAuth.test.js`)
+- [x] `npm audit` clean (4 pre-existing transitive advisories in `fast-uri`/`hono`/`ip-address`/`express-rate-limit` resolved via `npm audit fix`; 0 vulnerabilities)
+- [x] `npm run build` succeeds — N/A for this pure-ESM JS project (no `build` script defined); replaced with `node --check` syntax verification on every modified file
+- [x] Push to GitHub and bump version
 
 ---
 

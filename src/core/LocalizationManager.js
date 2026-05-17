@@ -63,47 +63,11 @@ const LANGUAGE_MAPPINGS = {
 // RTL Languages Configuration
 const RTL_LANGUAGES = new Set(['ar', 'he', 'fa', 'ur', 'ku', 'dv']);
 
-// Proxy Provider Configuration
-const PROXY_PROVIDERS = {
-  regions: {
-    'us-east': { endpoint: 'proxy-us-east.example.com', port: 8080 },
-    'us-west': { endpoint: 'proxy-us-west.example.com', port: 8080 },
-    'eu-west': { endpoint: 'proxy-eu-west.example.com', port: 8080 },
-    'eu-central': { endpoint: 'proxy-eu-central.example.com', port: 8080 },
-    'eu-north': { endpoint: 'proxy-eu-north.example.com', port: 8080 },
-    'eu-east': { endpoint: 'proxy-eu-east.example.com', port: 8080 },
-    'asia-pacific': { endpoint: 'proxy-asia-pacific.example.com', port: 8080 },
-    'middle-east': { endpoint: 'proxy-middle-east.example.com', port: 8080 },
-    'south-america': { endpoint: 'proxy-south-america.example.com', port: 8080 },
-    'north-america': { endpoint: 'proxy-north-america.example.com', port: 8080 },
-    'africa': { endpoint: 'proxy-africa.example.com', port: 8080 }
-  },
-  fallbackStrategies: {
-    'geo-blocked': ['rotate-proxy', 'change-user-agent', 'delay-request'],
-    'rate-limited': ['change-proxy', 'exponential-backoff'],
-    'detection': ['rotate-fingerprint', 'change-proxy', 'human-delay']
-  }
-};
-
-// Translation Service Configuration
-const TRANSLATION_SERVICES = {
-  google: {
-    enabled: process.env.GOOGLE_TRANSLATE_API_KEY ? true : false,
-    apiKey: process.env.GOOGLE_TRANSLATE_API_KEY,
-    endpoint: 'https://translation.googleapis.com/language/translate/v2'
-  },
-  azure: {
-    enabled: process.env.AZURE_TRANSLATE_KEY ? true : false,
-    key: process.env.AZURE_TRANSLATE_KEY,
-    region: process.env.AZURE_TRANSLATE_REGION || 'global',
-    endpoint: 'https://api.cognitive.microsofttranslator.com/translate'
-  },
-  libre: {
-    enabled: process.env.LIBRE_TRANSLATE_URL ? true : false,
-    url: process.env.LIBRE_TRANSLATE_URL,
-    apiKey: process.env.LIBRE_TRANSLATE_API_KEY
-  }
-};
+// NOTE (v3.0.19 cleanup): PROXY_PROVIDERS and TRANSLATION_SERVICES configs were
+// removed. They pointed at `*.example.com` endpoints and translation services
+// that were never wired up — pure dead code. If/when real proxy rotation or
+// translation lands, configure providers explicitly rather than reviving these
+// placeholders. See IMPROVEMENT_PLAN.md §A3.
 
 const LocalizationSchema = z.object({
   countryCode: z.string().length(2).optional(),
@@ -237,27 +201,21 @@ export class LocalizationManager extends EventEmitter {
     try {
       // Pre-populate timezone mappings
       await this.loadTimezoneData();
-      
+
       // Initialize geo-location data
       await this.loadGeoLocationData();
-      
-      // Initialize proxy configurations
-      await this.initializeProxySystem();
-      
-      // Initialize translation services
-      await this.initializeTranslationServices();
-      
+
       // Load cultural browsing patterns
       await this.loadCulturalPatterns();
-      
+
       // Setup periodic health checks
       this.setupHealthChecks();
-      
+
       this.emit('initialized');
     } catch (error) {
-      this.emit('error', { 
-        type: 'initialization_failed', 
-        error: error.message 
+      this.emit('error', {
+        type: 'initialization_failed',
+        error: error.message
       });
       throw error;
     }
@@ -959,76 +917,6 @@ export class LocalizationManager extends EventEmitter {
     return null;
   }
   /**
-   * Initialize proxy system with regional configurations
-   */
-  async initializeProxySystem() {
-    try {
-      // Load proxy configurations from environment or config
-      for (const [region, config] of Object.entries(PROXY_PROVIDERS.regions)) {
-        if (process.env[`PROXY_${region.toUpperCase().replace('-', '_')}_ENABLED`] === 'true') {
-          this.proxyManager.activeProxies.set(region, {
-            ...config,
-            username: process.env[`PROXY_${region.toUpperCase().replace('-', '_')}_USERNAME`],
-            password: process.env[`PROXY_${region.toUpperCase().replace('-', '_')}_PASSWORD`],
-            healthScore: 100,
-            lastCheck: 0,
-            failureCount: 0
-          });
-        }
-      }
-      
-      // Setup proxy health monitoring
-      if (this.proxyManager.activeProxies.size > 0) {
-        await this.performProxyHealthChecks();
-      }
-      
-    } catch (error) {
-      console.warn('Failed to initialize proxy system:', error.message);
-    }
-  }
-  
-  /**
-   * Initialize translation services
-   */
-  async initializeTranslationServices() {
-    try {
-      // Google Translate
-      if (TRANSLATION_SERVICES.google.enabled) {
-        this.translationProviders.set('google', {
-          type: 'google',
-          apiKey: TRANSLATION_SERVICES.google.apiKey,
-          endpoint: TRANSLATION_SERVICES.google.endpoint,
-          available: true
-        });
-      }
-      
-      // Azure Translator
-      if (TRANSLATION_SERVICES.azure.enabled) {
-        this.translationProviders.set('azure', {
-          type: 'azure',
-          key: TRANSLATION_SERVICES.azure.key,
-          region: TRANSLATION_SERVICES.azure.region,
-          endpoint: TRANSLATION_SERVICES.azure.endpoint,
-          available: true
-        });
-      }
-      
-      // LibreTranslate
-      if (TRANSLATION_SERVICES.libre.enabled) {
-        this.translationProviders.set('libre', {
-          type: 'libre',
-          url: TRANSLATION_SERVICES.libre.url,
-          apiKey: TRANSLATION_SERVICES.libre.apiKey,
-          available: true
-        });
-      }
-      
-    } catch (error) {
-      console.warn('Failed to initialize translation services:', error.message);
-    }
-  }
-  
-  /**
    * Load cultural browsing patterns for different regions
    */
   async loadCulturalPatterns() {
@@ -1612,4 +1500,5 @@ export class LocalizationManager extends EventEmitter {
 export default LocalizationManager;
 
 // Export constants for external use
-export { SUPPORTED_COUNTRIES, RTL_LANGUAGES, PROXY_PROVIDERS, TRANSLATION_SERVICES };
+// (PROXY_PROVIDERS / TRANSLATION_SERVICES removed in v3.0.19 — see §A3 of IMPROVEMENT_PLAN.md)
+export { SUPPORTED_COUNTRIES, RTL_LANGUAGES };

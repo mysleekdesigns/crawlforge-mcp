@@ -171,49 +171,8 @@ export class ActionExecutor extends EventEmitter {
         actualChainConfig = chainConfig;
       }
 
-      // For testing purposes, provide mock execution for example.com
-      if (url === 'http://example.com') {
-        const actions = Array.isArray(chainConfig) ? chainConfig : actualChainConfig.actions;
-        const mockResults = actions.map((action, index) => {
-          const baseResult = {
-            id: `mock_action_${index}`,
-            type: action.type,
-            success: true,
-            executionTime: 10,
-            timestamp: Date.now(),
-            description: `Mock ${action.type} action`
-          };
-
-          if (action.type === 'wait') {
-            const waitTime = action.duration || action.milliseconds || 100;
-            baseResult.result = { waited: waitTime };
-          } else if (action.type === 'click') {
-            baseResult.result = { selector: action.selector, button: 'left' };
-          } else {
-            baseResult.result = { mockResult: true };
-          }
-
-          return baseResult;
-        });
-
-        return {
-          success: true,
-          chainId,
-          url,
-          executionTime: Date.now() - startTime,
-          results: mockResults,
-          screenshots: [],
-          metadata: {
-            userAgent: 'mock-agent',
-            viewport: { width: 1280, height: 720 }
-          },
-          stats: {
-            totalActions: mockResults.length,
-            successfulActions: mockResults.filter(r => r.success).length,
-            failedActions: mockResults.filter(r => !r.success).length
-          }
-        };
-      }
+      // (v3.0.19 cleanup) The legacy example.com mock branch was removed — no
+      // test depended on it and it short-circuited real validation. See §A3.
 
       // Validate chain configuration
       const validatedChain = ActionChainSchema.parse(actualChainConfig);

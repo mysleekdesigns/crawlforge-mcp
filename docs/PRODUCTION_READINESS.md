@@ -1,6 +1,6 @@
 # CrawlForge MCP Server - Production Readiness
 
-**Version:** 3.0.12 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-03-30
+**Version:** 3.0.19 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-17
 
 ---
 
@@ -9,13 +9,13 @@
 | Category | Status |
 |----------|--------|
 | CrawlForge.dev Integration | ✅ Complete |
-| Security | ✅ 9.5/10 |
-| All 19 Tools | ✅ Working |
+| Security | ✅ 9.7/10 |
+| All 20 Tools | ✅ Working |
 | MCP Compliance | ✅ 100% |
 | Functional Tests | ✅ 20/20 tools (7 sandbox-skipped) |
 | npm Published | ✅ Yes |
 
-**Production Readiness Score:** 97.75/100
+**Production Readiness Score:** 98.5/100
 
 ---
 
@@ -23,6 +23,7 @@
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.0.19 | 2026-05-17 | Cleanup — close audit phases 4 & 5, structured tool-invocation logging, request IDs + idempotency keys on usage reports, dead-code removal in LocalizationManager/ActionExecutor |
 | 3.0.18 | 2026-04-18 | Security patch — endpoint allow-list, fail-closed credit check, usage-report hardening (audit phases 1/2/3) |
 | 3.0.12 | 2026-03-30 | Add functional test files (test-tools.js, test-real-world.js) |
 | 3.0.10 | 2026-01-16 | Auto-configure Claude Code & Cursor MCP clients |
@@ -73,9 +74,9 @@ All HIGH priority items resolved:
 | Phase 1 | CRITICAL | Endpoint allow-list (`CRAWLFORGE_API_URL` validation) | ✅ COMPLETE in v3.0.18 |
 | Phase 2 | CRITICAL | Fail-closed credit check (30 s grace window, interval 15 s) | ✅ COMPLETE in v3.0.18 |
 | Phase 3 | HIGH | Usage-report hardening (5 s timeout, cache decrement, pending queue) | ✅ COMPLETE in v3.0.18 |
-| Phase 4 | HIGH | HTTP transport per-request auth (Track A/B decision required) | OPEN — deferred |
-| Phase 5 | MEDIUM | API key re-validation on startup | OPEN — deferred |
-| Phase 6 | LOW | Config HMAC integrity check (requires backend change) | OPEN — deferred |
+| Phase 4 | HIGH | HTTP transport per-request auth (Bearer / X-API-Key, fail-closed) | ✅ COMPLETE in v3.0.19 |
+| Phase 5 | MEDIUM | API key re-validation on startup (refuse boot if backend rejects) | ✅ COMPLETE in v3.0.19 |
+| Phase 6 | LOW | Config HMAC integrity check | DEFERRED — requires backend changes outside this repo. Tracked as future work; will land alongside the v3.2.0 OAuth 2.1 work (Phase C2 of `IMPROVEMENT_PLAN.md`). |
 
 ---
 

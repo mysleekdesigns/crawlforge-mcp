@@ -12,6 +12,43 @@ CrawlForge MCP Server (v3.0.12) has 20 specialized tools and strong security/ste
 
 ## Release History
 
+### v3.0.19 — Phase A "Cleanup" (2026-05-17)
+
+Ships Phase A of `IMPROVEMENT_PLAN.md` end-to-end via `/next-phase`. Closes the two deferred security-audit phases (4 and 5), fixes the silent-failure usage-report bugs, and removes the two pieces of dead code that were not booby-trapped (LocalizationManager proxy/translation stubs, ActionExecutor `example.com` mock branch). No public API or schema changes — strictly internal hardening.
+
+**A1 — Security hardening (audit phases 4 & 5 closed):**
+- Phase 5: `AuthManager.initialize()` now calls `validateApiKey()` against the backend at startup. If the backend explicitly rejects the key (invalid / revoked / expired / unauthorized), the server throws and refuses to boot. Connection errors are tolerated — runtime fail-closed credit check from v3.0.18 handles revocation. `CRAWLFORGE_SKIP_STARTUP_VALIDATION=true` bypasses the check.
+- Phase 4: HTTP transport (`--http` / `MCP_HTTP=true`) now requires `Authorization: Bearer <api-key>` (or `X-API-Key`) on every `/mcp` request, verified against the stored key. Unauthenticated requests get 401 + a structured log line. Creator mode bypasses the check. The `/health` and `/.well-known/mcp/server-card.json` endpoints remain unauthenticated for discovery.
+- Phase 6 (config HMAC) is now formally tracked as deferred in `docs/PRODUCTION_READINESS.md` — requires backend changes outside this repo; will land alongside the v3.2.0 OAuth 2.1 work.
+
+**A2 — Reliability fixes (silent-failure bugs):**
+- `withAuth()` is extracted from `server.js` into `src/server/withAuth.js` (so it's directly unit-testable) and wrapped in `try/finally`. Every invocation now emits exactly one `tool invocation` log line: `{ toolName, paramHash, durationMs, outcome, creditCost, creatorMode }`. `outcome ∈ { 'success' | 'error' | 'insufficient_credits' }`. `paramHash` is the first 12 hex chars of a SHA-256 of the params — no payload leakage. Redundant double-call to `getToolCost()` removed; creator-mode check hoisted to one site.
+- `AuthManager.reportUsage()` now stamps every usage report with a `requestId` and `idempotencyKey` (UUID v4) and sends the latter as the HTTP `Idempotency-Key` header. The same keys are persisted into `~/.crawlforge/pending-usage.json` so retries from disk are safe to replay.
+- `AuthManager._flushPendingUsage()` and `_appendPendingUsage()` no longer swallow errors silently. Successful flushes log their requestIds at info; failed replays log at warn with the retained requestIds; the 1 MB queue-cap eviction logs dropped IDs at warn; pending-file read errors other than ENOENT log at warn.
+
+**A3 — Dead code removal:**
+- `src/core/LocalizationManager.js`: removed the `PROXY_PROVIDERS` constant (11 fake `proxy-*.example.com` endpoints), the `TRANSLATION_SERVICES` constant (Google / Azure / LibreTranslate stubs that were never wired up), the `initializeProxySystem()` and `initializeTranslationServices()` methods, and their calls from `initialize()`. The state Maps and `getStats()` fields are retained because they're referenced by other methods elsewhere in the file (and always empty now). The export list no longer re-exports the deleted constants.
+- `src/core/ActionExecutor.js`: removed the legacy `if (url === 'http://example.com')` mock branch (lines 174–216 of the original). No test depended on it.
+- **NOT removed:** `isomorphic-dompurify` (plan claim was wrong — it's imported by `src/security/wave3-security.js` and `src/utils/inputValidation.js`). **Not changed:** `SnapshotManager.js` gzip — already real, working code; nothing to fix.
+
+**A4 — Documentation:**
+- `docs/PRODUCTION_READINESS.md` header bumped (v3.0.12 → v3.0.19; "19 Tools" → "20 Tools"; date updated). The Security Audit Phase Tracker now shows Phase 4 and Phase 5 as ✅ COMPLETE in v3.0.19; Phase 6 stays DEFERRED with an explanation of why.
+- `CHANGELOG.md`: new `[3.0.19]` section.
+- `IMPROVEMENT_PLAN.md`: Phase A checkboxes flipped; the two items left unchecked carry inline notes explaining why the plan premise was incorrect.
+
+**A5 — Verification:**
+- New unit suite `tests/unit/authManagerPhaseA.test.js` (6 tests): startup-validation rejection, success, network tolerance, env bypass, plus idempotency-key plumbing on success and failure paths.
+- New unit suite `tests/unit/withAuth.test.js` (6 tests, including 2 for `hashParams`): asserts the "exactly one log line per invocation" contract across success / error / insufficient-credits / creator-mode paths.
+- `npm run test:unit`: 26 tests pass (was 14).
+- `npm test`: MCP protocol compliance unchanged from HEAD baseline (60% success rate is pre-existing — see commit 104e7e4).
+- `node test-tools.js`: 14 PASS, 6 SKIP for sandboxed network; same as HEAD.
+- `npm audit`: 0 vulnerabilities (4 pre-existing transitive advisories in `fast-uri` / `hono` / `ip-address` / `express-rate-limit` cleared via `npm audit fix`).
+- No build script in this pure-ESM JS project; replaced with `node --check` syntax verification on every modified file.
+
+Files: `src/core/AuthManager.js`, `src/core/LocalizationManager.js`, `src/core/ActionExecutor.js`, `server.js`, `src/server/withAuth.js` (new), `tests/unit/withAuth.test.js` (new), `tests/unit/authManagerPhaseA.test.js` (new), `docs/PRODUCTION_READINESS.md`, `package.json`, `package-lock.json`, `IMPROVEMENT_PLAN.md`, `CHANGELOG.md`, `PRD.md`.
+
+---
+
 ### Unreleased — `/next-phase` orchestration skill + IMPROVEMENT_PLAN.md (2026-05-17)
 
 Added `IMPROVEMENT_PLAN.md` at the repo root: a three-release roadmap (Phase A v3.0.19 "Cleanup" → Phase B v3.1.0 "Refactor" → Phase C v3.2.0 "Modernize") drafted from a full audit of the codebase and current MCP best practices (Streamable HTTP, OAuth 2.1, structured outputs).

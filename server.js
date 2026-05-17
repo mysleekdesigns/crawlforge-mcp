@@ -9,8 +9,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createServer } from "node:http";
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { logger } from "./src/utils/Logger.js";
 import { load } from "cheerio";
 import { SearchWebTool } from "./src/tools/search/searchWeb.js";
 import { CrawlDeepTool } from "./src/tools/crawl/crawlDeep.js";
@@ -37,6 +37,7 @@ import { memoryMonitor } from "./src/utils/MemoryMonitor.js";
 import { config, validateConfig, getToolConfig } from "./src/constants/config.js";
 // Authentication Manager
 import AuthManager from "./src/core/AuthManager.js";
+import { makeWithAuth } from "./src/server/withAuth.js";
 
 // Initialize Authentication Manager
 await AuthManager.initialize();
@@ -84,7 +85,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "3.0.12",
+  version: "3.0.19",
   description: "Production-ready MCP server with 20 web scraping, crawling, and content processing tools. Features stealth browsing, deep research, structured extraction, and change tracking.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png"
@@ -120,66 +121,13 @@ server.prompt("getting-started", {
   };
 });
 
-// Helper function to wrap tool handlers with authentication and credit tracking
-function withAuth(toolName, handler) {
-  return async (params) => {
-    const startTime = Date.now();
-    
-    try {
-      // Skip credit checks in creator mode
-      if (!AuthManager.isCreatorMode()) {
-        // Check credits before executing
-        const creditCost = AuthManager.getToolCost(toolName);
-        const hasCredits = await AuthManager.checkCredits(creditCost);
-        
-        if (!hasCredits) {
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                error: "Insufficient credits",
-                message: `This operation requires ${creditCost} credits. Please upgrade your plan at https://www.crawlforge.dev/pricing`,
-                creditsRequired: creditCost
-              }, null, 2)
-            }]
-          };
-        }
-      }
-      
-      // Execute the tool
-      const result = await handler(params);
-      
-      // Report usage for successful execution (skip in creator mode)
-      const processingTime = Date.now() - startTime;
-      if (!AuthManager.isCreatorMode()) {
-        const creditCost = AuthManager.getToolCost(toolName);
-        await AuthManager.reportUsage(
-          toolName,
-          creditCost,
-          params,
-          200,
-          processingTime
-        );
-      }
-      
-      return result;
-    } catch (error) {
-      // Report usage even for errors (reduced credit cost) - skip in creator mode
-      const processingTime = Date.now() - startTime;
-      if (!AuthManager.isCreatorMode()) {
-        await AuthManager.reportUsage(
-          toolName,
-          Math.max(1, Math.floor(AuthManager.getToolCost(toolName) * 0.5)), // Half credits for errors
-          params,
-          500,
-          processingTime
-        );
-      }
-      
-      throw error;
-    }
-  };
-}
+// Tool-handler wrapper: auth + credit tracking + structured invocation logging.
+// Implementation lives in src/server/withAuth.js (extracted in v3.0.19 so it's
+// directly unit-testable). Audit phase A2 contract:
+//   - try/finally guarantees a `tool invocation` log line on every call
+//   - log shape: { toolName, paramHash, durationMs, outcome, creditCost, creatorMode }
+//   - getToolCost() and isCreatorMode() each resolved once per call
+const withAuth = makeWithAuth({ authManager: AuthManager, logger });
 
 // Initialize Search Web Tool - always available with CrawlForge API key
 const searchWebTool = new SearchWebTool(getToolConfig("search_web"));
@@ -1971,7 +1919,7 @@ async function runServer() {
         res.end(JSON.stringify({
           serverInfo: {
             name: "crawlforge",
-            version: "3.0.12",
+            version: "3.0.19",
             description: "Production-ready MCP server with 20 web scraping, crawling, and content processing tools. Features stealth browsing, deep research, structured extraction, and change tracking.",
             homepage: "https://www.crawlforge.dev",
             icon: "https://www.crawlforge.dev/icon.png"
@@ -1998,6 +1946,34 @@ async function runServer() {
 
       // Route /mcp to the transport handler
       if (req.url === '/mcp' || req.url === '/') {
+        // Audit phase 4: require per-request authentication on HTTP transport.
+        // Accept either `Authorization: Bearer <key>` (preferred) or `X-API-Key: <key>`.
+        // Bypassed only when verified creator mode is active.
+        if (!AuthManager.isCreatorMode()) {
+          const authHeader = req.headers['authorization'] || '';
+          const apiKeyHeader = req.headers['x-api-key'] || '';
+          let providedKey = '';
+          if (typeof authHeader === 'string' && authHeader.toLowerCase().startsWith('bearer ')) {
+            providedKey = authHeader.slice(7).trim();
+          } else if (typeof apiKeyHeader === 'string' && apiKeyHeader.length > 0) {
+            providedKey = apiKeyHeader.trim();
+          }
+
+          const expectedKey = AuthManager.getConfig()?.apiKey;
+          if (!providedKey || !expectedKey || providedKey !== expectedKey) {
+            logger.warn('HTTP transport request rejected: missing or invalid bearer token', {
+              hasAuthHeader: Boolean(authHeader),
+              hasXApiKey: Boolean(apiKeyHeader),
+              remoteAddress: req.socket?.remoteAddress
+            });
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              error: 'Unauthorized',
+              message: 'CrawlForge HTTP transport requires Authorization: Bearer <api-key> (or X-API-Key) on every request.'
+            }));
+            return;
+          }
+        }
         await transport.handleRequest(req, res);
         return;
       }

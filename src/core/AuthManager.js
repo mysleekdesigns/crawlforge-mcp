@@ -6,8 +6,10 @@
 // Using native fetch (Node.js 18+)
 import fs from 'fs/promises';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import { isCreatorModeVerified } from './creatorMode.js';
 import { resolveApiEndpoint } from './endpointGuard.js';
+import { logger } from '../utils/Logger.js';
 
 class AuthManager {
   constructor() {
@@ -33,23 +35,62 @@ class AuthManager {
 
   /**
    * Initialize the auth manager and load stored config
+   *
+   * Audit phase 5: re-validate the stored API key against the backend at startup.
+   * If the backend explicitly reports the key as revoked/invalid, we throw —
+   * the server must refuse to start rather than silently run with a dead key.
+   * Network failures are tolerated (we already have a cached config and the
+   * fail-closed credit check from audit phase 2 handles runtime revocation).
    */
   async initialize() {
     if (this.initialized) return;
-    
+
     // Skip config loading in creator mode
     if (this.isCreatorMode()) {
       console.log('🚀 Creator Mode Active - Unlimited Access Enabled');
       this.initialized = true;
       return;
     }
-    
+
     try {
       await this.loadConfig();
       this.initialized = true;
     } catch (error) {
       console.log('No existing CrawlForge configuration found. Run setup to configure.');
       this.initialized = true;
+    }
+
+    // Phase 5: re-validate cached API key with backend. Refuse to start if revoked.
+    if (this.config?.apiKey && process.env.CRAWLFORGE_SKIP_STARTUP_VALIDATION !== 'true') {
+      const validation = await this.validateApiKey(this.config.apiKey);
+      if (!validation.valid) {
+        const lower = (validation.error || '').toLowerCase();
+        const isExplicitReject =
+          lower.includes('invalid') ||
+          lower.includes('revoked') ||
+          lower.includes('not found') ||
+          lower.includes('expired') ||
+          lower.includes('unauthorized');
+        if (isExplicitReject) {
+          const rejectErr = new Error(
+            `CrawlForge API key rejected by backend at startup: ${validation.error}. ` +
+            `Run \`npm run setup\` with a current key, or set CRAWLFORGE_SKIP_STARTUP_VALIDATION=true to bypass.`
+          );
+          logger.error('Startup API key validation rejected by backend', rejectErr, {
+            backendError: validation.error
+          });
+          throw rejectErr;
+        }
+        // Connection error — tolerate, log, continue. Runtime credit check will fail closed.
+        logger.warn('Startup API key validation skipped (backend unreachable)', {
+          error: validation.error
+        });
+      } else {
+        logger.info('Startup API key validation OK', {
+          userId: validation.userId,
+          creditsRemaining: validation.creditsRemaining
+        });
+      }
     }
 
     try {
@@ -236,6 +277,11 @@ class AuthManager {
       this.creditCache.set(userId, Math.max(0, cached - creditsUsed));
     }
 
+    // Audit phase A2: every usage report gets a request ID and idempotency key
+    // so retries (in-memory or via pending-usage.json) are safe to replay.
+    const requestId = randomUUID();
+    const idempotencyKey = randomUUID();
+
     const payload = {
       tool,
       creditsUsed,
@@ -243,6 +289,8 @@ class AuthManager {
       responseStatus,
       processingTime,
       timestamp: new Date().toISOString(),
+      requestId,
+      idempotencyKey,
       version: '3.0.3'
     };
 
@@ -251,7 +299,8 @@ class AuthManager {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': this.config.apiKey
+          'X-API-Key': this.config.apiKey,
+          'Idempotency-Key': idempotencyKey
         },
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(5000)
@@ -260,8 +309,20 @@ class AuthManager {
       await this._flushPendingUsage();
     } catch (error) {
       // Log but don't throw - usage reporting should not break tool execution
-      console.error('Failed to report usage:', error.message);
-      await this._appendPendingUsage({ toolName: tool, creditsUsed, userId, timestamp: payload.timestamp });
+      logger.error('Failed to report usage; queued for retry', error, {
+        tool,
+        creditsUsed,
+        requestId,
+        idempotencyKey
+      });
+      await this._appendPendingUsage({
+        toolName: tool,
+        creditsUsed,
+        userId,
+        timestamp: payload.timestamp,
+        requestId,
+        idempotencyKey
+      });
     }
   }
 
@@ -278,18 +339,37 @@ class AuthManager {
         // File absent or corrupt — start fresh
       }
 
-      entries.push(entry);
+      // Audit phase A2: stamp every pending entry with a request ID and idempotency key
+      // so the backend (when it ships support) can dedupe, and so we can log dropped
+      // entries by ID when the flush retry path fails permanently.
+      const stamped = {
+        requestId: entry.requestId || randomUUID(),
+        idempotencyKey: entry.idempotencyKey || randomUUID(),
+        ...entry
+      };
+
+      entries.push(stamped);
 
       // Cap at 1 MB — drop oldest entries until serialized size fits
       let serialized = JSON.stringify(entries);
+      const dropped = [];
       while (serialized.length > 1_048_576 && entries.length > 1) {
-        entries.shift();
+        dropped.push(entries.shift());
         serialized = JSON.stringify(entries);
+      }
+      if (dropped.length > 0) {
+        logger.warn('Pending usage queue truncated to 1 MB cap', {
+          droppedCount: dropped.length,
+          droppedIds: dropped.map(d => d.requestId).filter(Boolean)
+        });
       }
 
       await fs.writeFile(this.pendingUsagePath, serialized, { mode: 0o600 });
     } catch (error) {
-      console.error('Failed to append pending usage:', error.message);
+      logger.error('Failed to append pending usage', error, {
+        toolName: entry?.toolName,
+        requestId: entry?.requestId
+      });
     }
   }
 
@@ -300,32 +380,60 @@ class AuthManager {
     try {
       const raw = await fs.readFile(this.pendingUsagePath, 'utf-8');
       entries = JSON.parse(raw);
-    } catch {
-      return; // Nothing to flush
+    } catch (err) {
+      // ENOENT is normal (nothing pending). Anything else is corruption — log it.
+      if (err && err.code !== 'ENOENT') {
+        logger.warn('Pending usage file unreadable; treating as empty', {
+          error: err.message,
+          path: this.pendingUsagePath
+        });
+      }
+      return;
     }
 
     if (!Array.isArray(entries) || entries.length === 0) return;
 
     const remaining = [];
+    const flushedIds = [];
+    const failedIds = [];
     for (const entry of entries) {
       try {
+        const idempotencyKey = entry.idempotencyKey || randomUUID();
         await fetch(`${this.apiEndpoint}/api/v1/usage`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-API-Key': this.config.apiKey
+            'X-API-Key': this.config.apiKey,
+            'Idempotency-Key': idempotencyKey
           },
           body: JSON.stringify({
             tool: entry.toolName,
             creditsUsed: entry.creditsUsed,
             timestamp: entry.timestamp,
+            requestId: entry.requestId,
+            idempotencyKey,
             version: '3.0.3'
           }),
           signal: AbortSignal.timeout(5000)
         });
-      } catch {
+        flushedIds.push(entry.requestId);
+      } catch (err) {
+        failedIds.push(entry.requestId);
         remaining.push(entry);
       }
+    }
+
+    if (flushedIds.length > 0) {
+      logger.info('Flushed pending usage entries', {
+        count: flushedIds.length,
+        requestIds: flushedIds.filter(Boolean)
+      });
+    }
+    if (failedIds.length > 0) {
+      logger.warn('Pending usage entries failed to flush; retained for next attempt', {
+        count: failedIds.length,
+        requestIds: failedIds.filter(Boolean)
+      });
     }
 
     try {
@@ -335,7 +443,9 @@ class AuthManager {
         await fs.writeFile(this.pendingUsagePath, JSON.stringify(remaining), { mode: 0o600 });
       }
     } catch (error) {
-      console.error('Failed to update pending usage file:', error.message);
+      logger.error('Failed to update pending usage file', error, {
+        path: this.pendingUsagePath
+      });
     }
   }
 
