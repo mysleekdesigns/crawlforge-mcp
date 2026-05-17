@@ -5,6 +5,47 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-05-17
+
+Ships Phase C "Modernize" of `IMPROVEMENT_PLAN.md` end-to-end. Closes the protocol/feature gap with Firecrawl, Crawl4AI, and Bright Data MCP. No tool schema or public API changes for existing stdio users — strictly additive.
+
+### Added
+- `src/server/transports/streamableHttp.js` — stateful Streamable HTTP transport (MCP spec 2025-06-18). Sessions via `Mcp-Session-Id` header (request + response). Single `/mcp` endpoint handles POST (JSON or SSE) and GET (SSE) per spec. Built on `StreamableHTTPServerTransport` from `@modelcontextprotocol/sdk@1.29`.
+- `src/server/auth/oauth.js` — OAuth 2.1 authorization server (~350 LOC, zero new runtime deps). Discovery (`/.well-known/oauth-authorization-server`), Dynamic Client Registration (RFC 7591) at `/oauth/register`, Authorization Code + PKCE S256 at `/oauth/authorize`, token issuance + refresh rotation at `/oauth/token`, revocation (RFC 7009) at `/oauth/revoke`. Bearer tokens are opaque and mapped server-side to the operator's CrawlForge API key.
+- `src/observability/metrics.js` — minimal Prometheus exposition (counters, gauges, histograms). Exposes `crawlforge_tool_requests_total`, `crawlforge_tool_errors_total{error_class}`, `crawlforge_tool_duration_ms` (histogram), `crawlforge_credits_consumed_total`, `crawlforge_browser_pool_in_use`, `crawlforge_browser_pool_capacity`.
+- `src/observability/tracing.js` — OpenTelemetry tracing facade. No-op unless `OTEL_SDK_DISABLED=false` AND `globalThis.__otelTracer` is registered by the host application. Span attributes: `mcp.tool.name`, `mcp.tool.duration_ms`, `mcp.tool.outcome`, `mcp.credit.cost`, `mcp.credit.outcome`, `mcp.creator_mode`.
+- `dualOutput()` helper in `src/server/registerTool.js` for tool handlers that want to emit both legacy `content` and MCP-2025-06-18 `structuredContent` from one value.
+- `outputSchema` option on `registerTool()` — opt-in MCP structured outputs (validated server-side by the SDK against the supplied Zod shape).
+- `--legacy-http` / `CRAWLFORGE_LEGACY_HTTP=true` — preserves v3.1 stateless HTTP behaviour for one release; emits a deprecation warning at startup.
+- Environment knobs (all opt-in): `CRAWLFORGE_OAUTH_ENABLED`, `CRAWLFORGE_OAUTH_ISSUER`, `CRAWLFORGE_METRICS`, `CRAWLFORGE_LEGACY_HTTP`.
+- `docs/oauth-quickstart.md` — copy-pasteable Node sample client covering register → authorize → exchange → refresh → `/mcp`.
+- `docs/observability/grafana-dashboard.json` — six-panel dashboard (requests/sec, errors/sec, p50/p95 duration, credits/sec, browser pool utilization).
+- `tests/unit/oauth.test.js` (12 cases) — discovery shape, DCR validation, full PKCE flow, wrong-verifier rejection, `plain` rejection, refresh rotation + replay protection, revocation.
+- `tests/unit/streamableHttp.test.js` (12 cases) — `/health`, `/metrics`, server-card, `/mcp` 401 paths, creator-mode bypass, OAuth pass-through, OPTIONS preflight, unknown path.
+- `tests/unit/metrics.test.js` (6 cases) — counter / gauge / histogram correctness + label escaping.
+- `tests/unit/tracing.test.js` (7 cases) — gating logic, no-op span when disabled, attribute writes when enabled.
+- `tests/unit/registerTool.test.js` (4 cases) — `outputSchema` forwarding + `dualOutput` shape.
+- `tests/unit/withAuth.test.js` — three new cases for metrics integration (success counter + credits, error counter + `error_class`, no-op when registry not passed).
+
+### Changed
+- `server.js`: wires new Streamable HTTP transport (default in `--http`), OAuth provider when `CRAWLFORGE_OAUTH_ENABLED=true`, Prometheus registry when `CRAWLFORGE_METRICS=true`. Version string bumped 3.0.19 → 3.2.0.
+- `src/server/transports/http.js`: now a 20-line back-compat shim that forwards to `connectStreamableHttp({ legacy: true })`.
+- `src/server/withAuth.js`: emits Prometheus counter + histogram + credits-consumed on every invocation when a registry is passed; emits an OTel span when tracing is enabled. Both are wrapped in try/catch so they can't break the request path.
+- `src/server/registerTool.js`: accepts and forwards `outputSchema`; exports `dualOutput`.
+- `package.json`: version 3.1.0 → 3.2.0.
+- `docs/PRODUCTION_READINESS.md`: version bump + dedicated Streamable HTTP endpoint table.
+
+### Deferred (documented in `IMPROVEMENT_PLAN.md` § C5)
+- Firecrawl-style action recording/replay for `scrape_with_actions`
+- Crawl4AI-style session reuse in `crawl_deep`
+- New `extract_with_llm` tool (LLM-gated)
+- `provider: 'crawlforge' | 'searxng'` switch on `search_web`
+
+The plan explicitly says "pick based on user demand". No user requests for these in the v3.1 window — leaving `[ ]` rather than building speculatively. All remain independently shippable.
+
+### Notes
+- Adding `outputSchema` to each of the 20 existing tool registrations is intentionally a follow-up. The framework, helper, and tests are in place — per-tool schema rollout will get its own review pass.
+
 ## [3.1.0] - 2026-05-17
 
 Ships Phase B "Refactor" of `IMPROVEMENT_PLAN.md` end-to-end. No public-API or tool-schema changes — strictly internal restructuring, bounded browser pool, and a real test suite. All 20 MCP tools continue to pass.

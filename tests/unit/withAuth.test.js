@@ -127,3 +127,63 @@ test('withAuth: creator mode skips credit checks and reports, but still logs', a
   assert.equal(line.context.outcome, 'success');
   assert.equal(auth.reportCalls.length, 0, 'no usage report in creator mode');
 });
+
+// ─── v3.2.0 (C4) — observability ──────────────────────────────────────────────
+
+function makeFakeMetrics() {
+  const events = [];
+  return {
+    events,
+    incCounter(name, labels, by = 1) { events.push({ kind: 'counter', name, labels, by }); },
+    setGauge(name, labels, value) { events.push({ kind: 'gauge', name, labels, value }); },
+    observeHistogram(name, labels, value) { events.push({ kind: 'hist', name, labels, value }); }
+  };
+}
+
+test('withAuth: metrics — success increments requests + histogram + credits', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 3 });
+  const metrics = makeFakeMetrics();
+  const withAuth = makeWithAuth({ authManager: auth, logger, metrics });
+
+  await withAuth('fetch_url', async () => ({ content: [{ type: 'text', text: 'ok' }] }))({ url: 'x' });
+
+  const counter = metrics.events.find(e => e.kind === 'counter' && e.name === 'crawlforge_tool_requests_total');
+  assert.ok(counter, 'requests counter incremented');
+  assert.equal(counter.labels.tool, 'fetch_url');
+  assert.equal(counter.labels.outcome, 'success');
+
+  const credits = metrics.events.find(e => e.kind === 'counter' && e.name === 'crawlforge_credits_consumed_total');
+  assert.ok(credits, 'credits counter incremented on success');
+  assert.equal(credits.by, 3);
+
+  const hist = metrics.events.find(e => e.kind === 'hist');
+  assert.ok(hist, 'duration histogram observed');
+});
+
+test('withAuth: metrics — error path emits errors counter with error_class', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 1 });
+  const metrics = makeFakeMetrics();
+  const withAuth = makeWithAuth({ authManager: auth, logger, metrics });
+
+  class BoomError extends Error {
+    constructor(msg) { super(msg); this.name = 'BoomError'; }
+  }
+  await assert.rejects(
+    () => withAuth('crawl_deep', async () => { throw new BoomError('nope'); })({})
+  );
+
+  const err = metrics.events.find(e => e.kind === 'counter' && e.name === 'crawlforge_tool_errors_total');
+  assert.ok(err);
+  assert.equal(err.labels.error_class, 'BoomError');
+});
+
+test('withAuth: metrics — works fine when no registry is passed', async () => {
+  // Just verifying no metrics-related throw — covered by all the earlier tests too,
+  // but make it explicit.
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 1 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+  await withAuth('x', async () => ({ content: [] }))({});
+});

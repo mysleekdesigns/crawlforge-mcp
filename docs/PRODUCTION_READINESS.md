@@ -1,6 +1,6 @@
 # CrawlForge MCP Server - Production Readiness
 
-**Version:** 3.1.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-17
+**Version:** 3.2.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-17
 
 ---
 
@@ -23,6 +23,7 @@
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 3.2.0 | 2026-05-17 | Modernize — Streamable HTTP transport (stateful sessions, `Mcp-Session-Id`), OAuth 2.1 with PKCE + DCR, structured tool outputs (`outputSchema` / `dualOutput`), OpenTelemetry tracing facade, Prometheus `/metrics`, Grafana dashboard, OAuth quickstart docs |
 | 3.1.0 | 2026-05-17 | Refactor — `server.js` 2,138 → 990 LOC, bounded `BrowserContextPool`, trackChanges/batchScrape decomposed, shared `SearchResultCache`, 188 unit + integration tests (64.3% line coverage on `src/`) |
 | 3.0.19 | 2026-05-17 | Cleanup — close audit phases 4 & 5, structured tool-invocation logging, request IDs + idempotency keys on usage reports, dead-code removal in LocalizationManager/ActionExecutor |
 | 3.0.18 | 2026-04-18 | Security patch — endpoint allow-list, fail-closed credit check, usage-report hardening (audit phases 1/2/3) |
@@ -38,7 +39,7 @@
 
 ## API Endpoints
 
-All requests go to `https://www.crawlforge.dev`:
+### CrawlForge.dev backend (outbound, from server)
 
 | Endpoint | Purpose |
 |----------|---------|
@@ -46,6 +47,22 @@ All requests go to `https://www.crawlforge.dev`:
 | `GET /api/v1/credits` | Check credit balance |
 | `POST /api/v1/usage` | Report tool usage |
 | `POST /api/v1/search` | Google Search proxy |
+
+### Streamable HTTP transport (v3.2.0+, when `--http` is used)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/mcp` | POST / GET / DELETE | MCP Streamable HTTP (stateful sessions via `Mcp-Session-Id` header) |
+| `/health` | GET | Liveness probe (`{ status, version, mode }`) |
+| `/metrics` | GET | Prometheus exposition (when `CRAWLFORGE_METRICS=true`) |
+| `/.well-known/mcp/server-card.json` | GET | Smithery gateway discovery |
+| `/.well-known/oauth-authorization-server` | GET | OAuth 2.1 discovery (when `CRAWLFORGE_OAUTH_ENABLED=true`) |
+| `/oauth/register` | POST | OAuth Dynamic Client Registration (RFC 7591) |
+| `/oauth/authorize` | GET | OAuth authorization (PKCE S256 required) |
+| `/oauth/token` | POST | OAuth token + refresh |
+| `/oauth/revoke` | POST | OAuth token revocation (RFC 7009) |
+
+The legacy stateless transport from v3.1.x is preserved behind `--legacy-http` for one release and will be removed in v3.3.0.
 
 ---
 

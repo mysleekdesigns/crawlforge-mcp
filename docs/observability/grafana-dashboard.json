@@ -1,0 +1,76 @@
+{
+  "annotations": { "list": [] },
+  "description": "CrawlForge MCP Server — tool throughput, errors, latency, credits, and browser pool utilization.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "panels": [
+    {
+      "title": "Tool invocations / sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum by (tool) (rate(crawlforge_tool_requests_total[5m]))", "legendFormat": "{{tool}}" }
+      ]
+    },
+    {
+      "title": "Tool errors / sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum by (tool, error_class) (rate(crawlforge_tool_errors_total[5m]))", "legendFormat": "{{tool}} / {{error_class}}" }
+      ]
+    },
+    {
+      "title": "Tool duration — p95 (ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, tool) (rate(crawlforge_tool_duration_ms_bucket[5m])))", "legendFormat": "{{tool}} p95" }
+      ]
+    },
+    {
+      "title": "Tool duration — p50 (ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum by (le, tool) (rate(crawlforge_tool_duration_ms_bucket[5m])))", "legendFormat": "{{tool}} p50" }
+      ]
+    },
+    {
+      "title": "Credits consumed / sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum by (tool) (rate(crawlforge_credits_consumed_total[5m]))", "legendFormat": "{{tool}}" }
+      ]
+    },
+    {
+      "title": "Browser pool utilization",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "crawlforge_browser_pool_in_use", "legendFormat": "in use" },
+        { "expr": "crawlforge_browser_pool_capacity", "legendFormat": "capacity" }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["mcp", "crawlforge"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "CrawlForge MCP Server",
+  "uid": "crawlforge-mcp",
+  "version": 1,
+  "weekStart": ""
+}

@@ -30,6 +30,11 @@ import { makeWithAuth } from "./src/server/withAuth.js";
 // Transport helpers
 import { connectStdio } from "./src/server/transports/stdio.js";
 import { connectHttp } from "./src/server/transports/http.js";
+import { connectStreamableHttp } from "./src/server/transports/streamableHttp.js";
+// OAuth 2.1 (HTTP transport only — opt-in via CRAWLFORGE_OAUTH_ENABLED=true)
+import { createOAuthProvider } from "./src/server/auth/oauth.js";
+// Observability (no-op by default — enable via CRAWLFORGE_METRICS / OTEL_SDK_DISABLED)
+import { createMetricsRegistry } from "./src/observability/metrics.js";
 // Basic tool handlers (extracted from server.js)
 import { fetchUrlHandler } from "./src/tools/basic/fetchUrl.js";
 import { extractTextHandler } from "./src/tools/basic/extractText.js";
@@ -83,7 +88,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "3.0.19",
+  version: "3.2.0",
   description: "Production-ready MCP server with 20 web scraping, crawling, and content processing tools. Features stealth browsing, deep research, structured extraction, and change tracking.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png"
@@ -119,8 +124,15 @@ server.prompt("getting-started", {
   };
 });
 
-// Tool-handler wrapper: auth + credit tracking + structured invocation logging.
-const withAuth = makeWithAuth({ authManager: AuthManager, logger });
+// Observability registry — only emit metrics in HTTP mode when explicitly enabled.
+// Stdio mode stays silent to match MCP host expectations.
+const metricsEnabled =
+  (process.argv.includes('--http') || process.env.MCP_HTTP === 'true') &&
+  process.env.CRAWLFORGE_METRICS === 'true';
+const metrics = metricsEnabled ? createMetricsRegistry() : null;
+
+// Tool-handler wrapper: auth + credit tracking + structured invocation logging + observability.
+const withAuth = makeWithAuth({ authManager: AuthManager, logger, metrics });
 
 // Initialize tools
 const searchWebTool = new SearchWebTool(getToolConfig("search_web"));
@@ -877,11 +889,37 @@ server.registerTool("localization", {
 // ─── Transport + startup ───────────────────────────────────────────────────────
 
 const useHttp = process.argv.includes('--http') || process.env.MCP_HTTP === 'true';
+const useLegacyHttp = process.argv.includes('--legacy-http') || process.env.CRAWLFORGE_LEGACY_HTTP === 'true';
 
 async function runServer() {
   if (useHttp) {
     const port = parseInt(process.env.PORT || '3000', 10);
-    await connectHttp(server, AuthManager, logger, port);
+
+    if (useLegacyHttp) {
+      // One-release deprecation window for stateless legacy transport.
+      console.error('WARNING: --legacy-http is deprecated and will be removed in v3.3.0. Use the default Streamable HTTP transport.');
+      await connectHttp(server, AuthManager, logger, port);
+    } else {
+      // OAuth (opt-in)
+      let oauthProvider = null;
+      if (process.env.CRAWLFORGE_OAUTH_ENABLED === 'true') {
+        const issuer = process.env.CRAWLFORGE_OAUTH_ISSUER || `http://localhost:${port}`;
+        const apiKey = AuthManager.getConfig()?.apiKey;
+        if (!apiKey) {
+          console.error('OAuth enabled but no CrawlForge API key is configured — falling back to static-key auth.');
+        } else {
+          oauthProvider = createOAuthProvider({ issuer, apiKey, logger });
+          console.error(`OAuth 2.1 enabled — discovery at ${issuer}/.well-known/oauth-authorization-server`);
+        }
+      }
+
+      await connectStreamableHttp(server, AuthManager, logger, {
+        port,
+        legacy: false,
+        oauth: oauthProvider,
+        metrics
+      });
+    }
   } else {
     await connectStdio(server);
   }
