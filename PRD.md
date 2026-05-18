@@ -12,6 +12,10 @@ CrawlForge MCP Server (v3.6.0) has 20 specialized tools and strong security/stea
 
 ## Release History
 
+### v4.2.1 (Development) - Backwards-Compat Fix for batch_scrape (2026-05-18)
+
+Patch release that neutralizes the v4.0.0 "breaking change" to `batch_scrape` defaults. The internal `BatchScrapeSchema` defaulted to `['markdown']` while the MCP tool registration at `server.js:544` defaulted to `['json']` — because params are validated twice (MCP layer then tool layer), the MCP default always won, so MCP clients were never actually broken. v4.2.1 aligns the internal schema to `['json']` to close the latent mismatch. Three regression tests pin the schema defaults. No migration needed.
+
 ### v4.2.0 (Development) - Phase D5.2 Per-Tool Tests + D5.3 Docs Refresh (2026-05-18)
 
 Phase D5.2 ships 131 new unit tests across 17 tools. Phase D5.3 ships 3 new docs and a README code-block validator. This completes the entire v4.0 roadmap.

@@ -5,6 +5,7 @@
 
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { BatchScrapeSchema } from '../../../../src/tools/advanced/batchScrape/schema.js';
 
 // ---------------------------------------------------------------------------
 // Stubs
@@ -146,5 +147,30 @@ describe('batchScrape tool', () => {
     const job = tool.jobManager.getJob(result.jobId);
     assert.ok(job, 'job should exist');
     assert.equal(job.status, 'completed');
+  });
+
+  // 4.2.1 — Pin BatchScrapeSchema default to match server.js MCP-facing default.
+  // Guards against re-introducing the v4.0.0 internal/external mismatch where the
+  // internal schema defaulted to ['markdown'] while the MCP tool registration
+  // defaulted to ['json'], silently breaking direct programmatic callers.
+  test('BatchScrapeSchema default formats is ["json"] (matches MCP registration)', () => {
+    const parsed = BatchScrapeSchema.parse({ urls: ['https://example.com'] });
+    assert.deepEqual(parsed.formats, ['json']);
+  });
+
+  test('BatchScrapeSchema preserves explicit formats: ["markdown"]', () => {
+    const parsed = BatchScrapeSchema.parse({
+      urls: ['https://example.com'],
+      formats: ['markdown']
+    });
+    assert.deepEqual(parsed.formats, ['markdown']);
+  });
+
+  test('BatchScrapeSchema preserves explicit formats: ["markdown","json"]', () => {
+    const parsed = BatchScrapeSchema.parse({
+      urls: ['https://example.com'],
+      formats: ['markdown', 'json']
+    });
+    assert.deepEqual(parsed.formats, ['markdown', 'json']);
   });
 });

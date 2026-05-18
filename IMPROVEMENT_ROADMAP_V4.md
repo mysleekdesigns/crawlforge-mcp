@@ -319,7 +319,7 @@ Ask the user for confirmation/input mid-tool for expensive or ambiguous operatio
 - **MCP Sampling client support.** Not every MCP client implements sampling. Fallback chain must remain robust.
 - **Resource cleanup.** Exposing `crawlforge://snapshot/...` as resources may extend retention; document TTL.
 - **Cost-projection accuracy.** Projections diverge from actuals for tools like `deep_research` where source count is dynamic — disclose lower-bound only.
-- **Breaking default change in D3.1.** Switching `batch_scrape` default output to markdown is a v4.0 breaking change; flag prominently in CHANGELOG and migration guide.
+- ~~**Breaking default change in D3.1.** Switching `batch_scrape` default output to markdown is a v4.0 breaking change; flag prominently in CHANGELOG and migration guide.~~ **Resolved in v4.2.1:** the change was never actually exposed at the MCP surface — `server.js:544` registers `batch_scrape` with `formats.default(['json'])` and that wins over the inner-schema default. v4.2.1 aligns the inner `BatchScrapeSchema` default to `['json']` to remove the latent mismatch. Markdown remains a single-line opt-in.
 
 ---
 

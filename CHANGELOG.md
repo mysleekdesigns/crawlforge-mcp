@@ -3,6 +3,22 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.2.1] - 2026-05-18
+
+Backwards-compatibility fix: neutralize the v4.0.0 "breaking change" to `batch_scrape` defaults.
+
+### Fixed
+
+- **`batch_scrape` default formats** — Aligned the internal `BatchScrapeSchema` default from `['markdown']` back to `['json']` to match the MCP-facing default at `server.js:544`. The v4.0.0 release notes flagged this as a breaking change, but in practice the MCP tool registration always defaulted to `['json']` — the inner-schema mismatch only ever affected direct programmatic callers of `BatchScrapeTool.execute()`, never MCP clients (Claude Code, Cursor, the CLI). v4.2.1 closes the latent gap so the two layers agree. **No migration needed for any caller.** Markdown output remains a single-line opt-in via `formats: ['markdown']` (or `['markdown','json']` for both).
+
+### Added
+
+- Regression tests in `tests/unit/tools/advanced/batchScrape.test.js` pinning `BatchScrapeSchema` defaults so this mismatch can't silently re-appear: `default formats is ['json']`, `preserves explicit ['markdown']`, `preserves explicit ['markdown','json']`. 10/10 tests green.
+
+### Migration Guide
+
+If you upgraded from v3.x to v4.0.0–v4.2.0 via the MCP interface: **nothing changes**, you were never affected. If you import `BatchScrapeTool` directly and call `.execute({urls:[...]})` without specifying `formats`: you now get `content.json` again (matches v3.x). To get the markdown-first behavior promised in D3.1, pass `formats: ['markdown']` explicitly — the Turndown converter, `extract_text` markdown mode, `extract_content` markdown mode, and `process_document` markdown mode are all unchanged.
+
 ## [4.2.0] - 2026-05-18
 
 Phase D5.2 + D5.3 — Per-tool unit tests and docs refresh. Additive release: no API changes.
