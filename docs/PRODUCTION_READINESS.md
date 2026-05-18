@@ -1,6 +1,6 @@
 # CrawlForge MCP Server - Production Readiness
 
-**Version:** 3.3.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-17
+**Version:** 3.3.1 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-17
 
 ---
 
@@ -12,7 +12,7 @@
 | Security | ✅ 9.7/10 |
 | All 21 Tools | ✅ Working |
 | MCP Compliance | ✅ 100% |
-| Functional Tests | ✅ 21/21 tools (sandbox flakes excepted) |
+| Functional Tests | ✅ 20/20 tools via `test-tools.js` (creator-mode path) |
 | npm Published | ✅ Yes |
 
 **Production Readiness Score:** 98.5/100

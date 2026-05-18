@@ -5,6 +5,21 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.1] - 2026-05-17
+
+Two pre-existing bugs surfaced during the full out-of-sandbox verification of the v3.3.0 release. Neither was caused by Phase C5 — both reproduce on the v3.2.0 commit. They were masked respectively by a populated LRU cache hit (bug #1) and by CI environments lacking the maintainer `.env` (bug #2).
+
+### Fixed
+- **`search_web` "Converting circular structure to JSON → Timeout" crash.** `ResultRanker` and `ResultDeduplicator` constructors spread `...options` (which includes `sharedCache`, a `CacheManager` instance holding a `setInterval` monitoring Timer) into `this.options`. Cache-key generation later called `JSON.stringify` on that options object, hitting a circular reference through `Timer → TimersList → Timer`. Fix: destructure `sharedCache` out before the spread so it lives in `this.cache` only — never in the serializable `this.options`. Inline comment added at both constructors so a future refactor doesn't reintroduce the bug. (`src/tools/search/ranking/ResultRanker.js`, `src/tools/search/ranking/ResultDeduplicator.js`)
+- **`endpointGuard.test.js` "creator mode OFF" test was premise-unsatisfiable on the maintainer's machine.** `creatorMode.js` loads `.env` at module init and caches the verified flag in a module-scoped variable that is immutable from outside (by design — security note in that file). The test tried to disable creator mode by `delete process.env.CRAWLFORGE_CREATOR_SECRET` at test time, which has no effect once the module has loaded. Fix: have the test `t.skip()` with a clear rationale when `isCreatorModeVerified()` returns true — the test's other 7 assertions still run unconditionally. (`tests/unit/endpointGuard.test.js`)
+
+### Verification (clean tree, no sandbox)
+- `node test-tools.js`: **20/20 PASS** (was 19/20 — search_web fixed)
+- `node --test tests/unit/*.test.js`: 240 tests — **227 pass, 0 fail, 13 skipped** (was 227 pass, 1 fail, 12 skipped)
+- `node --test tests/unit/streamableHttp.test.js`: **12/12 pass** (was sandbox-blocked by EPERM listen on 127.0.0.1)
+- `npm test` MCP protocol compliance: 70% — unchanged from HEAD baseline
+- `npm audit`: **0 vulnerabilities**
+
 ## [3.3.0] - 2026-05-17
 
 Ships Phase C5 "Feature parity" of `IMPROVEMENT_PLAN.md`. Adds one new MCP tool (`extract_with_llm`, bringing the total to 21) and extends three existing tools with capabilities at parity with Firecrawl, Crawl4AI, and ScrapeGraphAI. All changes are strictly additive — every existing call signature behaves exactly as in v3.2.0.
