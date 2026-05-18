@@ -3,6 +3,26 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.2.2] - 2026-05-18
+
+Patch release: CLI bugfix + retracted v4.0.0 breaking-change documentation.
+
+### Fixed
+
+- **`crawlforge batch` CLI command** — user-supplied `--format`, `--concurrency`, and `--max-retries` flags were silently dropped because the command passed `output_format` / `concurrency` / `max_retries` to `BatchScrapeTool.execute()`, but `BatchScrapeSchema` expects `formats` (array) / `maxConcurrency` / `jobOptions.maxRetries`. Zod's strip-mode silently discarded the unknown keys, so the tool always ran with defaults regardless of what was passed on the command line. Now maps to the schema's actual keys.
+
+### Documentation
+
+- **CHANGELOG v4.0.0 retracted** — the "breaking change" to `batch_scrape` defaults was a phantom at the MCP surface (see v4.2.1 postmortem). The v4.0.0 Breaking Changes and Migration Guide sections are now annotated as retracted with the corrected reality inline.
+
+### Added
+
+- Contract test in `tests/unit/tools/advanced/batchScrape.test.js` pins the CLI param shape so the flag-mapping regression can't silently re-appear.
+
+### Internal
+
+- CI workflow (`.github/workflows/ci.yml`) fixed: the quoted glob `"tests/unit/*.test.js"` never expanded in GitHub Actions, causing the unit-tests job to fail in 0s with "Could not find" before running any test. Replaced with `$(find tests/unit -name "*.test.js")` for recursive discovery (now runs 417 tests across 18 files vs. 0 before), added `--test-force-exit` to bypass open-handle hangs in legacy D2 reliability tests, bumped CI Node 20 → 22. Not user-facing; not in the published tarball.
+
 ## [4.2.1] - 2026-05-18
 
 Backwards-compatibility fix: neutralize the v4.0.0 "breaking change" to `batch_scrape` defaults.
