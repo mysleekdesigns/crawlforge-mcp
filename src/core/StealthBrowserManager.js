@@ -60,8 +60,9 @@ const StealthConfigSchema = z.object({
 export class StealthBrowserManager {
   constructor(options = {}) {
     this.browser = null;
+    this._maxContexts = parseInt(process.env.MAX_BROWSER_CONTEXTS || '10', 10);
     this.contexts = new BrowserContextPool({
-      maxContexts: parseInt(process.env.MAX_BROWSER_CONTEXTS || '10', 10),
+      maxContexts: this._maxContexts,
       periodicRefreshAfter: 200,
       closeIdleAfterMs: 30 * 60 * 1000,
       waitTimeoutMs: 10_000,
@@ -69,6 +70,8 @@ export class StealthBrowserManager {
         this.fingerprints.delete(contextId);
       }
     });
+    // D2.2: fingerprints Map is capped at _maxContexts to prevent unbounded growth.
+    // Oldest entries are evicted when the cap is exceeded (insertion order via Map).
     this.fingerprints = new Map();
     
     // Enhanced stealth components
@@ -377,7 +380,8 @@ export class StealthBrowserManager {
     await this.applyAdvancedStealthConfigurations(context, validatedConfig, fingerprint);
     
     await this.contexts.set(contextId, { context, fingerprint, config: validatedConfig });
-    this.fingerprints.set(contextId, fingerprint);
+    // D2.2: enforce LRU cap on fingerprints Map
+    this._setFingerprint(contextId, fingerprint);
 
     return { context, contextId, fingerprint };
   }
@@ -1700,6 +1704,18 @@ export class StealthBrowserManager {
       await this.contexts.dispose(contextId);
       this.fingerprints.delete(contextId);
     }
+  }
+
+  /**
+   * D2.2: LRU-capped fingerprint setter.
+   * Evicts the oldest entry when the Map exceeds _maxContexts to prevent unbounded growth.
+   */
+  _setFingerprint(contextId, fingerprint) {
+    if (this.fingerprints.size >= this._maxContexts) {
+      const oldestKey = this.fingerprints.keys().next().value;
+      this.fingerprints.delete(oldestKey);
+    }
+    this.fingerprints.set(contextId, fingerprint);
   }
 
   /**

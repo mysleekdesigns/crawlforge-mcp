@@ -22,6 +22,9 @@ class AuthManager {
     this.lastSuccessfulCreditCheck = new Map();
     this.CREDIT_CHECK_INTERVAL = 15000;
     this.initialized = false;
+    // D2.1: simple async mutex to prevent concurrent reportUsage calls from
+    // double-decrementing the credit cache before the backend ack arrives.
+    this._usageQueue = Promise.resolve();
     // NOTE: Don't read creator mode in constructor - it's set dynamically in server.js
   }
 
@@ -269,9 +272,18 @@ class AuthManager {
       return; // Silently skip if not configured
     }
 
+    // D2.1: serialize via promise queue so concurrent tool calls do not race
+    // on creditCache and double-decrement before the backend ack arrives.
+    this._usageQueue = this._usageQueue.then(() =>
+      this._reportUsageOnce(tool, creditsUsed, requestData, responseStatus, processingTime)
+    );
+    return this._usageQueue;
+  }
+
+  async _reportUsageOnce(tool, creditsUsed, requestData = {}, responseStatus = 200, processingTime = 0) {
     const userId = this.config.userId;
 
-    // Pre-decrement cache before fetch so network failures still deplete credits
+    // Decrement only inside the serialized task -- no concurrent races
     const cached = this.creditCache.get(userId);
     if (cached !== undefined) {
       this.creditCache.set(userId, Math.max(0, cached - creditsUsed));

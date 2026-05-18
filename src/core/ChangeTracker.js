@@ -6,6 +6,7 @@ import crypto from "crypto";
  */
 
 import { createHash } from 'crypto';
+import { Worker } from 'worker_threads';
 import { z } from 'zod';
 import { EventEmitter } from 'events';
 import { load } from 'cheerio';
@@ -827,6 +828,39 @@ export class ChangeTracker extends EventEmitter {
     return createHash(this.options.hashAlgorithm)
       .update(content || '')
       .digest('hex');
+  }
+
+  /**
+   * D2.8: Hash large content (>256KB) off the main thread to avoid event-loop blocking.
+   * Falls back to synchronous hashContent for smaller payloads.
+   * @param {string} content
+   * @returns {Promise<string>}
+   */
+  async hashContentAsync(content) {
+    const THRESHOLD = 256 * 1024; // 256 KB
+    const str = content || '';
+    if (str.length <= THRESHOLD) {
+      return this.hashContent(str);
+    }
+
+    const algorithm = this.options.hashAlgorithm || 'sha256';
+    return new Promise((resolve, reject) => {
+      const workerCode = `
+        const { createHash } = require('crypto');
+        const { workerData, parentPort } = require('worker_threads');
+        const hash = createHash(workerData.algorithm).update(workerData.content).digest('hex');
+        parentPort.postMessage(hash);
+      `;
+      const worker = new Worker(workerCode, {
+        eval: true,
+        workerData: { content: str, algorithm }
+      });
+      worker.once('message', resolve);
+      worker.once('error', (err) => {
+        // Fallback to sync on worker error
+        try { resolve(this.hashContent(str)); } catch (e) { reject(e); }
+      });
+    });
   }
   
   calculateSimilarity(hash1, hash2) {

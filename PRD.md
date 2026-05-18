@@ -6,11 +6,30 @@ CrawlForge MCP Server (v3.0.12) has 20 specialized tools and strong security/ste
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — without breaking any of the 20 existing MCP tools or the current setup flow.
 
-**Last Updated:** 2026-05-18
+**Last Updated:** 2026-05-17
 
 ---
 
 ## Release History
+
+### v3.5.2 (Development) — Phase D2 Reliability Hardening + D5.1 CI Workflows (2026-05-17)
+
+**10 audit findings fixed** in `src/core/` — all covered by regression tests in `tests/unit/d2-reliability.test.js`:
+
+- **D2.1 AuthManager credit race** — promise queue serializes concurrent `reportUsage` calls
+- **D2.2 StealthBrowserManager leak** — `_setFingerprint` LRU cap at `_maxContexts`
+- **D2.3 ResearchOrchestrator LLM cost** — per-session token budget with abort + `_cost` in response
+- **D2.4 ActionExecutor page leaks** — `initializePage` inside try/finally; safe `page.close()`
+- **D2.5 WebhookDispatcher retry storms** — per-webhook jittered exponential backoff; batch cap at 10
+- **D2.6 JobManager cascade + eviction** — cascade-cancel dependents; LRU eviction at `maxJobs`; TTL expiry for all states
+- **D2.7 PerformanceManager routing** — routes by live queue depth + wait time; AbortController on shutdown
+- **D2.8 Localization/ChangeTracker** — LRU-capped Maps; `hashContentAsync` offloads >256KB to `worker_threads`
+- **D2.9 Secret masking** — `src/utils/secretMask.js` + Winston global masking format
+- **D2.10 URL dedup** — `deduplicateSources` uses per-session `visitedUrls`; cache-hit returns existing extracted content
+
+**D5.1 GitHub Actions** — `.github/workflows/ci.yml` (5 jobs) + `.github/workflows/security.yml` (daily scans)
+
+---
 
 ### v3.5.1 — Render deploy fix: align default port with Render's scanner (2026-05-18)
 

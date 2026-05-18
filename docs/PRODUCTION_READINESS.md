@@ -1,6 +1,6 @@
 # CrawlForge MCP Server - Production Readiness
 
-**Version:** 3.3.1 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-17
+**Version:** 3.5.1 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-17
 
 ---
 
@@ -16,6 +16,39 @@
 | npm Published | ✅ Yes |
 
 **Production Readiness Score:** 98.5/100
+
+
+---
+
+## Roadmap Phase D2 — Reliability & Cost Hardening (Complete)
+
+**Completed:** 2026-05-17 | **Regression tests:** `tests/unit/d2-reliability.test.js` (16/16 pass)
+
+| Finding | Fix | Status |
+|---------|-----|--------|
+| D2.1 AuthManager credit race | Promise queue serializes `reportUsage` calls | ✅ |
+| D2.2 StealthBrowserManager fingerprint leak | LRU cap via `_setFingerprint` helper | ✅ |
+| D2.3 Unbounded LLM cost in ResearchOrchestrator | Per-session `tokenBudget`; `_cost` in response | ✅ |
+| D2.4 ActionExecutor page leaks | `initializePage` inside try/finally; safe `page.close()` | ✅ |
+| D2.5 WebhookDispatcher retry storms | Backoff+jitter per webhook; batch cap at 10 | ✅ |
+| D2.6 JobManager cascade + max enforcement | Cascade-cancel dependents; LRU eviction at `maxJobs` | ✅ |
+| D2.7 PerformanceManager saturation routing | Routes by live queue depth/wait time; AbortController on shutdown | ✅ |
+| D2.8 Localization cache + ChangeTracker hash | LRU-capped Maps; `hashContentAsync` offloads to worker | ✅ |
+| D2.9 Secret leakage in logs | `src/utils/secretMask.js` + Winston global masking format | ✅ |
+| D2.10 ResearchOrchestrator URL dedup | `deduplicateSources` uses per-session `visitedUrls`; cache hits reuse extracted content | ✅ |
+
+## Roadmap Phase D5.1 — GitHub Actions CI (Complete)
+
+**Completed:** 2026-05-17
+
+| Workflow | File | Status |
+|----------|------|--------|
+| CI Pipeline | `.github/workflows/ci.yml` | ✅ |
+| Daily Security Scan | `.github/workflows/security.yml` | ✅ |
+
+CI jobs: lint-and-syntax, unit-tests, mcp-compliance, coverage, docker-build.
+Security: daily npm audit + gitleaks secret scan + CodeQL analysis.
+
 
 ---
 
