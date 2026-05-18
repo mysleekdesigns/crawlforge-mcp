@@ -1,6 +1,6 @@
 # CrawlForge MCP Server - Production Readiness
 
-**Version:** 4.0.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-18
+**Version:** 4.1.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-18
 
 ---
 
@@ -19,6 +19,35 @@
 
 
 ---
+
+
+## Roadmap Phase D4 — CLI + Skills Installer (Complete)
+
+**Completed:** 2026-05-18 | **Integration tests:** `tests/integration/cli.test.js` (6/6 pass)
+
+| Component | Status |
+|-----------|--------|
+| CLI scaffolding (`src/cli/index.js`, formatter, runTool) | Complete |
+| 15 tool commands (scrape, search, crawl, map, extract, track, analyze, research, stealth, batch, actions, localize, llmstxt, template, monitor) | Complete |
+| Skills installer (`src/skills/installer.js`) | Complete |
+| 4 skill markdown files (mcp, cli, stealth, research) | Complete |
+| Claude Code target (`~/.claude/skills/`) | Complete |
+| Cursor target (`.cursor/rules/crawlforge.mdc`) | Complete |
+| VS Code target (`.github/instructions/crawlforge.instructions.md`) | Complete |
+| CLI integration tests | 6/6 pass |
+
+**CLI availability:**
+```bash
+# Global install
+npm install -g crawlforge-mcp-server
+crawlforge --help
+
+# Without installing
+npx crawlforge-mcp-server scrape https://example.com
+
+# Install skills into Claude Code
+crawlforge install-skills --target claude-code
+```
 
 ## Roadmap Phase D2 — Reliability & Cost Hardening (Complete)
 

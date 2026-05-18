@@ -1,6 +1,60 @@
 # Changelog
 
+
+
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.1.0] - 2026-05-18
+
+Phase D4 - CLI (PRD Phase 2) + Skills Installer (PRD Phase 3). Additive release: no breaking changes to existing MCP tools or API.
+
+### Added
+
+**D4.1 CLI scaffolding**
+- `commander` added to dependencies.
+- `"bin": { "crawlforge": "src/cli/index.js" }` in `package.json` — `crawlforge` command available after `npm install -g`.
+- `src/cli/index.js` — main entry point with global flags: `--json`, `--pretty`, `--quiet`, `--api-key`, `--timeout`.
+- `src/cli/formatter.js` — shared output formatter; formats MCP tool `content[]` responses for CLI output.
+- `src/cli/lib/runTool.js` — thin wrapper calling tool `execute()` and formatting output per global flags.
+
+**D4.2 CLI commands (15 tool commands)**
+- `scrape <url>` — wraps `fetch_url` (default) or `extract_content` with `--extract` flag.
+- `search <query>` — wraps `search_web`; supports `--limit`, `--lang`, `--provider`.
+- `crawl <url>` — wraps `crawl_deep`; supports `--depth`, `--max-pages`, `--concurrency`.
+- `map <url>` — wraps `map_site`; supports `--format json|xml`.
+- `extract <url>` — wraps `extract_structured` (with `--schema`) or `extract_with_llm` (with `--prompt`).
+- `track <url>` — wraps `track_changes`; supports `--selector`, `--threshold`.
+- `analyze <url>` — wraps `analyze_content`; supports `--depth`.
+- `research <topic>` — wraps `deep_research`; supports `--depth`, `--max-urls`, `--output-format`.
+- `stealth <url>` — wraps `stealth_mode`; supports `--engine playwright|camoufox`, `--screenshot`.
+- `batch <urls-file>` — wraps `batch_scrape`; reads newline-delimited URLs from file.
+- `actions <url> --script <file>` — wraps `scrape_with_actions`; reads JSON action script from file.
+- `localize <url>` — wraps `localization`; supports `--locale`, `--country`, `--currency`.
+- `llmstxt <url>` — wraps `generate_llms_txt`; supports `--include-full`, `--max-pages`.
+- `template <id> <target>` — wraps `scrape_template`; `--list` shows all 10 templates.
+- `monitor <url>` — wraps `track_changes` in scheduled mode; supports `--interval`, `--webhook`.
+
+**D4.3 Skills installer (2 management commands)**
+- `src/skills/installer.js` — `install()` and `uninstall()` functions; idempotent, supports `--force` and `--dry-run`.
+- `install-skills [--target=claude-code|cursor|vscode|all]` — copies skill files to target AI coding tool.
+- `uninstall-skills [--target=...]` — removes installed skill files.
+- Skill files in `src/skills/`:
+  - `crawlforge-mcp.md` — overview of all 23 MCP tools with credit reference and example calls.
+  - `crawlforge-cli.md` — full CLI usage guide with examples for all 17 commands.
+  - `crawlforge-stealth.md` — stealth_mode engine selection guide.
+  - `crawlforge-research.md` — deep_research workflow, depth levels, cost management.
+- Claude Code target: `~/.claude/skills/crawlforge-*.md` (one file per skill).
+- Cursor target: `.cursor/rules/crawlforge.mdc` (concatenated).
+- VS Code target: `.github/instructions/crawlforge.instructions.md` (concatenated).
+
+### Tests
+- `tests/integration/cli.test.js` — 6 tests: `--help` coverage for all 15 commands + skills commands, dry-run path verification for all 3 targets, version semver format.
+
+### Docs
+- New: `docs/cli-guide.md` — complete CLI reference with all 17 commands, flags, and examples.
+- Updated: `docs/PRODUCTION_READINESS.md` — CLI availability noted.
+- Updated: `IMPROVEMENT_ROADMAP_V4.md` — D4 marked complete.
+- Updated: `PRD.md` — Phase 2 (CLI) and Phase 3 (Skills) marked done.
+
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).

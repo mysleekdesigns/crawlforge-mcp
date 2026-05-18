@@ -1,6 +1,6 @@
 # CrawlForge MCP Server — Improvement Roadmap v4.0
 
-> **Status:** D1 Complete, D2 Complete, D3 Complete, D5.1 Complete — In Progress
+> **Status:** D1 Complete, D2 Complete, D3 Complete, D4 Complete, D5.1 Complete
 > **Current version:** 4.0.0
 > **Target version:** 4.0
 > **Estimated duration:** 10–12 weeks (phases D2 and D5 parallelizable with D1/D3/D4)
@@ -206,40 +206,40 @@ Ask the user for confirmation/input mid-tool for expensive or ambiguous operatio
 ## Phase D4 — CLI (PRD Phase 2) + Skills (PRD Phase 3)
 
 ### D4.1 CLI scaffolding
-- [ ] Add `commander` to dependencies
-- [ ] Add `"bin": { "crawlforge": "src/cli/index.js" }` to `package.json`
-- [ ] Create `src/cli/index.js` (entry, global flags)
-- [ ] Global flags: `--json`, `--pretty`, `--quiet`, `--api-key`, `--timeout`
-- [ ] Output formatter shared with MCP tools (no logic duplication)
+- [x] Add `commander` to dependencies
+- [x] Add `"bin": { "crawlforge": "src/cli/index.js" }` to `package.json`
+- [x] Create `src/cli/index.js` (entry, global flags)
+- [x] Global flags: `--json`, `--pretty`, `--quiet`, `--api-key`, `--timeout`
+- [x] Output formatter shared with MCP tools (no logic duplication)
 
 ### D4.2 CLI commands (15 total)
-- [ ] `crawlforge scrape <url>` — wraps `fetch_url` / `extract_content`
-- [ ] `crawlforge search <query>` — wraps `search_web`
-- [ ] `crawlforge crawl <url>` — wraps `crawl_deep`
-- [ ] `crawlforge map <url>` — wraps `map_site`
-- [ ] `crawlforge extract <url>` — wraps `extract_structured` / `extract_with_llm`
-- [ ] `crawlforge track <url>` — wraps `track_changes`
-- [ ] `crawlforge analyze <url>` — wraps `analyze_content`
-- [ ] `crawlforge research <topic>` — wraps `deep_research`
-- [ ] `crawlforge stealth <url>` — wraps `stealth_mode`
-- [ ] `crawlforge batch <urls-file>` — wraps `batch_scrape`
-- [ ] `crawlforge actions <url> --script <file>` — wraps `scrape_with_actions`
-- [ ] `crawlforge localize <url>` — wraps `localization`
-- [ ] `crawlforge llmstxt <url>` — wraps `generate_llms_txt`
-- [ ] `crawlforge template <id> <target>` — wraps `scrape_template`
-- [ ] `crawlforge monitor <url>` — wraps `track_changes` scheduled mode
+- [x] `crawlforge scrape <url>` — wraps `fetch_url` / `extract_content`
+- [x] `crawlforge search <query>` — wraps `search_web`
+- [x] `crawlforge crawl <url>` — wraps `crawl_deep`
+- [x] `crawlforge map <url>` — wraps `map_site`
+- [x] `crawlforge extract <url>` — wraps `extract_structured` / `extract_with_llm`
+- [x] `crawlforge track <url>` — wraps `track_changes`
+- [x] `crawlforge analyze <url>` — wraps `analyze_content`
+- [x] `crawlforge research <topic>` — wraps `deep_research`
+- [x] `crawlforge stealth <url>` — wraps `stealth_mode`
+- [x] `crawlforge batch <urls-file>` — wraps `batch_scrape`
+- [x] `crawlforge actions <url> --script <file>` — wraps `scrape_with_actions`
+- [x] `crawlforge localize <url>` — wraps `localization`
+- [x] `crawlforge llmstxt <url>` — wraps `generate_llms_txt`
+- [x] `crawlforge template <id> <target>` — wraps `scrape_template`
+- [x] `crawlforge monitor <url>` — wraps `track_changes` scheduled mode
 
 ### D4.3 Skills installer
-- [ ] Create `src/skills/installer.js`
-- [ ] New CLI command: `crawlforge install-skills [--target=claude-code|cursor|vscode|all]`
-- [ ] Skill file: `src/skills/crawlforge-mcp.md`
-- [ ] Skill file: `src/skills/crawlforge-cli.md`
-- [ ] Skill file: `src/skills/crawlforge-stealth.md`
-- [ ] Skill file: `src/skills/crawlforge-research.md`
-- [ ] Target Claude Code: `~/.claude/skills/crawlforge-*.md`
-- [ ] Target Cursor: `.cursor/rules/crawlforge.mdc`
-- [ ] Target VS Code: `.github/instructions/crawlforge.instructions.md`
-- [ ] Uninstall command: `crawlforge uninstall-skills --target=...`
+- [x] Create `src/skills/installer.js`
+- [x] New CLI command: `crawlforge install-skills [--target=claude-code|cursor|vscode|all]`
+- [x] Skill file: `src/skills/crawlforge-mcp.md`
+- [x] Skill file: `src/skills/crawlforge-cli.md`
+- [x] Skill file: `src/skills/crawlforge-stealth.md`
+- [x] Skill file: `src/skills/crawlforge-research.md`
+- [x] Target Claude Code: `~/.claude/skills/crawlforge-*.md`
+- [x] Target Cursor: `.cursor/rules/crawlforge.mdc`
+- [x] Target VS Code: `.github/instructions/crawlforge.instructions.md`
+- [x] Uninstall command: `crawlforge uninstall-skills --target=...`
 
 ---
 

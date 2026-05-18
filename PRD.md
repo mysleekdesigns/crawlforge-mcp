@@ -12,6 +12,20 @@ CrawlForge MCP Server (v3.6.0) has 20 specialized tools and strong security/stea
 
 ## Release History
 
+### v4.1.0 (Development) - Phase D4 CLI + Skills Installer (2026-05-18)
+
+Phase D4 ships the `crawlforge` CLI (PRD Phase 2) and skills installer (PRD Phase 3).
+
+**D4.1 CLI scaffolding:** commander added. `src/cli/index.js` entry with global flags (`--json`, `--pretty`, `--quiet`, `--api-key`, `--timeout`). `src/cli/formatter.js` shared formatter. `src/cli/lib/runTool.js` thin wrapper around tool.execute().
+
+**D4.2 15 CLI commands:** scrape, search, crawl, map, extract, track, analyze, research, stealth, batch, actions, localize, llmstxt, template, monitor. Each command in its own file under `src/cli/commands/`. All commands invoke tool.execute() directly — no credit logic duplication.
+
+**D4.3 Skills installer:** `src/skills/installer.js` with install()/uninstall(). 4 skill files: crawlforge-mcp.md, crawlforge-cli.md, crawlforge-stealth.md, crawlforge-research.md. Targets: Claude Code (~/.claude/skills/), Cursor (.cursor/rules/crawlforge.mdc), VS Code (.github/instructions/crawlforge.instructions.md). Idempotent; --force to overwrite; --dry-run to preview.
+
+**PRD Phase 2 (CLI): COMPLETE. PRD Phase 3 (Skills): COMPLETE.**
+
+**Verification:** node --check across all 21 CLI files: all pass. `node src/cli/index.js --help` shows all 17 commands. `tests/integration/cli.test.js` 6/6 pass.
+
 ### v4.0.0 (Development) - Phase D3 Competitive Feature Parity (2026-05-18)
 
 Phase D3 ships Markdown-first output, Camoufox Firefox stealth engine, 10 pre-built site templates, BrowserBase cloud backend, and cost transparency across all tools.
