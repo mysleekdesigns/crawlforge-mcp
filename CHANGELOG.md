@@ -116,28 +116,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [4.0.0] - 2026-05-18
 
-Phase D3 - Competitive Feature Parity. **Breaking change:** batch_scrape now defaults to markdown output (was json). Adds scrape_template tool (23 tools total). Turndown HTML-to-Markdown converter. Camoufox Firefox-based stealth engine. BrowserBase cloud backend. Cost transparency in all tool responses.
+Phase D3 - Competitive Feature Parity. ~~**Breaking change:** batch_scrape now defaults to markdown output (was json).~~ **Retracted in v4.2.1** — see note below. Adds scrape_template tool (23 tools total). Turndown HTML-to-Markdown converter. Camoufox Firefox-based stealth engine. BrowserBase cloud backend. Cost transparency in all tool responses.
 
-### Breaking Changes
+> **Postmortem (added in v4.2.1):** the v4.0.0 "breaking change" to `batch_scrape` defaults was a phantom at the MCP surface. The MCP tool registration in `server.js:544` always defaulted `formats` to `['json']`; only the inner `BatchScrapeSchema` defaulted to `['markdown']`. Because params are validated at both layers and the MCP layer wins, MCP clients (Claude Code, Cursor, the `crawlforge` CLI) were never broken. The mismatch only ever affected direct programmatic callers of `BatchScrapeTool.execute()`. v4.2.1 aligned the inner schema to `['json']` to remove the latent gap. **No migration is needed for any caller — the section below describes a migration that was never actually required.**
 
-- **batch_scrape** default `formats` changed from `["json"]` to `["markdown"]`. Callers that depend on `content.json` from batch results must now pass `formats: ["json"]` explicitly. This aligns with Firecrawl parity for RAG workflows.
+### ~~Breaking Changes~~ (retracted in v4.2.1)
+
+- ~~**batch_scrape** default `formats` changed from `["json"]` to `["markdown"]`. Callers that depend on `content.json` from batch results must now pass `formats: ["json"]` explicitly.~~ Reality: the MCP-facing default never changed; v4.2.1 aligned the inner schema to `['json']` to match.
 - **server version** bumped 3.6.0 to 4.0.0.
 
-### Migration Guide
+### ~~Migration Guide~~ (not required — see postmortem above)
 
-If you use `batch_scrape` without specifying `formats`, your response shape changes:
-- Before (v3.x): `result.results[n].content.json`
-- After (v4.0): `result.results[n].content.markdown`
-- To keep old behavior: pass `formats: ["json"]` explicitly.
+~~If you use `batch_scrape` without specifying `formats`, your response shape changes:~~
+- ~~Before (v3.x): `result.results[n].content.json`~~
+- ~~After (v4.0): `result.results[n].content.markdown`~~
+- ~~To keep old behavior: pass `formats: ["json"]` explicitly.~~
+
+Reality after v4.2.1: `content.json` continues to be the MCP default exactly as in v3.x. Pass `formats: ['markdown']` to opt into RAG-friendly markdown output.
 
 ### Added
 
-**D3.1 Markdown-first output (Turndown)**
+**D3.1 Markdown-first output (Turndown) — additive only after v4.2.1**
 - New utility `src/utils/htmlToMarkdown.js` wraps Turndown with sensible RAG-optimized defaults (atx headings, fenced code blocks, boilerplate removal).
 - `extract_text`: new `output_format: "markdown"` parameter (default: "text").
 - `extract_content`: `outputFormat: "markdown"` now uses Turndown instead of regex-based conversion.
 - `process_document`: `outputFormat: "markdown"` added to enum (new option).
-- `batch_scrape`: default `formats` changed from `["json"]` to `["markdown"]`.
+- `batch_scrape`: markdown output available via `formats: ['markdown']` (was framed as a default-change in v4.0.0; v4.2.1 confirms it's purely opt-in at the MCP surface).
 - turndown added to dependencies.
 
 **D3.2 Camoufox browser engine**
