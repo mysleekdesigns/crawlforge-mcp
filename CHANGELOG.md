@@ -5,6 +5,38 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-05-17
+
+Ships Phase C5 "Feature parity" of `IMPROVEMENT_PLAN.md`. Adds one new MCP tool (`extract_with_llm`, bringing the total to 21) and extends three existing tools with capabilities at parity with Firecrawl, Crawl4AI, and ScrapeGraphAI. All changes are strictly additive — every existing call signature behaves exactly as in v3.2.0.
+
+### Added
+- **New tool `extract_with_llm`** — natural-language structured extraction over a URL or pre-fetched content. Gated on `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`; `provider: 'auto'` picks Anthropic first then OpenAI. Dependency-free direct `fetch()` to `/v1/chat/completions` (OpenAI) or `/v1/messages` (Anthropic). Optional `schema` JSON-schema hint; defensive JSON parse with single retry; uniform `{ input_tokens, output_tokens }` usage shape across providers. Endpoints overridable via `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` for self-hosted gateways. Costs 5 credits.
+- **`scrape_with_actions` recording & replay** — Firecrawl-style action recording. New input fields `record: boolean` + `recordingName: string` persist the executed action chain as JSON to `~/.crawlforge/recordings/<name>.json` (atomic `.tmp` + rename write). New `replayRecording: string` loads and re-executes a saved recording against a fresh URL. Special `replayRecording: '__list__'` returns the recordings index without a new tool. `recordingName` validated against `/^[a-zA-Z0-9_-]{1,64}$/` (path-traversal blocked). Home dir overridable via `CRAWLFORGE_HOME_OVERRIDE` for testing.
+- **`crawl_deep` session reuse** — Crawl4AI-style cookie + header persistence across every page of a crawl. New optional `session: { enabled, persistCookies?, headers?, initialRequest? }`. With `enabled: true`, an in-memory cookie jar (hand-rolled, zero new deps, uses Node 18+ `Headers.getSetCookie()` for multi-value correctness) captures every `Set-Cookie` response and replays cookies on every subsequent fetch. `session.headers` merged into every request. Optional `session.initialRequest` performs a pre-crawl login (or any HTTP request) and seeds the jar before traversal starts. Backward compatible — omit `session` for v3.2.0 behavior.
+- **`search_web` SearXNG provider** — new optional `provider: 'crawlforge' | 'searxng'` (default `'crawlforge'`). With `provider: 'searxng'`, queries route to a self-hosted SearXNG instance specified by `CRAWLFORGE_SEARXNG_URL` (e.g. `http://localhost:8888`). SearXNG JSON results are normalised to the same shape as the CrawlForge backend (`title→title`, `url→link/displayLink/formattedUrl`, `content→snippet/htmlSnippet`) so the existing ranking + deduplication pipeline runs unchanged. Errors clearly when `CRAWLFORGE_SEARXNG_URL` is unset or the upstream returns non-200.
+- `src/tools/extract/extractWithLlm.js` — main tool class. 14 unit tests in `tests/unit/extractWithLlm.test.js` covering provider auto-pick, error when no key, JSON parse success + retry, URL fetch path, content-direct path, schema hint pass-through, token-usage normalization, OpenAI + Anthropic stubs.
+- `src/tools/advanced/scrapeWithActions/recorder.js` — recording persistence helpers (`saveRecording`, `loadRecording`, `listRecordings`, `validateRecordingName`, `buildRecordedEntry`). 12 unit tests in `tests/unit/scrapeWithActionsRecording.test.js`.
+- `src/tools/crawl/_sessionContext.js` — `SessionContext` class (cookie jar + session headers + `performInitialRequest`). 12 unit tests in `tests/unit/crawlDeepSession.test.js`.
+- `src/tools/search/providers/searxng.js` — SearXNG adapter (`searchViaSearxng`, `normalizeSearxngResult`). 12 unit tests in `tests/unit/searchWebSearxng.test.js`.
+
+### Changed
+- `server.js` — registered `extract_with_llm`; tool count strings bumped 20 → 21.
+- `src/core/AuthManager.js` `getToolCost()` — added `extract_with_llm: 5`.
+- `src/tools/advanced/ScrapeWithActionsTool.js` — schema extended with `record` / `recordingName` / `replayRecording`; `executeSession()` captures recorded entries when recording is on; `execute()` short-circuits to listing / replay when those flags are set.
+- `src/tools/crawl/crawlDeep.js` + `src/core/crawlers/BFSCrawler.js` — `SessionContext` plumbed into the BFS crawler; per-request session headers + cookies are layered before `fetch()` and the response's `Set-Cookie` is recorded back into the jar.
+- `src/tools/search/searchWeb.js` — `provider` field added to `SearchWebSchema`; `_executeViaSearxng()` short-circuits when `provider === 'searxng'`.
+- `package.json` 3.2.0 → 3.3.0; description "20" → "21".
+
+### Test results (this release)
+- 50 new unit tests across 4 new files — **50/50 pass** in `node --test`.
+- Full unit suite: 240 tests, 227 pass, 12 skipped (sandbox-only HTTP listen restrictions on `streamableHttp.test.js`), 1 pre-existing `endpointGuard.test.js` failure unrelated to C5 (also fails on the v3.2.0 commit).
+- `node test-tools.js`: 19/20 pass; the 1 failure (`search_web`) is a pre-existing sandbox network flake — same failure reproduces on the v3.2.0 baseline once the local search cache is cleared.
+- `npm test` (MCP protocol compliance): unchanged from HEAD baseline (70% success rate).
+- `npm audit`: **0 vulnerabilities**.
+
+### Notes
+- All four C5 items were implemented in parallel by four `mcp-implementation` sub-agents working on non-overlapping files. The lead handled `server.js` registration, version bookkeeping, and integration verification.
+
 ## [3.2.0] - 2026-05-17
 
 Ships Phase C "Modernize" of `IMPROVEMENT_PLAN.md` end-to-end. Closes the protocol/feature gap with Firecrawl, Crawl4AI, and Bright Data MCP. No tool schema or public API changes for existing stdio users — strictly additive.

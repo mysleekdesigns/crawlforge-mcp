@@ -482,7 +482,10 @@ class AuthManager {
       track_changes: 3,
       
       // Phase 1: LLM-Powered Structured Extraction
-      extract_structured: 4
+      extract_structured: 4,
+
+      // Phase C5: Natural-language LLM extraction (external paid API call per invocation)
+      extract_with_llm: 5
     };
 
     return costs[tool] || 1;

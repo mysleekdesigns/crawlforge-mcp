@@ -16,6 +16,7 @@ import { ProcessDocumentTool } from "./src/tools/extract/processDocument.js";
 import { SummarizeContentTool } from "./src/tools/extract/summarizeContent.js";
 import { AnalyzeContentTool } from "./src/tools/extract/analyzeContent.js";
 import { ExtractStructuredTool } from "./src/tools/extract/extractStructured.js";
+import { ExtractWithLlm } from "./src/tools/extract/extractWithLlm.js";
 import { BatchScrapeTool } from "./src/tools/advanced/BatchScrapeTool.js";
 import { ScrapeWithActionsTool } from "./src/tools/advanced/ScrapeWithActionsTool.js";
 import { DeepResearchTool } from "./src/tools/research/deepResearch.js";
@@ -103,7 +104,7 @@ server.prompt("getting-started", {
       role: "user",
       content: {
         type: "text",
-        text: "You have access to CrawlForge MCP with 20 web scraping tools. Key tools:\n\n" +
+        text: "You have access to CrawlForge MCP with 21 web scraping tools. Key tools:\n\n" +
           "- fetch_url: Fetch raw HTML/content from any URL\n" +
           "- extract_text: Extract clean text from a webpage\n" +
           "- extract_content: Smart content extraction with readability\n" +
@@ -115,6 +116,7 @@ server.prompt("getting-started", {
           "- deep_research: Multi-source research on any topic\n" +
           "- stealth_mode: Anti-detection browsing for protected sites\n" +
           "- extract_structured: LLM-powered structured data extraction\n" +
+          "- extract_with_llm: Natural-language extraction via OpenAI/Anthropic\n" +
           "- track_changes: Monitor website changes over time\n" +
           "- generate_llms_txt: Generate llms.txt for any website\n\n" +
           "Workflow: search_web -> fetch_url -> extract_content -> analyze_content\n\n" +
@@ -143,6 +145,7 @@ const processDocumentTool = new ProcessDocumentTool();
 const summarizeContentTool = new SummarizeContentTool();
 const analyzeContentTool = new AnalyzeContentTool();
 const extractStructuredTool = new ExtractStructuredTool();
+const extractWithLlmTool = new ExtractWithLlm();
 const batchScrapeTool = new BatchScrapeTool();
 const scrapeWithActionsTool = new ScrapeWithActionsTool();
 const deepResearchTool = new DeepResearchTool();
@@ -387,6 +390,28 @@ server.registerTool("extract_structured", {
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
     return { content: [{ type: "text", text: `Structured extraction failed: ${error.message}` }], isError: true };
+  }
+}));
+
+// Tool: extract_with_llm
+server.registerTool("extract_with_llm", {
+  description: "Extract structured data from a URL or text using a natural-language prompt, powered by OpenAI or Anthropic. Requires OPENAI_API_KEY or ANTHROPIC_API_KEY in the environment.",
+  annotations: { title: "Extract With LLM", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  inputSchema: {
+    url: z.string().url().optional().describe("URL to fetch and extract from (one of url/content required)"),
+    content: z.string().optional().describe("Pre-fetched text to extract from (one of url/content required)"),
+    prompt: z.string().describe("Natural-language extraction instruction"),
+    schema: z.record(z.unknown()).optional().describe("Optional JSON-schema-like hint for output shape"),
+    provider: z.enum(["openai", "anthropic", "auto"]).optional().default("auto").describe("LLM provider"),
+    model: z.string().optional().describe("Override default model"),
+    maxTokens: z.number().optional().default(4096).describe("Maximum output tokens")
+  }
+}, withAuth("extract_with_llm", async (params) => {
+  try {
+    const result = await extractWithLlmTool.execute(params);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { content: [{ type: "text", text: `LLM extraction failed: ${error.message}` }], isError: true };
   }
 }));
 
@@ -933,7 +958,7 @@ async function runServer() {
     "extract_content", "process_document", "summarize_content", "analyze_content",
     "batch_scrape", "scrape_with_actions",
     "deep_research", "track_changes", "generate_llms_txt",
-    "stealth_mode", "localization", "extract_structured"
+    "stealth_mode", "localization", "extract_structured", "extract_with_llm"
   ];
   console.error(`Tools available: ${allTools.join(', ')}`);
 

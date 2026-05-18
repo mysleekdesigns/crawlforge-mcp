@@ -19,7 +19,8 @@ export class BFSCrawler {
       concurrency = 10,
       domainFilter = null,
       enableLinkAnalysis = true,
-      linkAnalyzerOptions = {}
+      linkAnalyzerOptions = {},
+      sessionContext = null
     } = options;
 
     this.maxDepth = maxDepth;
@@ -28,6 +29,8 @@ export class BFSCrawler {
     this.respectRobots = respectRobots;
     this.userAgent = userAgent;
     this.timeout = timeout;
+    // Session context for cookie jar + persistent headers (null = stateless)
+    this.sessionContext = sessionContext;
 
     this.visited = new Set();
     this.results = [];
@@ -254,20 +257,31 @@ export class BFSCrawler {
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1'
       };
-      
-      const headers = { ...defaultHeaders, ...domainRules.customHeaders };
+
+      let headers = { ...defaultHeaders, ...domainRules.customHeaders };
+
+      // If a session is active, layer in session headers + cookie jar
+      if (this.sessionContext) {
+        headers = this.sessionContext.applyToHeaders(url, headers);
+      }
+
       const effectiveTimeout = domainRules.timeout || this.timeout;
-      
+
       // Update timeout if different
       if (effectiveTimeout !== this.timeout) {
         clearTimeout(timeoutId);
         setTimeout(() => controller.abort(), effectiveTimeout);
       }
-      
+
       const response = await fetch(url, {
         signal: controller.signal,
         headers
       });
+
+      // Capture any cookies the server sets during the crawl
+      if (this.sessionContext) {
+        this.sessionContext.recordCookies(response, url);
+      }
 
       clearTimeout(timeoutId);
 

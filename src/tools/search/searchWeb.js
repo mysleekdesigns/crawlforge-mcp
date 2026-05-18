@@ -7,9 +7,11 @@ import { ResultDeduplicator } from './ranking/ResultDeduplicator.js';
 import { SearchResultCache } from './ranking/SearchResultCache.js';
 import LocalizationManager from '../../core/LocalizationManager.js';
 import { isCreatorModeVerified } from '../../core/creatorMode.js';
+import { searchViaSearxng } from './providers/searxng.js';
 
 const SearchWebSchema = z.object({
   query: z.string().min(1),
+  provider: z.enum(['crawlforge', 'searxng']).optional().default('crawlforge'),
   limit: z.number().min(1).max(100).optional().default(10),
   offset: z.number().min(0).optional().default(0),
   lang: z.string().optional().default('en'),
@@ -114,7 +116,13 @@ export class SearchWebTool {
   async execute(params) {
     try {
       const validated = SearchWebSchema.parse(params);
-      
+
+      // --- SearXNG provider short-circuit ---
+      if (validated.provider === 'searxng') {
+        return await this._executeViaSearxng(validated);
+      }
+      // --- end SearXNG short-circuit ---
+
       // Apply localization if specified
       let localizedParams = validated;
       if (validated.localization) {
@@ -338,6 +346,100 @@ export class SearchWebTool {
     } catch (error) {
       throw new Error(`Search failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Execute search via a self-hosted SearXNG instance.
+   * Results are normalised to the same shape as the CrawlForge/Google path.
+   *
+   * @param {Object} validated - Parsed & validated parameters from SearchWebSchema
+   * @returns {Promise<Object>} Standard search_web response object
+   */
+  async _executeViaSearxng(validated) {
+    // page is 1-based; offset is 0-based items, so map via limit
+    const page = Math.floor(validated.offset / validated.limit) + 1;
+
+    const adapterResult = await searchViaSearxng({
+      query: validated.query,
+      limit: validated.limit,
+      page,
+      safeSearch: validated.safe_search,
+      language: validated.lang
+    });
+
+    // Run through shared post-processing (deduplication, ranking)
+    let processedResults = await this.processResults(adapterResult);
+
+    let deduplicationInfo = null;
+    if (validated.enable_deduplication && processedResults.length > 1) {
+      const dedupeOptions = validated.deduplication_thresholds
+        ? { thresholds: validated.deduplication_thresholds }
+        : {};
+      const originalCount = processedResults.length;
+      processedResults = await this.resultDeduplicator.deduplicateResults(
+        processedResults,
+        dedupeOptions
+      );
+      deduplicationInfo = {
+        originalCount,
+        finalCount: processedResults.length,
+        duplicatesRemoved: originalCount - processedResults.length,
+        deduplicationRate:
+          ((originalCount - processedResults.length) / originalCount * 100).toFixed(1) + '%'
+      };
+    }
+
+    let rankingInfo = null;
+    if (validated.enable_ranking && processedResults.length > 1) {
+      const rankingOptions = validated.ranking_weights
+        ? { weights: validated.ranking_weights }
+        : {};
+      processedResults = await this.resultRanker.rankResults(
+        processedResults,
+        validated.query,
+        rankingOptions
+      );
+      rankingInfo = {
+        algorithmsUsed: ['bm25', 'semantic', 'authority', 'freshness'],
+        weightsApplied: this.resultRanker.options.weights,
+        totalResults: processedResults.length
+      };
+    }
+
+    if (!validated.include_ranking_details) {
+      processedResults = processedResults.map(({ rankingDetails, ...r }) => r);
+    }
+    if (!validated.include_deduplication_details) {
+      processedResults = processedResults.map(({ deduplicationInfo: _d, ...r }) => r);
+    }
+
+    return {
+      query: validated.query,
+      results: processedResults,
+      total_results: adapterResult.searchInformation?.totalResults || 0,
+      search_time: adapterResult.searchInformation?.searchTime || 0,
+      offset: validated.offset,
+      limit: validated.limit,
+      cached: false,
+      provider: {
+        name: 'searxng',
+        backend: 'SearXNG (self-hosted)',
+        instanceUrl: process.env.CRAWLFORGE_SEARXNG_URL || null,
+        capabilities: {
+          requiresApiKey: false,
+          supportsPagination: true,
+          supportsLanguageFilter: true,
+          supportsSafeSearch: true
+        }
+      },
+      localization: null,
+      processing: {
+        ranking: rankingInfo,
+        deduplication: deduplicationInfo,
+        query_expansion: null,
+        localization_applied: false
+      }
+    };
   }
 
   async processResults(searchResults) {

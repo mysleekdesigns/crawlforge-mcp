@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { BFSCrawler } from '../../core/crawlers/BFSCrawler.js';
 import { DomainFilter } from '../../utils/domainFilter.js';
 import { CacheManager } from '../../core/cache/CacheManager.js';
+import { SessionContext } from './_sessionContext.js';
 
 const CrawlDeepSchema = z.object({
   url: z.string().url(),
@@ -57,7 +58,20 @@ const CrawlDeepSchema = z.object({
       concurrency: z.number().optional()
     })).optional().default({})
   }).optional(),
-  import_filter_config: z.string().optional() // JSON string of exported config
+  import_filter_config: z.string().optional(), // JSON string of exported config
+  // Session reuse: when enabled, all page fetches share a cookie jar and
+  // consistent headers — enabling login-then-crawl workflows.
+  session: z.object({
+    enabled: z.boolean(),
+    persistCookies: z.boolean().optional().default(true),
+    headers: z.record(z.string()).optional().default({}),
+    initialRequest: z.object({
+      url: z.string().url(),
+      method: z.string().optional().default('GET'),
+      headers: z.record(z.string()).optional().default({}),
+      body: z.string().optional()
+    }).optional()
+  }).optional()
 });
 
 export class CrawlDeepTool {
@@ -129,6 +143,20 @@ export class CrawlDeepTool {
         }
       }
       
+      // Set up session context when requested
+      let sessionContext = null;
+      if (validated.session?.enabled) {
+        sessionContext = new SessionContext({
+          persistCookies: validated.session.persistCookies,
+          headers: validated.session.headers || {}
+        });
+
+        // Perform optional login / pre-crawl request
+        if (validated.session.initialRequest) {
+          await sessionContext.performInitialRequest(validated.session.initialRequest);
+        }
+      }
+
       // Create crawler instance
       const crawler = new BFSCrawler({
         maxDepth: validated.max_depth,
@@ -140,7 +168,8 @@ export class CrawlDeepTool {
         concurrency: validated.concurrency,
         domainFilter: domainFilter,
         enableLinkAnalysis: validated.enable_link_analysis,
-        linkAnalyzerOptions: validated.link_analysis_options
+        linkAnalyzerOptions: validated.link_analysis_options,
+        sessionContext
       });
       
       // Start crawling
@@ -166,7 +195,10 @@ export class CrawlDeepTool {
         stats: results.stats,
         site_structure: this.analyzeSiteStructure(results.urls),
         domain_filter_config: domainFilter ? domainFilter.exportConfig() : null,
-        link_analysis: results.linkAnalysis
+        link_analysis: results.linkAnalysis,
+        session: sessionContext
+          ? { enabled: true, cookies_captured: sessionContext.cookieCount }
+          : { enabled: false }
       };
       
       // Store in cache before returning

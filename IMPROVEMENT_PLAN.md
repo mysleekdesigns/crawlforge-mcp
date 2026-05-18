@@ -1,6 +1,6 @@
 # CrawlForge MCP Server — Improvement Plan
 
-**Status:** Phases A, B & C shipped | **Drafted:** 2026-05-17 | **Current version:** v3.2.0 | **Target end state:** v3.2.0
+**Status:** Phases A, B, C & C5 shipped (plan fully drained) | **Drafted:** 2026-05-17 | **Current version:** v3.3.0 | **Target end state:** v3.3.0
 
 ---
 
@@ -152,12 +152,13 @@ Goal: Close the protocol/feature gap with Firecrawl, Crawl4AI, Bright Data MCP. 
 - [x] Default off via `OTEL_SDK_DISABLED=true` so stdio mode stays silent — both metrics and tracing are off by default; stdio mode never sees observability code paths.
 - [x] Commit example Grafana dashboard at `docs/observability/grafana-dashboard.json`
 
-### C5 — Feature parity (pick based on user demand)
+### C5 — Feature parity
+**Completed:** 2026-05-17 (shipped as v3.3.0 after Phase C, on user demand; implemented by 4 parallel sub-agents)
 
-- [ ] `scrape_with_actions`: Firecrawl-style action recording / replay — **intentionally deferred:** plan explicitly says "pick based on user demand"; no user requests in the v3.1 window. Independently shippable in any future minor.
-- [ ] `crawl_deep`: Crawl4AI-style session reuse so cookies persist across pages of a crawl — **intentionally deferred** (same rationale)
-- [ ] New tool `extract_with_llm` (gated by `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`): natural-language extraction, mirrors ScrapeGraphAI positioning — **intentionally deferred** (same rationale)
-- [ ] `search_web`: expose `provider: 'crawlforge' | 'searxng'` so self-hosters can swap in SearXNG (r/LocalLLaMA `1nfvhyh` shows this is real user demand) — **intentionally deferred** (same rationale; SearXNG signal is real but the v3.2 release is already large)
+- [x] `scrape_with_actions`: Firecrawl-style action recording / replay — `record`/`recordingName` persists actions to `~/.crawlforge/recordings/<name>.json` (atomic write); `replayRecording` loads + replays; `replayRecording: '__list__'` returns the index. Name validated against `/^[a-zA-Z0-9_-]{1,64}$/`. 12 unit tests.
+- [x] `crawl_deep`: Crawl4AI-style session reuse so cookies persist across pages of a crawl — new `session: { enabled, persistCookies?, headers?, initialRequest? }`. In-memory cookie jar (zero new deps, uses Node 18+ `Headers.getSetCookie()`). Optional pre-crawl `initialRequest` seeds the jar (enables login → crawl). 12 unit tests.
+- [x] New tool `extract_with_llm` (gated by `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`): natural-language extraction, mirrors ScrapeGraphAI positioning — direct `fetch()` to OpenAI `/v1/chat/completions` or Anthropic `/v1/messages` (zero new deps). `provider: 'auto'` picks Anthropic first then OpenAI. JSON parse with retry; uniform usage shape; endpoints overridable via `OPENAI_BASE_URL`/`ANTHROPIC_BASE_URL`. 5 credits. 14 unit tests.
+- [x] `search_web`: expose `provider: 'crawlforge' | 'searxng'` so self-hosters can swap in SearXNG (r/LocalLLaMA `1nfvhyh` showed real user demand) — instance URL via `CRAWLFORGE_SEARXNG_URL`; SearXNG JSON results normalised to the CrawlForge shape so ranking/deduplication/caching pipeline runs unchanged. 12 unit tests.
 
 ### C6 — Verification
 

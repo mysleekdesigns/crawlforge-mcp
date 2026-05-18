@@ -11,6 +11,16 @@ import { load } from 'cheerio';
 // Import existing tool for content extraction
 import ExtractContentTool from '../extract/extractContent.js';
 
+// Recording / replay helpers
+import {
+  validateRecordingName,
+  saveRecording,
+  loadRecording,
+  listRecordings,
+  buildRecordedEntry,
+  recordedEntryToAction
+} from './scrapeWithActions/recorder.js';
+
 // Action schemas (re-using from ActionExecutor but with tool-specific additions)
 const BaseActionSchema = z.object({
   type: z.string(),
@@ -102,18 +112,18 @@ const FormFieldSchema = z.object({
 // Main scrape with actions schema
 const ScrapeWithActionsSchema = z.object({
   url: z.string().url(),
-  actions: z.array(ActionSchema).min(1).max(20),
-  
+  actions: z.array(ActionSchema).min(1).max(20).optional(),
+
   // Output formats
   formats: z.array(z.enum(['markdown', 'html', 'json', 'text', 'screenshots'])).default(['json']),
-  
+
   // Intermediate state capture
   captureIntermediateStates: z.boolean().default(false),
   captureScreenshots: z.boolean().default(true),
-  
+
   // Form auto-fill
   formAutoFill: z.record(z.string()).optional(),
-  
+
   // Browser options
   browserOptions: z.object({
     headless: z.boolean().default(true),
@@ -122,7 +132,7 @@ const ScrapeWithActionsSchema = z.object({
     viewportHeight: z.number().min(600).max(1080).default(720),
     timeout: z.number().min(10000).max(120000).default(30000)
   }).optional(),
-  
+
   // Content extraction options
   extractionOptions: z.object({
     selectors: z.record(z.string()).optional(),
@@ -130,12 +140,39 @@ const ScrapeWithActionsSchema = z.object({
     includeLinks: z.boolean().default(true),
     includeImages: z.boolean().default(true)
   }).optional(),
-  
+
   // Error handling
   continueOnActionError: z.boolean().default(false),
   maxRetries: z.number().min(0).max(3).default(1),
-  screenshotOnError: z.boolean().default(true)
-});
+  screenshotOnError: z.boolean().default(true),
+
+  // ── Recording / replay ──────────────────────────────────────────────────
+  // record: true  → execute actions AND persist them as a named recording.
+  record: z.boolean().default(false),
+  // recordingName: required when record=true; also used to name the saved file.
+  recordingName: z.string().optional(),
+  // replayRecording: load a saved recording by name and execute it.
+  //   Special value "__list__" returns the list of available recordings instead.
+  replayRecording: z.string().optional()
+}).refine(
+  (data) => {
+    // actions is required unless replayRecording is set
+    if (!data.replayRecording && (!data.actions || data.actions.length === 0)) {
+      return false;
+    }
+    return true;
+  },
+  { message: 'actions is required when replayRecording is not set' }
+).refine(
+  (data) => {
+    // recordingName is required when record=true
+    if (data.record && !data.recordingName) {
+      return false;
+    }
+    return true;
+  },
+  { message: 'recordingName is required when record is true' }
+);
 
 export class ScrapeWithActionsTool extends EventEmitter {
   constructor(options = {}) {
@@ -188,8 +225,29 @@ export class ScrapeWithActionsTool extends EventEmitter {
 
   async execute(params) {
     try {
+      // ── __list__ shortcut — resolve before full schema parse ─────────────
+      if (params.replayRecording === '__list__') {
+        const recordings = await listRecordings();
+        return { success: true, recordings };
+      }
+
+      // ── Validate recordingName if provided (path-traversal guard) ─────────
+      if (params.recordingName) {
+        validateRecordingName(params.recordingName);
+      }
+      if (params.replayRecording && params.replayRecording !== '__list__') {
+        validateRecordingName(params.replayRecording);
+      }
+
       const validated = ScrapeWithActionsSchema.parse(params);
-      
+
+      // ── Replay mode — load saved recording and substitute actions ─────────
+      if (validated.replayRecording) {
+        const recording = await loadRecording(validated.replayRecording);
+        validated.actions = recording.recordedActions.map(recordedEntryToAction);
+        this.log('info', `Replaying recording "${validated.replayRecording}" with ${validated.actions.length} actions on ${validated.url}`);
+      }
+
       this.stats.totalSessions++;
       const sessionId = this.generateSessionId();
       const startTime = Date.now();
@@ -270,7 +328,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
 
     // Build action chain with form auto-fill if provided
     let actionChain = [...params.actions];
-    
+
     if (params.formAutoFill) {
       actionChain = this.insertFormAutoFillActions(actionChain, params.formAutoFill);
     }
@@ -300,9 +358,32 @@ export class ScrapeWithActionsTool extends EventEmitter {
     sessionContext.actionResults = chainResult.results;
     sessionContext.screenshots = chainResult.screenshots || [];
 
-    // Process action results 
+    // ── Recording mode — persist actions after successful execution ─────────
+    let savedRecordingPath;
+    if (params.record && params.recordingName) {
+      const sessionStartTime = sessionContext.startTime;
+      const recordedActions = actionChain.map((action, index) => {
+        // Use actual result timing if available, otherwise estimate from index
+        const result = (chainResult.results || [])[index];
+        const tMs = result?.timestamp
+          ? result.timestamp - sessionStartTime
+          : index * 100; // fallback estimate
+        return buildRecordedEntry(action, tMs);
+      });
+
+      try {
+        savedRecordingPath = await saveRecording(params.recordingName, recordedActions, {
+          originalUrl: params.url
+        });
+        this.log('info', `Recording saved: ${savedRecordingPath}`);
+      } catch (err) {
+        this.log('warn', `Failed to save recording: ${err.message}`);
+      }
+    }
+
+    // Process action results
     const actionResults = this.processActionResults(chainResult.results);
-    const intermediateStates = params.captureIntermediateStates ? 
+    const intermediateStates = params.captureIntermediateStates ?
       await this.extractIntermediateStates(actionResults, params) : [];
 
     // Get final page content after all actions
@@ -331,15 +412,20 @@ export class ScrapeWithActionsTool extends EventEmitter {
       successfulActions: actionResults.filter(r => r.success).length,
       failedActions: actionResults.filter(r => !r.success).length,
       actionsExecuted: actionResults.length, // Total executed (for validation)
-      
+
       content,
-      
+
       intermediateStates: params.captureIntermediateStates ? intermediateStates : undefined,
       screenshots: params.captureScreenshots ? sessionContext.screenshots : undefined,
-      
+
       // Form auto-fill flag (for tests/validation)
       formAutoFillApplied: !!params.formAutoFill,
-      
+
+      // Recording fields
+      recordingSaved: params.record ? !!savedRecordingPath : undefined,
+      recordingPath: savedRecordingPath || undefined,
+      replayedFrom: params.replayRecording || undefined,
+
       metadata: {
         browserOptions,
         formAutoFillApplied: !!params.formAutoFill,
@@ -348,10 +434,10 @@ export class ScrapeWithActionsTool extends EventEmitter {
         finalUrl: chainResult.metadata?.finalUrl,
         timestamp: Date.now()
       },
-      
+
       stats: {
         sessionTime: executionTime,
-        averageActionTime: actionResults.length > 0 ? 
+        averageActionTime: actionResults.length > 0 ?
           actionResults.reduce((sum, r) => sum + (r.executionTime || 0), 0) / actionResults.length : 0,
         errorRecoveryCount: actionResults.filter(r => r.recovered).length
       }
