@@ -125,16 +125,16 @@ describe('ExtractWithLlm', () => {
 
   // ── Tests ──────────────────────────────────────────────────────────────────
 
-  test('1. auto provider: picks Anthropic when ANTHROPIC_API_KEY is set', async () => {
-    await withEnv({
-      ANTHROPIC_API_KEY: 'test-anthropic-key',
-      OPENAI_API_KEY: 'test-openai-key'
-    }, async () => {
+  // Auto now always resolves to local Ollama — no API key required, no cloud preference.
+  // Cloud providers are reached only via explicit provider: "openai" | "anthropic".
+
+  test('1. auto provider: picks Ollama by default (no env vars set)', async () => {
+    await withEnv({}, async () => {
       let calledUrl = '';
       mockFetch(async (url) => {
         calledUrl = url;
-        if (url.includes('/v1/messages')) {
-          return { status: 200, body: anthropicSuccess({ name: 'Alice' }) };
+        if (url.includes('/api/chat')) {
+          return { status: 200, body: ollamaSuccess({ name: 'Alice' }) };
         }
         return { status: 500, body: { error: 'wrong endpoint' } };
       });
@@ -144,19 +144,19 @@ describe('ExtractWithLlm', () => {
       });
 
       assert.ok(result.success, `should succeed, got: ${JSON.stringify(result)}`);
-      assert.equal(result.provider, 'anthropic');
+      assert.equal(result.provider, 'ollama');
       assert.deepEqual(result.data, { name: 'Alice' });
-      assert.ok(calledUrl.includes('/v1/messages'), `should call Anthropic, called: ${calledUrl}`);
+      assert.ok(calledUrl.includes('/api/chat'), `should call Ollama, called: ${calledUrl}`);
     });
   });
 
-  test('2. auto provider: falls back to OpenAI when only OPENAI_API_KEY is set', async () => {
-    await withEnv({ OPENAI_API_KEY: 'test-openai-key' }, async () => {
+  test('2. auto provider: picks Ollama even when ANTHROPIC_API_KEY is set', async () => {
+    await withEnv({ ANTHROPIC_API_KEY: 'test-anthropic-key' }, async () => {
       let calledUrl = '';
       mockFetch(async (url) => {
         calledUrl = url;
-        if (url.includes('/v1/chat/completions')) {
-          return { status: 200, body: openaiSuccess({ name: 'Bob' }) };
+        if (url.includes('/api/chat')) {
+          return { status: 200, body: ollamaSuccess({ name: 'Bob' }) };
         }
         return { status: 500, body: { error: 'wrong endpoint' } };
       });
@@ -166,22 +166,29 @@ describe('ExtractWithLlm', () => {
       });
 
       assert.ok(result.success, `should succeed, got: ${JSON.stringify(result)}`);
-      assert.equal(result.provider, 'openai');
-      assert.deepEqual(result.data, { name: 'Bob' });
-      assert.ok(calledUrl.includes('/v1/chat/completions'), `should call OpenAI, called: ${calledUrl}`);
+      assert.equal(result.provider, 'ollama');
+      assert.ok(calledUrl.includes('/api/chat'), `should call Ollama, called: ${calledUrl}`);
     });
   });
 
-  test('3. error when neither key is present', async () => {
-    await withEnv({}, async () => {
-      const result = await new Tool().execute({
-        content: 'some text', prompt: 'extract something', provider: 'auto'
+  test('3. auto provider: picks Ollama even when OPENAI_API_KEY is set', async () => {
+    await withEnv({ OPENAI_API_KEY: 'test-openai-key' }, async () => {
+      let calledUrl = '';
+      mockFetch(async (url) => {
+        calledUrl = url;
+        if (url.includes('/api/chat')) {
+          return { status: 200, body: ollamaSuccess({ name: 'Carol' }) };
+        }
+        return { status: 500, body: { error: 'wrong endpoint' } };
       });
-      assert.equal(result.success, false);
-      assert.ok(
-        result.error.includes('OPENAI_API_KEY') || result.error.includes('ANTHROPIC_API_KEY'),
-        `error should mention missing keys, got: ${result.error}`
-      );
+
+      const result = await new Tool().execute({
+        content: 'Name: Carol', prompt: 'Extract the name', provider: 'auto'
+      });
+
+      assert.ok(result.success, `should succeed, got: ${JSON.stringify(result)}`);
+      assert.equal(result.provider, 'ollama');
+      assert.ok(calledUrl.includes('/api/chat'), `should call Ollama, called: ${calledUrl}`);
     });
   });
 
@@ -440,46 +447,22 @@ describe('ExtractWithLlm', () => {
     });
   });
 
-  test('19. auto: does NOT pick ollama when no cloud key and no OLLAMA_BASE_URL', async () => {
-    await withEnv({}, async () => {
-      const result = await new Tool().execute({
-        content: 'text', prompt: 'extract', provider: 'auto'
-      });
-      assert.equal(result.success, false);
-      assert.ok(
-        result.error.includes('OPENAI_API_KEY') || result.error.includes('ANTHROPIC_API_KEY'),
-        `error should mention missing keys, got: ${result.error}`
-      );
-    });
-  });
-
-  test('20. auto: cloud keys still take priority over OLLAMA_BASE_URL', async () => {
-    await withEnv({
-      OPENAI_API_KEY: 'k',
-      OLLAMA_BASE_URL: 'http://localhost:11434'
-    }, async () => {
+  test('19. auto: respects OLLAMA_BASE_URL override', async () => {
+    await withEnv({ OLLAMA_BASE_URL: 'http://custom-host:9999' }, async () => {
       let calledUrl = '';
       mockFetch(async (url) => {
         calledUrl = url;
-        return { status: 200, body: openaiSuccess({ a: 1 }) };
+        return { status: 200, body: ollamaSuccess({ ok: true }) };
       });
-      const result = await new Tool().execute({
-        content: 'a is 1', prompt: 'extract a', provider: 'auto'
-      });
-      assert.ok(result.success, `should succeed, got: ${JSON.stringify(result)}`);
-      assert.equal(result.provider, 'openai');
-      assert.ok(calledUrl.includes('/v1/chat/completions'));
-    });
-  });
-
-  test('21. auto: falls back to ollama when OLLAMA_BASE_URL set and no cloud keys', async () => {
-    await withEnv({ OLLAMA_BASE_URL: 'http://localhost:11434' }, async () => {
-      mockFetch(async () => ({ status: 200, body: ollamaSuccess({ ok: true }) }));
       const result = await new Tool().execute({
         content: 'text', prompt: 'extract', provider: 'auto'
       });
       assert.ok(result.success, `should succeed, got: ${JSON.stringify(result)}`);
       assert.equal(result.provider, 'ollama');
+      assert.ok(
+        calledUrl.startsWith('http://custom-host:9999/api/chat'),
+        `should hit custom Ollama URL, called: ${calledUrl}`
+      );
     });
   });
 

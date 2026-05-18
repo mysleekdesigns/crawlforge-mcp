@@ -9,7 +9,7 @@ Professional web scraping and content extraction server implementing the Model C
 
 ## 🎯 Features
 
-- **20 Professional Tools**: Web scraping, deep research, stealth browsing, content analysis
+- **22 Professional Tools**: Web scraping, deep research, stealth browsing, content analysis, local-LLM extraction (Ollama)
 - **Free Tier**: 1,000 credits to get started instantly
 - **MCP Compatible**: Works with Claude, Cursor, and other MCP-enabled AI tools
 - **Enterprise Ready**: Scale up with paid plans for production use
@@ -112,6 +112,8 @@ Restart Cursor to activate.
 - `summarize_content` - Generate intelligent summaries
 - `analyze_content` - Comprehensive content analysis
 - `extract_structured` - LLM-powered schema-driven extraction
+- `extract_with_llm` - Natural-language extraction. **Defaults to a local Ollama model — no API key, no API costs.** Pass `provider: "openai" | "anthropic"` with the matching key for cloud models.
+- `list_ollama_models` - List the Ollama models installed locally (free; helps you pick a `model` for `extract_with_llm`)
 - `track_changes` - Monitor content changes over time
 
 ### Premium Tools (5-10 credits)
@@ -138,7 +140,7 @@ Restart Cursor to activate.
 | **Enterprise** | 250,000 | Large scale operations |
 
 **All plans include:**
-- Access to all 20 tools
+- Access to all 22 tools
 - Credits never expire and roll over month-to-month
 - API access and webhook notifications
 
@@ -155,6 +157,30 @@ export CRAWLFORGE_API_KEY="cf_live_your_api_key_here"
 # Optional: Custom API endpoint (for enterprise)
 export CRAWLFORGE_API_URL="https://api.crawlforge.dev"
 # As of v3.0.18, this variable is validated against an allow-list of CrawlForge backend hosts.
+
+# Optional: Local LLM (Ollama) overrides — extract_with_llm defaults to Ollama
+export OLLAMA_BASE_URL="http://localhost:11434"   # default
+export OLLAMA_DEFAULT_MODEL="llama3.2"             # default; any locally-pulled model name works
+
+# Optional: Cloud LLM keys — only needed when you pass provider: "openai" or "anthropic"
+export OPENAI_API_KEY="sk-..."
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+### Local-LLM quickstart (`extract_with_llm` with Ollama)
+
+`extract_with_llm` defaults to a local Ollama model — no API key, no API costs, no data leaving your machine.
+
+```bash
+# 1. Install Ollama:  https://ollama.com
+# 2. Pull any model from https://ollama.com/library
+ollama pull llama3.2
+
+# 3. Discover what's installed (from your MCP client)
+#    list_ollama_models()
+
+# 4. Extract — defaults to Ollama with the model from step 2
+#    extract_with_llm({ url: "https://example.com", prompt: "…", model: "llama3.2" })
 ```
 
 ### Manual Configuration

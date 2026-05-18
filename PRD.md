@@ -12,6 +12,23 @@ CrawlForge MCP Server (v3.0.12) has 20 specialized tools and strong security/ste
 
 ## Release History
 
+### v3.5.0 — Ollama is now the default for `extract_with_llm` + new `list_ollama_models` tool (2026-05-18)
+
+Flips `extract_with_llm` so a **local Ollama model is the default** (was: OpenAI/Anthropic cloud). No API key is required to use the tool out of the box. Adds a new `list_ollama_models` MCP tool so a user / agent can discover which models are installed locally and pick one for the `model` parameter. **Breaking for existing `provider: "auto"` users with cloud keys set** — auto now resolves to Ollama regardless of whether `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` is present. Cloud providers remain fully supported via explicit `provider: "openai" | "anthropic"`.
+
+**Implementation:**
+- `src/tools/extract/extractWithLlm.js` — `resolveProvider()` simplified: `provider: "auto"` (and `"ollama"`) always returns `{ provider: 'ollama', apiKey: null }`. The `OLLAMA_BASE_URL` opt-in gate is gone; `ollamaBaseUrl()` already defaults to `http://localhost:11434`. Explicit `"openai"` / `"anthropic"` branches still validate the corresponding API key and surface a clear error if missing. The pre-existing friendly `ECONNREFUSED` / `404 model not found` error messages are unchanged.
+- New file `src/tools/extract/listOllamaModels.js` — thin wrapper around `GET /api/tags`. Returns each model's `name`, `size_bytes`, `modified_at`, `family`, `parameter_size`, `quantization`, plus a `hint` field that tells the user to run `ollama pull <name>` if zero models are installed, or to pass any listed name as the `extract_with_llm` `model` param.
+- `server.js` — imports/instantiates `ListOllamaModelsTool`, registers the `list_ollama_models` tool (no params; `readOnlyHint`, `idempotentHint`). Updates `extract_with_llm` description and the `provider` / `model` field descriptions so MCP clients see the new defaults. Server description and getting-started prompt bumped 20 → 21 / 21 → 22 tools.
+- `README.md` — feature blurb 20 → 22 tools; "Advanced Tools" list adds `extract_with_llm` and `list_ollama_models`; new "Local-LLM quickstart" snippet plus `OLLAMA_BASE_URL` / `OLLAMA_DEFAULT_MODEL` env-var docs.
+
+**Tests:**
+- `tests/unit/extractWithLlm.test.js` rewritten where the old contract was asserted. Tests 1–3 now verify auto → Ollama regardless of which cloud keys are set; test 19 now verifies the `OLLAMA_BASE_URL` override is respected (was: "auto does NOT pick ollama without env vars"). Removed test 20 (cloud-priority assertion no longer holds). **20/20 pass.**
+- `npm test` (MCP protocol compliance): exits successfully; 60% rate is the pre-existing baseline on `main` — no regression from this change.
+
+**Verification not yet run:**
+- Live end-to-end against a real Ollama instance with the new `list_ollama_models` tool — to be done by reconnecting the MCP client (`/mcp`) so it picks up the updated schemas, then calling `list_ollama_models()` followed by `extract_with_llm({ url, prompt })`.
+
 ### v3.4.0 — Local Ollama support for `extract_with_llm` (2026-05-18)
 
 Adds local-LLM support to `extract_with_llm` via Ollama, alongside the existing OpenAI + Anthropic cloud providers. Lets users extract structured data with no API key, no API costs, and no data leaving their machine — using whichever model they have pulled locally (default `llama3.2`). Strictly opt-in: existing cloud users see zero behavior change.

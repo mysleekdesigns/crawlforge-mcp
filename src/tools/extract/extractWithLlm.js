@@ -1,10 +1,10 @@
 /**
  * Extract With LLM MCP Tool
- * Natural-language extraction powered by OpenAI, Anthropic, or a local Ollama model.
- * Mirrors ScrapeGraphAI positioning: describe what you want, get structured JSON back.
+ * Natural-language extraction powered by a local Ollama model (default) or
+ * a cloud provider (OpenAI / Anthropic, explicit opt-in).
  *
- * Cloud providers require OPENAI_API_KEY or ANTHROPIC_API_KEY in environment.
- * Ollama requires no API key — just a running `ollama serve` on http://localhost:11434.
+ * Default: provider 'auto' → Ollama at http://localhost:11434, no API key required.
+ * Pass provider: "openai" | "anthropic" with the matching API key to use a cloud model.
  */
 
 import { fetchAndParse } from './_fetchAndParse.js';
@@ -36,32 +36,22 @@ function ollamaBaseUrl() {
  * @returns {{ provider: 'openai'|'anthropic'|'ollama', apiKey: string|null }}
  */
 function resolveProvider(provider) {
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  const openaiKey = process.env.OPENAI_API_KEY;
-  const ollamaOptIn = !!process.env.OLLAMA_BASE_URL;
-
-  if (provider === 'auto') {
-    if (anthropicKey) return { provider: 'anthropic', apiKey: anthropicKey };
-    if (openaiKey) return { provider: 'openai', apiKey: openaiKey };
-    if (ollamaOptIn) return { provider: 'ollama', apiKey: null };
-    throw new Error(
-      'extract_with_llm requires OPENAI_API_KEY, ANTHROPIC_API_KEY, or OLLAMA_BASE_URL in environment ' +
-      '(or pass provider: "ollama" explicitly to use a local Ollama server)'
-    );
+  if (provider === 'auto' || provider === 'ollama') {
+    // Local Ollama is the default. No API key required; OLLAMA_BASE_URL is
+    // an optional override (defaults to http://localhost:11434).
+    return { provider: 'ollama', apiKey: null };
   }
 
   if (provider === 'anthropic') {
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
     if (!anthropicKey) throw new Error('extract_with_llm: ANTHROPIC_API_KEY is not set');
     return { provider: 'anthropic', apiKey: anthropicKey };
   }
 
   if (provider === 'openai') {
+    const openaiKey = process.env.OPENAI_API_KEY;
     if (!openaiKey) throw new Error('extract_with_llm: OPENAI_API_KEY is not set');
     return { provider: 'openai', apiKey: openaiKey };
-  }
-
-  if (provider === 'ollama') {
-    return { provider: 'ollama', apiKey: null };
   }
 
   throw new Error(`extract_with_llm: unknown provider "${provider}"`);

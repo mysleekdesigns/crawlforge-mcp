@@ -17,6 +17,7 @@ import { SummarizeContentTool } from "./src/tools/extract/summarizeContent.js";
 import { AnalyzeContentTool } from "./src/tools/extract/analyzeContent.js";
 import { ExtractStructuredTool } from "./src/tools/extract/extractStructured.js";
 import { ExtractWithLlm } from "./src/tools/extract/extractWithLlm.js";
+import { ListOllamaModelsTool } from "./src/tools/extract/listOllamaModels.js";
 import { BatchScrapeTool } from "./src/tools/advanced/BatchScrapeTool.js";
 import { ScrapeWithActionsTool } from "./src/tools/advanced/ScrapeWithActionsTool.js";
 import { DeepResearchTool } from "./src/tools/research/deepResearch.js";
@@ -90,7 +91,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 const server = new McpServer({
   name: "crawlforge",
   version: "3.2.0",
-  description: "Production-ready MCP server with 20 web scraping, crawling, and content processing tools. Features stealth browsing, deep research, structured extraction, and change tracking.",
+  description: "Production-ready MCP server with 21 web scraping, crawling, and content processing tools. Features stealth browsing, deep research, structured extraction, change tracking, and local-LLM extraction via Ollama.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png"
 });
@@ -104,7 +105,7 @@ server.prompt("getting-started", {
       role: "user",
       content: {
         type: "text",
-        text: "You have access to CrawlForge MCP with 21 web scraping tools. Key tools:\n\n" +
+        text: "You have access to CrawlForge MCP with 22 web scraping tools. Key tools:\n\n" +
           "- fetch_url: Fetch raw HTML/content from any URL\n" +
           "- extract_text: Extract clean text from a webpage\n" +
           "- extract_content: Smart content extraction with readability\n" +
@@ -116,7 +117,8 @@ server.prompt("getting-started", {
           "- deep_research: Multi-source research on any topic\n" +
           "- stealth_mode: Anti-detection browsing for protected sites\n" +
           "- extract_structured: LLM-powered structured data extraction\n" +
-          "- extract_with_llm: Natural-language extraction via OpenAI/Anthropic\n" +
+          "- extract_with_llm: Natural-language extraction — defaults to local Ollama (no API key); openai/anthropic available with key\n" +
+          "- list_ollama_models: List installed Ollama models so you can pick one for extract_with_llm\n" +
           "- track_changes: Monitor website changes over time\n" +
           "- generate_llms_txt: Generate llms.txt for any website\n\n" +
           "Workflow: search_web -> fetch_url -> extract_content -> analyze_content\n\n" +
@@ -146,6 +148,7 @@ const summarizeContentTool = new SummarizeContentTool();
 const analyzeContentTool = new AnalyzeContentTool();
 const extractStructuredTool = new ExtractStructuredTool();
 const extractWithLlmTool = new ExtractWithLlm();
+const listOllamaModelsTool = new ListOllamaModelsTool();
 const batchScrapeTool = new BatchScrapeTool();
 const scrapeWithActionsTool = new ScrapeWithActionsTool();
 const deepResearchTool = new DeepResearchTool();
@@ -395,15 +398,15 @@ server.registerTool("extract_structured", {
 
 // Tool: extract_with_llm
 server.registerTool("extract_with_llm", {
-  description: "Extract structured data from a URL or text using a natural-language prompt. Supports OpenAI, Anthropic, or a local Ollama model. Cloud providers require OPENAI_API_KEY or ANTHROPIC_API_KEY; Ollama requires no key (set provider: \"ollama\" with a running `ollama serve` on http://localhost:11434).",
+  description: "Extract structured data from a URL or text using a natural-language prompt. Defaults to a local Ollama model (http://localhost:11434, no API key required) — call list_ollama_models first to see what's installed and pass the name via the `model` parameter. Pass provider: \"openai\" or \"anthropic\" with the matching API key to use a cloud model instead.",
   annotations: { title: "Extract With LLM", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     url: z.string().url().optional().describe("URL to fetch and extract from (one of url/content required)"),
     content: z.string().optional().describe("Pre-fetched text to extract from (one of url/content required)"),
     prompt: z.string().describe("Natural-language extraction instruction"),
     schema: z.record(z.unknown()).optional().describe("Optional JSON-schema for output shape (used as Ollama structured-outputs format when provider is 'ollama')"),
-    provider: z.enum(["openai", "anthropic", "ollama", "auto"]).optional().default("auto").describe("LLM provider. Use 'ollama' for a local model on http://localhost:11434"),
-    model: z.string().optional().describe("Override default model (e.g. 'llama3.2' for ollama)"),
+    provider: z.enum(["openai", "anthropic", "ollama", "auto"]).optional().default("auto").describe("LLM provider. Defaults to 'ollama' (local, no key, http://localhost:11434). Use 'openai' or 'anthropic' for cloud models (requires the matching API key)."),
+    model: z.string().optional().describe("Override the model. For ollama, pass a name returned by list_ollama_models (e.g. 'llama3.2', 'qwen2.5:7b'). Defaults: openai='gpt-4o-mini', anthropic='claude-haiku-4-5-20251001', ollama='llama3.2' or $OLLAMA_DEFAULT_MODEL."),
     maxTokens: z.number().optional().default(4096).describe("Maximum output tokens")
   }
 }, withAuth("extract_with_llm", async (params) => {
@@ -412,6 +415,23 @@ server.registerTool("extract_with_llm", {
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
     return { content: [{ type: "text", text: `LLM extraction failed: ${error.message}` }], isError: true };
+  }
+}));
+
+// Tool: list_ollama_models
+server.registerTool("list_ollama_models", {
+  description: "List the Ollama models installed locally on this machine. Use this to discover which `model` values you can pass to extract_with_llm. Requires Ollama running on http://localhost:11434 (or $OLLAMA_BASE_URL).",
+  annotations: { title: "List Ollama Models", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  inputSchema: {}
+}, withAuth("list_ollama_models", async () => {
+  try {
+    const result = await listOllamaModelsTool.execute();
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      isError: !result.success
+    };
+  } catch (error) {
+    return { content: [{ type: "text", text: `Listing Ollama models failed: ${error.message}` }], isError: true };
   }
 }));
 
