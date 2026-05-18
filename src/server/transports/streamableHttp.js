@@ -28,7 +28,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 
-const SERVER_VERSION = '3.2.0';
+const SERVER_VERSION = '3.5.1';
 
 /**
  * Stateful, session-aware Streamable HTTP transport.
