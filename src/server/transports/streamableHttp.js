@@ -160,11 +160,11 @@ export async function connectStreamableHttp(server, authManager, logger, options
   await new Promise((resolve) => {
     httpServer.listen(port, host, () => {
       const actual = httpServer.address()?.port ?? port;
-      console.error(`CrawlForge MCP Server v${SERVER_VERSION} running on Streamable HTTP (${mode}) port ${actual}`);
-      console.error(`MCP endpoint: http://localhost:${actual}/mcp`);
-      console.error(`Health check: http://localhost:${actual}/health`);
-      if (metrics) console.error(`Metrics:      http://localhost:${actual}/metrics`);
-      if (oauthProvider) console.error(`OAuth:        http://localhost:${actual}/.well-known/oauth-authorization-server`);
+      console.error(`CrawlForge MCP Server v${SERVER_VERSION} listening on ${host}:${actual} (Streamable HTTP, ${mode})`);
+      console.error(`MCP endpoint:   http://${host}:${actual}/mcp`);
+      console.error(`Health check:   http://${host}:${actual}/health`);
+      if (metrics) console.error(`Metrics:        http://${host}:${actual}/metrics`);
+      if (oauthProvider) console.error(`OAuth discovery: http://${host}:${actual}/.well-known/oauth-authorization-server`);
       resolve();
     });
   });

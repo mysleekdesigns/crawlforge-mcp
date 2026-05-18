@@ -12,6 +12,17 @@ CrawlForge MCP Server (v3.0.12) has 20 specialized tools and strong security/ste
 
 ## Release History
 
+### v3.5.1 — Render deploy fix: align default port with Render's scanner (2026-05-18)
+
+Fixes a Render deploy that timed out with "Port scan timeout reached, no open ports detected" even though the server was logging "running on port 10000" — Render's default scan target matches the app's `$PORT`-resolved port, but the Dockerfile's `EXPOSE 3000` + the in-code default of `3000` were misaligned with that and the broken HEALTHCHECK didn't actually probe the HTTP server. Net symptom: the app was listening, but the surrounding metadata pointed at the wrong port and the healthcheck was a no-op.
+
+- `Dockerfile` — `EXPOSE 3000` → `EXPOSE 10000`; added `ENV PORT=10000` so the container default matches Render's default; HEALTHCHECK replaced (was `node -e "console.log('Health check passed')"` — always passed) with a real fetch against `http://127.0.0.1:$PORT/health`.
+- `server.js` — `process.env.PORT || '3000'` → `process.env.PORT || '10000'` so local-Docker / non-PaaS runs also bind to the expected port.
+- `src/server/transports/streamableHttp.js` — startup log now prints `listening on ${host}:${port}` (e.g. `0.0.0.0:10000`) instead of `http://localhost:${port}` — the latter was misleading when debugging "is it actually bound to 0.0.0.0?".
+- New `render.yaml` blueprint — explicit `type: web`, `runtime: docker`, `healthCheckPath: /health`, `MCP_HTTP=true`, `CRAWLFORGE_API_KEY` flagged as a dashboard-only secret (`sync: false`).
+
+**Operator action required:** in the Render dashboard for the existing service, confirm the "Port" field is either empty (Render auto-detects) or set to `10000`. If it's set to `3000` from an earlier deploy, change it to `10000` and re-deploy.
+
 ### v3.5.0 — Ollama is now the default for `extract_with_llm` + new `list_ollama_models` tool (2026-05-18)
 
 Flips `extract_with_llm` so a **local Ollama model is the default** (was: OpenAI/Anthropic cloud). No API key is required to use the tool out of the box. Adds a new `list_ollama_models` MCP tool so a user / agent can discover which models are installed locally and pick one for the `model` parameter. **Breaking for existing `provider: "auto"` users with cloud keys set** — auto now resolves to Ollama regardless of whether `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` is present. Cloud providers remain fully supported via explicit `provider: "openai" | "anthropic"`.

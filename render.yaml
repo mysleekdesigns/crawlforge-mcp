@@ -1,0 +1,25 @@
+# Render blueprint for CrawlForge MCP Server.
+# Connect this repo to Render and the dashboard will offer to deploy this file
+# (https://render.com/docs/blueprint-spec). All values here can be overridden in
+# the dashboard per-service.
+services:
+  - type: web
+    name: crawlforge-mcp
+    runtime: docker
+    plan: starter            # bump to standard/pro for production traffic
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Render injects PORT=10000 by default. server.js / Dockerfile already
+    # default to 10000, so explicit listening on $PORT works without changes.
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MCP_HTTP
+        value: "true"
+      # CRAWLFORGE_API_KEY must be set in the dashboard (it's a secret).
+      # Add it manually under "Environment" → "Add Environment Variable".
+      - key: CRAWLFORGE_API_KEY
+        sync: false

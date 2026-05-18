@@ -133,15 +133,19 @@ ENV NODE_ENV=production \
     LOG_LEVEL=info \
     ENABLE_METRICS=true
 
-# Health check
+# Default PORT — overridable at runtime. Render injects PORT=10000 by default;
+# other PaaS (Fly, Railway, etc.) inject their own. The server reads $PORT.
+ENV PORT=10000
+
+# Health check — actually probes the running HTTP server's /health endpoint.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD node -e "console.log('Health check passed')" || exit 1
+    CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT||10000) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 # Switch to non-root user
 USER mcp
 
-# Expose port
-EXPOSE 3000
+# Expose port — matches the default $PORT above.
+EXPOSE 10000
 
 # Use tini as init system
 ENTRYPOINT ["/sbin/tini", "--"]

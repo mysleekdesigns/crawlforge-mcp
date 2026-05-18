@@ -938,7 +938,9 @@ const useLegacyHttp = process.argv.includes('--legacy-http') || process.env.CRAW
 
 async function runServer() {
   if (useHttp) {
-    const port = parseInt(process.env.PORT || '3000', 10);
+    // Default to 10000 to match Render's default port-scan target and the
+    // Dockerfile `EXPOSE 10000`. Most PaaS providers inject $PORT — we honor it.
+    const port = parseInt(process.env.PORT || '10000', 10);
 
     if (useLegacyHttp) {
       // One-release deprecation window for stateless legacy transport.
