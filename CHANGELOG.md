@@ -3,6 +3,45 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.2.0] - 2026-05-18
+
+Phase D5.2 + D5.3 — Per-tool unit tests and docs refresh. Additive release: no API changes.
+
+### Added
+
+**D5.2 Per-tool unit tests (17 new test files)**
+- `tests/unit/tools/extract/extractContent.test.js` — 8 tests
+- `tests/unit/tools/extract/processDocument.test.js` — 7 tests
+- `tests/unit/tools/extract/analyzeContent.test.js` — 8 tests
+- `tests/unit/tools/extract/summarizeContent.test.js` — 8 tests
+- `tests/unit/tools/extract/extractStructured.test.js` — 7 tests
+- `tests/unit/tools/extract/listOllamaModels.test.js` — 7 tests (with injectable fetch stub)
+- `tests/unit/tools/research/deepResearch.test.js` — 9 tests (elicitation, session tracking)
+- `tests/unit/tools/search/searchWeb.test.js` — 7 tests (cache, expander, provider)
+- `tests/unit/tools/crawl/crawlDeep.test.js` — 7 tests (elicitation for >500 pages)
+- `tests/unit/tools/crawl/mapSite.test.js` — 8 tests (sitemap parse, group_by_path, cache)
+- `tests/unit/tools/advanced/batchScrape.test.js` — 7 tests (elicitation, jobManager integration)
+- `tests/unit/tools/advanced/scrapeWithActions.test.js` — 8 tests (page.close() leak check)
+- `tests/unit/tools/stealth/stealthMode.test.js` — 7 tests (camoufox/playwright engine)
+- `tests/unit/tools/localization/localization.test.js` — 8 tests (geo-block, translation)
+- `tests/unit/tools/tracking/trackChanges.test.js` — 8 tests (diff, monitoring lifecycle)
+- `tests/unit/tools/llmstxt/generateLLMsTxt.test.js` — 9 tests (format modes)
+- `tests/unit/tools/templates/scrapeTemplate.test.js` — 8 tests (list mode, HTTP errors)
+- Total new tests: 131 — all green. No new npm dependencies (uses node:test + stubs).
+
+**D5.3 Docs refresh**
+- `docs/local-ollama-quickstart.md` — Ollama install, model selection, env vars, Docker, troubleshooting
+- `docs/docker-deployment.md` — build, run, compose, Render deploy, health check, volumes
+- `docs/observability-setup.md` — Prometheus metrics table, OTel spans, Winston log levels, Grafana dashboard import, alerting rules
+- `tests/docs/example-runner.js` — validates README JSON and shell code blocks for syntax (no live network)
+
+**Verified existing docs present from earlier phases:** `docs/mcp-resources-prompts.md`, `docs/cli-guide.md`, `docs/stealth-engines.md`, `docs/cloud-browser.md`
+
+### Changed
+
+- `IMPROVEMENT_ROADMAP_V4.md` header updated: version 4.0.0 → 4.1.0, status → ALL PHASES COMPLETE
+- Carry-forward items noted at bottom of roadmap: D2.8 customDNS, D2.11 24h load test, D5.1 ESLint + Docker CI
+
 ## [4.1.0] - 2026-05-18
 
 Phase D4 - CLI (PRD Phase 2) + Skills Installer (PRD Phase 3). Additive release: no breaking changes to existing MCP tools or API.

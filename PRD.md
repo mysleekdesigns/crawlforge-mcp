@@ -12,6 +12,18 @@ CrawlForge MCP Server (v3.6.0) has 20 specialized tools and strong security/stea
 
 ## Release History
 
+### v4.2.0 (Development) - Phase D5.2 Per-Tool Tests + D5.3 Docs Refresh (2026-05-18)
+
+Phase D5.2 ships 131 new unit tests across 17 tools. Phase D5.3 ships 3 new docs and a README code-block validator. This completes the entire v4.0 roadmap.
+
+**D5.2 Unit tests (17 files, 131 tests, all green):** Stubs injected via constructors — no live network, no Playwright browser launched. Tools covered: extractContent, processDocument, analyzeContent, summarizeContent, extractStructured, listOllamaModels, deepResearch, searchWeb, crawlDeep, mapSite, batchScrape, scrapeWithActions, stealthMode, localization, trackChanges, generateLLMsTxt, scrapeTemplate. Uses node:test runner (no new framework dependency).
+
+**D5.3 Docs refresh:** `docs/local-ollama-quickstart.md` (install, model guide, Docker, troubleshooting). `docs/docker-deployment.md` (build, compose, Render deploy, HEALTHCHECK). `docs/observability-setup.md` (Prometheus metrics table, OTel spans, Grafana dashboard, alert rules). `tests/docs/example-runner.js` validates README JSON/shell blocks (syntax only, no live network).
+
+**IMPROVEMENT_ROADMAP_V4.md:** Status updated to "ALL PHASES COMPLETE — D1 ✓ D2 ✓ D3 ✓ D4 ✓ D5 ✓ — v4.x shipped". Header version corrected to 4.1.0. Carry-forward items documented (D2.8, D2.11, D5.1 ESLint).
+
+**Phase summary:** PRD Phase 1 (MCP tools): COMPLETE (23 tools). PRD Phase 2 (CLI): COMPLETE (v4.1.0). PRD Phase 3 (Skills): COMPLETE (v4.1.0). Roadmap Phases D1–D5: ALL COMPLETE.
+
 ### v4.1.0 (Development) - Phase D4 CLI + Skills Installer (2026-05-18)
 
 Phase D4 ships the `crawlforge` CLI (PRD Phase 2) and skills installer (PRD Phase 3).

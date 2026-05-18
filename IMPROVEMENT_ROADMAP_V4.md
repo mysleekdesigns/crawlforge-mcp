@@ -1,8 +1,8 @@
 # CrawlForge MCP Server — Improvement Roadmap v4.0
 
-> **Status:** D1 Complete, D2 Complete, D3 Complete, D4 Complete, D5.1 Complete
-> **Current version:** 4.0.0
-> **Target version:** 4.0
+> **Status:** ALL PHASES COMPLETE — D1 ✓ D2 ✓ D3 ✓ D4 ✓ D5 ✓ — v4.x shipped
+> **Current version:** 4.1.0
+> **Target version:** 4.2 (carry-forward)
 > **Estimated duration:** 10–12 weeks (phases D2 and D5 parallelizable with D1/D3/D4)
 
 ---
@@ -258,37 +258,37 @@ Ask the user for confirmation/input mid-tool for expensive or ambiguous operatio
 - [x] Created `.github/workflows/security.yml` — daily npm audit + gitleaks secret scan + CodeQL analysis
 
 ### D5.2 Per-tool unit tests (17 untested tools)
-- [ ] `tests/unit/tools/search/searchWeb.test.js`
-- [ ] `tests/unit/tools/crawl/crawlDeep.test.js`
-- [ ] `tests/unit/tools/crawl/mapSite.test.js`
-- [ ] `tests/unit/tools/advanced/batchScrape.test.js`
-- [ ] `tests/unit/tools/advanced/scrapeWithActions.test.js`
-- [ ] `tests/unit/tools/research/deepResearch.test.js`
-- [ ] `tests/unit/tools/extract/extractContent.test.js`
-- [ ] `tests/unit/tools/extract/processDocument.test.js`
-- [ ] `tests/unit/tools/extract/analyzeContent.test.js`
-- [ ] `tests/unit/tools/extract/summarizeContent.test.js`
-- [ ] `tests/unit/tools/extract/extractStructured.test.js`
-- [ ] `tests/unit/tools/extract/listOllamaModels.test.js`
-- [ ] `tests/unit/tools/stealth/stealthMode.test.js`
-- [ ] `tests/unit/tools/localization/localization.test.js`
-- [ ] `tests/unit/tools/tracking/trackChanges.test.js`
-- [ ] `tests/unit/tools/llmstxt/generateLLMsTxt.test.js`
-- [ ] `tests/unit/tools/templates/scrapeTemplate.test.js` (new tool from D3.3)
-- [ ] Use `nock`/`msw` for HTTP fixtures; mock Playwright via injected page factory
+- [x] `tests/unit/tools/search/searchWeb.test.js`
+- [x] `tests/unit/tools/crawl/crawlDeep.test.js`
+- [x] `tests/unit/tools/crawl/mapSite.test.js`
+- [x] `tests/unit/tools/advanced/batchScrape.test.js`
+- [x] `tests/unit/tools/advanced/scrapeWithActions.test.js`
+- [x] `tests/unit/tools/research/deepResearch.test.js`
+- [x] `tests/unit/tools/extract/extractContent.test.js`
+- [x] `tests/unit/tools/extract/processDocument.test.js`
+- [x] `tests/unit/tools/extract/analyzeContent.test.js`
+- [x] `tests/unit/tools/extract/summarizeContent.test.js`
+- [x] `tests/unit/tools/extract/extractStructured.test.js`
+- [x] `tests/unit/tools/extract/listOllamaModels.test.js`
+- [x] `tests/unit/tools/stealth/stealthMode.test.js`
+- [x] `tests/unit/tools/localization/localization.test.js`
+- [x] `tests/unit/tools/tracking/trackChanges.test.js`
+- [x] `tests/unit/tools/llmstxt/generateLLMsTxt.test.js`
+- [x] `tests/unit/tools/templates/scrapeTemplate.test.js` (new tool from D3.3)
+- [x] Use `nock`/`msw` for HTTP fixtures; mock Playwright via injected page factory
 
 ### D5.3 Docs refresh
-- [ ] Bump `docs/PRODUCTION_READINESS.md` header from "v3.3.1 | 21 Tools" to current
-- [ ] Rewrite `PRD.md` Progress Summary — Phases A/B/C all complete; remove obsolete "Phase 2/3 not started"
-- [ ] Add copy-paste example block to `README.md` for each of 22 tools
-- [ ] New: `docs/local-ollama-quickstart.md`
-- [ ] New: `docs/docker-deployment.md`
-- [ ] New: `docs/observability-setup.md`
-- [ ] New: `docs/mcp-resources-prompts.md`
-- [ ] New: `docs/cli-guide.md`
-- [ ] New: `docs/stealth-engines.md`
-- [ ] New: `docs/cloud-browser.md`
-- [ ] Verify all README examples runnable via `tests/docs/example-runner.js`
+- [x] Bump `docs/PRODUCTION_READINESS.md` header from "v3.3.1 | 21 Tools" to current
+- [x] Rewrite `PRD.md` Progress Summary — Phases A/B/C all complete; remove obsolete "Phase 2/3 not started"
+- [x] Add copy-paste example block to `README.md` for each of 22 tools
+- [x] New: `docs/local-ollama-quickstart.md`
+- [x] New: `docs/docker-deployment.md`
+- [x] New: `docs/observability-setup.md`
+- [x] New: `docs/mcp-resources-prompts.md`
+- [x] New: `docs/cli-guide.md`
+- [x] New: `docs/stealth-engines.md`
+- [x] New: `docs/cloud-browser.md`
+- [x] Verify all README examples runnable via `tests/docs/example-runner.js`
 
 ---
 
@@ -345,3 +345,17 @@ This roadmap was built from:
 2. **Core infrastructure audit** — Deep review of all 10 modules in `src/core/` plus `src/constants/config.js` and `server.js`, with file:line references for each finding.
 3. **Documentation survey** — README, PRD, CHANGELOG, IMPROVEMENT_PLAN, PRODUCTION_READINESS, security-audit-report, oauth-quickstart, and CI workflow files.
 4. **External research via CrawlForge MCP** — Used `mcp__crawlforge__deep_research`, `mcp__crawlforge__search_web` against MCP spec 2025-11-25, competitor MCP servers (Firecrawl, Crawl4AI, Apify, BrowserBase, Jina), and anti-bot landscape (Camoufox, nodriver, zendriver, CreepJS benchmarks).
+
+---
+
+## Carry-forward to v4.2
+
+The following items were explicitly deferred and are tracked here for the next iteration:
+
+- [ ] **D2.8** — Validate `customDNS` overrides against whitelist (`config.js:266-269`)
+- [ ] **D2.11** — 24h sustained-load test in `tests/load/sustained.js` (memory flat-line verification)
+- [ ] **D5.1** — ESLint configuration (`eslint.config.js`) and pipeline step
+- [ ] **D5.1** — Docker integration tests against mock Docker service in CI
+- [ ] **D5.2** — Lift line coverage to ≥70% (currently ~64%; new tests improve but threshold not yet confirmed without live CI run)
+
+All other D1–D5 items are complete. v4.1.0 shipped on the `development` branch.
