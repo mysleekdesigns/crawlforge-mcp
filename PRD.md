@@ -12,6 +12,10 @@ CrawlForge MCP Server (v3.6.0) has 20 specialized tools and strong security/stea
 
 ## Release History
 
+### v4.2.2 (Development) - CLI batch fix + retracted v4.0.0 breaking-change docs (2026-05-18)
+
+Patch release. Fixes `crawlforge batch` CLI flag mapping: `--format` / `--concurrency` / `--max-retries` were silently dropped due to wrong param key names. Maps now to `formats` / `maxConcurrency` / `jobOptions.maxRetries`. Adds a contract test pinning the CLI param shape. CHANGELOG v4.0.0 entry annotated as retracted with postmortem. CI workflow internal fix (recursive test discovery + force-exit + Node 22). No API surface changes.
+
 ### v4.2.1 (Development) - Backwards-Compat Fix for batch_scrape (2026-05-18)
 
 Patch release that neutralizes the v4.0.0 "breaking change" to `batch_scrape` defaults. The internal `BatchScrapeSchema` defaulted to `['markdown']` while the MCP tool registration at `server.js:544` defaulted to `['json']` — because params are validated twice (MCP layer then tool layer), the MCP default always won, so MCP clients were never actually broken. v4.2.1 aligns the internal schema to `['json']` to close the latent mismatch. Three regression tests pin the schema defaults. No migration needed.
