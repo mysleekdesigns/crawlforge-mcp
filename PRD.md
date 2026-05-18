@@ -6,11 +6,28 @@ CrawlForge MCP Server (v3.0.12) has 20 specialized tools and strong security/ste
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — without breaking any of the 20 existing MCP tools or the current setup flow.
 
-**Last Updated:** 2026-04-15
+**Last Updated:** 2026-05-18
 
 ---
 
 ## Release History
+
+### v3.4.0 — Local Ollama support for `extract_with_llm` (2026-05-18)
+
+Adds local-LLM support to `extract_with_llm` via Ollama, alongside the existing OpenAI + Anthropic cloud providers. Lets users extract structured data with no API key, no API costs, and no data leaving their machine — using whichever model they have pulled locally (default `llama3.2`). Strictly opt-in: existing cloud users see zero behavior change.
+
+**Implementation (`src/tools/extract/extractWithLlm.js`, `server.js`):**
+- New `callOllama()` calls Ollama's `/api/chat` directly with raw `fetch()` (same pattern as the existing OpenAI/Anthropic branches — zero new runtime deps). Sends `stream: false`, `temperature: 0`, `num_predict: maxTokens`. When the optional `schema` param is provided it is passed through as Ollama's structured-outputs `format` object; otherwise `format: "json"` for JSON mode.
+- `resolveProvider()` extended: `provider: "ollama"` always selects Ollama (no key required). `provider: "auto"` keeps the Anthropic → OpenAI order and only falls back to Ollama when neither cloud key is set **and** `OLLAMA_BASE_URL` is exported — guarantees no behavior change for existing cloud users.
+- Defaults are beginner-friendly: base URL `http://localhost:11434`, model `llama3.2`. Both overridable via `OLLAMA_BASE_URL` / `OLLAMA_DEFAULT_MODEL` env vars or per-call `model` param.
+- Friendly error on `ECONNREFUSED` / `ENOTFOUND`: `Ollama is not running at <url>. Start it with "ollama serve" and pull a model: "ollama pull llama3.2".` Friendly error on `404 model not found`: `ollama pull <model>`.
+- Usage normalized to the uniform `{ input_tokens, output_tokens }` shape (mapped from Ollama's `prompt_eval_count` / `eval_count`).
+- `extract_with_llm` provider enum extended to `["openai", "anthropic", "ollama", "auto"]`; description updated to mention local Ollama.
+
+**Verification:**
+- `node --test tests/unit/extractWithLlm.test.js`: **22/22 pass** (14 pre-existing + 8 new Ollama tests).
+- `npm test` MCP protocol compliance: 10/10 tests completed, 0 errors — unchanged from baseline.
+- **Live end-to-end against real Ollama 0.24.0 with `llama3.2:latest`**: 3/3 scenarios pass — plain JSON mode (extracted product/price/screen-size), structured-outputs schema (nested order with line-items array), and `provider: "auto"` fallback via `OLLAMA_BASE_URL`.
 
 ### v3.3.1 — Post-C5 verification fixes (2026-05-17)
 

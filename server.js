@@ -395,15 +395,15 @@ server.registerTool("extract_structured", {
 
 // Tool: extract_with_llm
 server.registerTool("extract_with_llm", {
-  description: "Extract structured data from a URL or text using a natural-language prompt, powered by OpenAI or Anthropic. Requires OPENAI_API_KEY or ANTHROPIC_API_KEY in the environment.",
+  description: "Extract structured data from a URL or text using a natural-language prompt. Supports OpenAI, Anthropic, or a local Ollama model. Cloud providers require OPENAI_API_KEY or ANTHROPIC_API_KEY; Ollama requires no key (set provider: \"ollama\" with a running `ollama serve` on http://localhost:11434).",
   annotations: { title: "Extract With LLM", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     url: z.string().url().optional().describe("URL to fetch and extract from (one of url/content required)"),
     content: z.string().optional().describe("Pre-fetched text to extract from (one of url/content required)"),
     prompt: z.string().describe("Natural-language extraction instruction"),
-    schema: z.record(z.unknown()).optional().describe("Optional JSON-schema-like hint for output shape"),
-    provider: z.enum(["openai", "anthropic", "auto"]).optional().default("auto").describe("LLM provider"),
-    model: z.string().optional().describe("Override default model"),
+    schema: z.record(z.unknown()).optional().describe("Optional JSON-schema for output shape (used as Ollama structured-outputs format when provider is 'ollama')"),
+    provider: z.enum(["openai", "anthropic", "ollama", "auto"]).optional().default("auto").describe("LLM provider. Use 'ollama' for a local model on http://localhost:11434"),
+    model: z.string().optional().describe("Override default model (e.g. 'llama3.2' for ollama)"),
     maxTokens: z.number().optional().default(4096).describe("Maximum output tokens")
   }
 }, withAuth("extract_with_llm", async (params) => {

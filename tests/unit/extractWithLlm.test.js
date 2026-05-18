@@ -46,6 +46,16 @@ function anthropicSuccess(data) {
   };
 }
 
+function ollamaSuccess(data, model = 'llama3.2') {
+  return {
+    model,
+    message: { role: 'assistant', content: JSON.stringify(data) },
+    done: true,
+    prompt_eval_count: 60,
+    eval_count: 30
+  };
+}
+
 /** Minimal fetch mock that returns a JSON response body. */
 function makeFetchMock(handler) {
   return async (url, options) => {
@@ -65,7 +75,11 @@ function makeFetchMock(handler) {
 
 // ── Environment helper ────────────────────────────────────────────────────────
 
-const ENV_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_BASE_URL'];
+const ENV_KEYS = [
+  'OPENAI_API_KEY', 'ANTHROPIC_API_KEY',
+  'OPENAI_BASE_URL', 'ANTHROPIC_BASE_URL',
+  'OLLAMA_BASE_URL', 'OLLAMA_DEFAULT_MODEL'
+];
 
 function withEnv(vars, fn) {
   const saved = {};
@@ -344,6 +358,144 @@ describe('ExtractWithLlm', () => {
         result.error.includes('prompt'),
         `error should mention prompt, got: ${result.error}`
       );
+    });
+  });
+
+  // ── Ollama tests ─────────────────────────────────────────────────────────────
+
+  test('15. ollama: explicit provider works with no API keys set', async () => {
+    await withEnv({ OLLAMA_BASE_URL: 'http://localhost:11434' }, async () => {
+      let calledUrl = '';
+      let capturedBody = null;
+      mockFetch(async (url, opts) => {
+        calledUrl = url;
+        capturedBody = JSON.parse(opts.body);
+        return { status: 200, body: ollamaSuccess({ city: 'Paris' }) };
+      });
+      const result = await new Tool().execute({
+        content: 'Capital of France is Paris',
+        prompt: 'Extract the city',
+        provider: 'ollama'
+      });
+      assert.ok(result.success, `should succeed, got: ${JSON.stringify(result)}`);
+      assert.equal(result.provider, 'ollama');
+      assert.equal(result.model, 'llama3.2');
+      assert.deepEqual(result.data, { city: 'Paris' });
+      assert.ok(calledUrl.includes('/api/chat'), `should call /api/chat, called: ${calledUrl}`);
+      assert.equal(capturedBody.format, 'json', 'should send format: "json" when no schema');
+      assert.equal(capturedBody.stream, false);
+    });
+  });
+
+  test('16. ollama: schema is sent as structured-outputs format', async () => {
+    await withEnv({}, async () => {
+      let capturedBody = null;
+      mockFetch(async (_url, opts) => {
+        capturedBody = JSON.parse(opts.body);
+        return { status: 200, body: ollamaSuccess({ x: 7 }) };
+      });
+      const schema = { type: 'object', properties: { x: { type: 'number' } }, required: ['x'] };
+      const result = await new Tool().execute({
+        content: 'x is seven',
+        prompt: 'extract x',
+        schema,
+        provider: 'ollama'
+      });
+      assert.ok(result.success, `should succeed, got: ${JSON.stringify(result)}`);
+      assert.deepEqual(capturedBody.format, schema, 'schema should be passed as format object');
+    });
+  });
+
+  test('17. ollama: ECONNREFUSED yields friendly "not running" error', async () => {
+    await withEnv({}, async () => {
+      globalThis.fetch = async () => {
+        const err = new Error('fetch failed');
+        err.cause = { code: 'ECONNREFUSED' };
+        throw err;
+      };
+      const result = await new Tool().execute({
+        content: 'anything', prompt: 'extract', provider: 'ollama'
+      });
+      assert.equal(result.success, false);
+      assert.ok(
+        /Ollama is not running/i.test(result.error),
+        `expected friendly not-running message, got: ${result.error}`
+      );
+      assert.ok(
+        /ollama serve|ollama pull/i.test(result.error),
+        `expected install hints, got: ${result.error}`
+      );
+    });
+  });
+
+  test('18. ollama: token usage normalized from prompt_eval_count / eval_count', async () => {
+    await withEnv({}, async () => {
+      mockFetch(async () => ({ status: 200, body: ollamaSuccess({ ok: true }) }));
+      const result = await new Tool().execute({
+        content: 'text', prompt: 'is it ok?', provider: 'ollama'
+      });
+      assert.ok(result.success, `should succeed, got: ${JSON.stringify(result)}`);
+      assert.equal(result.usage.input_tokens, 60);
+      assert.equal(result.usage.output_tokens, 30);
+    });
+  });
+
+  test('19. auto: does NOT pick ollama when no cloud key and no OLLAMA_BASE_URL', async () => {
+    await withEnv({}, async () => {
+      const result = await new Tool().execute({
+        content: 'text', prompt: 'extract', provider: 'auto'
+      });
+      assert.equal(result.success, false);
+      assert.ok(
+        result.error.includes('OPENAI_API_KEY') || result.error.includes('ANTHROPIC_API_KEY'),
+        `error should mention missing keys, got: ${result.error}`
+      );
+    });
+  });
+
+  test('20. auto: cloud keys still take priority over OLLAMA_BASE_URL', async () => {
+    await withEnv({
+      OPENAI_API_KEY: 'k',
+      OLLAMA_BASE_URL: 'http://localhost:11434'
+    }, async () => {
+      let calledUrl = '';
+      mockFetch(async (url) => {
+        calledUrl = url;
+        return { status: 200, body: openaiSuccess({ a: 1 }) };
+      });
+      const result = await new Tool().execute({
+        content: 'a is 1', prompt: 'extract a', provider: 'auto'
+      });
+      assert.ok(result.success, `should succeed, got: ${JSON.stringify(result)}`);
+      assert.equal(result.provider, 'openai');
+      assert.ok(calledUrl.includes('/v1/chat/completions'));
+    });
+  });
+
+  test('21. auto: falls back to ollama when OLLAMA_BASE_URL set and no cloud keys', async () => {
+    await withEnv({ OLLAMA_BASE_URL: 'http://localhost:11434' }, async () => {
+      mockFetch(async () => ({ status: 200, body: ollamaSuccess({ ok: true }) }));
+      const result = await new Tool().execute({
+        content: 'text', prompt: 'extract', provider: 'auto'
+      });
+      assert.ok(result.success, `should succeed, got: ${JSON.stringify(result)}`);
+      assert.equal(result.provider, 'ollama');
+    });
+  });
+
+  test('22. ollama: model param overrides default llama3.2', async () => {
+    await withEnv({}, async () => {
+      let capturedBody = null;
+      mockFetch(async (_url, opts) => {
+        capturedBody = JSON.parse(opts.body);
+        return { status: 200, body: ollamaSuccess({ ok: true }, 'qwen2.5') };
+      });
+      const result = await new Tool().execute({
+        content: 'text', prompt: 'extract', provider: 'ollama', model: 'qwen2.5'
+      });
+      assert.ok(result.success, `should succeed, got: ${JSON.stringify(result)}`);
+      assert.equal(capturedBody.model, 'qwen2.5');
+      assert.equal(result.model, 'qwen2.5');
     });
   });
 });

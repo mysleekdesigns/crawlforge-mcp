@@ -1,10 +1,10 @@
 /**
  * Extract With LLM MCP Tool
- * Natural-language extraction powered by OpenAI or Anthropic.
+ * Natural-language extraction powered by OpenAI, Anthropic, or a local Ollama model.
  * Mirrors ScrapeGraphAI positioning: describe what you want, get structured JSON back.
  *
- * Requires OPENAI_API_KEY or ANTHROPIC_API_KEY in environment.
- * Gate: tool throws a clear error when neither key is present.
+ * Cloud providers require OPENAI_API_KEY or ANTHROPIC_API_KEY in environment.
+ * Ollama requires no API key — just a running `ollama serve` on http://localhost:11434.
  */
 
 import { fetchAndParse } from './_fetchAndParse.js';
@@ -15,6 +15,7 @@ const MAX_INPUT_CHARS = 50_000;
 
 const OPENAI_DEFAULT_MODEL = 'gpt-4o-mini';
 const ANTHROPIC_DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
+const OLLAMA_DEFAULT_MODEL = 'llama3.2';
 
 // Support test-time overrides so the test suite can stub endpoints.
 function openaiBaseUrl() {
@@ -23,23 +24,29 @@ function openaiBaseUrl() {
 function anthropicBaseUrl() {
   return (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '');
 }
+function ollamaBaseUrl() {
+  return (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/$/, '');
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
  * Resolve which provider to use.
- * @param {'openai'|'anthropic'|'auto'} provider
- * @returns {{ provider: 'openai'|'anthropic', apiKey: string }}
+ * @param {'openai'|'anthropic'|'ollama'|'auto'} provider
+ * @returns {{ provider: 'openai'|'anthropic'|'ollama', apiKey: string|null }}
  */
 function resolveProvider(provider) {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
+  const ollamaOptIn = !!process.env.OLLAMA_BASE_URL;
 
   if (provider === 'auto') {
     if (anthropicKey) return { provider: 'anthropic', apiKey: anthropicKey };
     if (openaiKey) return { provider: 'openai', apiKey: openaiKey };
+    if (ollamaOptIn) return { provider: 'ollama', apiKey: null };
     throw new Error(
-      'extract_with_llm requires OPENAI_API_KEY or ANTHROPIC_API_KEY in environment'
+      'extract_with_llm requires OPENAI_API_KEY, ANTHROPIC_API_KEY, or OLLAMA_BASE_URL in environment ' +
+      '(or pass provider: "ollama" explicitly to use a local Ollama server)'
     );
   }
 
@@ -51,6 +58,10 @@ function resolveProvider(provider) {
   if (provider === 'openai') {
     if (!openaiKey) throw new Error('extract_with_llm: OPENAI_API_KEY is not set');
     return { provider: 'openai', apiKey: openaiKey };
+  }
+
+  if (provider === 'ollama') {
+    return { provider: 'ollama', apiKey: null };
   }
 
   throw new Error(`extract_with_llm: unknown provider "${provider}"`);
@@ -157,11 +168,67 @@ async function callAnthropic({ apiKey, model, systemMessage, userMessage, maxTok
   return { rawText: content, usage, model: json.model || model };
 }
 
+// ── Ollama call ───────────────────────────────────────────────────────────────
+
+async function callOllama({ model, systemMessage, userMessage, maxTokens, schema }) {
+  const url = `${ollamaBaseUrl()}/api/chat`;
+  const body = {
+    model,
+    messages: [
+      { role: 'system', content: systemMessage },
+      { role: 'user', content: userMessage }
+    ],
+    stream: false,
+    options: { num_predict: maxTokens, temperature: 0 },
+    format: (schema && Object.keys(schema).length > 0) ? schema : 'json'
+  };
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120_000)
+    });
+  } catch (err) {
+    const code = err?.cause?.code;
+    if (code === 'ECONNREFUSED' || code === 'ENOTFOUND' || /ECONNREFUSED|ENOTFOUND|fetch failed/i.test(err.message || '')) {
+      throw new Error(
+        `Ollama is not running at ${ollamaBaseUrl()}. ` +
+        `Start it with "ollama serve" and pull a model: "ollama pull ${model}".`
+      );
+    }
+    throw err;
+  }
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    if (response.status === 404 && /model.*not found|pull/i.test(errText)) {
+      throw new Error(
+        `Ollama model "${model}" is not pulled. Run: "ollama pull ${model}"`
+      );
+    }
+    throw new Error(`Ollama API error ${response.status}: ${errText.slice(0, 200)}`);
+  }
+
+  const json = await response.json();
+  const content = json.message?.content ?? '';
+  const usage = {
+    input_tokens: json.prompt_eval_count ?? 0,
+    output_tokens: json.eval_count ?? 0
+  };
+  return { rawText: content, usage, model: json.model || model };
+}
+
 // ── LLM dispatch ─────────────────────────────────────────────────────────────
 
-async function callLLM({ provider, apiKey, model, systemMessage, userMessage, maxTokens }) {
+async function callLLM({ provider, apiKey, model, systemMessage, userMessage, maxTokens, schema }) {
   if (provider === 'openai') {
     return callOpenAI({ apiKey, model, systemMessage, userMessage, maxTokens });
+  }
+  if (provider === 'ollama') {
+    return callOllama({ model, systemMessage, userMessage, maxTokens, schema });
   }
   return callAnthropic({ apiKey, model, systemMessage, userMessage, maxTokens });
 }
@@ -216,7 +283,10 @@ export class ExtractWithLlm {
     }
 
     const { provider, apiKey } = resolved;
-    const defaultModel = provider === 'openai' ? OPENAI_DEFAULT_MODEL : ANTHROPIC_DEFAULT_MODEL;
+    const defaultModel =
+      provider === 'openai' ? OPENAI_DEFAULT_MODEL :
+      provider === 'ollama' ? (process.env.OLLAMA_DEFAULT_MODEL || OLLAMA_DEFAULT_MODEL) :
+      ANTHROPIC_DEFAULT_MODEL;
     const model = modelParam || defaultModel;
 
     // Step 1: Get text to extract from
@@ -241,7 +311,7 @@ export class ExtractWithLlm {
     let rawText, usage;
     try {
       ({ rawText, usage } = await callLLM({
-        provider, apiKey, model, systemMessage, userMessage, maxTokens
+        provider, apiKey, model, systemMessage, userMessage, maxTokens, schema
       }));
     } catch (llmErr) {
       return { success: false, error: `LLM call failed: ${llmErr.message}` };
@@ -260,7 +330,7 @@ export class ExtractWithLlm {
       try {
         ({ rawText: retryRaw, usage: retryUsage } = await callLLM({
           provider, apiKey, model, systemMessage,
-          userMessage: retryUserMessage, maxTokens
+          userMessage: retryUserMessage, maxTokens, schema
         }));
         // Merge usage
         usage = {

@@ -5,6 +5,28 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2026-05-18
+
+Adds local-LLM support to `extract_with_llm` via Ollama. Cloud users see zero behavior change — the addition is strictly opt-in.
+
+### Added
+- **Ollama provider for `extract_with_llm`.** Set `provider: "ollama"` (or `provider: "auto"` with `OLLAMA_BASE_URL` env var) to extract using a local Ollama model — no API key, no API costs, no data leaving the machine.
+  - Default base URL `http://localhost:11434`; default model `llama3.2` (override via `OLLAMA_DEFAULT_MODEL` env or the `model` param).
+  - Calls Ollama's `/api/chat` directly with `stream: false`, `temperature: 0`, `num_predict: maxTokens`. Zero new runtime deps — same raw-`fetch()` pattern as the OpenAI/Anthropic branches.
+  - JSON mode by default (`format: "json"`). When the optional `schema` param is provided, it is passed through as Ollama's structured-outputs `format` object, constraining the model to that JSON schema (per <https://ollama.com/blog/structured-outputs>).
+  - Provider resolution: `provider: "ollama"` always selects Ollama (no key required). `provider: "auto"` keeps the existing Anthropic → OpenAI order and only falls back to Ollama when neither cloud key is set **and** `OLLAMA_BASE_URL` is exported — guaranteeing no behavior change for existing cloud users.
+  - Friendly error on `ECONNREFUSED` / `ENOTFOUND`: surfaces `Ollama is not running at <url>. Start it with "ollama serve" and pull a model: "ollama pull llama3.2".` instead of a raw fetch error. Friendly error on `404 model not found` instructs `ollama pull <model>`.
+  - Usage normalized: Ollama's `prompt_eval_count` / `eval_count` mapped to the uniform `{ input_tokens, output_tokens }` shape used by the OpenAI/Anthropic branches.
+- 8 new unit tests in `tests/unit/extractWithLlm.test.js` (22 total, all pass): explicit-ollama path, JSON-mode body shape, schema → structured-outputs pass-through, ECONNREFUSED → friendly error, usage normalization, auto-fallback rules (no behavior change for cloud users), model override.
+
+### Changed
+- `server.js` — `extract_with_llm` provider enum extended to `["openai", "anthropic", "ollama", "auto"]`; tool description updated to mention local Ollama support and clarify that Ollama needs no key.
+
+### Verification
+- `node --test tests/unit/extractWithLlm.test.js`: **22/22 PASS**.
+- `npm test` MCP protocol compliance: 10/10 tests completed, 0 errors — unchanged from HEAD baseline.
+- **Live end-to-end against real Ollama 0.24.0 with `llama3.2:latest`**: 3/3 scenarios pass — plain JSON mode (extracted product/price/screen-size from "iPhone 16 Pro" text), structured-outputs schema (nested order with line-items array), and `provider: "auto"` fallback via `OLLAMA_BASE_URL`.
+
 ## [3.3.1] - 2026-05-17
 
 Two pre-existing bugs surfaced during the full out-of-sandbox verification of the v3.3.0 release. Neither was caused by Phase C5 — both reproduce on the v3.2.0 commit. They were masked respectively by a populated LRU cache hit (bug #1) and by CI environments lacking the maintainer `.env` (bug #2).
