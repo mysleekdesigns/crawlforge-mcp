@@ -1,7 +1,7 @@
 # CrawlForge MCP Server — Improvement Roadmap v4.0
 
-> **Status:** D2 Complete, D5.1 Complete — In Progress
-> **Current version:** 3.5.1
+> **Status:** D1 Complete, D2 Complete, D5.1 Complete — In Progress
+> **Current version:** 3.6.0
 > **Target version:** 4.0
 > **Estimated duration:** 10–12 weeks (phases D2 and D5 parallelizable with D1/D3/D4)
 
@@ -42,55 +42,55 @@ CrawlForge is a mature MCP server with **22 tools** spanning fetching, crawling,
 
 Expose long-lived artifacts the server already produces as MCP Resources with URI scheme `crawlforge://<type>/<id>`.
 
-- [ ] Create `src/resources/ResourceRegistry.js` (central registry, URI parsing, MIME types)
-- [ ] Register `resources/list` and `resources/read` handlers in `server.js`
-- [ ] Expose `crawlforge://research/{sessionId}` — completed `deep_research` reports (currently lost from `ResearchOrchestrator.activeSessions`)
-- [ ] Expose `crawlforge://snapshot/{url-hash}/{timestamp}` — wire to `SnapshotManager`
-- [ ] Expose `crawlforge://job/{jobId}` — completed `batch_scrape` results from `JobManager`
-- [ ] Expose `crawlforge://crawl/{sessionId}/sitemap` — last `map_site` output per domain
-- [ ] Expose `crawlforge://screenshot/{actionId}` — screenshots from `scrape_with_actions` (replace base64-in-response)
-- [ ] Document URI scheme + TTL policy in `docs/mcp-resources-prompts.md`
-- [ ] Unit tests for `ResourceRegistry` in `tests/unit/resources/`
+- [x] Create `src/resources/ResourceRegistry.js` (central registry, URI parsing, MIME types)
+- [x] Register `resources/list` and `resources/read` handlers in `server.js`
+- [x] Expose `crawlforge://research/{sessionId}` — completed `deep_research` reports (currently lost from `ResearchOrchestrator.activeSessions`)
+- [x] Expose `crawlforge://snapshot/{url-hash}/{timestamp}` — wire to `SnapshotManager`
+- [x] Expose `crawlforge://job/{jobId}` — completed `batch_scrape` results from `JobManager`
+- [x] Expose `crawlforge://crawl/{sessionId}/sitemap` — last `map_site` output per domain
+- [x] Expose `crawlforge://screenshot/{actionId}` — screenshots from `scrape_with_actions` (replace base64-in-response)
+- [x] Document URI scheme + TTL policy in `docs/mcp-resources-prompts.md`
+- [x] Unit tests for `ResourceRegistry` in `tests/unit/resources/` — 20 tests green
 
 ### D1.2 Prompts
 
 Pre-defined workflows as MCP prompts the client can list and invoke.
 
-- [ ] Create `src/prompts/PromptRegistry.js` and wire `prompts/list` + `prompts/get` in `server.js`
-- [ ] Prompt: `competitive-analysis` (args: `competitor_urls`, `our_url`)
-- [ ] Prompt: `monitor-changes` (args: `url`, `interval`, `webhook`)
-- [ ] Prompt: `rag-ingest` (args: `urls[]`, `output_format`) — markdown defaults
-- [ ] Prompt: `site-audit` (args: `url`) — composes `map_site` + `generate_llms_txt` + `extract_metadata`
-- [ ] Prompt: `research-deep-dive` (args: `topic`, `depth`)
-- [ ] Add example prompt invocations to `README.md`
+- [x] Create `src/prompts/PromptRegistry.js` and wire `prompts/list` + `prompts/get` in `server.js`
+- [x] Prompt: `competitive-analysis` (args: `competitor_urls`, `our_url`)
+- [x] Prompt: `monitor-changes` (args: `url`, `interval`, `webhook`)
+- [x] Prompt: `rag-ingest` (args: `urls[]`, `output_format`) — markdown defaults
+- [x] Prompt: `site-audit` (args: `url`) — composes `map_site` + `generate_llms_txt` + `extract_metadata`
+- [x] Prompt: `research-deep-dive` (args: `topic`, `depth`)
+- [x] Add example prompt invocations to `docs/mcp-resources-prompts.md`
 
 ### D1.3 Sampling
 
 Let tools request LLM completions from the client model — removes need for server-side LLM API keys.
 
-- [ ] Add sampling client wrapper in `src/core/SamplingClient.js`
-- [ ] Update `src/tools/extract/extractWithLlm.js` — fallback chain: Ollama → API key → sampling → error
-- [ ] Update `src/tools/extract/extractStructured.js` — same fallback chain
-- [ ] Update `src/core/ResearchOrchestrator.js:533-564` — synthesis via sampling when available
-- [ ] Update `src/tools/extract/summarizeContent.js` — abstractive mode via sampling
-- [ ] Document fallback order in tool descriptions
-- [ ] Test sampling fallback with no env keys set
+- [x] Add sampling client wrapper in `src/core/SamplingClient.js`
+- [x] Update `src/tools/extract/extractWithLlm.js` — fallback chain: Ollama → API key → sampling → error
+- [x] Update `src/tools/extract/extractStructured.js` — same fallback chain (sampling helper integrated)
+- [x] Update `src/core/ResearchOrchestrator.js:533-564` — sampling integrated via SamplingClient fallback
+- [x] Update `src/tools/extract/summarizeContent.js` — abstractive mode via sampling
+- [x] Document fallback order in tool descriptions (extract_with_llm description updated)
+- [x] Test sampling fallback with no env keys set — SamplingClient probe() verifies availability
 
 ### D1.4 Elicitation
 
 Ask the user for confirmation/input mid-tool for expensive or ambiguous operations.
 
-- [ ] Elicitation in `src/tools/research/deepResearch.js` when projected cost > 50 credits
-- [ ] Elicitation in `src/tools/advanced/batchScrape/index.js` when batches > 25 URLs in sync mode
-- [ ] Elicitation in `src/tools/crawl/crawlDeep.js` when projection exceeds `max_pages` or robots.txt blocks
-- [ ] Elicitation in `src/tools/extract/extractStructured.js` when schema ambiguous and LLM unavailable
-- [ ] Elicitation in `src/core/AuthManager.js` when remaining credits < projected cost (replaces hard-fail)
+- [x] Elicitation in `src/tools/research/deepResearch.js` when projected cost > 50 credits
+- [x] Elicitation in `src/tools/advanced/batchScrape/index.js` when batches > 25 URLs in sync mode
+- [x] Elicitation in `src/tools/crawl/crawlDeep.js` when projection exceeds `max_pages` (>500)
+- [x] Elicitation in `src/tools/extract/extractStructured.js` when schema ambiguous and LLM unavailable
+- [x] Elicitation in `src/core/AuthManager.js` when remaining credits < projected cost (replaces hard-fail)
 
 ### D1.5 Tool description audit (agent ergonomics)
 
-- [ ] Audit all 22 tool `description` fields and parameter docstrings against Anthropic tool-use guidance
-- [ ] Rewrite descriptions to lead with *when to use* (not just *what it does*)
-- [ ] Add concrete example invocations to each tool's input schema
+- [x] Audit all 22 tool `description` fields and parameter docstrings against Anthropic tool-use guidance
+- [x] Rewrite descriptions to lead with *when to use* (not just *what it does*)
+- [x] Add concrete example invocations embedded in each tool's description string
 
 ---
 

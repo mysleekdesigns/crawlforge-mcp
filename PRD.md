@@ -2,15 +2,19 @@
 
 ## Context
 
-CrawlForge MCP Server (v3.0.12) has 20 specialized tools and strong security/stealth features, but Firecrawl has leapfrogged in developer experience with a CLI, skills system, and AI workflows. This PRD covers the top 3 upgrades to close the gap while preserving CrawlForge's unique advantages (stealth, localization, NLP, change tracking, local processing).
+CrawlForge MCP Server (v3.6.0) has 20 specialized tools and strong security/stealth features, but Firecrawl has leapfrogged in developer experience with a CLI, skills system, and AI workflows. This PRD covers the top 3 upgrades to close the gap while preserving CrawlForge's unique advantages (stealth, localization, NLP, change tracking, local processing).
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — without breaking any of the 20 existing MCP tools or the current setup flow.
 
-**Last Updated:** 2026-05-17
+**Last Updated:** 2026-05-18
 
 ---
 
 ## Release History
+
+### v3.6.0 (Development) - Phase D1 MCP-Native Primitives (2026-05-18)
+
+Phase D1 ships Resources, Prompts, Sampling, and Elicitation primitives (MCP spec 2025-11-25). D1.1: ResourceRegistry with crawlforge:// URI scheme (5 types), 20 tests green. D1.2: PromptRegistry with 5 workflow prompts. D1.3: SamplingClient with Ollama-API-sampling fallback chain. D1.4: ElicitationHelper wired into 5 tools. D1.5: All 22 tool descriptions rewritten to lead with when-to-use + examples. Server version bumped to 3.6.0.
 
 ### v3.5.2 (Development) — Phase D2 Reliability Hardening + D5.1 CI Workflows (2026-05-17)
 

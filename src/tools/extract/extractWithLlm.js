@@ -8,6 +8,15 @@
  */
 
 import { fetchAndParse } from './_fetchAndParse.js';
+// D1.3: SamplingClient for MCP sampling fallback (lazy — only imported if needed)
+let _SamplingClient = null;
+async function getSamplingClient() {
+  if (!_SamplingClient) {
+    const mod = await import('../../core/SamplingClient.js');
+    _SamplingClient = mod.SamplingClient;
+  }
+  return _SamplingClient;
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -297,14 +306,25 @@ export class ExtractWithLlm {
 
     const userMessage = buildUserMessage(prompt, text, schema);
 
-    // Step 2: First LLM call
-    let rawText, usage;
+    // Step 2: First LLM call — with sampling fallback for 'auto' provider
+    // Fallback chain: Ollama → API key (handled by resolveProvider) → sampling → error
+    let rawText, usage, resolvedModel = model;
     try {
       ({ rawText, usage } = await callLLM({
         provider, apiKey, model, systemMessage, userMessage, maxTokens, schema
       }));
     } catch (llmErr) {
-      return { success: false, error: `LLM call failed: ${llmErr.message}` };
+      // D1.3: If provider is 'auto'/'ollama' and it failed, try sampling as final fallback
+      if (providerParam === 'auto' || providerParam === 'ollama') {
+        try {
+          ({ rawText, usage } = await callViaSampling({ systemMessage, userMessage, maxTokens }));
+          resolvedModel = 'sampling';
+        } catch (samplingErr) {
+          return { success: false, error: `LLM call failed: ${llmErr.message}. Sampling fallback also failed: ${samplingErr.message}` };
+        }
+      } else {
+        return { success: false, error: `LLM call failed: ${llmErr.message}` };
+      }
     }
 
     // Step 3: Parse JSON; retry once with stricter prompt if it fails
@@ -345,8 +365,8 @@ export class ExtractWithLlm {
     return {
       success: true,
       data: parsed,
-      provider,
-      model,
+      provider: resolvedModel === 'sampling' ? 'sampling' : provider,
+      model: resolvedModel || model,
       usage
     };
   }

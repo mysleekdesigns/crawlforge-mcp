@@ -1,4 +1,6 @@
 import { z } from 'zod';
+// D1.4: Elicitation helper (injected from server.js or can be used standalone)
+import { ElicitationHelper } from '../../core/ElicitationHelper.js';
 import { ResearchOrchestrator } from '../../core/ResearchOrchestrator.js';
 import { Logger } from '../../utils/Logger.js';
 
@@ -93,6 +95,17 @@ export class DeepResearchTool {
       cacheTTL,
       ...orchestratorOptions
     };
+    // D1.4: Elicitation helper (set mcpServer via setMcpServer() after instantiation)
+    this._elicitation = new ElicitationHelper({});
+  }
+
+  /**
+   * D1.4: Set the MCP server instance for elicitation support.
+   * Call this from server.js after instantiating DeepResearchTool.
+   * @param {object} mcpServer
+   */
+  setMcpServer(mcpServer) {
+    this._elicitation = new ElicitationHelper({ mcpServer });
   }
 
   async execute(params) {
@@ -114,6 +127,27 @@ export class DeepResearchTool {
           queuePosition: this.sessionQueue.length + 1,
           estimatedWaitTime: this.estimateWaitTime()
         };
+      }
+
+      // D1.4: Elicitation — warn user if projected cost exceeds 50 credits
+      // deep_research costs approximately 1 credit per URL; maxUrls > 50 → confirm
+      if (validated.maxUrls > 50) {
+        const projectedCredits = validated.maxUrls;
+        const proceed = await this._elicitation.confirm(
+          `deep_research will scan up to ${validated.maxUrls} URLs, projecting ~${projectedCredits} credits.`,
+          {
+            topic: validated.topic,
+            projected_credits: projectedCredits,
+            max_urls: validated.maxUrls,
+          }
+        );
+        if (!proceed) {
+          return {
+            success: false,
+            error: 'Research cancelled by user before starting (elicitation declined).',
+            sessionId,
+          };
+        }
       }
 
       // Configure research orchestrator based on research approach

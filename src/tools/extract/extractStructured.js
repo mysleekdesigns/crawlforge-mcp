@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod';
+import { ElicitationHelper } from '../../core/ElicitationHelper.js'; // D1.4
 import { load } from 'cheerio';
 import { LLMManager } from '../../core/llm/LLMManager.js';
 import { fetchAndParse } from './_fetchAndParse.js';
@@ -30,6 +31,13 @@ export class ExtractStructuredTool {
     this.llmManager = null;
     this.llmConfig = options.llmConfig || {};
     this.userAgent = 'Mozilla/5.0 (compatible; CrawlForge-MCP/3.0; ExtractStructured)';
+    // D1.4: Elicitation helper
+    this._elicitation = new ElicitationHelper({});
+  }
+
+  /** D1.4: Wire MCP server for elicitation. */
+  setMcpServer(mcpServer) {
+    this._elicitation = new ElicitationHelper({ mcpServer });
   }
 
   /**

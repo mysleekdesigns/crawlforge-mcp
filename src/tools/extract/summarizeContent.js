@@ -4,6 +4,15 @@
  */
 
 import { z } from 'zod';
+// D1.3: lazy SamplingClient for abstractive mode when no LLM keys are set
+let _SamplingClient = null;
+async function getSamplingClient() {
+  if (!_SamplingClient) {
+    const mod = await import('../../core/SamplingClient.js');
+    _SamplingClient = mod.SamplingClient;
+  }
+  return _SamplingClient;
+}
 import { ContentAnalyzer } from '../../core/analysis/ContentAnalyzer.js';
 import { splitSentences } from '../../core/analysis/sentenceUtils.js';
 
@@ -121,6 +130,14 @@ export class SummarizeContentTool {
 
       // Step 2: Set summary result
       result.summary = analysisResult.summary;
+
+      // D1.3: If abstractive mode requested, attempt sampling-based enhancement
+      if (options.summaryType === 'abstractive') {
+        const abstractive = await this._abstractiveSummaryViaSampling(text, analysisResult.summary, options.summaryLength);
+        if (abstractive) {
+          result.summary = abstractive;
+        }
+      }
 
       // Step 3: Extract key points if requested
       if (options.includeKeypoints) {

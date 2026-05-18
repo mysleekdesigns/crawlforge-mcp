@@ -5,6 +5,55 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.0] - 2026-05-18
+
+Phase D1 — MCP-Native Primitives. CrawlForge is now a first-class MCP server, not just a tool host.
+
+### Added
+
+**D1.1 Resources** — `crawlforge://` URI scheme for long-lived artifacts:
+- Created `src/resources/ResourceRegistry.js` with URI parsing, MIME types, and TTL-based in-memory storage.
+- Registered `ResourceTemplate` patterns in `server.js` for all 5 resource types: `crawlforge://research/{sessionId}`, `crawlforge://job/{jobId}`, `crawlforge://crawl/{sessionId}/sitemap`, `crawlforge://screenshot/{actionId}`, `crawlforge://snapshot/{urlHash}/{timestamp}`.
+- 20 unit tests in `tests/unit/resources/resourceRegistry.test.js` — all green.
+- Documented URI scheme and TTL policy in `docs/mcp-resources-prompts.md`.
+
+**D1.2 Prompts** — 5 pre-built workflow prompts (plus existing `getting-started`):
+- Created `src/prompts/PromptRegistry.js` with 5 prompts: `competitive-analysis`, `monitor-changes`, `rag-ingest`, `site-audit`, `research-deep-dive`.
+- Wired `prompts/list` and `prompts/get` in `server.js` via `server.registerPrompt()`.
+- Server now advertises `prompts.listChanged: true` capability.
+
+**D1.3 Sampling** — LLM fallback chain removes requirement for server-side API keys:
+- Created `src/core/SamplingClient.js` with `complete()` (Ollama → OpenAI → Anthropic → MCP sampling → error) and `probe()` to check available providers.
+- `extract_with_llm`: when Ollama is unavailable and no API key set, tries MCP client sampling before returning an error.
+- `summarize_content`: abstractive mode now attempts Ollama/API/sampling before falling back to extractive output.
+- `extract_structured` and `deep_research`: SamplingClient integrated as last-resort LLM provider.
+
+**D1.4 Elicitation** — mid-tool user confirmation for expensive/ambiguous operations:
+- Created `src/core/ElicitationHelper.js` with `confirm()` and `requestString()` — fails open when client lacks elicitation support.
+- `deep_research`: prompts user before scanning >50 URLs.
+- `batch_scrape`: confirms large synchronous batches (>25 URLs in sync mode).
+- `crawl_deep`: confirms crawls exceeding 500 pages.
+- `extract_structured`: warns when schema has >3 required fields and LLM is unavailable.
+- `AuthManager`: elicits confirmation when remaining credits fall below projected cost (replaces hard-fail).
+- All tools expose `setMcpServer()` to wire elicitation post-instantiation.
+
+**D1.5 Tool description audit** — all 22 tool descriptions rewritten to lead with *when to use*:
+- Every `description` field now starts with "Use this when..." followed by specific scenarios.
+- Example invocations embedded in each description.
+- Descriptions updated for: fetch_url, extract_text, extract_links, extract_metadata, scrape_structured, search_web, crawl_deep, map_site, extract_content, process_document, summarize_content, analyze_content, extract_structured, extract_with_llm, list_ollama_models, batch_scrape, scrape_with_actions, deep_research, track_changes, generate_llms_txt, stealth_mode, localization.
+
+### Changed
+- `server.js`: version bumped 3.5.1 → 3.6.0; description updated to mention Resources, Prompts, Sampling, Elicitation.
+- `package.json`: version bumped to 3.6.0.
+- Server now correctly advertises `resources.listChanged: true` and `prompts.listChanged: true` MCP capabilities.
+
+### Verification
+- `node --check server.js` and all modified src files: no syntax errors.
+- `npm test` (MCP protocol compliance): 60% pass rate — unchanged from pre-D1 baseline (pre-existing compliance test issues unrelated to D1).
+- `node --test tests/unit/resources/resourceRegistry.test.js`: **20/20 PASS**.
+- `node --test tests/unit/d2-reliability.test.js`: **16/17 pass** (1 cancelled due to pre-existing pending promise issue in test harness — same as before D1).
+- `ResourceTemplate` registered correctly: server capabilities response now includes `resources.listChanged: true`.
+
 ## [3.4.0] - 2026-05-18
 
 Adds local-LLM support to `extract_with_llm` via Ollama. Cloud users see zero behavior change — the addition is strictly opt-in.

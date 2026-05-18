@@ -10,6 +10,15 @@ import { randomUUID } from 'crypto';
 import { isCreatorModeVerified } from './creatorMode.js';
 import { resolveApiEndpoint } from './endpointGuard.js';
 import { logger } from '../utils/Logger.js';
+// D1.4: Elicitation for low-credit warnings (lazy import to avoid circular dep)
+let _ElicitationHelper = null;
+function getElicitationHelper() {
+  if (!_ElicitationHelper) {
+    // Dynamic import to avoid circular dependency at module load time
+    return null; // Will be set via setElicitation() from server.js
+  }
+  return _ElicitationHelper;
+}
 
 class AuthManager {
   constructor() {
@@ -25,7 +34,17 @@ class AuthManager {
     // D2.1: simple async mutex to prevent concurrent reportUsage calls from
     // double-decrementing the credit cache before the backend ack arrives.
     this._usageQueue = Promise.resolve();
+    // D1.4: Elicitation helper for low-credit warnings
+    this._elicitation = null;
     // NOTE: Don't read creator mode in constructor - it's set dynamically in server.js
+  }
+
+  /**
+   * D1.4: Set elicitation helper for low-credit warnings.
+   * @param {object} elicitation - ElicitationHelper instance
+   */
+  setElicitation(elicitation) {
+    this._elicitation = elicitation;
   }
 
   /**
@@ -246,6 +265,24 @@ class AuthManager {
         this.creditCache.set(this.config.userId, data.creditsRemaining);
         this.lastCreditCheck = now;
         this.lastSuccessfulCreditCheck.set(this.config.userId, now);
+
+        // D1.4: If credits are close to running out, elicit confirmation instead of hard-failing
+        if (data.creditsRemaining < estimatedCredits) {
+          if (this._elicitation) {
+            const proceed = await this._elicitation.confirm(
+              `Low credits: ${data.creditsRemaining} remaining, this tool needs ~${estimatedCredits}. Proceed anyway?`,
+              {
+                credits_remaining: data.creditsRemaining,
+                credits_needed: estimatedCredits,
+                note: 'Top up at https://www.crawlforge.dev/dashboard',
+              }
+            );
+            if (!proceed) return false;
+            return true; // user confirmed — let tool attempt it
+          }
+          return false; // no elicitation — standard hard-fail behavior
+        }
+
         return data.creditsRemaining >= estimatedCredits;
       }
     } catch (error) {

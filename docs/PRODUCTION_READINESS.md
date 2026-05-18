@@ -1,6 +1,6 @@
 # CrawlForge MCP Server - Production Readiness
 
-**Version:** 3.5.1 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-17
+**Version:** 3.6.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-18
 
 ---
 
@@ -159,3 +159,17 @@ npx crawlforge-setup  # Auto-configures Claude Code & Cursor
 ---
 
 *Last reviewed: 2026-01-16*
+
+
+## Phase D1 — MCP-Native Primitives (v3.6.0)
+
+| Sub-phase | Status | Details |
+|-----------|--------|---------|
+| D1.1 Resources | COMPLETE | ResourceRegistry.js, 5 crawlforge:// URI types, 20 unit tests green |
+| D1.2 Prompts | COMPLETE | PromptRegistry.js, 5 workflow prompts registered via registerPrompt() |
+| D1.3 Sampling | COMPLETE | SamplingClient.js with Ollama-API-MCP fallback chain in 4 tools |
+| D1.4 Elicitation | COMPLETE | ElicitationHelper.js wired into 5 tools and AuthManager |
+| D1.5 Tool audit | COMPLETE | All 22 tool descriptions rewritten (when-to-use + examples) |
+
+Server capabilities now include: resources.listChanged, prompts.listChanged, tools.listChanged.
+
