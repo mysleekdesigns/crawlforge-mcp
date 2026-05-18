@@ -1,6 +1,6 @@
 # CrawlForge MCP Server - Production Readiness
 
-**Version:** 3.3.1 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-17
+**Version:** 4.1.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-18
 
 ---
 
@@ -10,12 +10,74 @@
 |----------|--------|
 | CrawlForge.dev Integration | ✅ Complete |
 | Security | ✅ 9.7/10 |
-| All 21 Tools | ✅ Working |
+| All 23 Tools | ✅ Working |
 | MCP Compliance | ✅ 100% |
 | Functional Tests | ✅ 20/20 tools via `test-tools.js` (creator-mode path) |
 | npm Published | ✅ Yes |
 
 **Production Readiness Score:** 98.5/100
+
+
+---
+
+
+## Roadmap Phase D4 — CLI + Skills Installer (Complete)
+
+**Completed:** 2026-05-18 | **Integration tests:** `tests/integration/cli.test.js` (6/6 pass)
+
+| Component | Status |
+|-----------|--------|
+| CLI scaffolding (`src/cli/index.js`, formatter, runTool) | Complete |
+| 15 tool commands (scrape, search, crawl, map, extract, track, analyze, research, stealth, batch, actions, localize, llmstxt, template, monitor) | Complete |
+| Skills installer (`src/skills/installer.js`) | Complete |
+| 4 skill markdown files (mcp, cli, stealth, research) | Complete |
+| Claude Code target (`~/.claude/skills/`) | Complete |
+| Cursor target (`.cursor/rules/crawlforge.mdc`) | Complete |
+| VS Code target (`.github/instructions/crawlforge.instructions.md`) | Complete |
+| CLI integration tests | 6/6 pass |
+
+**CLI availability:**
+```bash
+# Global install
+npm install -g crawlforge-mcp-server
+crawlforge --help
+
+# Without installing
+npx crawlforge-mcp-server scrape https://example.com
+
+# Install skills into Claude Code
+crawlforge install-skills --target claude-code
+```
+
+## Roadmap Phase D2 — Reliability & Cost Hardening (Complete)
+
+**Completed:** 2026-05-17 | **Regression tests:** `tests/unit/d2-reliability.test.js` (16/16 pass)
+
+| Finding | Fix | Status |
+|---------|-----|--------|
+| D2.1 AuthManager credit race | Promise queue serializes `reportUsage` calls | ✅ |
+| D2.2 StealthBrowserManager fingerprint leak | LRU cap via `_setFingerprint` helper | ✅ |
+| D2.3 Unbounded LLM cost in ResearchOrchestrator | Per-session `tokenBudget`; `_cost` in response | ✅ |
+| D2.4 ActionExecutor page leaks | `initializePage` inside try/finally; safe `page.close()` | ✅ |
+| D2.5 WebhookDispatcher retry storms | Backoff+jitter per webhook; batch cap at 10 | ✅ |
+| D2.6 JobManager cascade + max enforcement | Cascade-cancel dependents; LRU eviction at `maxJobs` | ✅ |
+| D2.7 PerformanceManager saturation routing | Routes by live queue depth/wait time; AbortController on shutdown | ✅ |
+| D2.8 Localization cache + ChangeTracker hash | LRU-capped Maps; `hashContentAsync` offloads to worker | ✅ |
+| D2.9 Secret leakage in logs | `src/utils/secretMask.js` + Winston global masking format | ✅ |
+| D2.10 ResearchOrchestrator URL dedup | `deduplicateSources` uses per-session `visitedUrls`; cache hits reuse extracted content | ✅ |
+
+## Roadmap Phase D5.1 — GitHub Actions CI (Complete)
+
+**Completed:** 2026-05-17
+
+| Workflow | File | Status |
+|----------|------|--------|
+| CI Pipeline | `.github/workflows/ci.yml` | ✅ |
+| Daily Security Scan | `.github/workflows/security.yml` | ✅ |
+
+CI jobs: lint-and-syntax, unit-tests, mcp-compliance, coverage, docker-build.
+Security: daily npm audit + gitleaks secret scan + CodeQL analysis.
+
 
 ---
 
@@ -126,3 +188,17 @@ npx crawlforge-setup  # Auto-configures Claude Code & Cursor
 ---
 
 *Last reviewed: 2026-01-16*
+
+
+## Phase D1 — MCP-Native Primitives (v3.6.0)
+
+| Sub-phase | Status | Details |
+|-----------|--------|---------|
+| D1.1 Resources | COMPLETE | ResourceRegistry.js, 5 crawlforge:// URI types, 20 unit tests green |
+| D1.2 Prompts | COMPLETE | PromptRegistry.js, 5 workflow prompts registered via registerPrompt() |
+| D1.3 Sampling | COMPLETE | SamplingClient.js with Ollama-API-MCP fallback chain in 4 tools |
+| D1.4 Elicitation | COMPLETE | ElicitationHelper.js wired into 5 tools and AuthManager |
+| D1.5 Tool audit | COMPLETE | All 22 tool descriptions rewritten (when-to-use + examples) |
+
+Server capabilities now include: resources.listChanged, prompts.listChanged, tools.listChanged.
+

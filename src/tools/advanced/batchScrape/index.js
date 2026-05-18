@@ -15,6 +15,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { ElicitationHelper } from '../../../core/ElicitationHelper.js'; // D1.4
 import JobManager from '../../../core/JobManager.js';
 import WebhookDispatcher from '../../../core/WebhookDispatcher.js';
 import { BatchScrapeSchema } from './schema.js';
@@ -53,6 +54,8 @@ export class BatchScrapeTool extends EventEmitter {
 
     this.activeBatches = new Map();
     this.batchResults = new Map();
+    // D1.4: Elicitation helper (set mcpServer after instantiation if desired)
+    this._elicitation = new ElicitationHelper({});
 
     this.stats = {
       totalBatches: 0,
@@ -66,6 +69,14 @@ export class BatchScrapeTool extends EventEmitter {
     };
 
     this._initializeJobExecutors();
+  }
+
+  /**
+   * D1.4: Set the MCP server instance for elicitation support.
+   * @param {object} mcpServer
+   */
+  setMcpServer(mcpServer) {
+    this._elicitation = new ElicitationHelper({ mcpServer });
   }
 
   async execute(params) {
@@ -82,6 +93,25 @@ export class BatchScrapeTool extends EventEmitter {
       let webhookConfig = null;
       if (validated.webhook && this.enableWebhookNotifications) {
         webhookConfig = this._registerWebhook(validated.webhook, batchId);
+      }
+
+      // D1.4: Elicitation — warn when batch is large in sync mode
+      if (validated.mode === 'sync' && urlConfigs.length > 25) {
+        const proceed = await this._elicitation.confirm(
+          `batch_scrape (sync mode) will fetch ${urlConfigs.length} URLs synchronously. This may take a while and consume significant credits.`,
+          {
+            url_count: urlConfigs.length,
+            mode: 'sync',
+            suggestion: 'Consider using mode:"async" for large batches.',
+          }
+        );
+        if (!proceed) {
+          return {
+            batchId, mode: 'sync', success: false,
+            error: 'Batch scrape cancelled by user (elicitation declined).',
+            totalUrls: urlConfigs.length,
+          };
+        }
       }
 
       if (validated.mode === 'sync') {

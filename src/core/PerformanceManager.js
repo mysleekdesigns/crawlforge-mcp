@@ -206,19 +206,40 @@ export class PerformanceManager extends EventEmitter {
       return this.taskRouting[taskType];
     }
 
-    // Auto-select based on task characteristics
-    const dataSize = this.getDataSize(data);
-    const isLargeDataset = dataSize > 10 * 1024 * 1024; // 10MB
-    const isCpuIntensive = this.isCpuIntensive(data);
-    const isNetworkOperation = this.isNetworkOperation(taskType);
+    // D2.7: route by live queue depth + wait time, not just static heuristics
+    try {
+      const workerStats = this.workerPool.getStats ? this.workerPool.getStats() : {};
+      const connStats = this.connectionPool.getStats ? this.connectionPool.getStats() : {};
+      const workerDepth = workerStats.pendingCount || workerStats.queueDepth || 0;
+      const connDepth = connStats.pendingCount || connStats.activeConnections || 0;
+      const workerAvgWait = workerStats.averageWaitMs || workerStats.avgWaitTime || 0;
+      const connAvgWait = connStats.averageWaitMs || connStats.avgWaitTime || 0;
 
-    if (isLargeDataset && !isCpuIntensive) {
-      return 'stream';
-    } else if (isCpuIntensive) {
-      return 'worker';
-    } else if (isNetworkOperation) {
-      return 'connection';
-    } else {
+      const dataSize = this.getDataSize(data);
+      const isLargeDataset = dataSize > 10 * 1024 * 1024; // 10MB
+      const isCpuIntensive = this.isCpuIntensive(data);
+      const isNetworkOperation = this.isNetworkOperation(taskType);
+
+      if (isNetworkOperation) {
+        if (connDepth < 50 && connAvgWait < 2000) return 'connection';
+        if (workerDepth < connDepth) return 'worker';
+        return 'queue';
+      }
+      if (isCpuIntensive) {
+        if (workerDepth < 20 && workerAvgWait < 5000) return 'worker';
+        return 'queue';
+      }
+      if (isLargeDataset) return 'stream';
+      return 'queue';
+    } catch (_statsErr) {
+      // Stats API unavailable -- fall back to static heuristics
+      const dataSize = this.getDataSize(data);
+      const isLargeDataset = dataSize > 10 * 1024 * 1024;
+      const isCpuIntensive = this.isCpuIntensive(data);
+      const isNetworkOperation = this.isNetworkOperation(taskType);
+      if (isLargeDataset && !isCpuIntensive) return 'stream';
+      if (isCpuIntensive) return 'worker';
+      if (isNetworkOperation) return 'connection';
       return 'queue';
     }
   }
@@ -809,16 +830,31 @@ export class PerformanceManager extends EventEmitter {
   async shutdown() {
     this.emit('shutdown');
 
+    // D2.7: signal all in-flight tasks to abort via AbortController
+    if (this._shutdownController) {
+      this._shutdownController.abort();
+    }
+    this._shutdownController = new AbortController();
+
     // Stop metrics collection
     if (this.metricsTimer) {
       clearInterval(this.metricsTimer);
     }
 
-    // Shutdown all components
+    // Shutdown all components with a 5-second timeout each
+    const shutdownWithTimeout = (component, name) => {
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`${name} shutdown timed out`)), 5000)
+      );
+      return Promise.race([component.shutdown(), timeout]).catch(err => {
+        console.error(`PerformanceManager: ${err.message}`);
+      });
+    };
+
     await Promise.all([
-      this.workerPool.shutdown(),
-      this.connectionPool.shutdown(),
-      this.streamProcessor.shutdown()
+      shutdownWithTimeout(this.workerPool, 'WorkerPool'),
+      shutdownWithTimeout(this.connectionPool, 'ConnectionPool'),
+      shutdownWithTimeout(this.streamProcessor, 'StreamProcessor')
     ]);
 
     this.emit('shutdownComplete');

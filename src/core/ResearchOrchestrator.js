@@ -177,6 +177,8 @@ export class ResearchOrchestrator extends EventEmitter {
    * Initialize research session state
    */
   initializeResearchSession(sessionId, topic, startTime) {
+    // D2.3: per-session token budget (approx 4 chars = 1 token, 1M char cap = ~250K tokens)
+    const TOKEN_BUDGET_CHARS = parseInt(process.env.RESEARCH_TOKEN_BUDGET_CHARS || String(1_000_000), 10);
     this.researchState = {
       sessionId,
       topic,
@@ -188,7 +190,11 @@ export class ResearchOrchestrator extends EventEmitter {
       researchFindings: [],
       credibilityScores: new Map(),
       conflictMap: new Map(),
-      activityLog: []
+      activityLog: [],
+      // D2.3 token budget tracking
+      tokenBudgetChars: TOKEN_BUDGET_CHARS,
+      tokenBudgetUsed: 0,
+      tokenBudgetExceeded: false
     };
 
     // Reset metrics
@@ -461,7 +467,9 @@ export class ResearchOrchestrator extends EventEmitter {
         const batchPromises = batch.map(async (source) => {
           try {
             if (this.researchState.visitedUrls.has(source.link)) {
-              return null;
+              // D2.10: return already-extracted content rather than null,
+              // so overlapping query batches can reuse it.
+              return this.researchState.extractedContent.get(source.link) || null;
             }
             
             this.researchState.visitedUrls.add(source.link);
@@ -529,6 +537,22 @@ export class ResearchOrchestrator extends EventEmitter {
                 wordCount: contentText.split(' ').length,
                 readabilityScore: this.calculateReadabilityScore(contentText)
               };
+
+              // D2.3: charge content length to token budget (rough 4 chars/token heuristic)
+              if (this.researchState.tokenBudgetUsed !== undefined) {
+                this.researchState.tokenBudgetUsed += contentText.length;
+                if (this.researchState.tokenBudgetUsed > this.researchState.tokenBudgetChars) {
+                  if (!this.researchState.tokenBudgetExceeded) {
+                    this.researchState.tokenBudgetExceeded = true;
+                    this.logger.warn('Research token budget exceeded -- skipping remaining LLM calls', {
+                      sessionId: this.researchState.sessionId,
+                      budgetChars: this.researchState.tokenBudgetChars,
+                      usedChars: this.researchState.tokenBudgetUsed
+                    });
+                  }
+                  this.enableLLMFeatures = false; // disable for remainder of session
+                }
+              }
 
               // LLM-powered relevance analysis
               if (this.enableLLMFeatures && topic) {
@@ -1085,11 +1109,16 @@ export class ResearchOrchestrator extends EventEmitter {
   }
 
   deduplicateSources(sources) {
-    const seen = new Set();
+    // D2.10: use per-session visitedUrls so URLs are deduped across all query batches,
+    // not just within a single gatherInitialSources call.
+    const sessionSeen = this.researchState && this.researchState.visitedUrls
+      ? this.researchState.visitedUrls
+      : new Set();
+    const localSeen = new Set();
     return sources.filter(source => {
       const key = source.link;
-      if (seen.has(key)) return false;
-      seen.add(key);
+      if (sessionSeen.has(key) || localSeen.has(key)) return false;
+      localSeen.add(key);
       return true;
     });
   }
@@ -1225,6 +1254,12 @@ export class ResearchOrchestrator extends EventEmitter {
           ...this.metrics,
           timeLimit: this.timeLimit,
           completedWithinLimit: this.metrics.totalProcessingTime < this.timeLimit
+        },
+        // D2.3: cost transparency
+        _cost: {
+          tokenBudgetChars: this.researchState.tokenBudgetChars,
+          tokenBudgetUsed: this.researchState.tokenBudgetUsed,
+          tokenBudgetExceeded: this.researchState.tokenBudgetExceeded
         },
         metadata: {
           generatedAt: new Date().toISOString(),

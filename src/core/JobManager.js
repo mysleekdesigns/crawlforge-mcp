@@ -139,6 +139,28 @@ export class JobManager extends EventEmitter {
       logs: []
     };
 
+    // D2.6: LRU eviction -- remove oldest completed/failed/cancelled job when at capacity
+    if (this.jobs.size >= this.maxJobs) {
+      let evicted = false;
+      for (const [eid, ejob] of this.jobs) {
+        if ([this.JOB_STATES.COMPLETED, this.JOB_STATES.FAILED, this.JOB_STATES.CANCELLED].includes(ejob.status)) {
+          this.jobs.delete(eid);
+          this.jobsByStatus.get(ejob.status).delete(eid);
+          evicted = true;
+          break;
+        }
+      }
+      if (!evicted) {
+        // All jobs are active -- evict the oldest regardless of state
+        const oldestId = this.jobs.keys().next().value;
+        const oldest = this.jobs.get(oldestId);
+        if (oldest) {
+          this.jobs.delete(oldestId);
+          this.jobsByStatus.get(oldest.status).delete(oldestId);
+        }
+      }
+    }
+
     // Store job
     this.jobs.set(jobId, job);
     this.jobsByStatus.get(this.JOB_STATES.PENDING).add(jobId);
@@ -345,7 +367,17 @@ export class JobManager extends EventEmitter {
 
     await this.updateJobStatus(jobId, this.JOB_STATES.CANCELLED);
     this.emit('jobCancelled', job);
-    
+
+    // D2.6: cascade-cancel all jobs that depend on this one
+    for (const [depId, depJob] of this.jobs) {
+      if (depJob.dependencies && depJob.dependencies.includes(jobId)) {
+        if (![this.JOB_STATES.COMPLETED, this.JOB_STATES.FAILED, this.JOB_STATES.CANCELLED].includes(depJob.status)) {
+          await this.updateJobStatus(depId, this.JOB_STATES.CANCELLED);
+          this.emit('jobCancelled', depJob);
+        }
+      }
+    }
+
     return job;
   }
 
@@ -456,8 +488,10 @@ export class JobManager extends EventEmitter {
     const now = Date.now();
     const expiredJobs = [];
 
+    // D2.6: expire ALL jobs past their TTL regardless of state (was previously only checking expiresAt)
     for (const [jobId, job] of this.jobs) {
-      if (job.expiresAt && now > job.expiresAt) {
+      const expiry = job.expiresAt || (job.createdAt + (job.ttl || this.defaultTtl));
+      if (now > expiry) {
         expiredJobs.push(jobId);
       }
     }

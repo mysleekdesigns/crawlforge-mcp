@@ -2,7 +2,7 @@
 
 ## Context
 
-CrawlForge MCP Server (v3.0.12) has 20 specialized tools and strong security/stealth features, but Firecrawl has leapfrogged in developer experience with a CLI, skills system, and AI workflows. This PRD covers the top 3 upgrades to close the gap while preserving CrawlForge's unique advantages (stealth, localization, NLP, change tracking, local processing).
+CrawlForge MCP Server (v3.6.0) has 20 specialized tools and strong security/stealth features, but Firecrawl has leapfrogged in developer experience with a CLI, skills system, and AI workflows. This PRD covers the top 3 upgrades to close the gap while preserving CrawlForge's unique advantages (stealth, localization, NLP, change tracking, local processing).
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — without breaking any of the 20 existing MCP tools or the current setup flow.
 
@@ -11,6 +11,71 @@ CrawlForge MCP Server (v3.0.12) has 20 specialized tools and strong security/ste
 ---
 
 ## Release History
+
+### v4.2.0 (Development) - Phase D5.2 Per-Tool Tests + D5.3 Docs Refresh (2026-05-18)
+
+Phase D5.2 ships 131 new unit tests across 17 tools. Phase D5.3 ships 3 new docs and a README code-block validator. This completes the entire v4.0 roadmap.
+
+**D5.2 Unit tests (17 files, 131 tests, all green):** Stubs injected via constructors — no live network, no Playwright browser launched. Tools covered: extractContent, processDocument, analyzeContent, summarizeContent, extractStructured, listOllamaModels, deepResearch, searchWeb, crawlDeep, mapSite, batchScrape, scrapeWithActions, stealthMode, localization, trackChanges, generateLLMsTxt, scrapeTemplate. Uses node:test runner (no new framework dependency).
+
+**D5.3 Docs refresh:** `docs/local-ollama-quickstart.md` (install, model guide, Docker, troubleshooting). `docs/docker-deployment.md` (build, compose, Render deploy, HEALTHCHECK). `docs/observability-setup.md` (Prometheus metrics table, OTel spans, Grafana dashboard, alert rules). `tests/docs/example-runner.js` validates README JSON/shell blocks (syntax only, no live network).
+
+**IMPROVEMENT_ROADMAP_V4.md:** Status updated to "ALL PHASES COMPLETE — D1 ✓ D2 ✓ D3 ✓ D4 ✓ D5 ✓ — v4.x shipped". Header version corrected to 4.1.0. Carry-forward items documented (D2.8, D2.11, D5.1 ESLint).
+
+**Phase summary:** PRD Phase 1 (MCP tools): COMPLETE (23 tools). PRD Phase 2 (CLI): COMPLETE (v4.1.0). PRD Phase 3 (Skills): COMPLETE (v4.1.0). Roadmap Phases D1–D5: ALL COMPLETE.
+
+### v4.1.0 (Development) - Phase D4 CLI + Skills Installer (2026-05-18)
+
+Phase D4 ships the `crawlforge` CLI (PRD Phase 2) and skills installer (PRD Phase 3).
+
+**D4.1 CLI scaffolding:** commander added. `src/cli/index.js` entry with global flags (`--json`, `--pretty`, `--quiet`, `--api-key`, `--timeout`). `src/cli/formatter.js` shared formatter. `src/cli/lib/runTool.js` thin wrapper around tool.execute().
+
+**D4.2 15 CLI commands:** scrape, search, crawl, map, extract, track, analyze, research, stealth, batch, actions, localize, llmstxt, template, monitor. Each command in its own file under `src/cli/commands/`. All commands invoke tool.execute() directly — no credit logic duplication.
+
+**D4.3 Skills installer:** `src/skills/installer.js` with install()/uninstall(). 4 skill files: crawlforge-mcp.md, crawlforge-cli.md, crawlforge-stealth.md, crawlforge-research.md. Targets: Claude Code (~/.claude/skills/), Cursor (.cursor/rules/crawlforge.mdc), VS Code (.github/instructions/crawlforge.instructions.md). Idempotent; --force to overwrite; --dry-run to preview.
+
+**PRD Phase 2 (CLI): COMPLETE. PRD Phase 3 (Skills): COMPLETE.**
+
+**Verification:** node --check across all 21 CLI files: all pass. `node src/cli/index.js --help` shows all 17 commands. `tests/integration/cli.test.js` 6/6 pass.
+
+### v4.0.0 (Development) - Phase D3 Competitive Feature Parity (2026-05-18)
+
+Phase D3 ships Markdown-first output, Camoufox Firefox stealth engine, 10 pre-built site templates, BrowserBase cloud backend, and cost transparency across all tools.
+
+**D3.1 Markdown-first (Turndown):** htmlToMarkdown utility using Turndown. extract_text gains output_format:markdown. extract_content convertToMarkdown now uses Turndown. process_document gains markdown outputFormat. batch_scrape defaults to formats:["markdown"] (BREAKING from v3.x ["json"] default).
+
+**D3.2 Camoufox engine:** BrowserEngine interface + CamoufoxAdapter in StealthBrowserManager. stealth_mode gains engine:"playwright"|"camoufox" param. Camoufox is MIT-licensed (Firefox patches MPL-2.0). Docs: docs/stealth-engines.md.
+
+**D3.3 Pre-built templates:** TemplateRegistry with 10 templates (amazon-product, linkedin-profile, github-repo, youtube-video, tweet, reddit-thread, hacker-news-front-page, producthunt-launch, stackoverflow-question, npm-package). New scrape_template tool (tool count 22 to 23). Offline fixtures in tests/integration/templates/fixtures.js.
+
+**D3.4 Cloud browser backend:** BrowserBackend interface, LocalPlaywrightBackend, BrowserBaseBackend (CDP). Toggle via CRAWLFORGE_BROWSER_BACKEND=local|browserbase + BROWSERBASE_API_KEY. Graceful fallback to local. Docs: docs/cloud-browser.md.
+
+**D3.5 Cost transparency:** AuthManager.projectCost(). _cost: { projected, actual, remaining_credits, projection_note } injected into all tool responses via withAuth. Dynamic tools document lower-bound accuracy caveats in projection_note.
+
+**Verification:** node --check server.js OK. npm test 60% (pre-existing baseline). withAuth tests 9/9. authManager tests 6/6.
+
+### v3.6.0 (Development) - Phase D1 MCP-Native Primitives (2026-05-18)
+
+Phase D1 ships Resources, Prompts, Sampling, and Elicitation primitives (MCP spec 2025-11-25). D1.1: ResourceRegistry with crawlforge:// URI scheme (5 types), 20 tests green. D1.2: PromptRegistry with 5 workflow prompts. D1.3: SamplingClient with Ollama-API-sampling fallback chain. D1.4: ElicitationHelper wired into 5 tools. D1.5: All 22 tool descriptions rewritten to lead with when-to-use + examples. Server version bumped to 3.6.0.
+
+### v3.5.2 (Development) — Phase D2 Reliability Hardening + D5.1 CI Workflows (2026-05-17)
+
+**10 audit findings fixed** in `src/core/` — all covered by regression tests in `tests/unit/d2-reliability.test.js`:
+
+- **D2.1 AuthManager credit race** — promise queue serializes concurrent `reportUsage` calls
+- **D2.2 StealthBrowserManager leak** — `_setFingerprint` LRU cap at `_maxContexts`
+- **D2.3 ResearchOrchestrator LLM cost** — per-session token budget with abort + `_cost` in response
+- **D2.4 ActionExecutor page leaks** — `initializePage` inside try/finally; safe `page.close()`
+- **D2.5 WebhookDispatcher retry storms** — per-webhook jittered exponential backoff; batch cap at 10
+- **D2.6 JobManager cascade + eviction** — cascade-cancel dependents; LRU eviction at `maxJobs`; TTL expiry for all states
+- **D2.7 PerformanceManager routing** — routes by live queue depth + wait time; AbortController on shutdown
+- **D2.8 Localization/ChangeTracker** — LRU-capped Maps; `hashContentAsync` offloads >256KB to `worker_threads`
+- **D2.9 Secret masking** — `src/utils/secretMask.js` + Winston global masking format
+- **D2.10 URL dedup** — `deduplicateSources` uses per-session `visitedUrls`; cache-hit returns existing extracted content
+
+**D5.1 GitHub Actions** — `.github/workflows/ci.yml` (5 jobs) + `.github/workflows/security.yml` (daily scans)
+
+---
 
 ### v3.5.1 — Render deploy fix: align default port with Render's scanner (2026-05-18)
 

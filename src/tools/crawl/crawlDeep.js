@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ElicitationHelper } from '../../core/ElicitationHelper.js'; // D1.4
 import { BFSCrawler } from '../../core/crawlers/BFSCrawler.js';
 import { DomainFilter } from '../../utils/domainFilter.js';
 import { CacheManager } from '../../core/cache/CacheManager.js';
@@ -87,6 +88,13 @@ export class CrawlDeepTool {
     this.timeout = timeout;
     // Per-session result cache: avoids redundant crawls of the same root URL
     this.cache = cacheEnabled ? new CacheManager({ ttl: cacheTTL }) : null;
+    // D1.4: Elicitation helper
+    this._elicitation = new ElicitationHelper({});
+  }
+
+  /** D1.4: Wire MCP server for elicitation. Call from server.js after instantiation. */
+  setMcpServer(mcpServer) {
+    this._elicitation = new ElicitationHelper({ mcpServer });
   }
 
   async execute(params) {
@@ -98,6 +106,25 @@ export class CrawlDeepTool {
         const cacheKey = this.cache.generateKey('crawl_deep', { url: validated.url, depth: validated.max_depth, pages: validated.max_pages });
         const cached = await this.cache.get(cacheKey);
         if (cached) return cached;
+      }
+
+      // D1.4: Elicitation — warn when max_pages is very high
+      if (validated.max_pages > 500) {
+        const proceed = await this._elicitation.confirm(
+          `crawl_deep will crawl up to ${validated.max_pages} pages from ${validated.url}. Large crawls consume many credits.`,
+          {
+            url: validated.url,
+            max_pages: validated.max_pages,
+            max_depth: validated.max_depth,
+          }
+        );
+        if (!proceed) {
+          return {
+            success: false,
+            error: 'Crawl cancelled by user (elicitation declined).',
+            url: validated.url,
+          };
+        }
       }
 
       // Create domain filter if configuration provided

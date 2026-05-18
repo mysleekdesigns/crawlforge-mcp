@@ -10,6 +10,15 @@ import { randomUUID } from 'crypto';
 import { isCreatorModeVerified } from './creatorMode.js';
 import { resolveApiEndpoint } from './endpointGuard.js';
 import { logger } from '../utils/Logger.js';
+// D1.4: Elicitation for low-credit warnings (lazy import to avoid circular dep)
+let _ElicitationHelper = null;
+function getElicitationHelper() {
+  if (!_ElicitationHelper) {
+    // Dynamic import to avoid circular dependency at module load time
+    return null; // Will be set via setElicitation() from server.js
+  }
+  return _ElicitationHelper;
+}
 
 class AuthManager {
   constructor() {
@@ -22,7 +31,20 @@ class AuthManager {
     this.lastSuccessfulCreditCheck = new Map();
     this.CREDIT_CHECK_INTERVAL = 15000;
     this.initialized = false;
+    // D2.1: simple async mutex to prevent concurrent reportUsage calls from
+    // double-decrementing the credit cache before the backend ack arrives.
+    this._usageQueue = Promise.resolve();
+    // D1.4: Elicitation helper for low-credit warnings
+    this._elicitation = null;
     // NOTE: Don't read creator mode in constructor - it's set dynamically in server.js
+  }
+
+  /**
+   * D1.4: Set elicitation helper for low-credit warnings.
+   * @param {object} elicitation - ElicitationHelper instance
+   */
+  setElicitation(elicitation) {
+    this._elicitation = elicitation;
   }
 
   /**
@@ -243,6 +265,24 @@ class AuthManager {
         this.creditCache.set(this.config.userId, data.creditsRemaining);
         this.lastCreditCheck = now;
         this.lastSuccessfulCreditCheck.set(this.config.userId, now);
+
+        // D1.4: If credits are close to running out, elicit confirmation instead of hard-failing
+        if (data.creditsRemaining < estimatedCredits) {
+          if (this._elicitation) {
+            const proceed = await this._elicitation.confirm(
+              `Low credits: ${data.creditsRemaining} remaining, this tool needs ~${estimatedCredits}. Proceed anyway?`,
+              {
+                credits_remaining: data.creditsRemaining,
+                credits_needed: estimatedCredits,
+                note: 'Top up at https://www.crawlforge.dev/dashboard',
+              }
+            );
+            if (!proceed) return false;
+            return true; // user confirmed — let tool attempt it
+          }
+          return false; // no elicitation — standard hard-fail behavior
+        }
+
         return data.creditsRemaining >= estimatedCredits;
       }
     } catch (error) {
@@ -269,9 +309,18 @@ class AuthManager {
       return; // Silently skip if not configured
     }
 
+    // D2.1: serialize via promise queue so concurrent tool calls do not race
+    // on creditCache and double-decrement before the backend ack arrives.
+    this._usageQueue = this._usageQueue.then(() =>
+      this._reportUsageOnce(tool, creditsUsed, requestData, responseStatus, processingTime)
+    );
+    return this._usageQueue;
+  }
+
+  async _reportUsageOnce(tool, creditsUsed, requestData = {}, responseStatus = 200, processingTime = 0) {
     const userId = this.config.userId;
 
-    // Pre-decrement cache before fetch so network failures still deplete credits
+    // Decrement only inside the serialized task -- no concurrent races
     const cached = this.creditCache.get(userId);
     if (cached !== undefined) {
       this.creditCache.set(userId, Math.max(0, cached - creditsUsed));
@@ -484,11 +533,62 @@ class AuthManager {
       // Phase 1: LLM-Powered Structured Extraction
       extract_structured: 4,
 
-      // Phase C5: Natural-language LLM extraction (external paid API call per invocation)
-      extract_with_llm: 5
+      // D3.3: Pre-built site templates (1 credit — same as fetch_url)
+      extract_with_llm: 5,
+
+      // D3.3: Pre-built site templates (1 credit per template scrape)
+      scrape_template: 1
     };
 
     return costs[tool] || 1;
+  }
+
+  /**
+   * D3.5: Project the cost of calling a tool with given params.
+   *
+   * Returns a lower-bound estimate.  Dynamic tools (deep_research, crawl_deep)
+   * have variable costs that depend on runtime behaviour (e.g. how many URLs
+   * get fetched).  The projection is a MINIMUM — actual cost may be higher.
+   * Accuracy caveats are documented in each tool description.
+   *
+   * @param {string} toolName
+   * @param {object} params
+   * @returns {{ projected: number, note: string }}
+   */
+  projectCost(toolName, params) {
+    const base = this.getToolCost(toolName);
+
+    // Override for tools whose cost scales with params
+    let projected = base;
+    let note = 'Fixed cost per invocation.';
+
+    switch (toolName) {
+      case 'batch_scrape': {
+        const urlCount = Array.isArray(params?.urls) ? params.urls.length : 1;
+        projected = Math.max(base, Math.ceil(urlCount / 10));
+        note = `Estimated from ${urlCount} URLs. Actual may be higher for slow/large pages.`;
+        break;
+      }
+      case 'deep_research': {
+        const maxUrls = params?.maxUrls || params?.options?.maxUrls || 20;
+        projected = Math.max(base, Math.ceil(maxUrls / 5) + base);
+        note = `Lower-bound estimate. deep_research cost grows with source count (${maxUrls} max URLs).`;
+        break;
+      }
+      case 'crawl_deep': {
+        const maxPages = params?.maxPages || params?.options?.maxPages || 10;
+        projected = Math.max(base, Math.ceil(maxPages / 20) * base);
+        note = `Lower-bound estimate. crawl_deep cost grows with page count (${maxPages} max).`;
+        break;
+      }
+      case 'extract_with_llm':
+        note = 'Includes external LLM API call cost (not billed in credits, billed by your LLM provider).';
+        break;
+      default:
+        note = 'Fixed cost per invocation.';
+    }
+
+    return { projected, note };
   }
 
   /**

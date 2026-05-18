@@ -4,6 +4,7 @@
  */
 
 import winston from 'winston';
+import { maskSecrets } from './secretMask.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
@@ -70,7 +71,21 @@ export class Logger {
    * @returns {winston.Format} Winston format
    */
   createFormat(enableJson) {
+    // D2.9: global secret masking format applied first
+    const secretMaskFormat = winston.format((info) => {
+      if (info.metadata) info.metadata = maskSecrets(info.metadata);
+      if (typeof info.message === 'string') {
+        // lightweight heuristic mask on the message string itself
+        info.message = info.message
+          .replace(/(Bearer\s+)\S+/gi, '$1[REDACTED]')
+          .replace(/(api[_-]?key[:=]\s*)\S+/gi, '$1[REDACTED]')
+          .replace(/(x-api-key[:=]\s*)\S+/gi, '$1[REDACTED]');
+      }
+      return info;
+    })();
+
     const formats = [
+      secretMaskFormat,
       winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
       winston.format.errors({ stack: true }),
       winston.format.metadata({ fillExcept: ['message', 'level', 'timestamp', 'service'] })

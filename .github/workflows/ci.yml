@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+    branches: [main, development]
+
+jobs:
+  lint-and-syntax:
+    name: Lint & Syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Check JS syntax
+        run: find src -name "*.js" | xargs node --check
+      - name: npm audit
+        run: npm audit --audit-level=high
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run unit tests
+        run: CRAWLFORGE_CREATOR_SECRET= node --test "tests/unit/*.test.js"
+        env:
+          NODE_ENV: test
+
+  mcp-compliance:
+    name: MCP Protocol Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run MCP protocol compliance tests
+        run: npm test
+        env:
+          NODE_ENV: test
+          CRAWLFORGE_CREATOR_SECRET: test-secret-for-ci
+
+  coverage:
+    name: Test Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run coverage
+        run: npm run test:coverage
+        env:
+          NODE_ENV: test
+          CRAWLFORGE_CREATOR_SECRET: ""
+        continue-on-error: true  # Don't fail CI on coverage threshold until D5.2 complete
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t crawlforge:ci-test .

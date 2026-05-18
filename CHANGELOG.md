@@ -1,9 +1,213 @@
 # Changelog
 
+
+
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.2.0] - 2026-05-18
+
+Phase D5.2 + D5.3 — Per-tool unit tests and docs refresh. Additive release: no API changes.
+
+### Added
+
+**D5.2 Per-tool unit tests (17 new test files)**
+- `tests/unit/tools/extract/extractContent.test.js` — 8 tests
+- `tests/unit/tools/extract/processDocument.test.js` — 7 tests
+- `tests/unit/tools/extract/analyzeContent.test.js` — 8 tests
+- `tests/unit/tools/extract/summarizeContent.test.js` — 8 tests
+- `tests/unit/tools/extract/extractStructured.test.js` — 7 tests
+- `tests/unit/tools/extract/listOllamaModels.test.js` — 7 tests (with injectable fetch stub)
+- `tests/unit/tools/research/deepResearch.test.js` — 9 tests (elicitation, session tracking)
+- `tests/unit/tools/search/searchWeb.test.js` — 7 tests (cache, expander, provider)
+- `tests/unit/tools/crawl/crawlDeep.test.js` — 7 tests (elicitation for >500 pages)
+- `tests/unit/tools/crawl/mapSite.test.js` — 8 tests (sitemap parse, group_by_path, cache)
+- `tests/unit/tools/advanced/batchScrape.test.js` — 7 tests (elicitation, jobManager integration)
+- `tests/unit/tools/advanced/scrapeWithActions.test.js` — 8 tests (page.close() leak check)
+- `tests/unit/tools/stealth/stealthMode.test.js` — 7 tests (camoufox/playwright engine)
+- `tests/unit/tools/localization/localization.test.js` — 8 tests (geo-block, translation)
+- `tests/unit/tools/tracking/trackChanges.test.js` — 8 tests (diff, monitoring lifecycle)
+- `tests/unit/tools/llmstxt/generateLLMsTxt.test.js` — 9 tests (format modes)
+- `tests/unit/tools/templates/scrapeTemplate.test.js` — 8 tests (list mode, HTTP errors)
+- Total new tests: 131 — all green. No new npm dependencies (uses node:test + stubs).
+
+**D5.3 Docs refresh**
+- `docs/local-ollama-quickstart.md` — Ollama install, model selection, env vars, Docker, troubleshooting
+- `docs/docker-deployment.md` — build, run, compose, Render deploy, health check, volumes
+- `docs/observability-setup.md` — Prometheus metrics table, OTel spans, Winston log levels, Grafana dashboard import, alerting rules
+- `tests/docs/example-runner.js` — validates README JSON and shell code blocks for syntax (no live network)
+
+**Verified existing docs present from earlier phases:** `docs/mcp-resources-prompts.md`, `docs/cli-guide.md`, `docs/stealth-engines.md`, `docs/cloud-browser.md`
+
+### Changed
+
+- `IMPROVEMENT_ROADMAP_V4.md` header updated: version 4.0.0 → 4.1.0, status → ALL PHASES COMPLETE
+- Carry-forward items noted at bottom of roadmap: D2.8 customDNS, D2.11 24h load test, D5.1 ESLint + Docker CI
+
+## [4.1.0] - 2026-05-18
+
+Phase D4 - CLI (PRD Phase 2) + Skills Installer (PRD Phase 3). Additive release: no breaking changes to existing MCP tools or API.
+
+### Added
+
+**D4.1 CLI scaffolding**
+- `commander` added to dependencies.
+- `"bin": { "crawlforge": "src/cli/index.js" }` in `package.json` — `crawlforge` command available after `npm install -g`.
+- `src/cli/index.js` — main entry point with global flags: `--json`, `--pretty`, `--quiet`, `--api-key`, `--timeout`.
+- `src/cli/formatter.js` — shared output formatter; formats MCP tool `content[]` responses for CLI output.
+- `src/cli/lib/runTool.js` — thin wrapper calling tool `execute()` and formatting output per global flags.
+
+**D4.2 CLI commands (15 tool commands)**
+- `scrape <url>` — wraps `fetch_url` (default) or `extract_content` with `--extract` flag.
+- `search <query>` — wraps `search_web`; supports `--limit`, `--lang`, `--provider`.
+- `crawl <url>` — wraps `crawl_deep`; supports `--depth`, `--max-pages`, `--concurrency`.
+- `map <url>` — wraps `map_site`; supports `--format json|xml`.
+- `extract <url>` — wraps `extract_structured` (with `--schema`) or `extract_with_llm` (with `--prompt`).
+- `track <url>` — wraps `track_changes`; supports `--selector`, `--threshold`.
+- `analyze <url>` — wraps `analyze_content`; supports `--depth`.
+- `research <topic>` — wraps `deep_research`; supports `--depth`, `--max-urls`, `--output-format`.
+- `stealth <url>` — wraps `stealth_mode`; supports `--engine playwright|camoufox`, `--screenshot`.
+- `batch <urls-file>` — wraps `batch_scrape`; reads newline-delimited URLs from file.
+- `actions <url> --script <file>` — wraps `scrape_with_actions`; reads JSON action script from file.
+- `localize <url>` — wraps `localization`; supports `--locale`, `--country`, `--currency`.
+- `llmstxt <url>` — wraps `generate_llms_txt`; supports `--include-full`, `--max-pages`.
+- `template <id> <target>` — wraps `scrape_template`; `--list` shows all 10 templates.
+- `monitor <url>` — wraps `track_changes` in scheduled mode; supports `--interval`, `--webhook`.
+
+**D4.3 Skills installer (2 management commands)**
+- `src/skills/installer.js` — `install()` and `uninstall()` functions; idempotent, supports `--force` and `--dry-run`.
+- `install-skills [--target=claude-code|cursor|vscode|all]` — copies skill files to target AI coding tool.
+- `uninstall-skills [--target=...]` — removes installed skill files.
+- Skill files in `src/skills/`:
+  - `crawlforge-mcp.md` — overview of all 23 MCP tools with credit reference and example calls.
+  - `crawlforge-cli.md` — full CLI usage guide with examples for all 17 commands.
+  - `crawlforge-stealth.md` — stealth_mode engine selection guide.
+  - `crawlforge-research.md` — deep_research workflow, depth levels, cost management.
+- Claude Code target: `~/.claude/skills/crawlforge-*.md` (one file per skill).
+- Cursor target: `.cursor/rules/crawlforge.mdc` (concatenated).
+- VS Code target: `.github/instructions/crawlforge.instructions.md` (concatenated).
+
+### Tests
+- `tests/integration/cli.test.js` — 6 tests: `--help` coverage for all 15 commands + skills commands, dry-run path verification for all 3 targets, version semver format.
+
+### Docs
+- New: `docs/cli-guide.md` — complete CLI reference with all 17 commands, flags, and examples.
+- Updated: `docs/PRODUCTION_READINESS.md` — CLI availability noted.
+- Updated: `IMPROVEMENT_ROADMAP_V4.md` — D4 marked complete.
+- Updated: `PRD.md` — Phase 2 (CLI) and Phase 3 (Skills) marked done.
+
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [4.0.0] - 2026-05-18
+
+Phase D3 - Competitive Feature Parity. **Breaking change:** batch_scrape now defaults to markdown output (was json). Adds scrape_template tool (23 tools total). Turndown HTML-to-Markdown converter. Camoufox Firefox-based stealth engine. BrowserBase cloud backend. Cost transparency in all tool responses.
+
+### Breaking Changes
+
+- **batch_scrape** default `formats` changed from `["json"]` to `["markdown"]`. Callers that depend on `content.json` from batch results must now pass `formats: ["json"]` explicitly. This aligns with Firecrawl parity for RAG workflows.
+- **server version** bumped 3.6.0 to 4.0.0.
+
+### Migration Guide
+
+If you use `batch_scrape` without specifying `formats`, your response shape changes:
+- Before (v3.x): `result.results[n].content.json`
+- After (v4.0): `result.results[n].content.markdown`
+- To keep old behavior: pass `formats: ["json"]` explicitly.
+
+### Added
+
+**D3.1 Markdown-first output (Turndown)**
+- New utility `src/utils/htmlToMarkdown.js` wraps Turndown with sensible RAG-optimized defaults (atx headings, fenced code blocks, boilerplate removal).
+- `extract_text`: new `output_format: "markdown"` parameter (default: "text").
+- `extract_content`: `outputFormat: "markdown"` now uses Turndown instead of regex-based conversion.
+- `process_document`: `outputFormat: "markdown"` added to enum (new option).
+- `batch_scrape`: default `formats` changed from `["json"]` to `["markdown"]`.
+- turndown added to dependencies.
+
+**D3.2 Camoufox browser engine**
+- `src/core/StealthBrowserManager.js`: new `BrowserEngine` abstract class + `CamoufoxAdapter` implementation.
+- `stealth_mode` tool: new `engine: "playwright" | "camoufox"` parameter (default: "playwright").
+- Camoufox adapter gracefully fails with actionable error when package not installed.
+- Licensing verified: camoufox JS API is MIT, Firefox patches are MPL-2.0 (no AGPL).
+- Benchmark methodology documented in `docs/stealth-engines.md`.
+- New doc: `docs/stealth-engines.md`.
+
+**D3.3 Pre-built site templates**
+- New `src/tools/templates/TemplateRegistry.js` with 10 templates: amazon-product, linkedin-profile, github-repo, youtube-video, tweet, reddit-thread, hacker-news-front-page, producthunt-launch, stackoverflow-question, npm-package.
+- New `src/tools/templates/ScrapeTemplateTool.js` wrapping the registry.
+- New `scrape_template` tool registered in server.js (tool count: 22 to 23).
+- Fixture stubs in `tests/integration/templates/fixtures.js` for all 10 templates.
+- Credit cost: 1 credit per invocation (same as fetch_url).
+
+**D3.4 Cloud browser backend (BrowserBase)**
+- `src/core/StealthBrowserManager.js`: new `BrowserBackend` abstract class, `LocalPlaywrightBackend`, `BrowserBaseBackend` (CDP), and `resolveBrowserBackend()` factory.
+- Env config: `CRAWLFORGE_BROWSER_BACKEND=local|browserbase`, `BROWSERBASE_API_KEY`.
+- Graceful fallback: if browserbase requested but BROWSERBASE_API_KEY not set, logs warning and falls back to local.
+- New doc: `docs/cloud-browser.md`.
+
+**D3.5 Cost transparency**
+- `src/core/AuthManager.js`: new `projectCost(toolName, params)` method returning `{ projected, note }`.
+- `src/server/withAuth.js`: all successful tool responses include `_cost: { projected, actual, remaining_credits, projection_note }` injected into the first JSON content item.
+- Dynamic tools (deep_research, crawl_deep, batch_scrape) return lower-bound estimates with accuracy caveats in `projection_note`.
+
+### Changed
+- server.js: version bumped to 4.0.0; description updated to 23 tools; scrape_template registered.
+- package.json: version bumped to 4.0.0; turndown added to dependencies.
+
+### Verification
+- `node --check server.js` and all modified src files: no syntax errors.
+- `npm test` (MCP protocol compliance): 60% pass rate - unchanged from pre-D3 baseline.
+- `node --test tests/unit/withAuth.test.js`: 9/9 pass.
+- `node --test tests/unit/authManager.test.js`: 6/6 pass.
+
+## [3.6.0] - 2026-05-18
+
+Phase D1 — MCP-Native Primitives. CrawlForge is now a first-class MCP server, not just a tool host.
+
+### Added
+
+**D1.1 Resources** — `crawlforge://` URI scheme for long-lived artifacts:
+- Created `src/resources/ResourceRegistry.js` with URI parsing, MIME types, and TTL-based in-memory storage.
+- Registered `ResourceTemplate` patterns in `server.js` for all 5 resource types: `crawlforge://research/{sessionId}`, `crawlforge://job/{jobId}`, `crawlforge://crawl/{sessionId}/sitemap`, `crawlforge://screenshot/{actionId}`, `crawlforge://snapshot/{urlHash}/{timestamp}`.
+- 20 unit tests in `tests/unit/resources/resourceRegistry.test.js` — all green.
+- Documented URI scheme and TTL policy in `docs/mcp-resources-prompts.md`.
+
+**D1.2 Prompts** — 5 pre-built workflow prompts (plus existing `getting-started`):
+- Created `src/prompts/PromptRegistry.js` with 5 prompts: `competitive-analysis`, `monitor-changes`, `rag-ingest`, `site-audit`, `research-deep-dive`.
+- Wired `prompts/list` and `prompts/get` in `server.js` via `server.registerPrompt()`.
+- Server now advertises `prompts.listChanged: true` capability.
+
+**D1.3 Sampling** — LLM fallback chain removes requirement for server-side API keys:
+- Created `src/core/SamplingClient.js` with `complete()` (Ollama → OpenAI → Anthropic → MCP sampling → error) and `probe()` to check available providers.
+- `extract_with_llm`: when Ollama is unavailable and no API key set, tries MCP client sampling before returning an error.
+- `summarize_content`: abstractive mode now attempts Ollama/API/sampling before falling back to extractive output.
+- `extract_structured` and `deep_research`: SamplingClient integrated as last-resort LLM provider.
+
+**D1.4 Elicitation** — mid-tool user confirmation for expensive/ambiguous operations:
+- Created `src/core/ElicitationHelper.js` with `confirm()` and `requestString()` — fails open when client lacks elicitation support.
+- `deep_research`: prompts user before scanning >50 URLs.
+- `batch_scrape`: confirms large synchronous batches (>25 URLs in sync mode).
+- `crawl_deep`: confirms crawls exceeding 500 pages.
+- `extract_structured`: warns when schema has >3 required fields and LLM is unavailable.
+- `AuthManager`: elicits confirmation when remaining credits fall below projected cost (replaces hard-fail).
+- All tools expose `setMcpServer()` to wire elicitation post-instantiation.
+
+**D1.5 Tool description audit** — all 22 tool descriptions rewritten to lead with *when to use*:
+- Every `description` field now starts with "Use this when..." followed by specific scenarios.
+- Example invocations embedded in each description.
+- Descriptions updated for: fetch_url, extract_text, extract_links, extract_metadata, scrape_structured, search_web, crawl_deep, map_site, extract_content, process_document, summarize_content, analyze_content, extract_structured, extract_with_llm, list_ollama_models, batch_scrape, scrape_with_actions, deep_research, track_changes, generate_llms_txt, stealth_mode, localization.
+
+### Changed
+- `server.js`: version bumped 3.5.1 → 3.6.0; description updated to mention Resources, Prompts, Sampling, Elicitation.
+- `package.json`: version bumped to 3.6.0.
+- Server now correctly advertises `resources.listChanged: true` and `prompts.listChanged: true` MCP capabilities.
+
+### Verification
+- `node --check server.js` and all modified src files: no syntax errors.
+- `npm test` (MCP protocol compliance): 60% pass rate — unchanged from pre-D1 baseline (pre-existing compliance test issues unrelated to D1).
+- `node --test tests/unit/resources/resourceRegistry.test.js`: **20/20 PASS**.
+- `node --test tests/unit/d2-reliability.test.js`: **16/17 pass** (1 cancelled due to pre-existing pending promise issue in test harness — same as before D1).
+- `ResourceTemplate` registered correctly: server capabilities response now includes `resources.listChanged: true`.
 
 ## [3.4.0] - 2026-05-18
 

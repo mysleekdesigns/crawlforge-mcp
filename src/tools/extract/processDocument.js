@@ -8,6 +8,7 @@ import { PDFProcessor } from '../../core/processing/PDFProcessor.js';
 import { ContentProcessor } from '../../core/processing/ContentProcessor.js';
 import { BrowserProcessor } from '../../core/processing/BrowserProcessor.js';
 import { HTMLCleaner, ContentQualityAssessor } from '../../utils/contentUtils.js';
+import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js'; // D3.1
 
 const ProcessDocumentSchema = z.object({
   source: z.string().min(1),
@@ -28,7 +29,7 @@ const ProcessDocumentSchema = z.object({
     // Processing options
     assessContentQuality: z.boolean().default(true),
     includeStatistics: z.boolean().default(true),
-    outputFormat: z.enum(['text', 'structured', 'full']).default('structured'),
+    outputFormat: z.enum(['text', 'structured', 'full', 'markdown']).default('structured'),
     
     // Content filtering
     minContentLength: z.number().min(0).default(50),
@@ -326,6 +327,11 @@ export class ProcessDocumentTool {
     
     if (options.outputFormat === 'full') {
       result.content.html = html;
+    }
+
+    // D3.1: Markdown output mode — convert extracted HTML to markdown via Turndown
+    if (options.outputFormat === 'markdown') {
+      result.content.markdown = htmlToMarkdown(extractedContent || html);
     }
 
     // Step 4: Set metadata

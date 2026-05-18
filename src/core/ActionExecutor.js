@@ -202,13 +202,15 @@ export class ActionExecutor extends EventEmitter {
       this.activeChains.set(chainId, executionContext);
       this.emit('chainStarted', executionContext);
 
-      // Initialize browser and navigate to page
-      const page = await this.initializePage(url, browserOptions);
-      executionContext.page = page;
-
+      // D2.4: initialize page INSIDE try/finally so it is always closed even on
+      // errors thrown between acquisition and the inner try block.
+      let page = null;
       let chainResult;
       
       try {
+        page = await this.initializePage(url, browserOptions);
+        executionContext.page = page;
+
         // Execute chain with potential retries
         chainResult = await this.executeChainWithRetries(executionContext);
         
@@ -235,9 +237,9 @@ export class ActionExecutor extends EventEmitter {
 
         throw error;
       } finally {
-        // Clean up page
+        // D2.4: always close page to prevent leaks
         if (page) {
-          await page.close();
+          try { await page.close(); } catch (_) { /* ignore close errors */ }
         }
         
         // Update execution time

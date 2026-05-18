@@ -157,11 +157,25 @@ export class LocalizationManager extends EventEmitter {
     };
     
     this.currentSettings = { ...this.defaultSettings, ...options };
-    this.localeCache = new Map();
-    this.geoLocationCache = new Map();
-    this.timezoneCache = new Map();
-    this.proxyCache = new Map();
-    this.translationCache = new Map();
+    // D2.8: cap all caches to prevent unbounded growth under long-lived sessions.
+    const MAX_CACHE = parseInt(process.env.LOCALIZATION_CACHE_MAX || '500', 10);
+    const makeLRUMap = (max) => {
+      const m = new Map();
+      m._max = max;
+      const origSet = m.set.bind(m);
+      m.set = (k, v) => {
+        if (m.size >= m._max) {
+          m.delete(m.keys().next().value); // evict oldest
+        }
+        return origSet(k, v);
+      };
+      return m;
+    };
+    this.localeCache = makeLRUMap(MAX_CACHE);
+    this.geoLocationCache = makeLRUMap(MAX_CACHE);
+    this.timezoneCache = makeLRUMap(MAX_CACHE);
+    this.proxyCache = makeLRUMap(MAX_CACHE);
+    this.translationCache = makeLRUMap(MAX_CACHE);
     
     // Proxy management
     this.proxyManager = {

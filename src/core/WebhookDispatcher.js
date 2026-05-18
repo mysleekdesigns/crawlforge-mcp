@@ -287,7 +287,9 @@ export class WebhookDispatcher extends EventEmitter {
     this.processing = true;
     
     try {
-      const batchSize = this.enableBatching ? this.batchSize : 1;
+      // D2.5: cap retry batch size to prevent a flood of retries overwhelming targets
+      const rawBatchSize = this.enableBatching ? this.batchSize : 1;
+      const batchSize = Math.min(rawBatchSize, 10); // never process more than 10 at once
       const batch = this.queue.splice(0, batchSize);
 
       if (this.enableBatching && batch.length > 1) {
@@ -328,14 +330,13 @@ export class WebhookDispatcher extends EventEmitter {
       
       // Check if we should retry
       if (event.attempts < this.maxRetries) {
-        // Re-queue for retry with exponential backoff
-        const delay = Math.min(
-          this.retryDelay * Math.pow(2, event.attempts - 1),
-          60000 // Max 1 minute delay
-        );
+        // D2.5: per-webhook exponential backoff with jitter to prevent retry storms
+        const baseDelay = this.retryDelay * Math.pow(2, event.attempts - 1);
+        const jitter = Math.random() * Math.min(baseDelay * 0.25, 5000); // up to 25% or 5s
+        const delay = Math.min(baseDelay + jitter, 60000); // cap at 1 minute
         
         setTimeout(() => {
-          this.queue.unshift(event); // Add to front for priority
+          this.queue.push(event); // push to back (not front) to avoid head-of-line blocking
         }, delay);
 
         this.emit('webhookRetry', event, error, delay);
@@ -503,9 +504,16 @@ export class WebhookDispatcher extends EventEmitter {
       clearInterval(this.healthMonitoringTimer);
     }
 
-    this.healthMonitoringTimer = setInterval(() => {
-      this.performHealthChecks();
-    }, this.healthCheckInterval);
+    // D2.5: add jitter to health check interval to prevent synchronized storms
+    const scheduleNextHealthCheck = () => {
+      const jitter = Math.floor(Math.random() * Math.min(this.healthCheckInterval * 0.1, 10000));
+      this.healthMonitoringTimer = setTimeout(() => {
+        this.performHealthChecks().finally(() => {
+          if (this.healthMonitoringTimer !== null) scheduleNextHealthCheck();
+        });
+      }, this.healthCheckInterval + jitter);
+    };
+    scheduleNextHealthCheck();
   }
 
   /**

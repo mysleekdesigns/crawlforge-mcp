@@ -5,7 +5,7 @@
 export { isCreatorModeVerified } from './src/core/creatorMode.js';
 
 // Import everything else
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { logger } from "./src/utils/Logger.js";
 import { SearchWebTool } from "./src/tools/search/searchWeb.js";
@@ -23,6 +23,7 @@ import { ScrapeWithActionsTool } from "./src/tools/advanced/ScrapeWithActionsToo
 import { DeepResearchTool } from "./src/tools/research/deepResearch.js";
 import { TrackChangesTool } from "./src/tools/tracking/trackChanges/index.js";
 import { GenerateLLMsTxtTool } from "./src/tools/llmstxt/generateLLMsTxt.js";
+import { ScrapeTemplateTool } from "./src/tools/templates/ScrapeTemplateTool.js"; // D3.3
 import { StealthBrowserManager } from "./src/core/StealthBrowserManager.js";
 import { LocalizationManager } from "./src/core/LocalizationManager.js";
 import { memoryMonitor } from "./src/utils/MemoryMonitor.js";
@@ -43,6 +44,10 @@ import { extractTextHandler } from "./src/tools/basic/extractText.js";
 import { extractLinksHandler } from "./src/tools/basic/extractLinks.js";
 import { extractMetadataHandler } from "./src/tools/basic/extractMetadata.js";
 import { scrapeStructuredHandler } from "./src/tools/basic/scrapeStructured.js";
+// D1.1 Resources + D1.2 Prompts + D1.4 Elicitation
+import { ResourceRegistry } from "./src/resources/ResourceRegistry.js";
+import { PROMPTS, getPromptMessages } from "./src/prompts/PromptRegistry.js";
+import { ElicitationHelper } from "./src/core/ElicitationHelper.js";
 
 // Initialize Authentication Manager
 await AuthManager.initialize();
@@ -90,8 +95,8 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "3.5.1",
-  description: "Production-ready MCP server with 21 web scraping, crawling, and content processing tools. Features stealth browsing, deep research, structured extraction, change tracking, and local-LLM extraction via Ollama.",
+  version: "4.2.0",
+  description: "Production-ready MCP server with 23 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, change tracking, and local-LLM extraction via Ollama.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png"
 });
@@ -154,14 +159,99 @@ const scrapeWithActionsTool = new ScrapeWithActionsTool();
 const deepResearchTool = new DeepResearchTool();
 const trackChangesTool = new TrackChangesTool();
 const generateLLMsTxtTool = new GenerateLLMsTxtTool();
+const scrapeTemplateTool = new ScrapeTemplateTool(); // D3.3
 const stealthBrowserManager = new StealthBrowserManager();
 const localizationManager = new LocalizationManager();
+
+// D1.1: Resource Registry (wired to existing singletons)
+const resourceRegistry = new ResourceRegistry({
+  researchOrchestrator: deepResearchTool, // exposes activeSessions
+  snapshotManager: null, // SnapshotManager not directly instantiated in server.js
+  jobManager: batchScrapeTool.jobManager,
+  mapSiteTool,
+  scrapeWithActionsTool,
+});
+
+// D1.4: Elicitation helper (client may not support — fails open)
+const elicitation = new ElicitationHelper({ mcpServer: server, logger });
+
+// D1.4: Wire elicitation into tools and AuthManager
+deepResearchTool.setMcpServer(server);
+batchScrapeTool.setMcpServer(server);
+crawlDeepTool.setMcpServer(server);
+extractStructuredTool.setMcpServer(server);
+AuthManager.setElicitation(elicitation);
+
+// ─── D1.1 Resource Templates (MCP Resources) ─────────────────────────────────
+// Resources use the MCP ResourceTemplate URI pattern for dynamic crawlforge:// URIs.
+// The registry is populated at runtime as tools produce artifacts.
+
+// Research sessions: crawlforge://research/{sessionId}
+server.resource(
+  "crawlforge-research",
+  new ResourceTemplate("crawlforge://research/{sessionId}", {
+    list: async () => ({
+      resources: resourceRegistry.listResources().filter(r => r.uri.startsWith("crawlforge://research/"))
+    })
+  }),
+  { description: "Completed deep_research report stored in the server session" },
+  async (uri) => resourceRegistry.readResource(uri)
+);
+
+// Job results: crawlforge://job/{jobId}
+server.resource(
+  "crawlforge-job",
+  new ResourceTemplate("crawlforge://job/{jobId}", {
+    list: async () => ({
+      resources: resourceRegistry.listResources().filter(r => r.uri.startsWith("crawlforge://job/"))
+    })
+  }),
+  { description: "Completed batch_scrape job result" },
+  async (uri) => resourceRegistry.readResource(uri)
+);
+
+// Crawl sitemaps: crawlforge://crawl/{sessionId}/sitemap
+server.resource(
+  "crawlforge-crawl-sitemap",
+  new ResourceTemplate("crawlforge://crawl/{sessionId}/sitemap", {
+    list: async () => ({
+      resources: resourceRegistry.listResources().filter(r => r.uri.startsWith("crawlforge://crawl/"))
+    })
+  }),
+  { description: "map_site output stored for a crawl session" },
+  async (uri) => resourceRegistry.readResource(uri)
+);
+
+// Screenshots: crawlforge://screenshot/{actionId}
+server.resource(
+  "crawlforge-screenshot",
+  new ResourceTemplate("crawlforge://screenshot/{actionId}", {
+    list: async () => ({
+      resources: resourceRegistry.listResources().filter(r => r.uri.startsWith("crawlforge://screenshot/"))
+    })
+  }),
+  { description: "Screenshot from scrape_with_actions" },
+  async (uri) => resourceRegistry.readResource(uri)
+);
+
+// ─── D1.2 Prompts (workflow templates) ────────────────────────────────────────
+// Register the 5 CrawlForge workflow prompts from PromptRegistry.
+
+for (const p of PROMPTS) {
+  const argsShape = {};
+  for (const arg of p.arguments) {
+    argsShape[arg.name] = z.string().optional().describe(arg.description);
+  }
+  server.registerPrompt(p.name, { description: p.description, argsSchema: argsShape }, async (args) => {
+    return getPromptMessages(p.name, args || {});
+  });
+}
 
 // ─── Tool registrations ────────────────────────────────────────────────────────
 
 // Tool: fetch_url
 server.registerTool("fetch_url", {
-  description: "Fetch content from a URL with optional headers and timeout",
+  description: "Use this when you need raw HTTP content from a URL — HTML, JSON, XML, or plain text. Ideal as the first step before extract_text or extract_content. Supports custom headers (e.g. auth tokens) and configurable timeout. Example: fetch_url({url: \"https://example.com\", timeout: 15000})",
   annotations: { title: "Fetch URL", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to fetch content from"),
@@ -172,18 +262,19 @@ server.registerTool("fetch_url", {
 
 // Tool: extract_text
 server.registerTool("extract_text", {
-  description: "Extract clean text content from a webpage",
+  description: "Use this when you need a page's human-readable text or markdown stripped of HTML tags, scripts, and styles — e.g. for keyword search, summarization, RAG ingestion, or NLP. Use output_format:\"markdown\" for RAG workflows. Faster than extract_content but returns unstructured content. Example: extract_text({url: \"https://example.com/article\", output_format:\"markdown\"})",
   annotations: { title: "Extract Text", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to extract text from"),
     remove_scripts: z.boolean().optional().default(true).describe("Remove script tags before extraction"),
-    remove_styles: z.boolean().optional().default(true).describe("Remove style tags before extraction")
+    remove_styles: z.boolean().optional().default(true).describe("Remove style tags before extraction"),
+    output_format: z.enum(["text", "markdown"]).optional().default("text").describe("Output format: \"text\" (default) or \"markdown\" — use markdown for RAG workflows")
   }
 }, withAuth("extract_text", extractTextHandler));
 
 // Tool: extract_links
 server.registerTool("extract_links", {
-  description: "Extract all links from a webpage with optional filtering",
+  description: "Use this when you need to discover all hyperlinks on a page — e.g. to build a crawl seed list, audit broken links, or find related resources. Use filter_external:true to get only outbound links. Example: extract_links({url: \"https://example.com\", filter_external: true})",
   annotations: { title: "Extract Links", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to extract links from"),
@@ -194,7 +285,7 @@ server.registerTool("extract_links", {
 
 // Tool: extract_metadata
 server.registerTool("extract_metadata", {
-  description: "Extract metadata from a webpage (title, description, keywords, etc.)",
+  description: "Use this when you need a page's SEO metadata: title, meta description, Open Graph tags, canonical URL, schema.org data. Ideal for site audits and competitive SEO analysis. Example: extract_metadata({url: \"https://example.com\"})",
   annotations: { title: "Extract Metadata", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to extract metadata from")
@@ -203,7 +294,7 @@ server.registerTool("extract_metadata", {
 
 // Tool: scrape_structured
 server.registerTool("scrape_structured", {
-  description: "Extract structured data from a webpage using CSS selectors",
+  description: "Use this when you know the exact CSS selectors for the data you want — e.g. scraping a pricing table or product list with consistent markup. More reliable than LLM extraction for well-structured pages. Example: scrape_structured({url: \"https://shop.com/products\", selectors: {price: \".price\", name: \".product-title\"}})",
   annotations: { title: "Scrape Structured Data", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to scrape"),
@@ -213,7 +304,7 @@ server.registerTool("scrape_structured", {
 
 // Tool: search_web
 server.registerTool("search_web", {
-  description: "Search the web using Google Search API (proxied through CrawlForge)",
+  description: "Use this when you need web search results for a query — returns titles, URLs, snippets, and optional metadata. Supports language, date range, and site filters. Start research workflows here before using fetch_url or deep_research. Example: search_web({query: \"best MCP servers 2025\", limit: 10, time_range: \"month\"})",
   annotations: { title: "Search the Web", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     query: z.string().describe("Search query string"),
@@ -239,7 +330,7 @@ server.registerTool("search_web", {
 
 // Tool: crawl_deep
 server.registerTool("crawl_deep", {
-  description: "Crawl websites deeply using breadth-first search",
+  description: "Use this when you need to discover and optionally extract content from many pages within a site — e.g. building a knowledge base, indexing docs, or auditing all pages. Use map_site first to estimate scope, then crawl_deep for content. Example: crawl_deep({url: \"https://docs.example.com\", max_depth: 3, max_pages: 200, extract_content: true})",
   annotations: { title: "Deep Crawl", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("Starting URL for the crawl"),
@@ -266,7 +357,7 @@ server.registerTool("crawl_deep", {
 
 // Tool: map_site
 server.registerTool("map_site", {
-  description: "Discover and map website structure",
+  description: "Use this when you need to know all URLs on a domain without fetching full page content — e.g. before a crawl_deep, for a site audit, or to find specific section URLs. Reads sitemap.xml when available. Example: map_site({url: \"https://example.com\", include_sitemap: true, max_urls: 500})",
   annotations: { title: "Map Website", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The website URL to map"),
@@ -289,7 +380,7 @@ server.registerTool("map_site", {
 
 // Tool: extract_content
 server.registerTool("extract_content", {
-  description: "Extract and analyze main content from web pages with enhanced readability detection",
+  description: "Use this when you need a clean, readable version of a web article or page — removes ads, nav, footers, and boilerplate. Ideal for RAG ingestion, summarization, or LLM context. Prefer this over extract_text for article-style pages. Example: extract_content({url: \"https://blog.example.com/post-title\"})",
   annotations: { title: "Extract Content", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to extract content from"),
@@ -309,7 +400,7 @@ server.registerTool("extract_content", {
 
 // Tool: process_document
 server.registerTool("process_document", {
-  description: "Process documents from multiple sources and formats including PDFs and web pages",
+  description: "Use this when you need to extract text from a PDF URL or file — e.g. research papers, contracts, reports. Also handles HTML URLs. Returns structured sections, metadata, and word count. Example: process_document({source: \"https://example.com/report.pdf\", sourceType: \"pdf_url\"})",
   annotations: { title: "Process Document", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     source: z.string().describe("Document source - URL or file path"),
@@ -330,7 +421,7 @@ server.registerTool("process_document", {
 
 // Tool: summarize_content
 server.registerTool("summarize_content", {
-  description: "Generate intelligent summaries of text content with configurable options",
+  description: "Use this when you have text content (from extract_text or extract_content) and need a condensed version — e.g. for briefings, comparison tables, or LLM context reduction. Supports extractive (sentence selection) and abstractive (rewrite via Ollama/sampling) modes. Example: summarize_content({text: \"..long article..\", options: {summaryLength: \"short\", summaryType: \"abstractive\"}})",
   annotations: { title: "Summarize Content", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: {
     text: z.string().describe("The text content to summarize"),
@@ -350,7 +441,7 @@ server.registerTool("summarize_content", {
 
 // Tool: analyze_content
 server.registerTool("analyze_content", {
-  description: "Perform comprehensive content analysis including language detection and topic extraction",
+  description: "Use this when you need NLP metrics for text — language detection, sentiment, topic extraction, entity recognition, readability score. Good for content auditing and classification. Example: analyze_content({text: \"..article text..\", options: {extractTopics: true, includeSentiment: true}})",
   annotations: { title: "Analyze Content", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: {
     text: z.string().describe("The text content to analyze"),
@@ -370,7 +461,7 @@ server.registerTool("analyze_content", {
 
 // Tool: extract_structured
 server.registerTool("extract_structured", {
-  description: "Extract structured data from a webpage using LLM-powered analysis and a JSON Schema. Falls back to CSS selector extraction when no LLM provider is configured.",
+  description: "Use this when you need a specific data shape extracted from a page using a JSON schema — e.g. product details, job listings, event data. Uses LLM by default; falls back to CSS selectors when no LLM is configured. Example: extract_structured({url: \"https://jobs.example.com/post/123\", schema: {properties: {title: {type:\"string\"}, salary: {type:\"string\"}}, required:[\"title\"]}})",
   annotations: { title: "Extract Structured Data", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to extract structured data from"),
@@ -437,7 +528,7 @@ server.registerTool("list_ollama_models", {
 
 // Tool: batch_scrape
 server.registerTool("batch_scrape", {
-  description: "Process multiple URLs simultaneously with support for async job management and webhook notifications",
+  description: "Use this when you need to scrape 2–50 URLs in parallel — e.g. batch-collecting product pages, news articles, or competitor pages. Use mode:\"async\" with a webhook for large batches; mode:\"sync\" for up to ~25 URLs when you need results immediately. Example: batch_scrape({urls: [\"https://a.com\",\"https://b.com\"], formats: [\"json\"], maxConcurrency: 5})",
   annotations: { title: "Batch Scrape", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     urls: z.array(z.union([
@@ -482,7 +573,7 @@ server.registerTool("batch_scrape", {
 
 // Tool: scrape_with_actions
 server.registerTool("scrape_with_actions", {
-  description: "Execute browser action chains before scraping content, with form auto-fill and intermediate state capture",
+  description: "Use this when you need to interact with a page before scraping — login, click buttons, fill forms, scroll, or wait for dynamic content to load. Use for SPAs, login-gated content, or multi-step flows. Screenshots from this tool are stored as crawlforge://screenshot/{actionId} resources. Example: scrape_with_actions({url: \"https://app.com/dashboard\", actions: [{type:\"click\",selector:\"#login\"},{type:\"type\",selector:\"#email\",text:\"user@a.com\"}]})",
   annotations: { title: "Scrape with Browser Actions", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to scrape"),
@@ -538,7 +629,7 @@ server.registerTool("scrape_with_actions", {
 
 // Tool: deep_research
 server.registerTool("deep_research", {
-  description: "Conduct comprehensive multi-stage research with intelligent query expansion, source verification, and conflict detection",
+  description: "Use this when you need exhaustive multi-source research on a topic — it searches the web, fetches and analyses sources, detects conflicts, and (when LLM keys or Ollama are configured) synthesizes a report. Best for complex questions needing 10+ sources. Will request confirmation (elicitation) if maxUrls > 50. Results are stored as crawlforge://research/{sessionId} resources. Example: deep_research({topic: \"quantum computing NISQ devices 2025\", maxUrls: 30, researchApproach: \"academic\"})",
   annotations: { title: "Deep Research", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     topic: z.string().min(3).max(500).describe("Research topic or question"),
@@ -594,7 +685,7 @@ server.registerTool("deep_research", {
 
 // Tool: track_changes
 server.registerTool("track_changes", {
-  description: "Enhanced content change tracking with baseline capture, comparison, scheduled monitoring, advanced comparison engine, alert system, and historical analysis",
+  description: "Use this when you need to monitor a URL for content changes over time — e.g. competitor pricing, regulation updates, product availability. Start with operation:\"create_baseline\", then periodically use operation:\"compare\" to diff. Supports webhooks and scheduled monitoring. Example: track_changes({url: \"https://example.com/pricing\", operation: \"create_baseline\"})",
   annotations: { title: "Track Changes", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to track changes for"),
@@ -699,7 +790,7 @@ server.registerTool("track_changes", {
 
 // Tool: generate_llms_txt
 server.registerTool("generate_llms_txt", {
-  description: "Analyze websites and generate standard-compliant LLMs.txt and LLMs-full.txt files defining AI model interaction guidelines",
+  description: "Use this when you need to generate an llms.txt file for a website — the standard that tells AI models how to interact with a site's content. Useful for site owners preparing for AI discoverability, or for understanding a site's AI access policy. Example: generate_llms_txt({url: \"https://example.com\"})",
   annotations: { title: "Generate llms.txt", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The website URL to generate llms.txt for"),
@@ -733,7 +824,7 @@ server.registerTool("generate_llms_txt", {
 
 // Tool: stealth_mode
 server.registerTool("stealth_mode", {
-  description: "Advanced anti-detection browser management with stealth features, fingerprint randomization, and human behavior simulation",
+  description: "Use this when a site blocks normal scraping — Cloudflare, Datadome, or other bot-detection systems. Manages a Playwright browser with randomized fingerprints, human behavior simulation, WebRTC/canvas spoofing. Start with operation:\"create_context\" then use the contextId. Example: stealth_mode({operation:\"create_context\", stealthConfig:{level:\"advanced\", simulateHumanBehavior:true}})",
   annotations: { title: "Stealth Mode", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     operation: z.enum(['configure', 'enable', 'disable', 'create_context', 'create_page', 'get_stats', 'cleanup']).default('configure').describe("Stealth operation to perform"),
@@ -775,6 +866,7 @@ server.registerTool("stealth_mode", {
         hardwareSpoofing: z.boolean().default(true)
       }).optional()
     }).optional().describe("Stealth browser configuration with anti-detection settings"),
+    engine: z.enum(["playwright", "camoufox"]).optional().default("playwright").describe("Browser engine: \"playwright\" (Chromium, default) or \"camoufox\" (Firefox-based, higher anti-detect score — install with npm install camoufox)"),
     contextId: z.string().optional().describe("Browser context ID for page operations"),
     urlToTest: z.string().url().optional().describe("URL to navigate to when creating a page")
   }
@@ -827,7 +919,7 @@ server.registerTool("stealth_mode", {
 
 // Tool: localization
 server.registerTool("localization", {
-  description: "Multi-language and geo-location management with country-specific settings, browser locale emulation, timezone spoofing, and geo-blocked content handling",
+  description: "Use this when you need to scrape geo-restricted content or emulate a specific locale/timezone — e.g. seeing region-specific pricing, bypassing geo-blocks, or searching in another language. Use operation:\"configure_country\" to set country context. Example: localization({operation:\"configure_country\", countryCode:\"DE\", language:\"de\"})",
   annotations: { title: "Localization", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     operation: z.enum(['configure_country', 'localize_search', 'localize_browser', 'generate_timezone_spoof', 'handle_geo_blocking', 'auto_detect', 'get_stats', 'get_supported_countries']).default('configure_country').describe("Localization operation to perform"),
@@ -931,6 +1023,25 @@ server.registerTool("localization", {
   }
 }));
 
+
+// Tool: scrape_template (D3.3 — pre-built site templates)
+server.registerTool("scrape_template", {
+  description: "Use this when you want structured data from a well-known site without writing custom selectors. Pass template:\"list\" to see all available templates. Supports: amazon-product, linkedin-profile, github-repo, youtube-video, tweet, reddit-thread, hacker-news-front-page, producthunt-launch, stackoverflow-question, npm-package. Example: scrape_template({template:\"github-repo\", url:\"https://github.com/user/repo\"})",
+  annotations: { title: "Scrape Template", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  inputSchema: {
+    template: z.string().describe("Template ID (e.g. github-repo) or list to enumerate available templates"),
+    url: z.string().url().optional().describe("URL to scrape — required unless template is list"),
+    timeout: z.number().min(5000).max(60000).optional().default(15000).describe("Request timeout in milliseconds")
+  }
+}, withAuth("scrape_template", async (params) => {
+  try {
+    const result = await scrapeTemplateTool.execute(params);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { content: [{ type: "text", text: `Template scrape failed: ${error.message}` }], isError: true };
+  }
+}));
+
 // ─── Transport + startup ───────────────────────────────────────────────────────
 
 const useHttp = process.argv.includes('--http') || process.env.MCP_HTTP === 'true';
@@ -980,9 +1091,10 @@ async function runServer() {
     "extract_content", "process_document", "summarize_content", "analyze_content",
     "batch_scrape", "scrape_with_actions",
     "deep_research", "track_changes", "generate_llms_txt",
-    "stealth_mode", "localization", "extract_structured", "extract_with_llm"
+    "stealth_mode", "localization", "extract_structured", "extract_with_llm",
+    "scrape_template"  // D3.3
   ];
-  console.error(`Tools available: ${allTools.join(', ')}`);
+  console.error(`Tools available (23): ${allTools.join(", ")}`);
 
   // Start memory monitoring in development
   if (config.server.nodeEnv === "development") {
