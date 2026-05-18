@@ -533,11 +533,62 @@ class AuthManager {
       // Phase 1: LLM-Powered Structured Extraction
       extract_structured: 4,
 
-      // Phase C5: Natural-language LLM extraction (external paid API call per invocation)
-      extract_with_llm: 5
+      // D3.3: Pre-built site templates (1 credit — same as fetch_url)
+      extract_with_llm: 5,
+
+      // D3.3: Pre-built site templates (1 credit per template scrape)
+      scrape_template: 1
     };
 
     return costs[tool] || 1;
+  }
+
+  /**
+   * D3.5: Project the cost of calling a tool with given params.
+   *
+   * Returns a lower-bound estimate.  Dynamic tools (deep_research, crawl_deep)
+   * have variable costs that depend on runtime behaviour (e.g. how many URLs
+   * get fetched).  The projection is a MINIMUM — actual cost may be higher.
+   * Accuracy caveats are documented in each tool description.
+   *
+   * @param {string} toolName
+   * @param {object} params
+   * @returns {{ projected: number, note: string }}
+   */
+  projectCost(toolName, params) {
+    const base = this.getToolCost(toolName);
+
+    // Override for tools whose cost scales with params
+    let projected = base;
+    let note = 'Fixed cost per invocation.';
+
+    switch (toolName) {
+      case 'batch_scrape': {
+        const urlCount = Array.isArray(params?.urls) ? params.urls.length : 1;
+        projected = Math.max(base, Math.ceil(urlCount / 10));
+        note = `Estimated from ${urlCount} URLs. Actual may be higher for slow/large pages.`;
+        break;
+      }
+      case 'deep_research': {
+        const maxUrls = params?.maxUrls || params?.options?.maxUrls || 20;
+        projected = Math.max(base, Math.ceil(maxUrls / 5) + base);
+        note = `Lower-bound estimate. deep_research cost grows with source count (${maxUrls} max URLs).`;
+        break;
+      }
+      case 'crawl_deep': {
+        const maxPages = params?.maxPages || params?.options?.maxPages || 10;
+        projected = Math.max(base, Math.ceil(maxPages / 20) * base);
+        note = `Lower-bound estimate. crawl_deep cost grows with page count (${maxPages} max).`;
+        break;
+      }
+      case 'extract_with_llm':
+        note = 'Includes external LLM API call cost (not billed in credits, billed by your LLM provider).';
+        break;
+      default:
+        note = 'Fixed cost per invocation.';
+    }
+
+    return { projected, note };
   }
 
   /**

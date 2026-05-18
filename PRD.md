@@ -12,6 +12,22 @@ CrawlForge MCP Server (v3.6.0) has 20 specialized tools and strong security/stea
 
 ## Release History
 
+### v4.0.0 (Development) - Phase D3 Competitive Feature Parity (2026-05-18)
+
+Phase D3 ships Markdown-first output, Camoufox Firefox stealth engine, 10 pre-built site templates, BrowserBase cloud backend, and cost transparency across all tools.
+
+**D3.1 Markdown-first (Turndown):** htmlToMarkdown utility using Turndown. extract_text gains output_format:markdown. extract_content convertToMarkdown now uses Turndown. process_document gains markdown outputFormat. batch_scrape defaults to formats:["markdown"] (BREAKING from v3.x ["json"] default).
+
+**D3.2 Camoufox engine:** BrowserEngine interface + CamoufoxAdapter in StealthBrowserManager. stealth_mode gains engine:"playwright"|"camoufox" param. Camoufox is MIT-licensed (Firefox patches MPL-2.0). Docs: docs/stealth-engines.md.
+
+**D3.3 Pre-built templates:** TemplateRegistry with 10 templates (amazon-product, linkedin-profile, github-repo, youtube-video, tweet, reddit-thread, hacker-news-front-page, producthunt-launch, stackoverflow-question, npm-package). New scrape_template tool (tool count 22 to 23). Offline fixtures in tests/integration/templates/fixtures.js.
+
+**D3.4 Cloud browser backend:** BrowserBackend interface, LocalPlaywrightBackend, BrowserBaseBackend (CDP). Toggle via CRAWLFORGE_BROWSER_BACKEND=local|browserbase + BROWSERBASE_API_KEY. Graceful fallback to local. Docs: docs/cloud-browser.md.
+
+**D3.5 Cost transparency:** AuthManager.projectCost(). _cost: { projected, actual, remaining_credits, projection_note } injected into all tool responses via withAuth. Dynamic tools document lower-bound accuracy caveats in projection_note.
+
+**Verification:** node --check server.js OK. npm test 60% (pre-existing baseline). withAuth tests 9/9. authManager tests 6/6.
+
 ### v3.6.0 (Development) - Phase D1 MCP-Native Primitives (2026-05-18)
 
 Phase D1 ships Resources, Prompts, Sampling, and Elicitation primitives (MCP spec 2025-11-25). D1.1: ResourceRegistry with crawlforge:// URI scheme (5 types), 20 tests green. D1.2: PromptRegistry with 5 workflow prompts. D1.3: SamplingClient with Ollama-API-sampling fallback chain. D1.4: ElicitationHelper wired into 5 tools. D1.5: All 22 tool descriptions rewritten to lead with when-to-use + examples. Server version bumped to 3.6.0.

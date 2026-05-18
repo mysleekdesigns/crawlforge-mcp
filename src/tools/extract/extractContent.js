@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { ContentProcessor } from '../../core/processing/ContentProcessor.js';
 import { BrowserProcessor } from '../../core/processing/BrowserProcessor.js';
 import { HTMLCleaner, ContentQualityAssessor } from '../../utils/contentUtils.js';
+import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js'; // D3.1
 
 const ExtractContentSchema = z.object({
   url: z.string().url(),
@@ -294,25 +295,12 @@ export class ExtractContentTool {
   }
 
   /**
-   * Convert HTML content to Markdown
-   * @param {string} html - HTML content
-   * @returns {string} - Markdown content
+   * Convert HTML content to Markdown using Turndown (D3.1).
+   * @param {string} html
+   * @returns {string}
    */
   convertToMarkdown(html) {
-    // Simple HTML to Markdown conversion
-    return html
-      .replace(/<h([1-6])[^>]*>(.*?)<\/h[1-6]>/gi, (match, level, text) => {
-        const hashes = '#'.repeat(parseInt(level));
-        return `\n${hashes} ${text}\n`;
-      })
-      .replace(/<p[^>]*>(.*?)<\/p>/gi, '\n$1\n')
-      .replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**')
-      .replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*')
-      .replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)')
-      .replace(/<br[^>]*>/gi, '\n')
-      .replace(/<[^>]+>/g, '') // Remove remaining HTML tags
-      .replace(/\n{3,}/g, '\n\n') // Normalize line breaks
-      .trim();
+    return htmlToMarkdown(html);
   }
 
   /**

@@ -14,7 +14,7 @@ export const UrlConfigSchema = z.object({
 
 export const BatchScrapeSchema = z.object({
   urls: z.array(z.union([z.string().url(), UrlConfigSchema])).min(1).max(50),
-  formats: z.array(z.enum(['markdown', 'html', 'json', 'text'])).default(['json']),
+  formats: z.array(z.enum(['markdown', 'html', 'json', 'text'])).default(['markdown']), // D3.1: default markdown for RAG workflows (breaking change from v3.x json default)
   mode: z.enum(['sync', 'async']).default('sync'),
   webhook: z.object({
     url: z.string().url(),

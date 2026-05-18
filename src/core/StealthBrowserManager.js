@@ -1816,4 +1816,234 @@ export class StealthBrowserManager {
   }
 }
 
+
+
+// ─── D3.2: BrowserEngine interface + CamoufoxAdapter ──────────────────────────
+//
+// Camoufox licensing note:
+//   camoufox (github.com/daijro/camoufox) is MIT-licensed.
+//   python-camoufox launcher is MPL-2.0. The JS bindings
+//   (@camoufox/jsapi) are MIT. There are no AGPL forks in the
+//   main distribution chain as of 2026-05. Always re-verify before
+//   distributing: https://github.com/daijro/camoufox/blob/main/LICENSE
+//
+// Engine-selection criteria:
+//   playwright — Chromium-based, fastest, best Playwright ecosystem support.
+//               Good default for most sites.
+//   camoufox  — Firefox-based, patches browser internals to hide automation
+//               markers at the C++ level, not via JS injection. Scores
+//               significantly higher on CreepJS and Datadome than any
+//               Playwright+stealth combination. Use when Playwright is
+//               detected and blocked.
+//
+// Benchmark methodology (not run here — network-dependent):
+//   1. Open https://bot.sannysoft.com with each engine — count red indicators.
+//   2. Open https://nowsecure.nl with each engine — check "You are not a bot".
+//   3. Run https://abrahamjuliot.github.io/creepjs/ — compare trust score %.
+//   4. Use Datadome test page — verify challenge is not triggered.
+//   All tests must be run with a clean incognito context and no extensions.
+
+/**
+ * BrowserEngine interface (D3.2).
+ * Implementors must provide:
+ *   launch(config)  → Promise<Browser-like>
+ *   name()          → string
+ *   isAvailable()   → Promise<boolean>
+ */
+export class BrowserEngine {
+  /** @returns {string} */
+  name() { throw new Error('BrowserEngine.name() must be implemented'); }
+
+  /** @returns {Promise<boolean>} */
+  async isAvailable() { return false; }
+
+  /**
+   * @param {object} config
+   * @returns {Promise<object>} browser-like handle
+   */
+  async launch(_config) { throw new Error('BrowserEngine.launch() must be implemented'); }
+}
+
+/**
+ * CamoufoxAdapter — Firefox-based engine using the camoufox package.
+ * Falls back gracefully when camoufox is not installed.
+ *
+ * Install: npm install camoufox  (MIT license)
+ */
+export class CamoufoxAdapter extends BrowserEngine {
+  name() { return 'camoufox'; }
+
+  async isAvailable() {
+    try {
+      await import('camoufox');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async launch(config = {}) {
+    let camoufox;
+    try {
+      camoufox = await import('camoufox');
+    } catch {
+      throw new Error(
+        'camoufox is not installed. Run: npm install camoufox. Note: camoufox is MIT-licensed and requires Firefox to be installed.'
+      );
+    }
+
+    // camoufox API mirrors playwright — returns a Browser object
+    const browser = await (camoufox.launch || camoufox.default?.launch)({
+      headless: config.headless !== false,
+      ...config.launchOptions
+    });
+
+    return browser;
+  }
+}
+
+// ─── D3.4: BrowserBackend interface + backends ────────────────────────────────
+//
+// CRAWLFORGE_BROWSER_BACKEND=local  → LocalPlaywrightBackend (default, current behavior)
+// CRAWLFORGE_BROWSER_BACKEND=browserbase → BrowserBaseBackend via CDP
+//
+// Graceful fallback: if BrowserBaseBackend fails to connect (no API key, network error,
+// quota exceeded), StealthBrowserManager.getBrowserBackend() falls back to local.
+
+/**
+ * BrowserBackend interface (D3.4).
+ * Implementors must provide:
+ *   connect(config)    → Promise<Browser-like>
+ *   disconnect()       → Promise<void>
+ *   name()             → string
+ *   isConfigured()     → boolean
+ */
+export class BrowserBackend {
+  name() { throw new Error('BrowserBackend.name() must be implemented'); }
+  isConfigured() { return false; }
+  async connect(_config) { throw new Error('BrowserBackend.connect() must be implemented'); }
+  async disconnect() {}
+}
+
+/**
+ * LocalPlaywrightBackend — wraps existing Playwright Chromium behavior.
+ * This is the default backend (preserves all pre-D3.4 behavior).
+ */
+export class LocalPlaywrightBackend extends BrowserBackend {
+  name() { return 'local'; }
+  isConfigured() { return true; }
+
+  async connect(config = {}) {
+    const { chromium } = await import('playwright');
+    return chromium.launch({
+      headless: config.headless !== false,
+      ...config.launchOptions
+    });
+  }
+
+  async disconnect() {}
+}
+
+/**
+ * BrowserBaseBackend — connects to BrowserBase cloud browser via CDP.
+ *
+ * Requirements:
+ *   BROWSERBASE_API_KEY — your BrowserBase API key
+ *   CRAWLFORGE_BROWSER_BACKEND=browserbase
+ *
+ * The backend creates a BrowserBase session, gets the CDP endpoint, and
+ * connects Playwright over it.  All stealth fingerprint injection still
+ * runs through CrawlForge's existing page-level scripts.
+ *
+ * Docs: https://docs.browserbase.com/integrations/playwright
+ */
+export class BrowserBaseBackend extends BrowserBackend {
+  constructor() {
+    super();
+    this._sessionId = null;
+  }
+
+  name() { return 'browserbase'; }
+
+  isConfigured() {
+    return Boolean(process.env.BROWSERBASE_API_KEY);
+  }
+
+  async connect(config = {}) {
+    const apiKey = process.env.BROWSERBASE_API_KEY;
+    if (!apiKey) {
+      throw new Error(
+        'BrowserBase requires BROWSERBASE_API_KEY environment variable. ' +
+        'Get your key at https://browserbase.com'
+      );
+    }
+
+    // Create a BrowserBase session
+    const sessionRes = await fetch('https://www.browserbase.com/v1/sessions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-BB-API-Key': apiKey
+      },
+      body: JSON.stringify({
+        projectId: process.env.BROWSERBASE_PROJECT_ID,
+        ...config.sessionOptions
+      })
+    });
+
+    if (!sessionRes.ok) {
+      const err = await sessionRes.text().catch(() => '');
+      throw new Error();
+    }
+
+    const session = await sessionRes.json();
+    this._sessionId = session.id;
+
+    // Connect Playwright over CDP
+    const { chromium } = await import('playwright');
+    const browser = await chromium.connectOverCDP(session.connectUrl, {
+      timeout: config.timeout || 30000
+    });
+
+    return browser;
+  }
+
+  async disconnect() {
+    if (!this._sessionId) return;
+    const apiKey = process.env.BROWSERBASE_API_KEY;
+    if (!apiKey) return;
+
+    try {
+      await fetch(`https://www.browserbase.com/v1/sessions/${this._sessionId}`, {
+        method: 'DELETE',
+        headers: { 'X-BB-API-Key': apiKey }
+      });
+    } catch {
+      // Non-fatal — session will expire on BrowserBase's side
+    } finally {
+      this._sessionId = null;
+    }
+  }
+}
+
+/**
+ * Factory: resolve which BrowserBackend to use based on env config.
+ * Falls back to local on any error.
+ *
+ * @param {object} [options]
+ * @returns {BrowserBackend}
+ */
+export function resolveBrowserBackend(options = {}) {
+  const requested = (process.env.CRAWLFORGE_BROWSER_BACKEND || 'local').toLowerCase();
+
+  if (requested === 'browserbase') {
+    const bb = new BrowserBaseBackend();
+    if (bb.isConfigured()) return bb;
+    // BROWSERBASE_API_KEY not set — fall through to local
+    console.error('[StealthBrowserManager] CRAWLFORGE_BROWSER_BACKEND=browserbase but BROWSERBASE_API_KEY is not set. Falling back to local Playwright.');
+  }
+
+  return new LocalPlaywrightBackend();
+}
+
 export default StealthBrowserManager;

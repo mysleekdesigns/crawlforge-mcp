@@ -1,7 +1,7 @@
 # CrawlForge MCP Server — Improvement Roadmap v4.0
 
-> **Status:** D1 Complete, D2 Complete, D5.1 Complete — In Progress
-> **Current version:** 3.6.0
+> **Status:** D1 Complete, D2 Complete, D3 Complete, D5.1 Complete — In Progress
+> **Current version:** 4.0.0
 > **Target version:** 4.0
 > **Estimated duration:** 10–12 weeks (phases D2 and D5 parallelizable with D1/D3/D4)
 
@@ -158,48 +158,48 @@ Ask the user for confirmation/input mid-tool for expensive or ambiguous operatio
 ## Phase D3 — Competitive Feature Parity
 
 ### D3.1 Markdown-first output (Firecrawl parity)
-- [ ] Add HTML→Markdown converter utility (Turndown or markdownify)
-- [ ] `src/tools/basic/extractText.js` — add `output_format: "markdown"` option
-- [ ] `src/tools/extract/extractContent.js` — markdown output mode
-- [ ] `src/tools/advanced/batchScrape/index.js` — default to markdown for RAG workflows
-- [ ] `src/tools/extract/processDocument.js` — markdown output mode
-- [ ] Document the change in `CHANGELOG.md` (breaking default change)
+- [x] Add HTML→Markdown converter utility (Turndown or markdownify)
+- [x] `src/tools/basic/extractText.js` — add `output_format: "markdown"` option
+- [x] `src/tools/extract/extractContent.js` — markdown output mode
+- [x] `src/tools/advanced/batchScrape/index.js` — default to markdown for RAG workflows
+- [x] `src/tools/extract/processDocument.js` — markdown output mode
+- [x] Document the change in `CHANGELOG.md` (breaking default change)
 
 ### D3.2 Camoufox / nodriver alternative for stealth_mode
-- [ ] Audit Camoufox / nodriver licensing (some forks AGPL)
-- [ ] Define `BrowserEngine` interface in `src/core/StealthBrowserManager.js`
-- [ ] Implement `CamoufoxAdapter` (Firefox-based, no patches needed)
-- [ ] Add `engine: "playwright" | "camoufox"` option to `stealth_mode` tool
-- [ ] Benchmark against `bot.sannysoft.com`, `creepjs.com`, `nopecha.com`
-- [ ] Document engine selection criteria in `docs/stealth-engines.md`
+- [x] Audit Camoufox / nodriver licensing (some forks AGPL)
+- [x] Define `BrowserEngine` interface in `src/core/StealthBrowserManager.js`
+- [x] Implement `CamoufoxAdapter` (Firefox-based, no patches needed)
+- [x] Add `engine: "playwright" | "camoufox"` option to `stealth_mode` tool
+- [x] Benchmark against `bot.sannysoft.com`, `creepjs.com`, `nopecha.com`
+- [x] Document engine selection criteria in `docs/stealth-engines.md`
 
 ### D3.3 Pre-built site templates (Apify Actors parity)
-- [ ] Create `src/tools/templates/` directory and `TemplateRegistry.js`
-- [ ] New tool `scrape_template` registered in `server.js`
-- [ ] Template: `amazon-product`
-- [ ] Template: `linkedin-profile`
-- [ ] Template: `github-repo`
-- [ ] Template: `youtube-video`
-- [ ] Template: `tweet` / X post
-- [ ] Template: `reddit-thread`
-- [ ] Template: `hacker-news-front-page`
-- [ ] Template: `producthunt-launch`
-- [ ] Template: `stackoverflow-question`
-- [ ] Template: `npm-package`
-- [ ] Recorded fixtures in `tests/integration/templates/` for each
+- [x] Create `src/tools/templates/` directory and `TemplateRegistry.js`
+- [x] New tool `scrape_template` registered in `server.js`
+- [x] Template: `amazon-product`
+- [x] Template: `linkedin-profile`
+- [x] Template: `github-repo`
+- [x] Template: `youtube-video`
+- [x] Template: `tweet` / X post
+- [x] Template: `reddit-thread`
+- [x] Template: `hacker-news-front-page`
+- [x] Template: `producthunt-launch`
+- [x] Template: `stackoverflow-question`
+- [x] Template: `npm-package`
+- [x] Recorded fixtures in `tests/integration/templates/` for each
 
 ### D3.4 Cloud browser backend (BrowserBase parity)
-- [ ] Define `BrowserBackend` interface in `src/core/StealthBrowserManager.js`
-- [ ] Implement `LocalPlaywrightBackend` (current behavior)
-- [ ] Implement `BrowserBaseBackend`
-- [ ] Env toggle: `CRAWLFORGE_BROWSER_BACKEND=local|browserbase`, `BROWSERBASE_API_KEY`
-- [ ] Graceful fallback to local if cloud unavailable
-- [ ] Document in `docs/cloud-browser.md`
+- [x] Define `BrowserBackend` interface in `src/core/StealthBrowserManager.js`
+- [x] Implement `LocalPlaywrightBackend` (current behavior)
+- [x] Implement `BrowserBaseBackend`
+- [x] Env toggle: `CRAWLFORGE_BROWSER_BACKEND=local|browserbase`, `BROWSERBASE_API_KEY`
+- [x] Graceful fallback to local if cloud unavailable
+- [x] Document in `docs/cloud-browser.md`
 
 ### D3.5 Cost transparency
-- [ ] Add `projectCost(toolName, params)` method to `src/core/AuthManager.js`
-- [ ] Surface `_cost: { projected, actual, remaining_credits }` in all tool responses
-- [ ] Document accuracy caveats for dynamic tools (`deep_research`, `crawl_deep`)
+- [x] Add `projectCost(toolName, params)` method to `src/core/AuthManager.js`
+- [x] Surface `_cost: { projected, actual, remaining_credits }` in all tool responses
+- [x] Document accuracy caveats for dynamic tools (`deep_research`, `crawl_deep`)
 
 ---
 

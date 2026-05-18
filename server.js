@@ -23,6 +23,7 @@ import { ScrapeWithActionsTool } from "./src/tools/advanced/ScrapeWithActionsToo
 import { DeepResearchTool } from "./src/tools/research/deepResearch.js";
 import { TrackChangesTool } from "./src/tools/tracking/trackChanges/index.js";
 import { GenerateLLMsTxtTool } from "./src/tools/llmstxt/generateLLMsTxt.js";
+import { ScrapeTemplateTool } from "./src/tools/templates/ScrapeTemplateTool.js"; // D3.3
 import { StealthBrowserManager } from "./src/core/StealthBrowserManager.js";
 import { LocalizationManager } from "./src/core/LocalizationManager.js";
 import { memoryMonitor } from "./src/utils/MemoryMonitor.js";
@@ -94,8 +95,8 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "3.6.0",
-  description: "Production-ready MCP server with 22 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, change tracking, and local-LLM extraction via Ollama.",
+  version: "4.0.0",
+  description: "Production-ready MCP server with 23 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, change tracking, and local-LLM extraction via Ollama.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png"
 });
@@ -158,6 +159,7 @@ const scrapeWithActionsTool = new ScrapeWithActionsTool();
 const deepResearchTool = new DeepResearchTool();
 const trackChangesTool = new TrackChangesTool();
 const generateLLMsTxtTool = new GenerateLLMsTxtTool();
+const scrapeTemplateTool = new ScrapeTemplateTool(); // D3.3
 const stealthBrowserManager = new StealthBrowserManager();
 const localizationManager = new LocalizationManager();
 
@@ -260,12 +262,13 @@ server.registerTool("fetch_url", {
 
 // Tool: extract_text
 server.registerTool("extract_text", {
-  description: "Use this when you need a page's human-readable text stripped of HTML tags, scripts, and styles — e.g. for keyword search, summarization input, or NLP. Faster than extract_content but returns unstructured text. Example: extract_text({url: \"https://example.com/article\"})",
+  description: "Use this when you need a page's human-readable text or markdown stripped of HTML tags, scripts, and styles — e.g. for keyword search, summarization, RAG ingestion, or NLP. Use output_format:\"markdown\" for RAG workflows. Faster than extract_content but returns unstructured content. Example: extract_text({url: \"https://example.com/article\", output_format:\"markdown\"})",
   annotations: { title: "Extract Text", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to extract text from"),
     remove_scripts: z.boolean().optional().default(true).describe("Remove script tags before extraction"),
-    remove_styles: z.boolean().optional().default(true).describe("Remove style tags before extraction")
+    remove_styles: z.boolean().optional().default(true).describe("Remove style tags before extraction"),
+    output_format: z.enum(["text", "markdown"]).optional().default("text").describe("Output format: \"text\" (default) or \"markdown\" — use markdown for RAG workflows")
   }
 }, withAuth("extract_text", extractTextHandler));
 
@@ -863,6 +866,7 @@ server.registerTool("stealth_mode", {
         hardwareSpoofing: z.boolean().default(true)
       }).optional()
     }).optional().describe("Stealth browser configuration with anti-detection settings"),
+    engine: z.enum(["playwright", "camoufox"]).optional().default("playwright").describe("Browser engine: \"playwright\" (Chromium, default) or \"camoufox\" (Firefox-based, higher anti-detect score — install with npm install camoufox)"),
     contextId: z.string().optional().describe("Browser context ID for page operations"),
     urlToTest: z.string().url().optional().describe("URL to navigate to when creating a page")
   }
@@ -1019,6 +1023,25 @@ server.registerTool("localization", {
   }
 }));
 
+
+// Tool: scrape_template (D3.3 — pre-built site templates)
+server.registerTool("scrape_template", {
+  description: "Use this when you want structured data from a well-known site without writing custom selectors. Pass template:\"list\" to see all available templates. Supports: amazon-product, linkedin-profile, github-repo, youtube-video, tweet, reddit-thread, hacker-news-front-page, producthunt-launch, stackoverflow-question, npm-package. Example: scrape_template({template:\"github-repo\", url:\"https://github.com/user/repo\"})",
+  annotations: { title: "Scrape Template", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  inputSchema: {
+    template: z.string().describe("Template ID (e.g. github-repo) or list to enumerate available templates"),
+    url: z.string().url().optional().describe("URL to scrape — required unless template is list"),
+    timeout: z.number().min(5000).max(60000).optional().default(15000).describe("Request timeout in milliseconds")
+  }
+}, withAuth("scrape_template", async (params) => {
+  try {
+    const result = await scrapeTemplateTool.execute(params);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { content: [{ type: "text", text: `Template scrape failed: ${error.message}` }], isError: true };
+  }
+}));
+
 // ─── Transport + startup ───────────────────────────────────────────────────────
 
 const useHttp = process.argv.includes('--http') || process.env.MCP_HTTP === 'true';
@@ -1068,9 +1091,10 @@ async function runServer() {
     "extract_content", "process_document", "summarize_content", "analyze_content",
     "batch_scrape", "scrape_with_actions",
     "deep_research", "track_changes", "generate_llms_txt",
-    "stealth_mode", "localization", "extract_structured", "extract_with_llm"
+    "stealth_mode", "localization", "extract_structured", "extract_with_llm",
+    "scrape_template"  // D3.3
   ];
-  console.error(`Tools available: ${allTools.join(', ')}`);
+  console.error(`Tools available (23): ${allTools.join(", ")}`);
 
   // Start memory monitoring in development
   if (config.server.nodeEnv === "development") {

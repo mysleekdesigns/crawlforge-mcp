@@ -60,6 +60,31 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
         const result = await handler(params);
         outcome = 'success';
 
+        // D3.5: Surface cost transparency in all tool responses
+        try {
+          const projection = authManager.projectCost(toolName, params);
+          const remainingCredits = creatorMode ? Infinity : (authManager.creditCache ? [...authManager.creditCache.values()][0] ?? null : null);
+          const costMeta = {
+            projected: creditCost,
+            actual: creditCost,
+            remaining_credits: remainingCredits,
+            projection_note: projection.note
+          };
+
+          // Inject _cost into the first text content item if it's JSON
+          if (result && Array.isArray(result.content) && result.content[0]?.type === 'text') {
+            try {
+              const parsed = JSON.parse(result.content[0].text);
+              parsed._cost = costMeta;
+              result.content[0].text = JSON.stringify(parsed, null, 2);
+            } catch {
+              // Not JSON — skip injection silently
+            }
+          }
+        } catch {
+          // Cost injection must never break the request path
+        }
+
         if (!creatorMode) {
           await authManager.reportUsage(toolName, creditCost, params, 200, Date.now() - startTime);
         }

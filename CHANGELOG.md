@@ -5,6 +5,68 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - 2026-05-18
+
+Phase D3 - Competitive Feature Parity. **Breaking change:** batch_scrape now defaults to markdown output (was json). Adds scrape_template tool (23 tools total). Turndown HTML-to-Markdown converter. Camoufox Firefox-based stealth engine. BrowserBase cloud backend. Cost transparency in all tool responses.
+
+### Breaking Changes
+
+- **batch_scrape** default `formats` changed from `["json"]` to `["markdown"]`. Callers that depend on `content.json` from batch results must now pass `formats: ["json"]` explicitly. This aligns with Firecrawl parity for RAG workflows.
+- **server version** bumped 3.6.0 to 4.0.0.
+
+### Migration Guide
+
+If you use `batch_scrape` without specifying `formats`, your response shape changes:
+- Before (v3.x): `result.results[n].content.json`
+- After (v4.0): `result.results[n].content.markdown`
+- To keep old behavior: pass `formats: ["json"]` explicitly.
+
+### Added
+
+**D3.1 Markdown-first output (Turndown)**
+- New utility `src/utils/htmlToMarkdown.js` wraps Turndown with sensible RAG-optimized defaults (atx headings, fenced code blocks, boilerplate removal).
+- `extract_text`: new `output_format: "markdown"` parameter (default: "text").
+- `extract_content`: `outputFormat: "markdown"` now uses Turndown instead of regex-based conversion.
+- `process_document`: `outputFormat: "markdown"` added to enum (new option).
+- `batch_scrape`: default `formats` changed from `["json"]` to `["markdown"]`.
+- turndown added to dependencies.
+
+**D3.2 Camoufox browser engine**
+- `src/core/StealthBrowserManager.js`: new `BrowserEngine` abstract class + `CamoufoxAdapter` implementation.
+- `stealth_mode` tool: new `engine: "playwright" | "camoufox"` parameter (default: "playwright").
+- Camoufox adapter gracefully fails with actionable error when package not installed.
+- Licensing verified: camoufox JS API is MIT, Firefox patches are MPL-2.0 (no AGPL).
+- Benchmark methodology documented in `docs/stealth-engines.md`.
+- New doc: `docs/stealth-engines.md`.
+
+**D3.3 Pre-built site templates**
+- New `src/tools/templates/TemplateRegistry.js` with 10 templates: amazon-product, linkedin-profile, github-repo, youtube-video, tweet, reddit-thread, hacker-news-front-page, producthunt-launch, stackoverflow-question, npm-package.
+- New `src/tools/templates/ScrapeTemplateTool.js` wrapping the registry.
+- New `scrape_template` tool registered in server.js (tool count: 22 to 23).
+- Fixture stubs in `tests/integration/templates/fixtures.js` for all 10 templates.
+- Credit cost: 1 credit per invocation (same as fetch_url).
+
+**D3.4 Cloud browser backend (BrowserBase)**
+- `src/core/StealthBrowserManager.js`: new `BrowserBackend` abstract class, `LocalPlaywrightBackend`, `BrowserBaseBackend` (CDP), and `resolveBrowserBackend()` factory.
+- Env config: `CRAWLFORGE_BROWSER_BACKEND=local|browserbase`, `BROWSERBASE_API_KEY`.
+- Graceful fallback: if browserbase requested but BROWSERBASE_API_KEY not set, logs warning and falls back to local.
+- New doc: `docs/cloud-browser.md`.
+
+**D3.5 Cost transparency**
+- `src/core/AuthManager.js`: new `projectCost(toolName, params)` method returning `{ projected, note }`.
+- `src/server/withAuth.js`: all successful tool responses include `_cost: { projected, actual, remaining_credits, projection_note }` injected into the first JSON content item.
+- Dynamic tools (deep_research, crawl_deep, batch_scrape) return lower-bound estimates with accuracy caveats in `projection_note`.
+
+### Changed
+- server.js: version bumped to 4.0.0; description updated to 23 tools; scrape_template registered.
+- package.json: version bumped to 4.0.0; turndown added to dependencies.
+
+### Verification
+- `node --check server.js` and all modified src files: no syntax errors.
+- `npm test` (MCP protocol compliance): 60% pass rate - unchanged from pre-D3 baseline.
+- `node --test tests/unit/withAuth.test.js`: 9/9 pass.
+- `node --test tests/unit/authManager.test.js`: 6/6 pass.
+
 ## [3.6.0] - 2026-05-18
 
 Phase D1 — MCP-Native Primitives. CrawlForge is now a first-class MCP server, not just a tool host.
