@@ -20,14 +20,18 @@ const __dirname = dirname(__filename);
 let resolveApiEndpoint;
 let ALLOWED_HOSTS;
 
+let isCreatorModeVerified;
+
 try {
   const mod = await import('../../src/core/endpointGuard.js');
   resolveApiEndpoint = mod.resolveApiEndpoint;
   ALLOWED_HOSTS = mod.ALLOWED_HOSTS;
+  ({ isCreatorModeVerified } = await import('../../src/core/creatorMode.js'));
 } catch (err) {
   // Module not yet written by Agent A — all tests will fail with a clear message.
   resolveApiEndpoint = () => { throw new Error('endpointGuard.js not yet implemented'); };
   ALLOWED_HOSTS = [];
+  isCreatorModeVerified = () => false;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,23 +95,22 @@ test('resolveApiEndpoint throws for an unparseable string', () => {
   );
 });
 
-test('resolveApiEndpoint throws for http://localhost:8888 when creator mode is OFF', () => {
-  // Ensure no creator-mode env var is set so isCreatorModeVerified() returns false.
-  // Store and strip the variable if it happens to be set in the test environment.
-  const savedSecret = process.env.CRAWLFORGE_CREATOR_SECRET;
-  delete process.env.CRAWLFORGE_CREATOR_SECRET;
-
-  try {
-    assert.throws(
-      () => resolveApiEndpoint('http://localhost:8888'),
-      /allow-list|not in allow|refused/i,
-      'localhost must be rejected when creator mode is not active'
-    );
-  } finally {
-    if (savedSecret !== undefined) {
-      process.env.CRAWLFORGE_CREATOR_SECRET = savedSecret;
-    }
+test('resolveApiEndpoint throws for http://localhost:8888 when creator mode is OFF', (t) => {
+  // creatorMode.js reads `.env` at module load and caches the verified flag in
+  // a module-scoped variable that cannot be reset from outside (by design — see
+  // src/core/creatorMode.js). If the maintainer's `.env` happened to enable
+  // creator mode in this process, the test's premise (creator mode OFF) can't
+  // hold, so skip rather than fail.
+  if (isCreatorModeVerified()) {
+    t.skip('creator mode is active in this process; premise not satisfiable');
+    return;
   }
+
+  assert.throws(
+    () => resolveApiEndpoint('http://localhost:8888'),
+    /allow-list|not in allow|refused/i,
+    'localhost must be rejected when creator mode is not active'
+  );
 });
 
 // TODO: verify with creator secret

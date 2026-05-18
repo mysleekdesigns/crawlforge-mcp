@@ -7,6 +7,7 @@ import { CacheManager } from '../../../core/cache/CacheManager.js';
  */
 export class ResultRanker {
   constructor(options = {}) {
+    const { sharedCache, ...serializableOptions } = options;
     this.options = {
       // Ranking weight configuration
       weights: {
@@ -44,11 +45,14 @@ export class ResultRanker {
       // Performance options
       cacheEnabled: true,
       cacheTTL: 3600000,     // 1 hour
-      ...options
+      ...serializableOptions
     };
 
-    // Use shared cache if provided, otherwise create own CacheManager instance
-    this.cache = options.sharedCache || (this.options.cacheEnabled
+    // Use shared cache if provided, otherwise create own CacheManager instance.
+    // sharedCache is held separately — never in this.options — because it holds
+    // a setInterval Timer that would create a circular reference when the
+    // options object is JSON.stringify'd to build a cache key (see generateKey).
+    this.cache = sharedCache || (this.options.cacheEnabled
       ? new CacheManager({ ttl: this.options.cacheTTL })
       : null);
 
