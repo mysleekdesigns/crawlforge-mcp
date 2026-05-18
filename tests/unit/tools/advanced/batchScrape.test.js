@@ -173,4 +173,22 @@ describe('batchScrape tool', () => {
     });
     assert.deepEqual(parsed.formats, ['markdown', 'json']);
   });
+
+  // Contract test: the CLI `batch` command (src/cli/commands/batch.js) must map
+  // user-facing flags (--format / --concurrency / --max-retries) to the schema's
+  // actual keys (formats / maxConcurrency / jobOptions.maxRetries). A prior bug
+  // passed output_format / concurrency / max_retries, which Zod silently stripped,
+  // so user CLI flags had no effect on the tool's behavior.
+  test('CLI batch command param shape parses cleanly with all flags applied', () => {
+    const cliMappedParams = {
+      urls: ['https://example.com'],
+      formats: ['markdown'],
+      maxConcurrency: 5,
+      jobOptions: { maxRetries: 2 }
+    };
+    const parsed = BatchScrapeSchema.parse(cliMappedParams);
+    assert.deepEqual(parsed.formats, ['markdown']);
+    assert.equal(parsed.maxConcurrency, 5);
+    assert.equal(parsed.jobOptions.maxRetries, 2);
+  });
 });

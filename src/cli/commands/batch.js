@@ -37,9 +37,9 @@ export function register(program) {
       const tool = new BatchScrapeTool(getToolConfig('batch_scrape'));
       await runTool(tool, {
         urls,
-        output_format: opts.format,
-        concurrency: parseInt(opts.concurrency, 10),
-        max_retries: parseInt(opts.maxRetries, 10)
+        formats: [opts.format],
+        maxConcurrency: parseInt(opts.concurrency, 10),
+        jobOptions: { maxRetries: parseInt(opts.maxRetries, 10) }
       }, cliFlags);
     });
 }
