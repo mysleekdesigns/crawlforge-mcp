@@ -138,7 +138,7 @@ export class ExtractContentTool {
       const shouldUseJavaScript = options.requiresJavaScript || await this.shouldUseJavaScript(url);
       
       if (shouldUseJavaScript) {
-        console.log('Using browser rendering for JavaScript content...');
+        console.error('Using browser rendering for JavaScript content...');
         const browserResult = await this.browserProcessor.processURL({
           url,
           options: {

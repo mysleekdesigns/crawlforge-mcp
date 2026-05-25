@@ -1376,7 +1376,7 @@ export class StealthBrowserManager {
       });
       
       if (challengeDetected) {
-        console.log('CloudFlare challenge detected, attempting bypass...');
+        console.error('CloudFlare challenge detected, attempting bypass...');
         
         // Simulate human behavior during challenge
         if (this.humanBehaviorSimulator) {
@@ -1437,7 +1437,7 @@ export class StealthBrowserManager {
       });
       
       if (recaptchaDetected) {
-        console.log('reCAPTCHA detected, implementing human behavior...');
+        console.error('reCAPTCHA detected, implementing human behavior...');
         
         // Simulate human inspection of the reCAPTCHA
         if (this.humanBehaviorSimulator) {
@@ -1491,7 +1491,7 @@ export class StealthBrowserManager {
       this.proxyManager.currentProxy = proxies[this.proxyManager.proxyIndex];
       this.proxyManager.lastRotation = now;
       
-      console.log('Rotated to proxy:', this.proxyManager.currentProxy);
+      console.error('Rotated to proxy:', this.proxyManager.currentProxy);
     }
     
     return this.proxyManager.currentProxy;

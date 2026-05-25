@@ -12,6 +12,18 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
+### v4.2.10 — Eliminate stdout leaks corrupting CLI `--json` output (2026-05-25)
+
+Found while live-verifying the v4.2.9 CLI fixes: `crawlforge actions --json` printed a `"Starting scrape session …"` banner to **stdout** before the JSON, so any consumer parsing stdout as JSON failed on line 1. A sweep found the same bug class (`console.log` → stdout) in several other tool/core execution paths, each corrupting a different command's `--json`. Fixed all 11 by moving them to `console.error`:
+
+- `ScrapeWithActionsTool`: the session banner (`actions`) + its internal `log()` helper.
+- `extractContent` / `processDocument`: "Using browser rendering…" (`scrape`/`extract`/`analyze`/`process-document`).
+- `StealthBrowserManager`: Cloudflare/reCAPTCHA/proxy-rotation messages (`stealth` on protected sites).
+- `BFSCrawler`: domain-filter / legacy-pattern / robots.txt block messages (`map`/`crawl` on real sites).
+- `WebhookDispatcher`: webhook-retry message (`track`/`monitor` with webhooks).
+
+Deliberately left: `AuthManager` interactive setup output (stdout is intended for the `crawlforge-setup` UX), standalone `src/security/*` scripts/tests, and graceful-shutdown logs (don't fire on normal one-shot CLI exit; `runTool` `process.exit()`s after flushing). Completes the v4.2.4 stdout-hygiene pass — the MCP JSON-RPC stream and CLI `--json` are now the sole stdout writers during tool execution. **Verification:** `crawlforge actions … --json` output now starts with `{` and parses cleanly (`success:true`, 2/2 actions, screenshot captured); `npm run test:unit` 262/262.
+
 ### v4.2.9 — CLI command fixes (research/stealth/llmstxt/map/track/monitor/actions) + undici proxy for sandboxes (2026-05-25)
 
 Completes the CLI-correctness sweep started in v4.2.4 (which fixed `template`/`analyze`/`localize`). The CLI invokes tools directly, so each command must match the tool's Zod schema; none of these touch the MCP server, which was already correct.

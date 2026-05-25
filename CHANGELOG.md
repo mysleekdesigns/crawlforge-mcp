@@ -3,6 +3,24 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.2.10] - 2026-05-25
+
+Patch release: eliminate stdout leaks that corrupted CLI `--json` output. Found while verifying the v4.2.9 CLI fixes — `crawlforge actions --json` emitted a non-JSON banner line before the JSON, breaking programmatic parsing.
+
+### Fixed
+
+- **Tool diagnostics no longer write to stdout** (reserved for the MCP JSON-RPC stream and CLI `--json`). Moved 11 `console.log` calls to `console.error` across the tool/crawler execution paths:
+  - `ScrapeWithActionsTool` — "Starting scrape session …" banner (the one that broke `actions --json`) and its internal `log()` helper.
+  - `extractContent` / `processDocument` — "Using browser rendering for JavaScript content…" (corrupted `scrape`/`extract`/`analyze`/`process-document --json` when JS rendering kicked in).
+  - `StealthBrowserManager` — Cloudflare/reCAPTCHA-detected and proxy-rotation messages (corrupted `stealth --json` on protected sites).
+  - `BFSCrawler` — domain-filter / legacy-pattern / robots.txt block messages (corrupted `map`/`crawl --json` on real multi-page sites).
+  - `WebhookDispatcher` — webhook-retry message (corrupted `track`/`monitor --json` on webhook retries).
+  - Completes the v4.2.4 stdout-hygiene pass. Left untouched: `AuthManager` interactive setup output (stdout is intended there), standalone `src/security/*` scripts/tests, and graceful-shutdown logs (don't fire on normal one-shot CLI exit).
+
+### Verified
+
+- `crawlforge actions … --json` now starts with `{` and parses cleanly (`success:true`, 2/2 actions, screenshot captured). `npm run test:unit` 262/262.
+
 ## [4.2.9] - 2026-05-25
 
 Patch release: fix the remaining broken/no-op `crawlforge` CLI commands and make the CLI work inside sandboxed (proxied) environments. The CLI invokes tools directly, so these are CLI-layer fixes — the MCP server was already correct.
