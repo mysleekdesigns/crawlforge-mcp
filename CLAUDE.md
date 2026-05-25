@@ -60,9 +60,9 @@ These guidelines are working if: fewer unnecessary changes in diffs, fewer rewri
 
 ## Project Overview
 
-CrawlForge MCP Server - A professional MCP (Model Context Protocol) server providing 20 web scraping, crawling, and content processing tools.
+CrawlForge MCP Server - A professional MCP (Model Context Protocol) server providing 23 web scraping, crawling, and content processing tools (5 inline + 18 advanced).
 
-**Current Version:** 3.0.12
+**Current Version:** 4.2.2
 
 ## Development Commands
 
@@ -92,12 +92,25 @@ npm run dev
 # Test MCP protocol compliance
 npm test
 
+# Unit tests (131 tests across 17 tools, no live network)
+npm run test:unit
+
+# Integration tests
+npm run test:integration
+
 # Functional tests
 node test-tools.js             # Test all tools
 node test-real-world.js        # Test real-world usage scenarios
 
 # MCP Protocol tests
 node tests/integration/mcp-protocol-compliance.test.js
+
+# CLI (v4.1.0+, requires global install or npx)
+crawlforge --help              # Show all 15 subcommands
+crawlforge scrape https://example.com
+crawlforge batch --urls urls.txt --format markdown
+crawlforge install-skills --target claude-code
+# See docs/cli-guide.md for full reference
 
 # Docker
 npm run docker:build         # Build Docker image
@@ -124,30 +137,37 @@ npm run docker:prod         # Run production container
 - **WebhookDispatcher**: Event notification system for job completion callbacks
 - **ActionExecutor**: Browser automation engine (Playwright-based)
 - **ResearchOrchestrator**: Multi-stage research with query expansion and synthesis
-- **StealthBrowserManager**: Stealth mode scraping with anti-detection
+- **StealthBrowserManager**: Stealth mode scraping with anti-detection; Camoufox (Firefox) engine added in v4.0.0
 - **LocalizationManager**: Multi-language content and localization
 - **ChangeTracker**: Content change tracking over time
 - **SnapshotManager**: Website snapshots and version history
+- **ResourceRegistry**: MCP Resources (crawlforge:// URI scheme, 5 resource types) — D1.1, v3.6.0
+- **PromptRegistry** (`src/prompts/`): 5 workflow prompts — D1.2, v3.6.0
+- **SamplingClient**: MCP Sampling with Ollama-API fallback chain — D1.3, v3.6.0
+- **ElicitationHelper**: MCP Elicitation for user confirmation on expensive operations — D1.4, v3.6.0
+- **endpointGuard**: Allow-list guard for server's own backend calls — v3.0.18
 
 ### Tool Layer (`src/tools/`)
 
 Tools are organized in subdirectories by category:
 
 - `advanced/` - BatchScrapeTool, ScrapeWithActionsTool
+- `basic/` - fetchUrl, extractText, extractLinks, extractMetadata, scrapeStructured
 - `crawl/` - crawlDeep, mapSite
-- `extract/` - analyzeContent, extractContent, processDocument, summarizeContent
+- `extract/` - analyzeContent, extractContent, extractStructured, extractWithLlm, listOllamaModels, processDocument, summarizeContent
 - `research/` - deepResearch
 - `search/` - searchWeb (proxied through CrawlForge.dev API)
+- `templates/` - ScrapeTemplateTool (10 pre-built site templates, v4.0.0)
 - `tracking/` - trackChanges
 - `llmstxt/` - generateLLMsTxt
 
-### Available MCP Tools (20 total)
+### Available MCP Tools (23 total)
 
-**Basic Tools (server.js inline):**
+**Basic Tools (server.js inline, 5):**
 fetch_url, extract_text, extract_links, extract_metadata, scrape_structured
 
-**Advanced Tools:**
-search_web, crawl_deep, map_site, extract_content, process_document, summarize_content, analyze_content, extract_structured, batch_scrape, scrape_with_actions, deep_research, track_changes, generate_llms_txt, stealth_mode, localization
+**Advanced Tools (18):**
+search_web, crawl_deep, map_site, extract_content, process_document, summarize_content, analyze_content, extract_structured, extract_with_llm, list_ollama_models, batch_scrape, scrape_with_actions, deep_research, track_changes, generate_llms_txt, stealth_mode, localization, scrape_template
 
 ### MCP Server Entry Point
 
@@ -202,10 +222,23 @@ When adding a new tool to server.js:
 5. Add to cleanup array in gracefulShutdown if it has `destroy()` or `cleanup()` methods
 6. Update tool count in console log at server startup
 
+## Sandboxing & Approvals
+
+Key mechanisms for security-conscious future sessions:
+
+- **SSRF** (`src/utils/ssrfProtection.js`): Every scraped URL validated — http/https only; blocks loopback, RFC1918, IPv6 ULA/link-local, cloud metadata endpoints; blocks dangerous ports (22, 25, 53, 445, 3306, 5432, 6379, 27017, etc.); redirects re-validated per hop, capped at 5; pre-parse path-traversal rejection. Blocklist-based — no per-deployment outbound allowlist.
+- **endpointGuard** (`src/core/endpointGuard.js`): Hard allow-list of `{crawlforge.dev, www.crawlforge.dev, api.crawlforge.dev}` for the server's own backend calls; HTTPS required; fail-closed. Localhost only in creator mode (v3.0.18).
+- **Action allowlist** (`src/core/ActionExecutor.js`): `scrape_with_actions` accepts only 7 action types: `wait`, `click`, `type`, `press`, `scroll`, `screenshot`, `executeJavaScript`. `executeJavaScript` throws unless `ALLOW_JAVASCRIPT_EXECUTION=true` is set at deploy time (off by default).
+- **Elicitation** (`src/core/ElicitationHelper.js`): User confirmation requested for `deep_research` (>50 URLs), `batch_scrape` (sync, >25 URLs), `crawl_deep` (projected >500 pages), `extract_structured` (schema has >3 required fields, no LLM configured), and credit-low situations. Fail-open if client does not support elicitation.
+- **Browser sandboxing**: Standard pool retains OS sandbox. Stealth Chromium uses `--no-sandbox` + `--disable-web-security` (deliberate fingerprint-spoofing trade-off). Camoufox (Firefox, v4.0.0) is the alternative — see `docs/stealth-engines.md`.
+
+See `docs/sandboxing-and-approvals.md` for the full reference.
+
 ## Security
 
 Security testing and CI/CD pipeline details are in:
 
+- `docs/sandboxing-and-approvals.md` — Canonical sandboxing & approvals reference
 - `docs/security-audit-report.md` — Full security audit
 - `.github/workflows/ci.yml` — CI pipeline with security checks
 - `.github/workflows/security.yml` — Daily scheduled security scanning

@@ -9,7 +9,7 @@ Professional web scraping and content extraction server implementing the Model C
 
 ## 🎯 Features
 
-- **22 Professional Tools**: Web scraping, deep research, stealth browsing, content analysis, local-LLM extraction (Ollama)
+- **23 Professional Tools**: Web scraping, deep research, stealth browsing, content analysis, local-LLM extraction (Ollama)
 - **Free Tier**: 1,000 credits to get started instantly
 - **MCP Compatible**: Works with Claude, Cursor, and other MCP-enabled AI tools
 - **Enterprise Ready**: Scale up with paid plans for production use
@@ -140,7 +140,7 @@ Restart Cursor to activate.
 | **Enterprise** | 250,000 | Large scale operations |
 
 **All plans include:**
-- Access to all 22 tools
+- Access to all 23 tools
 - Credits never expire and roll over month-to-month
 - API access and webhook notifications
 
@@ -215,6 +215,17 @@ Once configured, use these tools in your AI assistant:
 - **No Data Retention**: We don't store scraped data, only usage logs
 - **Rate Limiting**: Built-in protection against abuse
 - **Compliance**: Respects robots.txt and GDPR requirements
+
+### Security & Approvals
+
+- **SSRF enforcement**: Every scraped URL is validated before the request is sent — http/https only; blocks loopback, RFC1918, IPv6 private/link-local ranges, cloud metadata endpoints (GCP, Azure), and dangerous ports (SSH, SMTP, DNS, MySQL, Postgres, Redis, MongoDB, etc.). Redirects are re-validated each hop, capped at 5.
+- **Backend endpoint guard** (v3.0.18): The server's own calls to CrawlForge.dev use a separate fail-closed allow-list (`{crawlforge.dev, www.crawlforge.dev, api.crawlforge.dev}`, HTTPS required). Setting `CRAWLFORGE_API_URL` to an arbitrary host is blocked at parse time.
+- **Action allowlist**: `scrape_with_actions` accepts only 7 action types (`wait`, `click`, `type`, `press`, `scroll`, `screenshot`, `executeJavaScript`). No download, file-write, or arbitrary cross-page navigation primitives exist.
+- **JavaScript gate**: The `executeJavaScript` action throws by default. Set `ALLOW_JAVASCRIPT_EXECUTION=true` at deploy time to enable (not recommended in production).
+- **MCP Elicitation** (v3.6.0): Four tools request user confirmation before executing expensive operations — `deep_research` (>50 URLs), `batch_scrape` (sync mode, >25 URLs), `crawl_deep` (projected >500 pages), `extract_structured` (schema has >3 required fields with no LLM configured). Credit-low situations also elicit. Confirmation is best-effort: if the MCP client does not support elicitation the tool proceeds (fail-open).
+- **Per-tool credit gating**: Every tool is wrapped with `withAuth()`, which checks and deducts credits before execution. Fail-closed since v3.0.18.
+
+See [docs/sandboxing-and-approvals.md](docs/sandboxing-and-approvals.md) for the full reference.
 
 ### Security Updates
 

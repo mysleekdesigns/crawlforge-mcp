@@ -1,6 +1,6 @@
 # CrawlForge MCP Server - Production Readiness
 
-**Version:** 4.1.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-18
+**Version:** 4.2.2 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-25
 
 ---
 

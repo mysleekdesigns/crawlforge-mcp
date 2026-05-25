@@ -2,15 +2,29 @@
 
 ## Context
 
-CrawlForge MCP Server (v3.6.0) has 20 specialized tools and strong security/stealth features, but Firecrawl has leapfrogged in developer experience with a CLI, skills system, and AI workflows. This PRD covers the top 3 upgrades to close the gap while preserving CrawlForge's unique advantages (stealth, localization, NLP, change tracking, local processing).
+CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (Resources, Prompts, Sampling, Elicitation from D1/v3.6.0), a CLI (D4/v4.1.0), and strong security/stealth features. This PRD covers the top 3 upgrades that closed the developer-experience gap with Firecrawl while preserving CrawlForge's unique advantages (stealth, localization, NLP, change tracking, local processing).
 
-**Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — without breaking any of the 20 existing MCP tools or the current setup flow.
+**Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — all three shipped in v4.1.0 — without breaking any existing MCP tools or the current setup flow.
 
 **Last Updated:** 2026-05-18
 
 ---
 
 ## Release History
+
+### v4.2.2 (Documentation refresh) - Sandboxing/approvals doc + stale-version cleanup (2026-05-25)
+
+Documentation-only follow-up. Triggered by an external email asking how CrawlForge handles sandboxing and approvals — the answer required assembling facts spread across `endpointGuard`, `ssrfProtection`, `ElicitationHelper`, `ActionExecutor`, and `StealthBrowserManager`, and surfaced that `CLAUDE.md` was still pinned at v3.0.12 / 20 tools.
+
+**Updated for v4.2.2 / 23 tools / D1 primitives:** `CLAUDE.md` (version, tool count, dev commands incl. CLI, Core Infrastructure adds ResourceRegistry/PromptRegistry/SamplingClient/ElicitationHelper/endpointGuard, new Sandboxing & Approvals section); `README.md` (22→23 tools in two places, new Security & Approvals subsection); `PRD.md` (intro paragraph); `docs/PRODUCTION_READINESS.md` (4.1.0→4.2.2); `server.js:113` (getting-started prompt 22→23 tools).
+
+**New canonical doc:** `docs/sandboxing-and-approvals.md` (~204 lines) — assembles the three layers (network/browser/approvals), enumerates the SSRF blocklist, the endpointGuard allow-list, the `scrape_with_actions` action allowlist, the `ALLOW_JAVASCRIPT_EXECUTION` env-var gate, and the four ElicitationHelper trigger conditions. Includes an honest "known limitations / gaps" section (SSRF is blocklist not allowlist; stealth uses `--no-sandbox`; robots.txt is fail-open; no per-action elicitation inside `scrape_with_actions`; elicitation capability not declared in capabilities block).
+
+**Moved:** `crawlforge-api-update.md` (root) → `docs/security-remediation-plan.md`. `IMPROVEMENT_PLAN.md` and `IMPROVEMENT_ROADMAP_V4.md` (both drained) → `docs/archive/`. Conforms to CLAUDE.md rule "Put all documentation md files into the docs/ folder."
+
+**Deleted (stale v3.0.x point-in-time reports, superseded by current code + `docs/security-patch-v3.0.18.md`):** `docs/security-audit-report.md`, `docs/testing-validation-report.md`, `docs/tool-registration-verification-report.md`, `docs/auth-credit-system-validation.md` (had been flagging a CRITICAL that was FIXED in v3.0.18), `docs/production-readiness-phase1-fixes.md`, `docs/user-journey-validation-report.md`, `docs/user-journey-executive-summary.md`, `docs/mcp-protocol-review.md` (predated D1 primitives). `report.md` (root v3.0.16 tool-testing report, superseded by v4.2.0 per-tool unit suite).
+
+No code or behaviour changes; package version unchanged at 4.2.2.
 
 ### v4.2.2 (Development) - CLI batch fix + retracted v4.0.0 breaking-change docs (2026-05-18)
 
