@@ -48,7 +48,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "crawlforge": {
       "command": "npx",
-      "args": ["crawlforge-mcp-server"]
+      "args": ["-y", "crawlforge-mcp-server"]
     }
   }
 }
@@ -71,7 +71,7 @@ The setup wizard automatically configures Claude Code by adding to `~/.claude.js
   "mcpServers": {
     "crawlforge": {
       "type": "stdio",
-      "command": "crawlforge"
+      "command": "crawlforge-mcp"
     }
   }
 }
@@ -89,7 +89,7 @@ The setup wizard automatically configures Cursor by adding to `~/.cursor/mcp.jso
   "mcpServers": {
     "crawlforge": {
       "type": "stdio",
-      "command": "crawlforge"
+      "command": "crawlforge-mcp"
     }
   }
 }
@@ -97,6 +97,8 @@ The setup wizard automatically configures Cursor by adding to `~/.cursor/mcp.jso
 
 Restart Cursor to activate.
 </details>
+
+> **Which launch command?** `npx -y crawlforge-mcp-server` needs no global install and always runs the published version (recommended for Claude Desktop). For a global install (`npm i -g crawlforge-mcp-server`), use the dedicated `crawlforge-mcp` bin — it resolves on your `PATH`, so it survives Node/nvm version switches. The bare `crawlforge` command still launches the server when an MCP client spawns it over stdio (backward compatibility for configs created before v4.2.5); interactively it's the CLI — run `crawlforge mcp` to start the server by hand.
 
 ## 📊 Available Tools
 

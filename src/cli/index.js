@@ -46,6 +46,25 @@ import { register as registerMonitor } from './commands/monitor.js';
 import { register as registerInstallSkills } from './commands/install-skills.js';
 import { register as registerUninstallSkills } from './commands/uninstall-skills.js';
 
+// ─── MCP stdio server mode (backward compatibility) ──────────────────────────
+// Before v4.1.0 the `crawlforge` bin WAS the MCP server. v4.1.0 turned it into
+// this CLI, which silently broke MCP clients still configured with
+// `command: "crawlforge"` — they received CLI help text instead of a JSON-RPC
+// stream, surfacing as a -32000 connect error. Detect that case and hand off to
+// the MCP server so existing configs keep working with no edits:
+//   • explicit:  `crawlforge mcp` / `crawlforge serve`  (registered below)
+//   • explicit:  CRAWLFORGE_MCP_STDIO=true
+//   • implicit:  no subcommand AND stdin is not a TTY (i.e. spawned by an MCP host)
+// Escape hatch: CRAWLFORGE_FORCE_CLI=true forces CLI help even over a pipe.
+const __mcpImplicit =
+  process.argv.slice(2).length === 0 &&
+  !process.stdin.isTTY &&
+  process.env.CRAWLFORGE_FORCE_CLI !== 'true';
+
+if (process.env.CRAWLFORGE_MCP_STDIO === 'true' || __mcpImplicit) {
+  await import('../../server.js');
+} else {
+
 const program = new Command();
 
 program
@@ -105,7 +124,20 @@ registerMonitor(program);
 registerInstallSkills(program);
 registerUninstallSkills(program);
 
+// `crawlforge mcp` / `crawlforge serve` — explicitly start the MCP server over
+// stdio. Extra args (e.g. --http) are read directly by server.js from argv.
+program
+  .command('mcp')
+  .alias('serve')
+  .description('Start the MCP server over stdio (for MCP clients like Claude Code, Claude Desktop, Cursor)')
+  .allowUnknownOption(true)
+  .action(async () => {
+    await import('../../server.js');
+  });
+
 program.parseAsync(process.argv).catch((err) => {
   process.stderr.write(`Fatal error: ${err.message}\n`);
   process.exit(1);
 });
+
+}

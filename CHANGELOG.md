@@ -3,6 +3,31 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.2.5] - 2026-05-25
+
+Patch release: restore the MCP server launch command that v4.1.0 silently broke, and make the documented launch commands actually work.
+
+### Fixed
+
+- **`crawlforge` no longer fails to start the MCP server.** Before v4.1.0 the `crawlforge` bin **was** the MCP server. v4.1.0 repurposed it into the CLI, so MCP clients still configured with `"command": "crawlforge"` received CLI help text instead of a JSON-RPC stream — surfacing in Claude Code / Cursor / Claude Desktop as `Failed to reconnect: -32000`. The CLI now detects MCP-stdio invocation (no subcommand + non-TTY stdin, i.e. how a host spawns it) and hands off to the server. **Existing configs keep working after `npm update` with no edits.** Escape hatch: `CRAWLFORGE_FORCE_CLI=true`.
+- **`npx -y crawlforge-mcp-server` now resolves.** The README's Claude Desktop example pointed `npx` at the package, but no bin matched the package name, so npm errored with "could not determine executable to run." Added a matching bin.
+
+### Added
+
+- **`crawlforge-mcp-server` bin** → `server.js`, so `npx -y crawlforge-mcp-server` works (npx resolves the bin whose name matches the package).
+- **`crawlforge-mcp` bin** → `server.js`: a dedicated, explicit MCP-server launcher. Because it resolves on `PATH`, it survives Node/nvm version switches (unlike a hard-coded `node /path/to/server.js`). This is what `crawlforge-setup` now writes into MCP client configs.
+- **`crawlforge mcp` / `crawlforge serve` subcommand** to start the server by hand from an interactive shell.
+
+### Changed
+
+- **`crawlforge-setup`** now writes `"command": "crawlforge-mcp"` (was `"crawlforge"`) and migrates pre-v4.2.5 configs on re-run.
+- **README** MCP config examples corrected; added a "Which launch command?" note.
+- Server `serverInfo.version` corrected to track the package version (was pinned at `4.2.2`).
+
+### Tests
+
+- `tests/integration/cli.test.js`: assert `--help` lists `mcp`, and a guarded end-to-end test that drives a full `initialize` handshake through `crawlforge mcp` (skips when no CrawlForge credentials are present, so it never hangs CI).
+
 ## [4.2.2] - 2026-05-18
 
 Patch release: CLI bugfix + retracted v4.0.0 breaking-change documentation.

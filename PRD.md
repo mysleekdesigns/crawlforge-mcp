@@ -12,6 +12,17 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
+### v4.2.5 — MCP launch-command regression fix + nvm-proof launcher bins (2026-05-25)
+
+Restores the MCP server launch path that v4.1.0 silently broke and hardens it against future breakage. **Root cause:** before v4.1.0 the `crawlforge` bin *was* the MCP server; v4.1.0 turned that bin into the CLI, so every MCP client still configured with `"command": "crawlforge"` (which `crawlforge-setup` itself wrote) received CLI help text instead of JSON-RPC — `Failed to reconnect: -32000`.
+
+**Fix (so existing users update with nothing breaking):**
+- `src/cli/index.js` detects MCP-stdio invocation — no subcommand + non-TTY stdin (how a host spawns it), or explicit `crawlforge mcp`/`serve`, or `CRAWLFORGE_MCP_STDIO=true` — and hands off to `server.js`. Existing `"command": "crawlforge"` configs work again after `npm update`, **no edits required**. Escape hatch: `CRAWLFORGE_FORCE_CLI=true`.
+- Added bins: `crawlforge-mcp-server` → `server.js` (makes the README's `npx -y crawlforge-mcp-server` resolve — npx matches the bin to the package name) and `crawlforge-mcp` → `server.js` (dedicated, PATH-resolved launcher that survives Node/nvm version switches, unlike a hard-coded `node /path/server.js`).
+- `crawlforge-setup` now writes `"command": "crawlforge-mcp"` and migrates pre-v4.2.5 configs on re-run. README config examples corrected. `serverInfo.version` now tracks the package version (was pinned at `4.2.2`).
+
+**Verification:** all four launch paths confirmed (bare-piped, `mcp` subcommand, `--help`, `FORCE_CLI`); `tests/integration/cli.test.js` 8/8 (incl. a full `initialize` handshake via `crawlforge mcp`); `npm run test:unit` and `npm test` green. Grounded in research via the CrawlForge MCP itself (`search_web` + `fetch_url` of the npm-exec docs confirming npx multi-bin resolution).
+
 ### v4.2.4 (Development) — Full test/verification pass + CLI command fixes + stdout hygiene (2026-05-25)
 
 End-to-end verification that the MCP server, all 23 tools, and the CLI work and return Claude-Code-usable results. **Verification (all green):** unit `262/262` pass; MCP protocol compliance discovers all 23 tools and returns valid tool data (error/validation responses arrive as spec-correct `isError` content with `-32602` codes + Zod messages, which the legacy compliance test mis-scores as 70% because it expects top-level JSON-RPC `error` objects); functional `test-tools.js` `20/20`; real-world scenarios `4/4`. The 3 tools not in `test-tools.js` were verified directly via a live MCP probe: `list_ollama_models`, `scrape_template`, `extract_with_llm` (live Ollama). Confirmed `node --test` needs `--test-force-exit` (a Playwright handle from importing `StealthBrowserManager` in `d2-reliability.test.js` otherwise delays exit ~100s); the only other "failures" were sandbox `listen EPERM 127.0.0.1` artifacts.
