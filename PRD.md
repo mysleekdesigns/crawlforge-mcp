@@ -12,6 +12,10 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
+### v4.2.6 — `crawlforge-mcp-server` bin repointed to the CLI (2026-05-25)
+
+Follow-up to 4.2.5. The `crawlforge-mcp-server` bin pointed at `server.js`, so `crawlforge-mcp-server scrape <url>` (documented in `docs/cli-guide.md` / `docs/PRODUCTION_READINESS.md`) hung instead of scraping. Repointed it to `src/cli/index.js`; since the CLI auto-detects MCP-stdio launches and hands off to the server, both `crawlforge-mcp-server scrape <url>` (CLI) and `npx -y crawlforge-mcp-server` (MCP server over stdio) now work. `crawlforge-mcp` stays the dedicated direct-to-`server.js` launcher. Verified: `crawlforge-mcp-server scrape https://www.firecrawl.dev/` returns content; piped `crawlforge-mcp-server` completes an MCP initialize handshake.
+
 ### v4.2.5 — MCP launch-command regression fix + nvm-proof launcher bins (2026-05-25)
 
 Restores the MCP server launch path that v4.1.0 silently broke and hardens it against future breakage. **Root cause:** before v4.1.0 the `crawlforge` bin *was* the MCP server; v4.1.0 turned that bin into the CLI, so every MCP client still configured with `"command": "crawlforge"` (which `crawlforge-setup` itself wrote) received CLI help text instead of JSON-RPC — `Failed to reconnect: -32000`.

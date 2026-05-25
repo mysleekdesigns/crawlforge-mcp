@@ -3,6 +3,14 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.2.6] - 2026-05-25
+
+Patch release: make `crawlforge-mcp-server <command>` work as the CLI (follow-up to 4.2.5).
+
+### Fixed
+
+- **`crawlforge-mcp-server` bin now points at the CLI** (`src/cli/index.js`), not `server.js`. In 4.2.5 it launched the MCP server, so `crawlforge-mcp-server scrape <url>` (the form documented in `docs/cli-guide.md` and `docs/PRODUCTION_READINESS.md`) ignored its args and hung waiting for a JSON-RPC stream. Because the CLI auto-detects MCP-stdio launches and hands off to the server, this one-line change makes both paths work: `crawlforge-mcp-server scrape <url>` runs the CLI, while `npx -y crawlforge-mcp-server` spawned by an MCP host over stdio still starts the server. `crawlforge-mcp` remains the dedicated direct-to-`server.js` launcher.
+
 ## [4.2.5] - 2026-05-25
 
 Patch release: restore the MCP server launch command that v4.1.0 silently broke, and make the documented launch commands actually work.
