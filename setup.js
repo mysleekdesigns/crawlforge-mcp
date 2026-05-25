@@ -38,9 +38,16 @@ function addToMcpConfig(configPath, clientName, apiKey) {
       config.mcpServers = {};
     }
 
-    // Check if crawlforge is already configured with the correct API key
+    // Check if crawlforge is already configured with the correct API key AND the
+    // current launch command. The `crawlforge-mcp` bin (added in v4.2.5) is the
+    // dedicated MCP server launcher; older configs used the bare `crawlforge` bin,
+    // which became the CLI in v4.1.0 — re-running setup migrates them.
     const existingConfig = config.mcpServers.crawlforge;
-    if (existingConfig && existingConfig.env?.CRAWLFORGE_API_KEY === apiKey) {
+    if (
+      existingConfig &&
+      existingConfig.env?.CRAWLFORGE_API_KEY === apiKey &&
+      existingConfig.command === 'crawlforge-mcp'
+    ) {
       return {
         success: true,
         message: `CrawlForge already configured in ${clientName}`,
@@ -48,10 +55,13 @@ function addToMcpConfig(configPath, clientName, apiKey) {
       };
     }
 
-    // Add or update crawlforge MCP server configuration with API key
+    // Add or update crawlforge MCP server configuration with API key.
+    // `crawlforge-mcp` is the dedicated stdio MCP-server bin (PATH-resolved, so it
+    // survives Node/nvm version switches). The bare `crawlforge` bin also still
+    // launches the server when spawned over stdio, for backward compatibility.
     config.mcpServers.crawlforge = {
       type: "stdio",
-      command: "crawlforge",
+      command: "crawlforge-mcp",
       args: [],
       env: {
         CRAWLFORGE_API_KEY: apiKey
@@ -253,7 +263,7 @@ async function main() {
       console.log('     "mcpServers": {');
       console.log('       "crawlforge": {');
       console.log('         "type": "stdio",');
-      console.log('         "command": "crawlforge",');
+      console.log('         "command": "crawlforge-mcp",');
       console.log('         "env": {');
       console.log(`           "CRAWLFORGE_API_KEY": "${apiKey.trim()}"`);
       console.log('         }');
@@ -266,8 +276,8 @@ async function main() {
     console.log('────────────────────────────────────────────────────────');
     console.log('');
     console.log('Quick start:');
-    console.log('  crawlforge             # Start the MCP server');
-    console.log('  npm run test           # Test your setup');
+    console.log('  crawlforge-mcp         # Start the MCP server (stdio)');
+    console.log('  crawlforge --help      # Explore the CLI commands');
     console.log('');
     console.log('Need help? Visit: https://www.crawlforge.dev/docs');
     console.log('');
