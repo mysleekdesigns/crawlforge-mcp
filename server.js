@@ -1163,12 +1163,18 @@ async function gracefulShutdown(signal) {
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('uncaughtException', (error) => {
+  // Keep the long-running stdio server alive: a single uncaught error in one
+  // request path should not tear down the session for every other tool. We log
+  // and continue rather than exiting. (Node considers the process state
+  // technically undefined after this; acceptable trade-off for a resilient MCP
+  // server, vs. disconnecting the client on any stray throw.)
   console.error('Uncaught Exception:', error);
-  gracefulShutdown('uncaughtException');
 });
 process.on('unhandledRejection', (reason, promise) => {
+  // A stray rejection — typically background async work inside a single tool —
+  // must NOT terminate the whole stdio MCP server, which would disconnect every
+  // other tool mid-session. Log it and keep serving.
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  gracefulShutdown('unhandledRejection');
 });
 
 // Memory monitoring (development only)

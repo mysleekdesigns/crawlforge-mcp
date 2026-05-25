@@ -391,8 +391,9 @@ export class Logger {
 
     this.winston.error(message, errorContext);
 
-    // Track error for analysis
-    if (this.enableErrorTracking) {
+    // Track error for analysis (only when an Error object was actually passed —
+    // logger.error(message) with no error must not reach trackError's error.name).
+    if (this.enableErrorTracking && error) {
       this.trackError(error, context, requestId);
     }
   }
@@ -425,11 +426,13 @@ export class Logger {
   trackError(error, context, requestId) {
     // Could be extended to send to error tracking service
     // For now, just log structured error data
+    // Null-safe: a shared logger must never throw, even if called with a
+    // non-Error (or null) value.
     this.winston.error('Error tracking', {
       errorTracking: {
-        type: error.name,
-        message: error.message,
-        stack: error.stack,
+        type: error?.name ?? 'UnknownError',
+        message: error?.message ?? String(error ?? ''),
+        stack: error?.stack,
         context,
         requestId,
         timestamp: new Date().toISOString()
