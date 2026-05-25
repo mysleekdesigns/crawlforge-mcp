@@ -74,7 +74,7 @@ export class WebhookDispatcher extends EventEmitter {
       onRetry: (error, attempt, delay, context) => {
         this.stats.retriedDeliveries++;
         if (this.enableLogging) {
-          console.log('Webhook retry ' + attempt + ' for ' + context.url + ' after ' + delay + 'ms: ' + error.message);
+          console.error('Webhook retry ' + attempt + ' for ' + context.url + ' after ' + delay + 'ms: ' + error.message);
         }
       }
     });

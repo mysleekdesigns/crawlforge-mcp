@@ -250,7 +250,7 @@ export class ProcessDocumentTool {
     const shouldUseJavaScript = options.requiresJavaScript || await this.shouldUseJavaScript(source);
     
     if (shouldUseJavaScript) {
-      console.log('Using browser rendering for JavaScript content...');
+      console.error('Using browser rendering for JavaScript content...');
       const browserResult = await this.browserProcessor.processURL({
         url: source,
         options: {

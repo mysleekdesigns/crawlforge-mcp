@@ -142,13 +142,13 @@ export class BFSCrawler {
     });
     
     if (!filterDecision.allowed) {
-      console.log(`Domain filter blocks: ${normalizedUrl} - ${filterDecision.reason}`);
+      console.error(`Domain filter blocks: ${normalizedUrl} - ${filterDecision.reason}`);
       return;
     }
     
     // Backward compatibility: also check legacy patterns
     if (!this.shouldCrawlUrl(normalizedUrl)) {
-      console.log(`Legacy pattern blocks: ${normalizedUrl}`);
+      console.error(`Legacy pattern blocks: ${normalizedUrl}`);
       return;
     }
 
@@ -156,7 +156,7 @@ export class BFSCrawler {
     if (this.respectRobots && this.robotsChecker) {
       const canFetch = await this.robotsChecker.canFetch(normalizedUrl);
       if (!canFetch) {
-        console.log(`Robots.txt blocks: ${normalizedUrl}`);
+        console.error(`Robots.txt blocks: ${normalizedUrl}`);
         return;
       }
     }

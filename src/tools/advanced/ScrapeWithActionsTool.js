@@ -253,7 +253,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
       const startTime = Date.now();
 
       if (this.enableLogging) {
-        console.log(`Starting scrape session ${sessionId} with ${validated.actions.length} actions on ${validated.url}`);
+        console.error(`Starting scrape session ${sessionId} with ${validated.actions.length} actions on ${validated.url}`);
       }
 
       // Check concurrent sessions limit
@@ -734,7 +734,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
 
   log(level, message) {
     if (this.enableLogging) {
-      console.log(`[ScrapeWithActionsTool:${level.toUpperCase()}] ${message}`);
+      console.error(`[ScrapeWithActionsTool:${level.toUpperCase()}] ${message}`);
     }
   }
 
