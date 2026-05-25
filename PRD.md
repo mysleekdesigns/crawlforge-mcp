@@ -12,6 +12,10 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
+### v4.2.7 — MCP server no longer self-terminates on stray errors (2026-05-25)
+
+Resilience fix for the long-running stdio MCP server. **Root cause:** `server.js` registered global `unhandledRejection` and `uncaughtException` handlers that both called `gracefulShutdown()` → `process.exit()`. A single unhandled rejection anywhere — including background async work inside one tool — tore down the entire server, disconnecting every other tool mid-session (observed during a live site audit: `analyze_content` became uncallable partway through after an unrelated failure). **Fix:** both handlers now log to stderr and keep serving; `SIGINT`/`SIGTERM` still run `gracefulShutdown` for clean exits, so only the error paths changed. **Verification:** `node --check server.js`; `npm run test:unit` 262/262 (sandbox-off — the sandbox-on `listen EPERM 127.0.0.1` failures are HTTP-transport tests that can't bind a port under Claude Code's sandbox); live smoke test against the reconnected server confirmed it stays up and serving after a tool error. Diagnosed using the CrawlForge MCP itself.
+
 ### v4.2.6 — `crawlforge-mcp-server` bin repointed to the CLI (2026-05-25)
 
 Follow-up to 4.2.5. The `crawlforge-mcp-server` bin pointed at `server.js`, so `crawlforge-mcp-server scrape <url>` (documented in `docs/cli-guide.md` / `docs/PRODUCTION_READINESS.md`) hung instead of scraping. Repointed it to `src/cli/index.js`; since the CLI auto-detects MCP-stdio launches and hands off to the server, both `crawlforge-mcp-server scrape <url>` (CLI) and `npx -y crawlforge-mcp-server` (MCP server over stdio) now work. `crawlforge-mcp` stays the dedicated direct-to-`server.js` launcher. Verified: `crawlforge-mcp-server scrape https://www.firecrawl.dev/` returns content; piped `crawlforge-mcp-server` completes an MCP initialize handshake.
