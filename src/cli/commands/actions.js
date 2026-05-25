@@ -11,8 +11,7 @@ export function register(program) {
     .command('actions <url>')
     .description('Run browser automation actions against a URL')
     .requiredOption('--script <file>', 'JSON file containing action script')
-    .option('--screenshot', 'Capture screenshot after actions')
-    .option('--wait <ms>', 'Wait time between actions in milliseconds', '500')
+    .option('--screenshot', 'Capture screenshots during action execution')
     .action(async (url, opts, cmd) => {
       const globals = cmd.parent.opts();
       const cliFlags = { json: globals.json, pretty: globals.pretty, quiet: globals.quiet };
@@ -26,11 +25,12 @@ export function register(program) {
       }
 
       const tool = new ScrapeWithActionsTool(getToolConfig('scrape_with_actions'));
+      // ScrapeWithActionsSchema uses captureScreenshots (no between-action wait
+      // field — insert {type:'wait'} actions in the script for that).
       await runTool(tool, {
         url,
         actions,
-        screenshot: !!opts.screenshot,
-        wait_between_actions: parseInt(opts.wait, 10)
+        captureScreenshots: !!opts.screenshot
       }, cliFlags);
     });
 }

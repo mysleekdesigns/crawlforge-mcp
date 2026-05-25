@@ -15,10 +15,27 @@ export function register(program) {
       const globals = cmd.parent.opts();
       const cliFlags = { json: globals.json, pretty: globals.pretty, quiet: globals.quiet };
       const tool = new TrackChangesTool(getToolConfig('track_changes'));
-      await runTool(tool, {
-        url,
-        selector: opts.selector,
-        change_threshold: parseFloat(opts.threshold)
-      }, cliFlags);
+
+      // TrackChangesSchema shape: selector → trackingOptions.customSelectors,
+      // threshold (%) → trackingOptions.significanceThresholds (0-1, ordered).
+      const t = Math.min(Math.max(parseFloat(opts.threshold) / 100, 0), 1);
+      const trackingOptions = {
+        ...(opts.selector ? { customSelectors: [opts.selector] } : {}),
+        significanceThresholds: { minor: t, moderate: Math.max(0.3, t), major: Math.max(0.7, t) }
+      };
+
+      // `compare` throws "No baseline found" on first run — bootstrap one, then
+      // the next invocation reports actual changes against it.
+      const params = { url, trackingOptions };
+      const wrapperTool = {
+        execute: async (p) => {
+          const res = await tool.execute({ ...p, operation: 'compare' });
+          if (res && res.success === false && /No baseline/i.test(res.error || '')) {
+            return await tool.execute({ ...p, operation: 'create_baseline' });
+          }
+          return res;
+        }
+      };
+      await runTool(wrapperTool, params, cliFlags);
     });
 }

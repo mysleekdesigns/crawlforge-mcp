@@ -16,11 +16,14 @@ export function register(program) {
       const globals = cmd.parent.opts();
       const cliFlags = { json: globals.json, pretty: globals.pretty, quiet: globals.quiet };
       const tool = new DeepResearchTool(getToolConfig('deep_research'));
+      // DeepResearchSchema expects: topic, maxDepth (1-10), maxUrls, outputFormat.
+      const depthMap = { basic: 2, standard: 5, deep: 8 };
+      const formatMap = { summary: 'summary', detailed: 'comprehensive' };
       await runTool(tool, {
-        query: topic,
-        depth: opts.depth,
-        max_urls: parseInt(opts.maxUrls, 10),
-        output_format: opts.outputFormat
+        topic,
+        maxDepth: depthMap[opts.depth] ?? 5,
+        maxUrls: parseInt(opts.maxUrls, 10),
+        outputFormat: formatMap[opts.outputFormat] ?? 'summary'
       }, cliFlags);
     });
 }

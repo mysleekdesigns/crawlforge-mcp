@@ -16,6 +16,19 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
+import { setGlobalDispatcher, EnvHttpProxyAgent } from 'undici';
+
+// Node's global fetch() (undici) ignores HTTP(S)_PROXY by default. When a proxy
+// is configured — e.g. inside a sandbox that only permits egress through it —
+// route every fetch() through it so the CLI's API/scrape calls succeed without
+// excluding the command from the sandbox. EnvHttpProxyAgent honors HTTPS_PROXY,
+// HTTP_PROXY and NO_PROXY itself; this is a no-op when none are set.
+if (process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.ALL_PROXY ||
+    process.env.https_proxy || process.env.http_proxy || process.env.all_proxy) {
+  try {
+    setGlobalDispatcher(new EnvHttpProxyAgent());
+  } catch { /* proxy agent unavailable — fall back to direct connections */ }
+}
 
 // Load package.json for version
 const __filename = fileURLToPath(import.meta.url);
