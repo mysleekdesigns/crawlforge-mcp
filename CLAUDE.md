@@ -62,7 +62,7 @@ These guidelines are working if: fewer unnecessary changes in diffs, fewer rewri
 
 CrawlForge MCP Server - A professional MCP (Model Context Protocol) server providing 23 web scraping, crawling, and content processing tools (5 inline + 18 advanced).
 
-**Current Version:** 4.2.2
+**Current Version:** 4.2.4
 
 ## Development Commands
 
@@ -92,8 +92,11 @@ npm run dev
 # Test MCP protocol compliance
 npm test
 
-# Unit tests (131 tests across 17 tools, no live network)
+# Unit tests (262 tests, no live network)
 npm run test:unit
+# Note: add --test-force-exit if the run appears to hang at the end — importing
+# StealthBrowserManager (d2-reliability.test.js) leaves a Playwright handle that
+# otherwise delays process exit ~100s. Tests themselves pass either way.
 
 # Integration tests
 npm run test:integration
@@ -120,7 +123,7 @@ npm run docker:prod         # Run production container
 
 ### Debugging Tips
 
-- Server logs via Winston logger (stderr for status, stdout for MCP protocol)
+- All diagnostic output (Winston logs + status banners) goes to stderr; stdout is reserved for the MCP JSON-RPC stream and CLI `--json` output (enforced in v4.2.4)
 - Set `NODE_ENV=development` for verbose logging
 - Use `--expose-gc` flag for memory profiling: `node --expose-gc server.js`
 - Check `cache/` directory for cached responses
@@ -282,4 +285,4 @@ try {
 - Each sub agent must work on their strengths; when done they report to the project manager who updates `docs/PRODUCTION_READINESS.md`
 - Whenever a phase is completed, push all changes to GitHub
 - Put all documentation md files into the `docs/` folder
-- Every time you finish a phase run `npm run build` and fix all errors before pushing
+- Every time you finish a phase run the test suites (`npm run test:unit` and `npm test`) and fix all failures before pushing
