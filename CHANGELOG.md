@@ -19,7 +19,8 @@ Patch release: eliminate stdout leaks that corrupted CLI `--json` output. Found 
 
 ### Verified
 
-- `crawlforge actions … --json` now starts with `{` and parses cleanly (`success:true`, 2/2 actions, screenshot captured). `npm run test:unit` 262/262.
+- `crawlforge actions … --json` now starts with `{` and parses cleanly (`success:true`, 2/2 actions, screenshot captured), confirmed against the global 4.2.10 install (banner on stderr, none on stdout). `npm run test:unit` 265/265.
+- Regression-locked by `tests/unit/stdout-hygiene.test.js` (source scan: fails if any `console.log` reappears in tool/crawler execution paths) + `tests/fixtures/cli/actions-wait-screenshot.json`.
 
 ## [4.2.9] - 2026-05-25
 
