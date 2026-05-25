@@ -926,7 +926,8 @@ export class ActionExecutor extends EventEmitter {
    */
   log(level, message) {
     if (this.enableLogging) {
-      console.log('[ActionExecutor:' + level.toUpperCase() + '] ' + message);
+      // → stderr so stdout stays clean for MCP JSON-RPC / CLI --json output.
+      console.error('[ActionExecutor:' + level.toUpperCase() + '] ' + message);
     }
   }
 

@@ -16,9 +16,13 @@ import { formatResult, formatError } from '../formatter.js';
  * @param {object} cliFlags     — { json, pretty, quiet }
  * @param {object} [options]
  * @param {boolean} [options.exitOnError=true]
+ * @param {boolean} [options.exitOnSuccess=true]  Exit the process after writing
+ *        output. One-shot CLI commands need this because background timers
+ *        (metrics, cache/connection cleanup, etc.) otherwise keep the event loop
+ *        alive. Long-running commands (e.g. `monitor`) pass false.
  */
 export async function runTool(tool, params, cliFlags, options = {}) {
-  const { exitOnError = true } = options;
+  const { exitOnError = true, exitOnSuccess = true } = options;
 
   try {
     const result = await tool.execute(params);
@@ -32,7 +36,12 @@ export async function runTool(tool, params, cliFlags, options = {}) {
     }
 
     const output = formatResult(result, cliFlags);
-    if (output) process.stdout.write(output + '\n');
+    if (output) {
+      // Wait for stdout to flush (pipes/files buffer) before exiting.
+      process.stdout.write(output + '\n', () => { if (exitOnSuccess) process.exit(0); });
+    } else if (exitOnSuccess) {
+      process.exit(0);
+    }
   } catch (error) {
     process.stderr.write(formatError(error, cliFlags) + '\n');
     if (exitOnError) process.exit(1);

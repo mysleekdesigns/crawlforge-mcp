@@ -57,7 +57,8 @@ if (!AuthManager.isAuthenticated() && !AuthManager.isCreatorMode()) {
   const apiKey = process.env.CRAWLFORGE_API_KEY;
   if (apiKey) {
     // Auto-setup if API key is provided via environment
-    console.log('🔧 Auto-configuring CrawlForge with provided API key...');
+    // Status → stderr; stdout is reserved for the MCP JSON-RPC stream.
+    console.error('🔧 Auto-configuring CrawlForge with provided API key...');
     const success = await AuthManager.runSetup(apiKey);
     if (!success) {
       console.error('❌ Failed to authenticate with provided API key');

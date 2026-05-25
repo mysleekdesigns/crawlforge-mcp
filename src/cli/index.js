@@ -58,11 +58,28 @@ program
   .option('--api-key <key>', 'CrawlForge API key (overrides CRAWLFORGE_API_KEY env var)')
   .option('--timeout <ms>', 'Global request timeout in milliseconds', '30000');
 
+// Resolve the API key from (in priority order): --api-key flag, CRAWLFORGE_API_KEY env,
+// then the stored ~/.crawlforge/config.json written by `crawlforge-setup`.
+function loadStoredApiKey() {
+  try {
+    const home = process.env.HOME || process.env.USERPROFILE;
+    if (!home) return undefined;
+    const cfgPath = join(home, '.crawlforge', 'config.json');
+    const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+    return cfg.apiKey || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // Apply --api-key globally before commands run
 program.hook('preAction', (thisCommand) => {
   const opts = program.opts();
   if (opts.apiKey) {
     process.env.CRAWLFORGE_API_KEY = opts.apiKey;
+  } else if (!process.env.CRAWLFORGE_API_KEY) {
+    const stored = loadStoredApiKey();
+    if (stored) process.env.CRAWLFORGE_API_KEY = stored;
   }
   if (opts.timeout) {
     process.env.CRAWLFORGE_CLI_TIMEOUT = opts.timeout;

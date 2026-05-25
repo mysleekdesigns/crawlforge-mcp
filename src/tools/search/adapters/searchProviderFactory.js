@@ -36,7 +36,8 @@ export class SearchProviderFactory {
         );
       }
 
-      console.log('🔍 Creator Mode: Using Google Search API directly');
+      // Status message → stderr so stdout stays clean (MCP JSON-RPC / CLI --json).
+      console.error('🔍 Creator Mode: Using Google Search API directly');
       return new GoogleSearchAdapter(googleApiKey, googleSearchEngineId);
     }
 
