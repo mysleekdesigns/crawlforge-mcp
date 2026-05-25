@@ -12,6 +12,10 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
+### v4.2.11 — Release the v4.2.10 stdout-hygiene regression lock (2026-05-25)
+
+Maintenance bump. No shippable code changed: the npm tarball is byte-identical to 4.2.10 because the `files` allow-list (`server.js`, `setup.js`, `src/`, `README.md`, `LICENSE`, `CLAUDE.md`, `package.json`) excludes `tests/`. The bump exists to release the post-4.2.10 test-hardening work and keep the published version in lockstep with the repo. The added `tests/unit/stdout-hygiene.test.js` is a source scan that fails if any `console.log` reappears in the tool/crawler/stealth/webhook execution paths (regression-locking the v4.2.10 fix), paired with the `tests/fixtures/cli/actions-wait-screenshot.json` fixture. **Verification:** `npm run test:unit` passes sandbox-off (sandbox-on `listen EPERM 127.0.0.1` failures are HTTP-transport tests that can't bind a local port under Claude Code's sandbox); `npm test` exits 0.
+
 ### v4.2.10 — Eliminate stdout leaks corrupting CLI `--json` output (2026-05-25)
 
 Found while live-verifying the v4.2.9 CLI fixes: `crawlforge actions --json` printed a `"Starting scrape session …"` banner to **stdout** before the JSON, so any consumer parsing stdout as JSON failed on line 1. A sweep found the same bug class (`console.log` → stdout) in several other tool/core execution paths, each corrupting a different command's `--json`. Fixed all 11 by moving them to `console.error`:

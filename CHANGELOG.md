@@ -3,6 +3,18 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.2.11] - 2026-05-25
+
+Maintenance release. No shippable code changed — the published tarball is identical to 4.2.10 (the `files` allow-list excludes `tests/`); the version bump releases the post-4.2.10 test-hardening work and keeps the registry in lockstep with `main`.
+
+### Added
+
+- **`tests/unit/stdout-hygiene.test.js` regression lock** for the v4.2.10 stdout fixes — a source scan that fails if any `console.log` reappears in the tool/crawler/stealth/webhook execution paths, plus the `tests/fixtures/cli/actions-wait-screenshot.json` fixture. Landed after 4.2.10 was already published.
+
+### Verified
+
+- `npm run test:unit` passes (sandbox-off; the only sandbox-on failures are HTTP-transport tests that can't `listen` on `127.0.0.1` under the sandbox). `npm test` MCP harness exits 0.
+
 ## [4.2.10] - 2026-05-25
 
 Patch release: eliminate stdout leaks that corrupted CLI `--json` output. Found while verifying the v4.2.9 CLI fixes — `crawlforge actions --json` emitted a non-JSON banner line before the JSON, breaking programmatic parsing.
