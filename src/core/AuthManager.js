@@ -69,7 +69,8 @@ class AuthManager {
 
     // Skip config loading in creator mode
     if (this.isCreatorMode()) {
-      console.log('🚀 Creator Mode Active - Unlimited Access Enabled');
+      // Status → stderr; stdout is reserved for MCP JSON-RPC / CLI --json output.
+      console.error('🚀 Creator Mode Active - Unlimited Access Enabled');
       this.initialized = true;
       return;
     }
@@ -78,7 +79,7 @@ class AuthManager {
       await this.loadConfig();
       this.initialized = true;
     } catch (error) {
-      console.log('No existing CrawlForge configuration found. Run setup to configure.');
+      console.error('No existing CrawlForge configuration found. Run setup to configure.');
       this.initialized = true;
     }
 

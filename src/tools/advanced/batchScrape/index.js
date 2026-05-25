@@ -301,7 +301,8 @@ export class BatchScrapeTool extends EventEmitter {
   }
 
   _log(level, message) {
-    if (this.enableLogging) console.log(`[BatchScrapeTool:${level.toUpperCase()}] ${message}`);
+    // → stderr so stdout stays clean for MCP JSON-RPC / CLI --json output.
+    if (this.enableLogging) console.error(`[BatchScrapeTool:${level.toUpperCase()}] ${message}`);
   }
 
   _initializeJobExecutors() {

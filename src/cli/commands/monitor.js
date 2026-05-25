@@ -17,6 +17,7 @@ export function register(program) {
       const globals = cmd.parent.opts();
       const cliFlags = { json: globals.json, pretty: globals.pretty, quiet: globals.quiet };
       const tool = new TrackChangesTool(getToolConfig('track_changes'));
+      // monitor runs continuously — do not auto-exit after the first result.
       await runTool(tool, {
         url,
         scheduled: true,
@@ -24,6 +25,6 @@ export function register(program) {
         selector: opts.selector,
         webhook_url: opts.webhook,
         change_threshold: parseFloat(opts.threshold)
-      }, cliFlags);
+      }, cliFlags, { exitOnSuccess: false });
     });
 }

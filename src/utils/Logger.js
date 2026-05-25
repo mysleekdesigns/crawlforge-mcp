@@ -116,6 +116,9 @@ export class Logger {
 
     if (enableConsole) {
       transports.push(new winston.transports.Console({
+        // Route ALL log levels to stderr so stdout stays reserved for structured
+        // output (MCP JSON-RPC protocol and CLI --json results).
+        stderrLevels: ['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly'],
         format: winston.format.combine(
           winston.format.colorize(),
           winston.format.simple()

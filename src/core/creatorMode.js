@@ -29,7 +29,8 @@ if (process.env.CRAWLFORGE_CREATOR_SECRET) {
 
   if (crypto.timingSafeEqual(Buffer.from(providedHash, 'hex'), Buffer.from(CREATOR_SECRET_HASH, 'hex'))) {
     _creatorModeVerified = true;
-    console.log('Creator Mode Enabled - Unlimited Access');
+    // Status message → stderr so stdout stays clean (MCP JSON-RPC / CLI --json output).
+    console.error('Creator Mode Enabled - Unlimited Access');
   } else {
     console.warn('Invalid creator secret provided');
   }

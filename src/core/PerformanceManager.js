@@ -771,6 +771,9 @@ export class PerformanceManager extends EventEmitter {
     this.metricsTimer = setInterval(() => {
       this.collectMetrics();
     }, this.metricsInterval);
+    // Don't let the metrics interval keep a short-lived process (e.g. a one-shot
+    // CLI command) alive. The long-running server stays up via its stdio transport.
+    if (typeof this.metricsTimer.unref === 'function') this.metricsTimer.unref();
   }
 
   /**

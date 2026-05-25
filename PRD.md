@@ -6,11 +6,27 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — all three shipped in v4.1.0 — without breaking any existing MCP tools or the current setup flow.
 
-**Last Updated:** 2026-05-18
+**Last Updated:** 2026-05-25
 
 ---
 
 ## Release History
+
+### v4.2.4 (Development) — Full test/verification pass + CLI command fixes + stdout hygiene (2026-05-25)
+
+End-to-end verification that the MCP server, all 23 tools, and the CLI work and return Claude-Code-usable results. **Verification (all green):** unit `262/262` pass; MCP protocol compliance discovers all 23 tools and returns valid tool data (error/validation responses arrive as spec-correct `isError` content with `-32602` codes + Zod messages, which the legacy compliance test mis-scores as 70% because it expects top-level JSON-RPC `error` objects); functional `test-tools.js` `20/20`; real-world scenarios `4/4`. The 3 tools not in `test-tools.js` were verified directly via a live MCP probe: `list_ollama_models`, `scrape_template`, `extract_with_llm` (live Ollama). Confirmed `node --test` needs `--test-force-exit` (a Playwright handle from importing `StealthBrowserManager` in `d2-reliability.test.js` otherwise delays exit ~100s); the only other "failures" were sandbox `listen EPERM 127.0.0.1` artifacts.
+
+**CLI command fixes** (the CLI invokes tools directly, separate from the MCP server which was already correct):
+- `template`: passed `template_id` but `ScrapeTemplateTool` expects `template` (→ "Unknown template undefined"); `--list` called a nonexistent `listTemplates()`. Now passes `template`, uses the tool's built-in `execute({template:'list'})`, and accepts optional `[id] [target]`.
+- `analyze`: passed `{url}` to a text-only `analyze_content` tool (always failed Zod `text` required). Now fetches & cleans the page via `extract_content` first, then analyzes the text.
+- `localize`: called a nonexistent `LocalizationManager.fetchWithLocalization()`. Now derives a locale config (`configureCountry`) and fetches the URL with localized `Accept-Language`/`User-Agent` headers, returning `{localization, request_headers, response}`.
+- API key resolution: CLI now falls back to the stored `~/.crawlforge/config.json` key (set by `crawlforge-setup`) when no `--api-key`/env is provided — previously `search` failed with "API key required" for configured users.
+
+**stdout hygiene** — stdout is now reserved for the MCP JSON-RPC stream and CLI `--json` output; all status/diagnostic output moved to stderr: `AuthManager` ("🚀 Creator Mode Active"), `server.js` auto-config line, `creatorMode.js` banner, `searchProviderFactory.js` ("🔍 Creator Mode"), the `ActionExecutor`/`BatchScrapeTool` `console.log` loggers, and the winston Console transport (added `stderrLevels` for all levels). Verified: MCP server stdout line 1 is pure JSON-RPC; all CLI commands emit clean JSON.
+
+**Process-exit fix** — one-shot CLI commands no longer hang after printing output (background timers — metrics, cache/connection cleanup — kept the event loop alive): `runTool` now flushes stdout then exits (new `exitOnSuccess` option, default true; `monitor` passes false to stay long-running), and `PerformanceManager`'s metrics interval is `.unref()`'d. The long-running MCP server is unaffected (it stays up via its stdio transport and does not use `runTool`).
+
+Touched 14 files (+128/−24); package version bumped to 4.2.4. No MCP tool behaviour changed.
 
 ### v4.2.2 (Documentation refresh) - Sandboxing/approvals doc + stale-version cleanup (2026-05-25)
 
