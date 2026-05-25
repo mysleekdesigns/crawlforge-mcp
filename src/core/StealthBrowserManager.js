@@ -1524,6 +1524,43 @@ export class StealthBrowserManager {
   }
 
   /**
+   * One-shot stealth scrape: create a context + page, navigate to the URL,
+   * extract content, and tear the context down. Convenience wrapper over the
+   * operation-based API (createStealthContext → createStealthPage → goto).
+   *
+   * @param {Object} params
+   * @param {string} params.url                 — URL to scrape
+   * @param {string} [params.engine]            — browser engine (forwarded to config; playwright by default)
+   * @param {number} [params.wait_for]          — extra wait after load, in ms
+   * @param {boolean} [params.screenshot]       — capture a base64 PNG screenshot
+   * @param {Object} [params.stealthConfig]     — stealth configuration overrides
+   * @returns {Promise<{success:boolean, url:string, title:string, text:string, html:string, screenshot:?string}>}
+   */
+  async scrapeWithStealth({ url, engine, wait_for = 0, screenshot = false, stealthConfig = {} } = {}) {
+    if (!url) throw new Error('scrapeWithStealth requires a url');
+
+    const { contextId } = await this.createStealthContext({ ...stealthConfig, engine });
+    try {
+      const page = await this.createStealthPage(contextId);
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      if (wait_for > 0) await page.waitForTimeout(wait_for);
+
+      const [title, html, text] = await Promise.all([
+        page.title().catch(() => ''),
+        page.content().catch(() => ''),
+        page.innerText('body').catch(() => '')
+      ]);
+      const shot = screenshot
+        ? await page.screenshot({ encoding: 'base64', fullPage: false }).catch(() => null)
+        : null;
+
+      return { success: true, url, title, text, html, screenshot: shot };
+    } finally {
+      await this.closeContext(contextId).catch(() => {});
+    }
+  }
+
+  /**
    * Apply page-level stealth measures
    */
   async applyPageStealthMeasures(page, config, fingerprint) {

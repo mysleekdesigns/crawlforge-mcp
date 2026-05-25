@@ -12,6 +12,25 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
+### v4.2.9 — CLI command fixes (research/stealth/llmstxt/map/track/monitor/actions) + undici proxy for sandboxes (2026-05-25)
+
+Completes the CLI-correctness sweep started in v4.2.4 (which fixed `template`/`analyze`/`localize`). The CLI invokes tools directly, so each command must match the tool's Zod schema; none of these touch the MCP server, which was already correct.
+
+**Fully-broken commands (errored every run):**
+- `research`: sent `query`/`depth`/`max_urls`/`output_format`; `DeepResearchSchema` requires `topic` + `maxDepth`/`maxUrls`/`outputFormat`. Unknown keys were stripped → `topic` undefined → "Required". Now sends `topic`, maps `--depth basic|standard|deep` → `maxDepth` (2/5/8) and `--output-format summary|detailed` → `outputFormat` (`summary`/`comprehensive`).
+- `stealth`: called `StealthBrowserManager.scrapeWithStealth()`, which never existed (`stealth_mode` is operation-based: `create_context`/`create_page`). Added a `scrapeWithStealth({url, engine, wait_for, screenshot})` convenience method (context → page → goto → extract title/text/html → optional base64 screenshot → `closeContext` in `finally`).
+
+**Param-shape no-ops (Zod strips unknown keys, so flags silently did nothing):**
+- `llmstxt`: `--include-full` → `format`, `--max-pages` → `analysisOptions.maxPages`.
+- `map`: `--max-pages` → `max_urls`; removed unsupported `--depth`/`--format`, added `--no-sitemap`.
+- `track`: `--selector` → `trackingOptions.customSelectors`, `--threshold` (%) → `significanceThresholds` (ordered 0-1). **Also** `compare` threw "No baseline found" on first run — now bootstraps a baseline first.
+- `monitor`: switched from a fabricated `scheduled`/`interval_seconds`/`webhook_url` shape to `operation: 'monitor'` (the setInterval poller) with `--interval` s→ms (min 60s) and `--webhook` → `notificationOptions.webhook`; selector/threshold mapped as in `track`; bootstraps a baseline before polling.
+- `actions`: `--screenshot` → `captureScreenshots`; removed `--wait` (no between-action wait field — use `{type:'wait'}` actions in the script).
+
+**Durable sandbox fix:** Node's global `fetch()` (undici) ignores `HTTP(S)_PROXY`, so the CLI's calls to `www.crawlforge.dev` and scrape targets failed inside sandboxes that require proxied egress (hence the `excludedCommands` workaround). `src/cli/index.js` now installs an undici `EnvHttpProxyAgent` global dispatcher when a proxy env var is present (honors `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`; no-op otherwise), scoped to the CLI entry so MCP/stdio is unchanged. `undici` added as a direct dependency at the existing `^7.24.0` override.
+
+**Verification:** `npm run test:unit` 262/262 (sandbox-off; the sandbox-on `listen EPERM 127.0.0.1` failures are HTTP-transport tests that can't bind under Claude Code's sandbox); `npm test` exits 0; CLI smoke tests pass (help/version, proxy dispatcher installs without crash, `scrapeWithStealth` resolves).
+
 ### v4.2.8 — Logger no longer crashes on `logger.error(message)` (null-deref) (2026-05-25)
 
 Fix for a shared-Logger bug that masked real errors as a confusing null-deref. **Root cause:** `Logger.error(message, error = null, ...)` calls `trackError(error, ...)` whenever `enableErrorTracking` is on, but `trackError` read `error.name` unconditionally. The common pattern `logger.error(\`... ${err.message}\`)` (message only, no error object) therefore threw `Cannot read properties of null (reading 'name')`, replacing the original error. **Surfaced via** `generate_llms_txt` on swing.com: a benign crawl timeout was logged via that pattern, the logger crashed, and the client received the null-deref instead of a completed result. **Fix:** `Logger.error` only calls `trackError` when an Error was actually passed, and `trackError` is now null-safe (`error?.name ?? 'UnknownError'`, etc.) so the shared logger can never throw. **Verification:** `generate_llms_txt` on swing.com now completes (`pagesAnalyzed=0`, same as example.com — the timeout is non-fatal); `npm run test:unit` 262/262. Root-caused from a live stack trace captured via the CrawlForge tool path.

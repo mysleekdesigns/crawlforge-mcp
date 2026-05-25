@@ -9,18 +9,18 @@ export function register(program) {
   program
     .command('map <url>')
     .description('Generate a sitemap for a website')
-    .option('--depth <n>', 'Maximum crawl depth', '3')
-    .option('--max-pages <n>', 'Maximum pages to include', '500')
-    .option('--format <fmt>', 'Output format: json or xml', 'json')
+    .option('--max-pages <n>', 'Maximum URLs to discover', '500')
+    .option('--no-sitemap', 'Skip parsing sitemap.xml')
     .action(async (url, opts, cmd) => {
       const globals = cmd.parent.opts();
       const cliFlags = { json: globals.json, pretty: globals.pretty, quiet: globals.quiet };
       const tool = new MapSiteTool(getToolConfig('map_site'));
+      // MapSiteSchema expects: url, max_urls, include_sitemap.
+      // (map_site has no crawl-depth or xml/json output toggle.)
       await runTool(tool, {
         url,
-        max_depth: parseInt(opts.depth, 10),
-        max_pages: parseInt(opts.maxPages, 10),
-        output_format: opts.format
+        max_urls: parseInt(opts.maxPages, 10),
+        include_sitemap: opts.sitemap
       }, cliFlags);
     });
 }

@@ -15,10 +15,12 @@ export function register(program) {
       const globals = cmd.parent.opts();
       const cliFlags = { json: globals.json, pretty: globals.pretty, quiet: globals.quiet };
       const tool = new GenerateLLMsTxtTool(getToolConfig('generate_llms_txt'));
+      // GenerateLLMsTxtSchema expects: url, format ('both'|'llms-txt'|'llms-full-txt'),
+      // analysisOptions.maxPages.
       await runTool(tool, {
         url,
-        include_full_txt: !!opts.includeFull,
-        max_pages: parseInt(opts.maxPages, 10)
+        format: opts.includeFull ? 'both' : 'llms-txt',
+        analysisOptions: { maxPages: parseInt(opts.maxPages, 10) }
       }, cliFlags);
     });
 }

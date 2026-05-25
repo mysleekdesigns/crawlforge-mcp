@@ -3,6 +3,27 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.2.9] - 2026-05-25
+
+Patch release: fix the remaining broken/no-op `crawlforge` CLI commands and make the CLI work inside sandboxed (proxied) environments. The CLI invokes tools directly, so these are CLI-layer fixes — the MCP server was already correct.
+
+### Fixed
+
+- **`research` no longer errors on every run.** Passed `query`/`depth`/`max_urls`/`output_format`, but `DeepResearchSchema` requires `topic` plus `maxDepth`/`maxUrls`/`outputFormat`. Zod stripped the unknown keys, leaving `topic` undefined → "Required". Now sends `topic` and maps `--depth basic|standard|deep` → `maxDepth` (2/5/8) and `--output-format summary|detailed` → `outputFormat` (`summary`/`comprehensive`).
+- **`stealth` no longer throws `TypeError`.** It called `StealthBrowserManager.scrapeWithStealth()`, which did not exist (the `stealth_mode` tool is operation-based only). Added a one-shot `scrapeWithStealth({url, engine, wait_for, screenshot})` convenience method (create context → page → goto → extract title/text/html → optional base64 screenshot → `closeContext` in `finally`).
+- **`track` / `monitor` flags were silently ignored, and both threw "No baseline found" on first run.** `--selector` → `trackingOptions.customSelectors`; `--threshold` (%) → `trackingOptions.significanceThresholds` (ordered 0-1). `monitor` now uses `operation: 'monitor'` (the interval poller) with `--interval` converted s→ms and `--webhook` → `notificationOptions.webhook`. Both commands now bootstrap a baseline before comparing/polling, so first use works.
+- **`llmstxt` flags were no-ops.** `--include-full` → `format` (`both`/`llms-txt`), `--max-pages` → `analysisOptions.maxPages`.
+- **`map` flags were no-ops.** `--max-pages` → `max_urls`. Removed `--depth`/`--format` (no backing in `map_site`); added `--no-sitemap`.
+- **`actions` flags were no-ops.** `--screenshot` → `captureScreenshots`. Removed `--wait` (no between-action wait field; use `{type:'wait'}` actions in the script).
+
+### Added
+
+- **undici proxy support for the CLI.** Node's global `fetch()` ignores `HTTP(S)_PROXY`, so the CLI's API/scrape calls failed inside sandboxes that only allow proxied egress. `src/cli/index.js` now installs an undici `EnvHttpProxyAgent` global dispatcher when a proxy env var is set (honors `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`; no-op otherwise). Removes the need for a sandbox `excludedCommands` workaround. `undici` is now a direct dependency (pinned to the existing `^7.24.0` security override).
+
+### Tests
+
+- `npm run test:unit` 262/262; `npm test` exits 0. CLI smoke-tested (help/version, proxy dispatcher install, `scrapeWithStealth` presence).
+
 ## [4.2.6] - 2026-05-25
 
 Patch release: make `crawlforge-mcp-server <command>` work as the CLI (follow-up to 4.2.5).
