@@ -899,7 +899,20 @@ server.registerTool("stealth_mode", {
       case 'create_page': {
         if (!contextId) throw new Error('contextId is required for create_page operation');
         const page = await stealthBrowserManager.createStealthPage(contextId);
-        result = { pageCreated: true, contextId, url: urlToTest ? await page.goto(urlToTest) : null };
+        let navigation = null;
+        if (urlToTest) {
+          // page.goto returns a Playwright Response handle, which is not
+          // JSON-serializable — extract just the useful navigation details.
+          const response = await page.goto(urlToTest);
+          navigation = {
+            requestedUrl: urlToTest,
+            finalUrl: page.url(),
+            status: response ? response.status() : null,
+            ok: response ? response.ok() : null,
+            title: await page.title().catch(() => null)
+          };
+        }
+        result = { pageCreated: true, contextId, navigation };
         break;
       }
       case 'get_stats':

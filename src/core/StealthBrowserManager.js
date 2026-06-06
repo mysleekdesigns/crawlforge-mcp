@@ -390,8 +390,11 @@ export class StealthBrowserManager {
    * Generate advanced browser fingerprint with enhanced randomization
    */
   generateAdvancedFingerprint(config = {}) {
+    // Select the OS once and thread it through UA, headers, and hardware so
+    // navigator.platform / sec-ch-ua-platform / userAgent stay consistent.
+    const selectedOS = this.selectOS(config);
     const fingerprint = {
-      userAgent: this.selectRealisticUserAgent(config),
+      userAgent: this.selectRealisticUserAgent(config, selectedOS),
       viewport: config.customViewport || this.selectWeightedViewport(),
       timezone: config.timezone || this.selectTimezone(),
       deviceScaleFactor: this.randomFloat(1, 2, 1),
@@ -400,13 +403,13 @@ export class StealthBrowserManager {
       colorScheme: Math.random() < 0.3 ? 'dark' : 'light',
       reducedMotion: Math.random() < 0.1 ? 'reduce' : 'no-preference',
       forcedColors: Math.random() < 0.05 ? 'active' : 'none',
-      headers: this.generateAdvancedHeaders(config),
+      headers: this.generateAdvancedHeaders(config, selectedOS),
       webRTC: this.generateWebRTCConfig(config),
       canvas: this.generateAdvancedCanvasFingerprint(),
       webGL: this.generateAdvancedWebGLFingerprint(),
       audioContext: this.generateAudioContextFingerprint(),
       mediaDevices: this.generateMediaDevicesFingerprint(),
-      hardware: this.generateHardwareFingerprint(),
+      hardware: this.generateHardwareFingerprint(selectedOS),
       fonts: this.generateAdvancedFontList(),
       plugins: this.generateAdvancedPluginList(),
       geolocation: this.generateRealisticGeolocation(),
@@ -418,9 +421,33 @@ export class StealthBrowserManager {
   }
 
   /**
+   * Choose a single OS ('windows' | 'macos' | 'linux') for a fingerprint.
+   * A custom UA pins the OS to whatever that UA reports; a non-random UA pins
+   * to windows (the default pool below); otherwise weighted-random.
+   */
+  selectOS(config = {}) {
+    if (config.customUserAgent) {
+      return this.inferOSFromUserAgent(config.customUserAgent);
+    }
+    if (!config.useRandomUserAgent) {
+      return 'windows';
+    }
+    return this.weightedRandom(this.osDistribution);
+  }
+
+  /**
+   * Infer the OS key from a user-agent string.
+   */
+  inferOSFromUserAgent(ua = '') {
+    if (/Macintosh|Mac OS X/i.test(ua)) return 'macos';
+    if (/Linux|X11|CrOS/i.test(ua)) return 'linux';
+    return 'windows';
+  }
+
+  /**
    * Select realistic user agent based on market distribution
    */
-  selectRealisticUserAgent(config) {
+  selectRealisticUserAgent(config, selectedOS) {
     if (config.customUserAgent) {
       return config.customUserAgent;
     }
@@ -429,9 +456,10 @@ export class StealthBrowserManager {
       return this.userAgentPools.chrome.windows[0];
     }
 
-    // Select OS based on distribution
-    const selectedOS = this.weightedRandom(this.osDistribution);
-    
+    // Use the OS chosen once for this fingerprint (falls back to a fresh draw
+    // if called without one, preserving the original standalone behavior).
+    selectedOS = selectedOS || this.weightedRandom(this.osDistribution);
+
     // Select browser based on distribution and OS compatibility
     let availableBrowsers = { ...this.browserDistribution };
     if (selectedOS === 'linux' && availableBrowsers.safari) {
@@ -469,7 +497,7 @@ export class StealthBrowserManager {
   /**
    * Generate advanced HTTP headers with realistic patterns
    */
-  generateAdvancedHeaders(config) {
+  generateAdvancedHeaders(config, selectedOS) {
     const headers = {
       'Accept-Language': `${(config.locale || 'en-US').toLowerCase()},en;q=0.9`,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
@@ -481,7 +509,7 @@ export class StealthBrowserManager {
       'Sec-Fetch-Site': 'none',
       'Sec-Fetch-User': '?1',
       'sec-ch-ua-mobile': '?0',
-      'sec-ch-ua-platform': this.generateSecChUaPlatform()
+      'sec-ch-ua-platform': this.generateSecChUaPlatform(selectedOS)
     };
 
     // Add sec-ch-ua header
@@ -522,14 +550,14 @@ export class StealthBrowserManager {
   /**
    * Generate sec-ch-ua-platform header
    */
-  generateSecChUaPlatform() {
+  generateSecChUaPlatform(selectedOS) {
     const platforms = {
       windows: '"Windows"',
       macos: '"macOS"',
       linux: '"Linux"'
     };
-    
-    const selectedOS = this.weightedRandom(this.osDistribution);
+
+    selectedOS = selectedOS || this.weightedRandom(this.osDistribution);
     return platforms[selectedOS] || '"Windows"';
   }
 
@@ -746,7 +774,9 @@ export class StealthBrowserManager {
   /**
    * Generate realistic hardware fingerprint
    */
-  generateHardwareFingerprint() {
+  generateHardwareFingerprint(selectedOS) {
+    selectedOS = selectedOS || this.weightedRandom(this.osDistribution);
+
     const processors = [
       { cores: 4, threads: 8, name: 'Intel(R) Core(TM) i5-8250U CPU @ 1.60GHz' },
       { cores: 6, threads: 12, name: 'Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz' },
@@ -755,31 +785,33 @@ export class StealthBrowserManager {
       { cores: 6, threads: 6, name: 'AMD Ryzen 5 3600 6-Core Processor' },
       { cores: 8, threads: 16, name: 'AMD Ryzen 7 3700X 8-Core Processor' }
     ];
-    
+
     const selectedProcessor = processors[Math.floor(Math.random() * processors.length)];
-    
+
     return {
       hardwareConcurrency: selectedProcessor.threads,
       processor: selectedProcessor.name,
-      architecture: Math.random() < 0.9 ? 'x86_64' : 'arm64',
+      architecture: 'x86_64',
       memory: Math.floor(Math.random() * 24) + 8, // 8-32 GB
       deviceMemory: Math.pow(2, Math.floor(Math.random() * 3) + 3), // 8, 16, or 32 GB
-      platform: this.selectRealisticPlatform()
+      platform: this.selectRealisticPlatform(selectedOS)
     };
   }
 
   /**
-   * Select realistic platform based on distribution
+   * Map the chosen OS to its navigator.platform value so it stays consistent
+   * with the user-agent and sec-ch-ua-platform header.
    */
-  selectRealisticPlatform() {
-    const platforms = {
-      'Win32': 0.75,
-      'MacIntel': 0.15,
-      'Linux x86_64': 0.08,
-      'Linux armv7l': 0.02
-    };
-    
-    return this.weightedRandom(platforms);
+  selectRealisticPlatform(selectedOS) {
+    switch (selectedOS) {
+      case 'macos':
+        return 'MacIntel';
+      case 'linux':
+        return 'Linux x86_64';
+      case 'windows':
+      default:
+        return 'Win32';
+    }
   }
 
   /**
