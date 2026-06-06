@@ -519,13 +519,17 @@ export class ResearchOrchestrator extends EventEmitter {
               }
             }
 
-            if (contentData && contentData.content) {
-              this.metrics.contentExtracted++;
+            // Normalize content to string (extract_content returns {text: "..."}, fallback returns string)
+            const contentText = contentData && contentData.content
+              ? (typeof contentData.content === 'string'
+                  ? contentData.content
+                  : (contentData.content.text || ''))
+              : '';
 
-              // Normalize content to string (extract_content returns {text: "..."}, fallback returns string)
-              const contentText = typeof contentData.content === 'string'
-                ? contentData.content
-                : (contentData.content.text || JSON.stringify(contentData.content));
+            // Only count and enhance sources that actually produced non-empty content.
+            // Skip failed extractions and empty {text:""} results.
+            if (contentData && contentData.success !== false && contentText.trim().length > 0) {
+              this.metrics.contentExtracted++;
 
               // Enhance source with extracted content
               let enhancedSource = {

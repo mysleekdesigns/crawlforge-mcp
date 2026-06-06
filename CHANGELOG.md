@@ -3,6 +3,32 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.3.0] - 2026-06-06
+
+Phase A of `IMPROVEMENT_PLAN.md` — "Critical Fixes & Restored Capabilities". Closes 9 critical-correctness bugs and restores 6 advanced MCP capabilities that `server.js` schemas were silently dropping. Each fix ships a reproduce→pass regression test in `tests/unit/phaseA-regressions.test.js`.
+
+### Fixed
+
+- **`extract_links` inverted `filter_external`** — `filter_external:true` now returns only *external* links (previously returned internal-only). `src/tools/basic/extractLinks.js`
+- **`analyze_content` language detection** — `franc.all` (nonexistent in franc v6) replaced with the `francAll` named import; unblocks all language detection and `summarize_content`'s `metadata.language`. `src/core/analysis/ContentAnalyzer.js`
+- **`summarize_content` abstractive mode** — implemented the missing `_abstractiveSummaryViaSampling()` (via `SamplingClient`); when no LLM/sampling backend is available it returns the extractive summary with explicit `degraded`/`degradedReason` flags instead of silently masking the failure. `src/tools/extract/summarizeContent.js`
+- **`extract_with_llm` undefined `callViaSampling`** — removed the undefined call and wired the real `getSamplingClient()` fallback; the Ollama/auto error path no longer crashes. `src/tools/extract/extractWithLlm.js`
+- **`deep_research` empty extractions** — failed/empty (`{"text":""}`) extractions are no longer counted as `contentExtracted` or surfaced; guards on `contentData.success` + non-empty trimmed content. `src/core/ResearchOrchestrator.js`
+- **`track_changes` no-baseline** — returns a clean `No baseline found for <url> — run create_baseline first` error and no longer emits an unhandled `'error'` EventEmitter event. `src/core/ChangeTracker.js`
+- **`scrape_template` Hacker News selectors** — `.subtext` is the sibling row after `tr.athing` (not `.spacer`); score/author/posted/comments now populate per story. `src/tools/templates/TemplateRegistry.js`
+- **`generate_llms_txt` output format** — default output is now spec-compliant llmstxt.org markdown (`# Title`, `> summary`, `## Section` headers with `[name](url)` link lists) instead of robots.txt directives. The legacy robots-style output is preserved behind `outputOptions.robotsStyle:true`. `src/tools/llmstxt/generateLLMsTxt.js`
+
+### Added (restored MCP capabilities)
+
+- **`crawl_deep`** — `domain_filter`, `session`, `import_filter_config`, `enable_link_analysis`, `link_analysis_options` now forwarded through the MCP schema + handler. `server.js`
+- **`search_web`** — 10 previously-dropped params forwarded: `provider`, `expand_query`, `expansion_options`, `enable_ranking`, `ranking_weights`, `enable_deduplication`, `deduplication_thresholds`, `include_ranking_details`, `include_deduplication_details`, `localization`. `server.js`
+- **`map_site`** — `domain_filter` / `import_filter_config` forwarded. `server.js`
+- **`scrape_with_actions`** — the MCP action schema now carries all action fields (`duration`, `distance`, `direction`, `captureAfter`, `clear`, `button`, `clickCount`, `delay`, `force`, `position`, `modifiers`, `smooth`, `toElement`, `condition`, `fullPage`, `quality`, `format`, `args`, `returnResult`) so `{type:'wait',duration:1000}` works; `formAutoFill` `{fields:[…]}` is reconciled end-to-end (flat record still accepted); and final content is read from the post-action live page (`ActionExecutor` captures `finalHtml`/`finalUrl`; `extractContent` accepts pre-rendered `html`) instead of re-fetching the original URL. `server.js`, `src/tools/advanced/ScrapeWithActionsTool.js`, `src/core/ActionExecutor.js`, `src/tools/extract/extractContent.js`
+
+### Verified
+
+- `tests/unit/phaseA-regressions.test.js` 12/12; full `npm run test:unit` 277/277 green sandbox-off (the sandbox-on `listen EPERM 127.0.0.1` failures are the pre-existing HTTP-transport/searxng port-binding cases). `node test-tools.js` 20/20 (100%). `npm test` MCP harness exits 0 (all 23 tools discovered). `McpServer` version corrected from a stale 4.2.6 to 4.3.0.
+
 ## [4.2.12] - 2026-06-06
 
 Patch release: ship the previously-unreleased `stealth_mode` fingerprint-consistency and `create_page` output fixes (commit `28e2e3b`) so the published package matches HEAD. Tarball now carries the corrected `StealthBrowserManager` and `create_page` handler.

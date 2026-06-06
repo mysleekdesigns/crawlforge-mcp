@@ -124,7 +124,7 @@ export class ExtractContentTool {
     
     try {
       const validated = ExtractContentSchema.parse(params);
-      const { url, options } = validated;
+      const { url, html: providedHtml, options } = validated;
 
       const result = {
         url,
@@ -133,10 +133,16 @@ export class ExtractContentTool {
         processingTime: 0
       };
 
-      // Step 1: Fetch content (with or without JavaScript rendering)
+      // Step 1: Fetch content (with or without JavaScript rendering).
+      // If pre-rendered HTML is supplied (e.g. post-action page from
+      // scrape_with_actions), use it directly and skip the network fetch.
       let html, pageTitle;
+      if (providedHtml) {
+        html = providedHtml;
+        pageTitle = this.extractTitleFromHTML(html);
+      } else {
       const shouldUseJavaScript = options.requiresJavaScript || await this.shouldUseJavaScript(url);
-      
+
       if (shouldUseJavaScript) {
         console.error('Using browser rendering for JavaScript content...');
         const browserResult = await this.browserProcessor.processURL({
@@ -171,6 +177,7 @@ export class ExtractContentTool {
 
         html = await response.text();
         pageTitle = this.extractTitleFromHTML(html);
+      }
       }
 
       result.title = pageTitle;

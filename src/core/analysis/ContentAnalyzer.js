@@ -4,7 +4,7 @@
  */
 
 import { SummarizerManager } from 'node-summarizer';
-import { franc } from 'franc';
+import { franc, francAll } from 'franc';
 import nlp from 'compromise';
 import { z } from 'zod';
 import { splitSentences } from './sentenceUtils.js';
@@ -316,7 +316,7 @@ export class ContentAnalyzer {
       const confidence = Math.min(1, 0.5 + (text.length / 500) * 0.5);
 
       // Get alternative languages using franc.all
-      const alternatives = franc.all(text, {
+      const alternatives = francAll(text, {
         minLength: 10,
         whitelist: Object.keys(LANGUAGE_NAMES)
       })

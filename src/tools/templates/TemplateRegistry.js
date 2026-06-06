@@ -162,8 +162,9 @@ const TEMPLATES = [
       const stories = [];
       $('tr.athing').each((_, el) => {
         const $row = $(el);
-        const $score = $row.next('.spacer').find('.score');
-        const $subtext = $row.next('.spacer').find('.subtext');
+        // The metadata row (".subtext") is the sibling row immediately after tr.athing.
+        const $subtext = $row.next('tr').find('.subtext');
+        const $score = $subtext.find('.score');
         const $titleLink = $row.find('.titleline > a');
         stories.push({
           id: $row.attr('id'),

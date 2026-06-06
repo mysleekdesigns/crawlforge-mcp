@@ -12,6 +12,28 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
+### v4.3.0 — Phase A: Critical Fixes & Restored Capabilities (2026-06-06)
+
+First execution phase of `IMPROVEMENT_PLAN.md` (from the 23-tool audit). Closed all 9 Phase-A critical-correctness items and restored 6 silently-dropped MCP capabilities.
+
+**A1 — Correctness fixes:**
+- `extract_links` — inverted `filter_external` guard so `filter_external:true` now returns only *external* links (was returning internal-only). `src/tools/basic/extractLinks.js`
+- `analyze_content` — `import { franc, francAll }` and call `francAll(...)` (franc v6 has no `franc.all`); unblocks all language detection and `summarize_content`'s `metadata.language`. `src/core/analysis/ContentAnalyzer.js`
+- `summarize_content` — implemented the missing `_abstractiveSummaryViaSampling()` (routes through `SamplingClient`); when abstractive can't run it now returns the extractive result with explicit `degraded`/`degradedReason` flags instead of silently masking. `src/tools/extract/summarizeContent.js`
+- `extract_with_llm` — removed the undefined `callViaSampling(...)` call and wired the real `getSamplingClient()` fallback (was corrupting the most common error message). `src/tools/extract/extractWithLlm.js`
+- `deep_research` — empty/failed extractions (`{"text":""}`) are no longer counted as `contentExtracted` or surfaced; guards on `contentData.success` + non-empty trimmed text. `src/core/ResearchOrchestrator.js`
+- `track_changes` — no-baseline case returns a clean `No baseline found for <url> — run create_baseline first` error and no longer emits an unhandled `'error'` event. `src/core/ChangeTracker.js`
+- `scrape_template` — fixed `hacker-news-front-page` selectors (`.subtext` is the sibling row after `tr.athing`, not `.spacer`); score/author/comments now populate. `src/tools/templates/TemplateRegistry.js`
+- `generate_llms_txt` — default output is now spec-compliant llmstxt.org markdown (`# Title`, `> summary`, `## Section` headers with `[name](url)` lists) instead of robots.txt directives; legacy robots-style output kept behind `outputOptions.robotsStyle:true`. `src/tools/llmstxt/generateLLMsTxt.js`
+
+**A2 — Restored MCP capabilities** (server.js inputSchemas were subsets of the tools' Zod schemas):
+- `crawl_deep` — forwards `domain_filter`, `session`, `import_filter_config`, `enable_link_analysis`, `link_analysis_options`.
+- `search_web` — forwards the 10 dropped params (`provider`, `expand_query`, `expansion_options`, `enable_ranking`, `ranking_weights`, `enable_deduplication`, `deduplication_thresholds`, `include_ranking_details`, `include_deduplication_details`, `localization`).
+- `map_site` — forwards `domain_filter` / `import_filter_config`.
+- `scrape_with_actions` — full action schema (`duration`, `distance`, `direction`, `captureAfter`, `clear`, `button`, `clickCount`, `delay`, `force`, `position`, `modifiers`, `smooth`, `toElement`, `condition`, `fullPage`, `quality`, `format`, `args`, `returnResult`), so `{type:'wait',duration:1000}` works; reconciled the `formAutoFill` `{fields:[…]}` contract end-to-end; and "final content" now reads the post-action live page (via `ActionExecutor` capturing `finalHtml`/`finalUrl` + `extractContent` accepting pre-rendered `html`) instead of re-fetching the original URL.
+
+**A3 — Verification:** new `tests/unit/phaseA-regressions.test.js` (12 reproduce→pass tests, one per A1/A2 item). `npm run test:unit` 277/277 green (sandbox-off; the sandbox-on `listen EPERM` failures are the pre-existing HTTP-transport/searxng port-binding cases). `node test-tools.js` 20/20 (100%). `npm test` MCP harness exits 0 with all 23 tools discovered. Version bumped 4.2.12 → 4.3.0 (server `McpServer` version corrected from stale 4.2.6). `npm audit`: 4 pre-existing moderate advisories (uuid/node-cron transitive) — out of Phase-A scope. Files: `IMPROVEMENT_PLAN.md`, `PRD.md`, `CHANGELOG.md`, `server.js`, `package.json`, 10 src files, 1 new test.
+
 ### Unreleased — Full 23-tool audit + IMPROVEMENT_PLAN.md (2026-06-06)
 
 Ran a 21-agent audit (code-review → live-test → web-research via `search_web` → adversarial verification) across all 23 MCP tools. Found **9 critical + ~49 high** issues — e.g. `extract_links` inverted `filter_external`, `analyze_content` broken `franc.all` (franc v6 needs `francAll`), `summarize_content`/`extract_with_llm` calling undefined sampling methods, `deep_research` surfacing empty extractions as the literal `'{"text":""}'`, `scrape_with_actions`/`crawl_deep`/`search_web` MCP schemas silently dropping advanced params, and `generate_llms_txt` emitting robots.txt directives instead of the spec llms.txt markdown.

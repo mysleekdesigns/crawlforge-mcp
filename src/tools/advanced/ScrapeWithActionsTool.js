@@ -121,8 +121,16 @@ const ScrapeWithActionsSchema = z.object({
   captureIntermediateStates: z.boolean().default(false),
   captureScreenshots: z.boolean().default(true),
 
-  // Form auto-fill
-  formAutoFill: z.record(z.string()).optional(),
+  // Form auto-fill — structured shape ({fields:[{selector,value,...}], submitSelector, waitAfterSubmit}).
+  // A flat z.record(string) of selector→value is still accepted for backward compatibility.
+  formAutoFill: z.union([
+    z.object({
+      fields: z.array(FormFieldSchema),
+      submitSelector: z.string().optional(),
+      waitAfterSubmit: z.number().min(0).max(30000).default(2000)
+    }),
+    z.record(z.string())
+  ]).optional(),
 
   // Browser options
   browserOptions: z.object({
@@ -386,8 +394,9 @@ export class ScrapeWithActionsTool extends EventEmitter {
     const intermediateStates = params.captureIntermediateStates ?
       await this.extractIntermediateStates(actionResults, params) : [];
 
-    // Get final page content after all actions
-    const finalContent = await this.extractFinalContent(params);
+    // Get final page content after all actions (reads the post-action live page
+    // captured by ActionExecutor, falling back to a fresh fetch only if missing).
+    const finalContent = await this.extractFinalContent(params, chainResult);
 
     // Generate different formats
     const content = this.generateFormats(finalContent, params.formats, {
@@ -446,21 +455,37 @@ export class ScrapeWithActionsTool extends EventEmitter {
 
   insertFormAutoFillActions(actions, formAutoFill) {
     const fillActions = [];
-    
-    // Convert object with key-value pairs to fill actions
-    for (const [selector, value] of Object.entries(formAutoFill)) {
-      if (selector === 'submitSelector' || selector === 'waitAfterSubmit') {
-        continue; // Skip special keys
+
+    if (Array.isArray(formAutoFill.fields)) {
+      // Structured shape: { fields: [{selector, value, type, waitAfter}], submitSelector, waitAfterSubmit }
+      for (const field of formAutoFill.fields) {
+        fillActions.push({
+          type: 'type',
+          selector: field.selector,
+          text: field.value,
+          description: `Auto-fill field: ${field.selector}`,
+          continueOnError: true,
+          retries: 1
+        });
+        if (field.waitAfter) {
+          fillActions.push({ type: 'wait', duration: field.waitAfter });
+        }
       }
-      
-      fillActions.push({
-        type: 'type',
-        selector,
-        text: value,
-        description: `Auto-fill field: ${selector}`,
-        continueOnError: true,
-        retries: 1
-      });
+    } else {
+      // Backward-compatible flat shape: { selector: value, ... }
+      for (const [selector, value] of Object.entries(formAutoFill)) {
+        if (selector === 'submitSelector' || selector === 'waitAfterSubmit' || selector === 'fields') {
+          continue; // Skip special keys
+        }
+        fillActions.push({
+          type: 'type',
+          selector,
+          text: value,
+          description: `Auto-fill field: ${selector}`,
+          continueOnError: true,
+          retries: 1
+        });
+      }
     }
 
     // Add submit action if specified
@@ -585,16 +610,29 @@ export class ScrapeWithActionsTool extends EventEmitter {
     return states;
   }
 
-  async extractFinalContent(params) {
+  async extractFinalContent(params, chainResult = null) {
     try {
+      const options = {
+        includeMetadata: params.extractionOptions?.includeMetadata !== false,
+        includeLinks: params.extractionOptions?.includeLinks !== false,
+        includeImages: params.extractionOptions?.includeImages !== false,
+        customSelectors: params.extractionOptions?.selectors
+      };
+
+      // Prefer the post-action live page HTML captured during action execution.
+      // This ensures the final content reflects clicks/typing/navigation rather
+      // than re-fetching the original (pre-action) URL.
+      if (chainResult?.finalHtml) {
+        return await this.extractContentTool.execute({
+          url: chainResult.finalUrl || params.url,
+          html: chainResult.finalHtml,
+          options
+        });
+      }
+
       const extractResult = await this.extractContentTool.execute({
         url: params.url,
-        options: {
-          includeMetadata: params.extractionOptions?.includeMetadata !== false,
-          includeLinks: params.extractionOptions?.includeLinks !== false,
-          includeImages: params.extractionOptions?.includeImages !== false,
-          customSelectors: params.extractionOptions?.selectors
-        }
+        options
       });
 
       return extractResult;

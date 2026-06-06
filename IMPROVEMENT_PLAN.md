@@ -40,31 +40,31 @@
 ---
 
 ## Phase A — v4.3.0 "Critical Fixes & Restored Capabilities"
-**Completed:**
+**Completed:** 2026-06-06
 **Goal:** Every tool's documented core use case works correctly and signals failure honestly. Each fix ships a reproducing→passing regression test.
 
 ### A1 — Broken behavior (correctness)
-- [ ] **extract_links** — invert the `filter_external` guard so `filter_external:true` returns only *external* links (currently returns internal-only). `src/tools/basic/extractLinks.js:44` (S)
-- [ ] **analyze_content** — fix language detection: `import { franc, francAll } from 'franc'` and call `francAll(...)` (franc v6 has no `franc.all`). Unblocks all language detection and `summarize_content`'s `metadata.language`. `src/core/analysis/ContentAnalyzer.js:7,319` (S)
-- [ ] **summarize_content** — implement the missing `_abstractiveSummaryViaSampling()` (route through `SamplingClient`/`LLMManager`); if abstractive can't run, return the extractive result **with an explicit `degraded`/reason flag** instead of silently masking. `src/tools/extract/summarizeContent.js:136` (M)
-- [ ] **extract_with_llm** — remove the undefined `callViaSampling(...)` call: either wire the already-imported (currently dead) `getSamplingClient()` fallback, or drop the fallback and surface the real Ollama error. `src/tools/extract/extractWithLlm.js:320,13-19` (S)
-- [ ] **deep_research / ResearchOrchestrator** — skip failed/empty extractions: check `contentData.success` and non-empty `content.text` before counting `contentExtracted` or serializing (stop producing the literal `'{"text":""}'`). `src/core/ResearchOrchestrator.js:520-528` (M)
-- [ ] **track_changes** — return a clean `No baseline — run create_baseline first` error and stop emitting an unhandled `'error'` event for the expected no-baseline case. `src/core/ChangeTracker.js:178-180,250-253` (S)
-- [ ] **scrape_template** — fix the `hacker-news-front-page` selectors: the row after `tr.athing` is `.subtext` (not `.spacer`), so score/author/posted/comments come back null on every story. `src/tools/templates/TemplateRegistry.js:163-179` (S)
-- [ ] **generate_llms_txt** — emit spec-compliant llms.txt markdown (`# Title`, `> summary`, detail paragraphs, `## Section` headers with `[name](url): notes` lists per llmstxt.org) instead of robots.txt directives (`User-agent:`/`Crawl-delay:`/`Disallow:`). Keep the robots-style output behind an explicit option if still wanted. `src/tools/llmstxt/generateLLMsTxt.js:125-218` (L)
+- [x] **extract_links** — invert the `filter_external` guard so `filter_external:true` returns only *external* links (currently returns internal-only). `src/tools/basic/extractLinks.js:44` (S)
+- [x] **analyze_content** — fix language detection: `import { franc, francAll } from 'franc'` and call `francAll(...)` (franc v6 has no `franc.all`). Unblocks all language detection and `summarize_content`'s `metadata.language`. `src/core/analysis/ContentAnalyzer.js:7,319` (S)
+- [x] **summarize_content** — implement the missing `_abstractiveSummaryViaSampling()` (route through `SamplingClient`/`LLMManager`); if abstractive can't run, return the extractive result **with an explicit `degraded`/reason flag** instead of silently masking. `src/tools/extract/summarizeContent.js:136` (M)
+- [x] **extract_with_llm** — remove the undefined `callViaSampling(...)` call: either wire the already-imported (currently dead) `getSamplingClient()` fallback, or drop the fallback and surface the real Ollama error. `src/tools/extract/extractWithLlm.js:320,13-19` (S)
+- [x] **deep_research / ResearchOrchestrator** — skip failed/empty extractions: check `contentData.success` and non-empty `content.text` before counting `contentExtracted` or serializing (stop producing the literal `'{"text":""}'`). `src/core/ResearchOrchestrator.js:520-528` (M)
+- [x] **track_changes** — return a clean `No baseline — run create_baseline first` error and stop emitting an unhandled `'error'` event for the expected no-baseline case. `src/core/ChangeTracker.js:178-180,250-253` (S)
+- [x] **scrape_template** — fix the `hacker-news-front-page` selectors: the row after `tr.athing` is `.subtext` (not `.spacer`), so score/author/posted/comments come back null on every story. `src/tools/templates/TemplateRegistry.js:163-179` (S)
+- [x] **generate_llms_txt** — emit spec-compliant llms.txt markdown (`# Title`, `> summary`, detail paragraphs, `## Section` headers with `[name](url): notes` lists per llmstxt.org) instead of robots.txt directives (`User-agent:`/`Crawl-delay:`/`Disallow:`). Keep the robots-style output behind an explicit option if still wanted. `src/tools/llmstxt/generateLLMsTxt.js:125-218` (L)
 
 ### A2 — Restored MCP capabilities
 *(Root cause: `server.js` `registerTool` inputSchemas are subsets of the tools' real Zod schemas, silently dropping advanced params. For each, either forward the params or remove them from the docs.)*
-- [ ] **crawl_deep** — forward `domain_filter`, `session`, `import_filter_config`, `enable_link_analysis`, `link_analysis_options` through the MCP schema + handler. `server.js:333-355` (M)
-- [ ] **search_web** — forward the 10 dropped params (`provider`, `expand_query`, `expansion_options`, `enable_ranking`, `ranking_weights`, `enable_deduplication`, `deduplication_thresholds`, `include_ranking_details`, `include_deduplication_details`, `localization`), incl. the SearXNG provider path. `server.js:307-325` (M)
-- [ ] **map_site** — forward `domain_filter` / `import_filter_config`. `server.js:360-375` (S)
-- [ ] **scrape_with_actions** — carry all action params in the MCP action schema (`duration`, `milliseconds`, `distance`, `direction`, `captureAfter`, `clear`, `force`, `button`, `clickCount`, `delay`, `position`, `modifiers`, `smooth`, `toElement`, `condition`, `fullPage`, `quality`, `format`, `args`, `returnResult`) so the documented `{type:'wait',duration:1000}` works. `server.js:579-591` (M)
-- [ ] **scrape_with_actions** — reconcile the `formAutoFill` contract mismatch (MCP declares `{fields:[{selector,value,...}]}`; tool expects `z.record(string)` and treats keys as selectors). Pick one shape end-to-end. `server.js:595-604` vs `src/tools/advanced/ScrapeWithActionsTool.js:125,447-498` (S)
-- [ ] **scrape_with_actions** — make "final content" read the post-action live page instead of re-fetching the original URL with a fresh `ExtractContentTool`. `src/tools/advanced/ScrapeWithActionsTool.js:588-610` (M)
+- [x] **crawl_deep** — forward `domain_filter`, `session`, `import_filter_config`, `enable_link_analysis`, `link_analysis_options` through the MCP schema + handler. `server.js:333-355` (M)
+- [x] **search_web** — forward the 10 dropped params (`provider`, `expand_query`, `expansion_options`, `enable_ranking`, `ranking_weights`, `enable_deduplication`, `deduplication_thresholds`, `include_ranking_details`, `include_deduplication_details`, `localization`), incl. the SearXNG provider path. `server.js:307-325` (M)
+- [x] **map_site** — forward `domain_filter` / `import_filter_config`. `server.js:360-375` (S)
+- [x] **scrape_with_actions** — carry all action params in the MCP action schema (`duration`, `milliseconds`, `distance`, `direction`, `captureAfter`, `clear`, `force`, `button`, `clickCount`, `delay`, `position`, `modifiers`, `smooth`, `toElement`, `condition`, `fullPage`, `quality`, `format`, `args`, `returnResult`) so the documented `{type:'wait',duration:1000}` works. `server.js:579-591` (M)
+- [x] **scrape_with_actions** — reconcile the `formAutoFill` contract mismatch (MCP declares `{fields:[{selector,value,...}]}`; tool expects `z.record(string)` and treats keys as selectors). Pick one shape end-to-end. `server.js:595-604` vs `src/tools/advanced/ScrapeWithActionsTool.js:125,447-498` (S)
+- [x] **scrape_with_actions** — make "final content" read the post-action live page instead of re-fetching the original URL with a fresh `ExtractContentTool`. `src/tools/advanced/ScrapeWithActionsTool.js:588-610` (M)
 
 ### A3 — Verification & tests
-- [ ] Add a reproducing→passing regression test for every A1/A2 item (extend `tests/unit/tools/...` and `tests/integration/tools/...`).
-- [ ] `npm run test:unit` + `npm test` + `node test-tools.js` green; update `docs/PRODUCTION_READINESS.md`.
+- [x] Add a reproducing→passing regression test for every A1/A2 item (extend `tests/unit/tools/...` and `tests/integration/tools/...`).
+- [x] `npm run test:unit` + `npm test` + `node test-tools.js` green; update `docs/PRODUCTION_READINESS.md`.
 
 ---
 

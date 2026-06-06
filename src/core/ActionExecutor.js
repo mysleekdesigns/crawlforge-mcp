@@ -213,7 +213,17 @@ export class ActionExecutor extends EventEmitter {
 
         // Execute chain with potential retries
         chainResult = await this.executeChainWithRetries(executionContext);
-        
+
+        // Capture the LIVE post-action page state before the page is closed,
+        // so callers can extract final content reflecting all actions
+        // (instead of re-fetching the original URL).
+        try {
+          executionContext.finalHtml = await page.content();
+          executionContext.finalUrl = page.url();
+        } catch (captureErr) {
+          this.log('warn', 'Failed to capture final page content: ' + captureErr.message);
+        }
+
         this.stats.successfulChains++;
         executionContext.success = true;
 
@@ -268,6 +278,8 @@ export class ActionExecutor extends EventEmitter {
         success: true,
         chainId,
         url,
+        finalUrl: executionContext.finalUrl || url,
+        finalHtml: executionContext.finalHtml,
         executionTime: Date.now() - startTime,
         results: executionContext.results,
         screenshots: executionContext.screenshots,

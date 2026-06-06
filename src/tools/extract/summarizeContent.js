@@ -68,6 +68,8 @@ const SummarizeContentResult = z.object({
   summarizedAt: z.string(),
   processingTime: z.number(),
   success: z.boolean(),
+  degraded: z.boolean().optional(),
+  degradedReason: z.string().optional(),
   error: z.string().optional()
 });
 
@@ -131,11 +133,17 @@ export class SummarizeContentTool {
       // Step 2: Set summary result
       result.summary = analysisResult.summary;
 
-      // D1.3: If abstractive mode requested, attempt sampling-based enhancement
+      // D1.3: If abstractive mode requested, attempt sampling-based enhancement.
+      // If it can't run (no LLM/sampling available), fall back to the extractive
+      // result but flag it explicitly rather than silently masking.
       if (options.summaryType === 'abstractive') {
         const abstractive = await this._abstractiveSummaryViaSampling(text, analysisResult.summary, options.summaryLength);
         if (abstractive) {
           result.summary = abstractive;
+        } else {
+          result.summary = { ...result.summary, type: 'extractive' };
+          result.degraded = true;
+          result.degradedReason = 'Abstractive summarization unavailable (no LLM/sampling backend); returned extractive summary instead.';
         }
       }
 
@@ -188,6 +196,55 @@ export class SummarizeContentTool {
           confidenceScore: 0
         }
       };
+    }
+  }
+
+  /**
+   * Generate an abstractive summary via the MCP SamplingClient fallback chain
+   * (Ollama → OpenAI → Anthropic → MCP sampling). Returns a summary object in the
+   * same shape as the extractive result, or null if no backend is available.
+   * @param {string} text - Full original text
+   * @param {Object} extractiveSummary - The extractive summary (for shape/fallback)
+   * @param {string} summaryLength - 'short' | 'medium' | 'long'
+   * @returns {Promise<Object|null>}
+   */
+  async _abstractiveSummaryViaSampling(text, extractiveSummary, summaryLength) {
+    try {
+      const SamplingClient = await getSamplingClient();
+      const client = new SamplingClient();
+
+      const lengthGuide = {
+        short: '1-2 sentences',
+        medium: '3-5 sentences',
+        long: '6-10 sentences'
+      }[summaryLength] || '3-5 sentences';
+
+      const prompt =
+        `Write a concise, fluent abstractive summary (${lengthGuide}) of the following text. ` +
+        `Capture the main ideas in your own words. Respond with only the summary text.\n\n` +
+        `${text.slice(0, 12000)}`;
+
+      const { text: summaryText } = await client.complete(prompt, { maxTokens: 600 });
+      if (!summaryText || !summaryText.trim()) {
+        return null;
+      }
+
+      const cleaned = summaryText.trim();
+      const sentences = splitSentences(cleaned);
+      const compressionRatio = text.length > 0
+        ? Math.round((cleaned.length / text.length) * 1000) / 1000
+        : 0;
+
+      return {
+        text: cleaned,
+        sentences,
+        type: 'abstractive',
+        length: summaryLength,
+        compressionRatio
+      };
+    } catch {
+      // No sampling/LLM backend available — caller falls back to extractive.
+      return null;
     }
   }
 
