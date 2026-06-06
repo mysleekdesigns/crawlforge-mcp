@@ -12,6 +12,12 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
+### Unreleased — Full 23-tool audit + IMPROVEMENT_PLAN.md (2026-06-06)
+
+Ran a 21-agent audit (code-review → live-test → web-research via `search_web` → adversarial verification) across all 23 MCP tools. Found **9 critical + ~49 high** issues — e.g. `extract_links` inverted `filter_external`, `analyze_content` broken `franc.all` (franc v6 needs `francAll`), `summarize_content`/`extract_with_llm` calling undefined sampling methods, `deep_research` surfacing empty extractions as the literal `'{"text":""}'`, `scrape_with_actions`/`crawl_deep`/`search_web` MCP schemas silently dropping advanced params, and `generate_llms_txt` emitting robots.txt directives instead of the spec llms.txt markdown.
+
+Captured as `IMPROVEMENT_PLAN.md` at the repo root: a three-release roadmap — **Phase A v4.3.0** "Critical Fixes & Restored Capabilities" → **Phase B v4.4.0** "Result-Quality Upgrades" → **Phase C v4.5.0** "Robustness, Security & Polish" — structured for the `/next-phase` skill (A→B→C, `- [ ]` items, "Critical files (by phase)", per-phase verification). Every `file:line` reference was adversarially re-verified against source (34 claims: 29 confirmed exactly, 5 refined, 0 refuted). No tool code changed yet — fixes execute phase-by-phase. Files: `IMPROVEMENT_PLAN.md` (new), `PRD.md`.
+
 ### v4.2.12 — stealth_mode fingerprint consistency + create_page output fix (2026-06-06)
 
 Published to npm so the registry matches HEAD ahead of the 23-tool audit work (the `crawlforge` MCP server runs the global `crawlforge-mcp` binary, so live testing needs the published package current). Two fixes to `stealth_mode` found while live-testing the Playwright engine:
