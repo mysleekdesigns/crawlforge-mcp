@@ -1,7 +1,7 @@
 # Sandboxing & Approvals
 
-**Version:** 4.2.2
-**Last updated:** 2026-05-25
+**Version:** 4.4.0
+**Last updated:** 2026-06-06
 **Audience:** Operators, security reviewers, and integrators evaluating CrawlForge for production deployment.
 
 ---
@@ -168,6 +168,7 @@ The credit check is fail-closed since v3.0.18: insufficient credits stop the too
 | Rate limit | 10 req/sec per domain | `RATE_LIMIT_REQUESTS_PER_SECOND=10` |
 | Max crawl depth | 5 | `MAX_CRAWL_DEPTH=5` |
 | Max pages per crawl | 100 (schema max: 1,000) | `MAX_PAGES_PER_CRAWL=100` |
+| Max content per crawled page | unlimited (caller-specified via `content_max_length`) | `content_max_length` param on `crawl_deep`; response includes `truncated: true` when applied |
 | Max concurrent requests | 10 | `MAX_WORKERS=10` / `QUEUE_CONCURRENCY=10` |
 
 **robots.txt**: respected when `respect_robots: true` is passed to `crawl_deep` or when `RESPECT_ROBOTS_TXT=true` is set globally. Behavior is **fail-open**: if `robots.txt` is missing or unreachable, the server assumes all paths are allowed and proceeds with the crawl. This is intentional for resilience but means the server will crawl pages a stricter client would skip.

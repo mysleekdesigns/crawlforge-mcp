@@ -11,10 +11,11 @@
  *     headingStyle: 'atx'       -> # H1 / ## H2 instead of underline style
  *     codeBlockStyle: 'fenced'  -> triple-backtick fences
  *     bulletListMarker: '-'
- * - Tables fall back to prose (no GFM plugin loaded by default).
+ * - GFM plugin enabled for table support (turndown-plugin-gfm).
  */
 
 import TurndownService from 'turndown';
+import { gfm } from 'turndown-plugin-gfm';
 
 let _td = null;
 
@@ -29,6 +30,9 @@ function getTurndown() {
       hr: '---',
       linkStyle: 'inlined'
     });
+
+    // Enable GFM extensions (tables, strikethrough, task lists)
+    _td.use(gfm);
 
     // Remove boilerplate elements before converting
     _td.remove(['script', 'style', 'nav', 'footer', 'aside', 'noscript']);

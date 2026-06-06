@@ -280,14 +280,14 @@ export class SearchWebTool {
       // Clean up results based on detail level requested
       if (!validated.include_ranking_details) {
         processedResults = processedResults.map(result => {
-          const { rankingDetails, ...cleanResult } = result;
+          const { rankingDetails, finalScore, originalIndex, scores, ...cleanResult } = result;
           return cleanResult;
         });
       }
-      
+
       if (!validated.include_deduplication_details) {
         processedResults = processedResults.map(result => {
-          const { deduplicationInfo, ...cleanResult } = result;
+          const { deduplicationInfo, contentHash, normalizedUrl, titleTokens, ...cleanResult } = result;
           return cleanResult;
         });
       }
@@ -407,10 +407,10 @@ export class SearchWebTool {
     }
 
     if (!validated.include_ranking_details) {
-      processedResults = processedResults.map(({ rankingDetails, ...r }) => r);
+      processedResults = processedResults.map(({ rankingDetails, finalScore, originalIndex, scores, ...r }) => r);
     }
     if (!validated.include_deduplication_details) {
-      processedResults = processedResults.map(({ deduplicationInfo: _d, ...r }) => r);
+      processedResults = processedResults.map(({ deduplicationInfo: _d, contentHash, normalizedUrl, titleTokens, ...r }) => r);
     }
 
     return {

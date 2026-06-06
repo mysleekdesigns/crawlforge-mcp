@@ -14,6 +14,7 @@ const CrawlDeepSchema = z.object({
   follow_external: z.boolean().optional().default(false),
   respect_robots: z.boolean().optional().default(true),
   extract_content: z.boolean().optional().default(true),
+  content_max_length: z.number().min(1).max(100000).optional().default(500),
   concurrency: z.number().min(1).max(20).optional().default(10),
   enable_link_analysis: z.boolean().optional().default(true),
   link_analysis_options: z.object({
@@ -217,7 +218,7 @@ export class CrawlDeepTool {
         errors: results.errors.length,
         duration_ms: duration,
         pages_per_second: results.urls.length / (duration / 1000),
-        results: this.formatResults(results.results, validated.extract_content),
+        results: this.formatResults(results.results, validated.extract_content, validated.content_max_length),
         errors: results.errors,
         stats: results.stats,
         site_structure: this.analyzeSiteStructure(results.urls),
@@ -240,7 +241,7 @@ export class CrawlDeepTool {
     }
   }
 
-  formatResults(results, includeContent) {
+  formatResults(results, includeContent, contentMaxLength = 500) {
     return results.map(result => {
       const formatted = {
         url: result.url,
@@ -250,12 +251,19 @@ export class CrawlDeepTool {
         content_length: result.contentLength,
         timestamp: result.timestamp
       };
-      
+
       if (includeContent) {
-        formatted.content = result.content ? result.content.substring(0, 500) + '...' : '';
+        const raw = result.content || '';
+        if (raw.length > contentMaxLength) {
+          formatted.content = raw.substring(0, contentMaxLength);
+          formatted.truncated = true;
+        } else {
+          formatted.content = raw;
+          formatted.truncated = false;
+        }
         formatted.metadata = result.metadata;
       }
-      
+
       return formatted;
     });
   }

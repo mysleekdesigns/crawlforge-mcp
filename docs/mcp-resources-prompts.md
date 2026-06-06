@@ -86,7 +86,7 @@ This affects:
 - `extract_with_llm` — all LLM calls
 - `summarize_content` — abstractive mode
 - `extract_structured` — LLM extraction path
-- `deep_research` — synthesis
+- `deep_research` — synthesis (LLM path); the no-LLM `raw_evidence` path now also honors `outputFormat` (`summary` / `citations_only` / `conflicts_focus`) and ranks evidence by relevance without requiring an LLM
 
 To use MCP sampling, the connected MCP client must support the `sampling/createMessage` capability. Claude Code and Claude Desktop support this.
 

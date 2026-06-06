@@ -1,6 +1,6 @@
 # CrawlForge MCP Server - Production Readiness
 
-**Version:** 4.3.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-06-06
+**Version:** 4.4.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-06-06
 
 ---
 
@@ -21,13 +21,52 @@
 
 ---
 
+## IMPROVEMENT_PLAN Phase B — Result-Quality Upgrades (Complete)
+
+**Completed:** 2026-06-06 | **Version:** 4.4.0 | **Regression tests:** `tests/unit/phaseb-regressions.test.js`
+
+Upgraded output quality across 11 tools in three areas:
+
+**B1 — Extraction fidelity**
+
+| Tool | Change |
+|------|--------|
+| `extract_content` / `process_document` | Flesch Reading-Ease formula corrected (206.835 − components; higher score = easier reading); new `avgSyllablesPerWord` field added to readability output |
+| `extract_text` | Text mode preserves block structure (`\n\n` between block-level elements); markdown mode now runs `@mozilla/readability` first, then Turndown with `turndown-plugin-gfm` for table support |
+| `extract_metadata` | Parses and returns `json_ld` and `microdata` fields (previously advertised but absent); improved title fallback chain: `og:title` → `<title>` → `h1` |
+| `scrape_structured` | New `@attr` extraction syntax (e.g. `a@href`, `img@src`); new `max_results` param; `elements_found` is now a per-field DOM-match-count object instead of a key count |
+| `extract_structured` | "CSS fallback used" note moved from `validationErrors` to a dedicated `extractionNotes` field (no longer penalizes confidence); improved `ul/ol > li` array extraction |
+| `extract_content` | New output fields: `extractionMethod`, `fallback_reason`, `confidence`, `finalUrl` |
+
+**B2 — Crawl & search quality**
+
+| Tool | Change |
+|------|--------|
+| `crawl_deep` | New `content_max_length` param + `truncated` flag replace the hardcoded 500-character cut |
+| `map_site` | Full sitemap-index `<loc>` recursion; gzipped sitemap (`.xml.gz`) support; robots.txt sitemap discovery; proper XML/cheerio parsing (replaces regex); `min` field no longer returns `Infinity` |
+| `search_web` | `total_results` typed as Number (was String); BM25 ranking uses real per-term IDF; 64-bit SimHash deduplication; internal `finalScore` and `contentHash` fields no longer leaked in default output |
+| `analyze_content` | Word-boundary matching for topic and emotion detection (fixes substring false-positives such as `'happy'` matching `'app'`) |
+
+**B3 — Tracking & research quality**
+
+| Tool | Change |
+|------|--------|
+| `track_changes` | Content similarity uses real token-based Jaccard instead of length-only comparison; default change threshold is `0.85` |
+| `deep_research` | No-LLM `raw_evidence` path now honors `outputFormat` (`summary` / `citations_only` / `conflicts_focus`) and ranks evidence by relevance |
+
+See `IMPROVEMENT_PLAN.md` and `CHANGELOG.md` [4.4.0].
+
+**Next:** Phase C (v4.5.0) "Robustness, Security & Polish".
+
+
+---
+
+
 ## IMPROVEMENT_PLAN Phase A — Critical Fixes & Restored Capabilities (Complete)
 
 **Completed:** 2026-06-06 | **Version:** 4.3.0 | **Regression tests:** `tests/unit/phaseA-regressions.test.js` (12/12 pass)
 
 Closed all 9 Phase-A correctness bugs and restored 6 silently-dropped MCP capabilities from the 23-tool audit. Highlights: `extract_links` `filter_external` inversion fixed; `analyze_content` language detection unblocked (`francAll`); `summarize_content` abstractive mode implemented with a `degraded` fallback; `extract_with_llm` undefined `callViaSampling` removed; `deep_research` no longer surfaces empty `{"text":""}` extractions; `track_changes` no-baseline returns a clean error; `scrape_template` HN selectors fixed; `generate_llms_txt` now emits spec-compliant llmstxt.org markdown. `crawl_deep`/`search_web`/`map_site`/`scrape_with_actions` MCP schemas now forward all advanced params, and `scrape_with_actions` reads the post-action live page for final content. See `IMPROVEMENT_PLAN.md` and `CHANGELOG.md` [4.3.0].
-
-**Next:** Phase B (v4.4.0) "Result-Quality Upgrades".
 
 
 ---
@@ -97,6 +136,8 @@ Security: daily npm audit + gitleaks secret scan + CodeQL analysis.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 4.4.0 | 2026-06-06 | Result-Quality Upgrades — Flesch formula corrected; block-preserving extract_text; JSON-LD/microdata in extract_metadata; @attr syntax + max_results + per-field elements_found in scrape_structured; extraction provenance fields in extract_content; content_max_length in crawl_deep; full sitemap-index recursion in map_site; numeric total_results + real BM25/SimHash in search_web; word-boundary topic/emotion matching in analyze_content; token Jaccard similarity in track_changes; outputFormat honored in no-LLM deep_research path |
+| 4.3.0 | 2026-06-06 | Critical Fixes & Restored Capabilities — 9 correctness bugs fixed; 6 MCP schema capabilities restored |
 | 3.2.0 | 2026-05-17 | Modernize — Streamable HTTP transport (stateful sessions, `Mcp-Session-Id`), OAuth 2.1 with PKCE + DCR, structured tool outputs (`outputSchema` / `dualOutput`), OpenTelemetry tracing facade, Prometheus `/metrics`, Grafana dashboard, OAuth quickstart docs |
 | 3.1.0 | 2026-05-17 | Refactor — `server.js` 2,138 → 990 LOC, bounded `BrowserContextPool`, trackChanges/batchScrape decomposed, shared `SearchResultCache`, 188 unit + integration tests (64.3% line coverage on `src/`) |
 | 3.0.19 | 2026-05-17 | Cleanup — close audit phases 4 & 5, structured tool-invocation logging, request IDs + idempotency keys on usage reports, dead-code removal in LocalizationManager/ActionExecutor |

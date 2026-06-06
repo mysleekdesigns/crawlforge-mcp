@@ -379,18 +379,57 @@ export class DeepResearchTool {
    * Format research results according to output preferences
    */
   formatResults(results, params) {
-    // Raw evidence mode (no LLM configured): pass through the clean shape
-    // designed for the calling LLM to synthesize.
+    // Raw evidence mode (no LLM configured): apply lightweight formatting so
+    // outputFormat is not silently ignored, and rank sources by credibility.
     if (results.synthesisMode === 'raw_evidence') {
-      return {
+      const rankedSources = (results.sources || [])
+        .slice()
+        .sort((a, b) => (b.credibility || 0) - (a.credibility || 0));
+
+      const base = {
         synthesisMode: 'raw_evidence',
         note: results.note,
-        sources: results.sources,
         researchSummary: results.researchSummary,
         metadata: results.metadata,
         performance: results.performance,
         activityLog: params.includeActivityLog ? results.activityLog : undefined
       };
+
+      switch (params.outputFormat) {
+        case 'summary':
+          return {
+            ...base,
+            sources: rankedSources.slice(0, 5)
+          };
+
+        case 'citations_only':
+          return {
+            ...base,
+            sources: rankedSources.map(s => ({
+              title: s.title,
+              url: s.url,
+              credibility: s.credibility
+            })),
+            citationCount: rankedSources.length,
+            citationSummary: this.generateCitationSummary(rankedSources)
+          };
+
+        case 'conflicts_focus':
+          // Without LLM there is no conflict detection; return ranked sources
+          // with a note so the caller knows what happened.
+          return {
+            ...base,
+            sources: rankedSources,
+            conflictsNote: 'Conflict detection requires an LLM (OPENAI_API_KEY or ANTHROPIC_API_KEY). Sources are ranked by credibility for manual review.'
+          };
+
+        case 'comprehensive':
+        default:
+          return {
+            ...base,
+            sources: rankedSources
+          };
+      }
     }
 
     const formatted = {

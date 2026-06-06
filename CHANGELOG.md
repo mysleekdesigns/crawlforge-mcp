@@ -3,6 +3,33 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.4.0] - 2026-06-06
+
+Phase B of `IMPROVEMENT_PLAN.md` — "Result-Quality Upgrades". Closes 12 quality items so "working" tools return accurate, well-structured, high-fidelity data. Each fix ships a reproduce→pass regression test in `tests/unit/phaseB-regressions.test.js` (56 tests).
+
+### Fixed
+
+- **`extract_content` / `process_document` Flesch formula** — replaced the inverted, char-based readability score with the correct Flesch Reading-Ease formula (`206.835 − 1.015·avgWordsPerSentence − 84.6·avgSyllablesPerWord`); added a `_countSyllables` helper and exposed `avgSyllablesPerWord`. Higher score now means easier reading. `src/core/processing/ContentProcessor.js`
+- **`extract_text` block structure** — text mode joins block-level elements with `\n\n` instead of collapsing whitespace (which glued paragraphs together); markdown mode runs `@mozilla/readability` before Turndown, and `turndown-plugin-gfm` renders HTML tables as GFM pipe tables. `src/tools/basic/extractText.js`, `src/utils/htmlToMarkdown.js`
+- **`extract_metadata` JSON-LD/microdata** — now parses and returns `json_ld` and `microdata` (advertised but previously absent); title fallback chain is `og:title → <title> → h1`. `src/tools/basic/extractMetadata.js`
+- **`scrape_structured` attributes & match counts** — added `@attr` extraction syntax (`a@href`, `img@src`) and a `max_results` param; `elements_found` is now a per-field DOM-match-count object instead of a count of result keys. `src/tools/basic/scrapeStructured.js`, `server.js`
+- **`extract_structured` confidence penalty** — the "CSS fallback used" note moved out of `validationErrors` into its own `extractionNotes` array so it no longer drags down confidence; `ul/ol > li` array/list extraction improved. `src/tools/extract/extractStructured.js`
+- **`crawl_deep` truncation** — replaced the hardcoded 500-char cut with a `content_max_length` param + `truncated` flag; no `...` appended to already-short content. `src/tools/crawl/crawlDeep.js`, `server.js`
+- **`map_site` sitemap handling** — reuses `src/utils/sitemapParser.js` for sitemap-index recursion, gzipped (`.xml.gz`) sitemaps, real cheerio XML parsing (CDATA/entities), and robots.txt sitemap discovery; `min=Infinity` fixed to `null`. `src/tools/crawl/mapSite.js`
+- **`search_web` ranking & contract** — `total_results` is now a Number (was `String()`-wrapped); BM25 uses real per-term IDF instead of a constant `df`; SimHash is a true 64-bit hash via two independent FNV-1a seeds (bits 32-63 no longer mirror 0-31); top-level `finalScore`/`contentHash`/`scores`/internal fields are stripped unless detail flags are set. `src/tools/search/providers/searxng.js`, `ranking/ResultRanker.js`, `ranking/ResultDeduplicator.js`, `searchWeb.js`
+- **`analyze_content` false positives** — topic categorization and emotion detection use word-boundary (`\bword\b`) matching, eliminating substring matches like `'happy'`→`'app'` and `'glade'`→`'glad'`. `src/tools/extract/analyzeContent.js`
+- **`track_changes` similarity** — token-based Jaccard `calculateSimilarity()` replaces length-only comparison, with a `DEFAULT_CHANGE_THRESHOLD = 0.85`. `src/tools/tracking/trackChanges/differ.js`
+
+### Added
+
+- **`extract_content` provenance fields** — `extractionMethod` (`readability` / `fallback_boilerplate_removal` / `raw_body_text`), `fallback_reason`, `confidence`, and `finalUrl`, so callers can distinguish Readability output from last-resort body text. `src/tools/extract/extractContent.js`
+- **`deep_research` no-LLM `outputFormat`** — the `raw_evidence` path now honors `outputFormat`: `summary` trims to the top-5 sources, `citations_only` returns a citation shape plus `citationSummary`, `conflicts_focus` surfaces a `conflictsNote`; evidence is ranked by credibility. Previously these formats silently did nothing without an LLM. `src/tools/research/deepResearch.js`
+- **`turndown-plugin-gfm` dependency** — enables GFM table rendering in markdown output.
+
+### Verified
+
+- `tests/unit/phaseB-regressions.test.js` 56/56; full recursive `npm run test:unit` 488/488 green sandbox-off (the sandbox-on `listen EPERM 127.0.0.1` failures are the pre-existing HTTP-transport/searxng port-binding cases). `node test-tools.js` 20/20 (100%). `npm test` MCP harness exits 0 (0 errors). `McpServer` version bumped 4.3.0 → 4.4.0.
+
 ## [4.3.0] - 2026-06-06
 
 Phase A of `IMPROVEMENT_PLAN.md` — "Critical Fixes & Restored Capabilities". Closes 9 critical-correctness bugs and restores 6 advanced MCP capabilities that `server.js` schemas were silently dropping. Each fix ships a reproduce→pass regression test in `tests/unit/phaseA-regressions.test.js`.
