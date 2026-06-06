@@ -12,9 +12,9 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
-### Unreleased (development) — stealth_mode fingerprint consistency + create_page output fix (2026-06-06)
+### v4.2.12 — stealth_mode fingerprint consistency + create_page output fix (2026-06-06)
 
-Two fixes to `stealth_mode` found while live-testing the Playwright engine:
+Published to npm so the registry matches HEAD ahead of the 23-tool audit work (the `crawlforge` MCP server runs the global `crawlforge-mcp` binary, so live testing needs the published package current). Two fixes to `stealth_mode` found while live-testing the Playwright engine:
 
 - **Fingerprint OS consistency** (`src/core/StealthBrowserManager.js`): the user-agent, `sec-ch-ua-platform` header, and `navigator.platform` were each drawn from `osDistribution` by three *independent* `weightedRandom()` calls, so a fingerprint could advertise a Windows UA with `navigator.platform: "Linux x86_64"` — trivially detectable. `generateAdvancedFingerprint()` now picks the OS once (new `selectOS()`, which infers OS from a `customUserAgent` via `inferOSFromUserAgent()`) and threads it through `selectRealisticUserAgent`, `generateAdvancedHeaders`/`generateSecChUaPlatform`, and `generateHardwareFingerprint`/`selectRealisticPlatform`. `architecture` pinned to `x86_64` to match the all-x86 processor/platform pool. Verified: 500/500 random fingerprints internally consistent; custom macOS UA → `MacIntel` + `"macOS"`.
 - **create_page output leak** (`server.js`): the `create_page` operation returned the raw Playwright `Response` handle (`{_type:"Response",_guid:…}`, non-serializable) as `url`. Replaced with a serializable `navigation` object: `{ requestedUrl, finalUrl, status, ok, title }`.

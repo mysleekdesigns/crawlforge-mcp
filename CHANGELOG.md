@@ -3,6 +3,19 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.2.12] - 2026-06-06
+
+Patch release: ship the previously-unreleased `stealth_mode` fingerprint-consistency and `create_page` output fixes (commit `28e2e3b`) so the published package matches HEAD. Tarball now carries the corrected `StealthBrowserManager` and `create_page` handler.
+
+### Fixed
+
+- **`stealth_mode` fingerprint OS consistency** (`src/core/StealthBrowserManager.js`): the user-agent, `sec-ch-ua-platform` header, and `navigator.platform` were drawn from `osDistribution` by three independent random calls, so a fingerprint could advertise a Windows UA with `navigator.platform: "Linux x86_64"`. `generateAdvancedFingerprint()` now selects the OS once (`selectOS()`, inferring OS from any `customUserAgent`) and threads it through the UA, headers, and hardware fingerprint. Verified 500/500 random fingerprints internally consistent.
+- **`stealth_mode` `create_page` output leak** (`server.js`): `create_page` returned the raw, non-serializable Playwright `Response` handle. It now returns a serializable `navigation` object `{ requestedUrl, finalUrl, status, ok, title }`.
+
+### Verified
+
+- `tests/unit/d2-reliability.test.js` (StealthBrowserManager) 16/16; `npm run test:unit` green sandbox-off (sandbox-on `listen EPERM` HTTP-transport failures are pre-existing and environmental).
+
 ## [4.2.11] - 2026-05-25
 
 Maintenance release. No shippable code changed — the published tarball is identical to 4.2.10 (the `files` allow-list excludes `tests/`); the version bump releases the post-4.2.10 test-hardening work and keeps the registry in lockstep with `main`.
