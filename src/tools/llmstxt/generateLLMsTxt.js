@@ -23,7 +23,8 @@ const GenerateLLMsTxtSchema = z.object({
     contactEmail: z.string().email().optional().describe('Contact email for the LLMs.txt'),
     organizationName: z.string().optional().describe('Organization name'),
     customGuidelines: z.array(z.string()).optional().describe('Additional custom guidelines'),
-    customRestrictions: z.array(z.string()).optional().describe('Additional restrictions')
+    customRestrictions: z.array(z.string()).optional().describe('Additional restrictions'),
+    robotsStyle: z.boolean().optional().default(false).describe('Emit legacy robots.txt-style directives instead of spec-compliant llmstxt.org markdown')
   }).optional().default({}),
 
   complianceLevel: z.enum(['basic', 'standard', 'strict']).optional().default('standard').describe('Compliance level for generated guidelines'),
@@ -120,9 +121,128 @@ export class GenerateLLMsTxtTool {
   }
 
   /**
-   * Generate standard LLMs.txt content
+   * Generate LLMs.txt content. By default emits spec-compliant llmstxt.org markdown;
+   * set outputOptions.robotsStyle=true for the legacy robots.txt-style directives.
    */
   generateLLMsTxt(analysis, outputOptions, complianceLevel) {
+    if (outputOptions.robotsStyle) {
+      return this.generateRobotsStyleTxt(analysis, outputOptions, complianceLevel);
+    }
+    return this.generateSpecLLMsTxt(analysis, outputOptions);
+  }
+
+  /**
+   * Generate spec-compliant llms.txt per https://llmstxt.org/ :
+   *   # Title
+   *   > one-line summary (blockquote)
+   *   optional detail paragraph(s)
+   *   ## Section
+   *   - [name](url): optional notes
+   */
+  generateSpecLLMsTxt(analysis, outputOptions) {
+    const lines = [];
+    const baseUrl = analysis.metadata.baseUrl;
+    let host = baseUrl;
+    try { host = new URL(baseUrl).hostname; } catch { /* keep baseUrl */ }
+
+    // H1 title (required)
+    const title = outputOptions.organizationName || host;
+    lines.push(`# ${title}`);
+    lines.push('');
+
+    // Blockquote summary (required by spec)
+    const summary = `Site map and key resources for ${baseUrl}, generated to help LLMs locate relevant content.`;
+    lines.push(`> ${summary}`);
+    lines.push('');
+
+    // Optional detail paragraph(s)
+    const details = [];
+    if (analysis.structure?.totalPages) {
+      details.push(`This site has approximately ${analysis.structure.totalPages} discoverable pages.`);
+    }
+    if (outputOptions.contactEmail) {
+      details.push(`Contact: ${outputOptions.contactEmail}.`);
+    }
+    if (Array.isArray(outputOptions.customGuidelines) && outputOptions.customGuidelines.length > 0) {
+      details.push(...outputOptions.customGuidelines);
+    }
+    if (details.length > 0) {
+      lines.push(details.join(' '));
+      lines.push('');
+    }
+
+    // Helper: emit a "## Section" with a list of [name](url) links.
+    const linkLabel = (u) => {
+      try {
+        const p = new URL(u).pathname.replace(/\/+$/, '');
+        if (!p || p === '') return 'Home';
+        const seg = p.split('/').filter(Boolean).pop() || p;
+        return seg.replace(/[-_]/g, ' ').replace(/\.[a-z0-9]+$/i, '').trim() || p;
+      } catch {
+        return u;
+      }
+    };
+    const emitSection = (heading, urls) => {
+      // Coerce to an array: sitemap/sections may arrive as a flat array, a
+      // grouped object ({path: [...]}), or a single value.
+      let arr = [];
+      if (Array.isArray(urls)) {
+        arr = urls;
+      } else if (urls && typeof urls === 'object') {
+        arr = Object.values(urls).flat();
+      }
+      const list = arr
+        .map((u) => (typeof u === 'string' ? u : (u?.url || u?.loc)))
+        .filter(Boolean)
+        .slice(0, 25);
+      if (list.length === 0) return;
+      lines.push(`## ${heading}`);
+      lines.push('');
+      for (const u of list) {
+        lines.push(`- [${linkLabel(u)}](${u})`);
+      }
+      lines.push('');
+    };
+
+    // Sections derived from the categorized site structure.
+    const sections = analysis.structure?.sections || {};
+    const flatten = (cat) => {
+      const v = sections[cat];
+      if (!Array.isArray(v)) return [];
+      // categorizeSections may produce either flat URLs or {path, urls:[...]} groups.
+      return v.flatMap((entry) =>
+        typeof entry === 'string' ? [entry] : (Array.isArray(entry?.urls) ? entry.urls : []));
+    };
+
+    emitSection('Documentation', flatten('documentation'));
+    emitSection('Content', flatten('content'));
+    emitSection('Tools', flatten('tools'));
+    emitSection('Navigation', flatten('navigation'));
+
+    // APIs as their own section.
+    if (Array.isArray(analysis.apis) && analysis.apis.length > 0) {
+      lines.push('## APIs');
+      lines.push('');
+      for (const api of analysis.apis.slice(0, 25)) {
+        const note = api.type ? `: ${api.type}` : '';
+        lines.push(`- [${linkLabel(api.url)}](${api.url})${note}`);
+      }
+      lines.push('');
+    }
+
+    // Fallback: if no categorized sections produced output, list the raw sitemap.
+    const hasBody = lines.some((l) => l.startsWith('## '));
+    if (!hasBody) {
+      emitSection('Pages', analysis.structure?.sitemap || []);
+    }
+
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
+  }
+
+  /**
+   * Generate legacy robots.txt-style content (opt-in via outputOptions.robotsStyle).
+   */
+  generateRobotsStyleTxt(analysis, outputOptions, complianceLevel) {
     const lines = [];
     const baseUrl = analysis.metadata.baseUrl;
 

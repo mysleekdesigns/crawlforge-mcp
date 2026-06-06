@@ -314,10 +314,17 @@ export class ExtractWithLlm {
         provider, apiKey, model, systemMessage, userMessage, maxTokens, schema
       }));
     } catch (llmErr) {
-      // D1.3: If provider is 'auto'/'ollama' and it failed, try sampling as final fallback
+      // D1.3: If provider is 'auto'/'ollama' and it failed, try MCP sampling as final fallback
       if (providerParam === 'auto' || providerParam === 'ollama') {
         try {
-          ({ rawText, usage } = await callViaSampling({ systemMessage, userMessage, maxTokens }));
+          const SamplingClient = await getSamplingClient();
+          const samplingClient = new SamplingClient();
+          const { text: sampledText } = await samplingClient.complete(
+            `${systemMessage}\n\n${userMessage}`,
+            { maxTokens }
+          );
+          rawText = sampledText;
+          usage = { input_tokens: 0, output_tokens: 0 };
           resolvedModel = 'sampling';
         } catch (samplingErr) {
           return { success: false, error: `LLM call failed: ${llmErr.message}. Sampling fallback also failed: ${samplingErr.message}` };

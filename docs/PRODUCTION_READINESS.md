@@ -1,6 +1,6 @@
 # CrawlForge MCP Server - Production Readiness
 
-**Version:** 4.2.2 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-05-25
+**Version:** 4.3.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-06-06
 
 ---
 
@@ -13,9 +13,21 @@
 | All 23 Tools | ✅ Working |
 | MCP Compliance | ✅ 100% |
 | Functional Tests | ✅ 20/20 tools via `test-tools.js` (creator-mode path) |
+| Unit Tests | ✅ 277/277 (`npm run test:unit`, sandbox-off) |
 | npm Published | ✅ Yes |
 
 **Production Readiness Score:** 98.5/100
+
+
+---
+
+## IMPROVEMENT_PLAN Phase A — Critical Fixes & Restored Capabilities (Complete)
+
+**Completed:** 2026-06-06 | **Version:** 4.3.0 | **Regression tests:** `tests/unit/phaseA-regressions.test.js` (12/12 pass)
+
+Closed all 9 Phase-A correctness bugs and restored 6 silently-dropped MCP capabilities from the 23-tool audit. Highlights: `extract_links` `filter_external` inversion fixed; `analyze_content` language detection unblocked (`francAll`); `summarize_content` abstractive mode implemented with a `degraded` fallback; `extract_with_llm` undefined `callViaSampling` removed; `deep_research` no longer surfaces empty `{"text":""}` extractions; `track_changes` no-baseline returns a clean error; `scrape_template` HN selectors fixed; `generate_llms_txt` now emits spec-compliant llmstxt.org markdown. `crawl_deep`/`search_web`/`map_site`/`scrape_with_actions` MCP schemas now forward all advanced params, and `scrape_with_actions` reads the post-action live page for final content. See `IMPROVEMENT_PLAN.md` and `CHANGELOG.md` [4.3.0].
+
+**Next:** Phase B (v4.4.0) "Result-Quality Upgrades".
 
 
 ---

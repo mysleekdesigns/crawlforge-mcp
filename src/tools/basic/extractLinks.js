@@ -41,7 +41,7 @@ export async function extractLinksHandler({ url, filter_external, base_url }) {
           isExternal = false;
         }
 
-        if (filter_external && isExternal) return;
+        if (filter_external && !isExternal) return;
 
         links.push({ href: absoluteUrl, text, is_external: isExternal, original_href: href });
       } catch {

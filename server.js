@@ -96,7 +96,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "4.2.6",
+  version: "4.3.0",
   description: "Production-ready MCP server with 23 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, change tracking, and local-LLM extraction via Ollama.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png"
@@ -315,14 +315,50 @@ server.registerTool("search_web", {
     safe_search: z.boolean().optional().describe("Enable safe search filtering"),
     time_range: z.enum(["day", "week", "month", "year", "all"]).optional().describe("Filter results by time range"),
     site: z.string().optional().describe("Limit results to a specific domain"),
-    file_type: z.string().optional().describe("Filter by file type (e.g. 'pdf', 'doc')")
+    file_type: z.string().optional().describe("Filter by file type (e.g. 'pdf', 'doc')"),
+    provider: z.enum(["crawlforge", "searxng"]).optional().describe("Search backend to use"),
+    expand_query: z.boolean().optional().describe("Expand the query with synonyms/stemming/etc."),
+    expansion_options: z.object({
+      enableSynonyms: z.boolean().optional(),
+      enableSpellCheck: z.boolean().optional(),
+      enableStemming: z.boolean().optional(),
+      enablePhraseDetection: z.boolean().optional(),
+      enableBooleanOperators: z.boolean().optional(),
+      maxExpansions: z.number().min(1).max(10).optional()
+    }).optional().describe("Query-expansion tuning"),
+    enable_ranking: z.boolean().optional().describe("Re-rank results (BM25 + signals)"),
+    ranking_weights: z.object({
+      bm25: z.number().min(0).max(1).optional(),
+      semantic: z.number().min(0).max(1).optional(),
+      authority: z.number().min(0).max(1).optional(),
+      freshness: z.number().min(0).max(1).optional()
+    }).optional().describe("Relative weights for ranking signals"),
+    enable_deduplication: z.boolean().optional().describe("Remove near-duplicate results"),
+    deduplication_thresholds: z.object({
+      url: z.number().min(0).max(1).optional(),
+      title: z.number().min(0).max(1).optional(),
+      content: z.number().min(0).max(1).optional(),
+      combined: z.number().min(0).max(1).optional()
+    }).optional().describe("Similarity thresholds for dedup"),
+    include_ranking_details: z.boolean().optional().describe("Include per-result ranking breakdown"),
+    include_deduplication_details: z.boolean().optional().describe("Include dedup decision details"),
+    localization: z.object({
+      countryCode: z.string().length(2).optional(),
+      language: z.string().optional(),
+      timezone: z.string().optional(),
+      enableGeoTargeting: z.boolean().optional(),
+      customLocation: z.object({
+        latitude: z.number().min(-90).max(90),
+        longitude: z.number().min(-180).max(180)
+      }).optional()
+    }).optional().describe("Geo/locale targeting for results")
   }
-}, withAuth("search_web", async ({ query, limit, offset, lang, safe_search, time_range, site, file_type }) => {
+}, withAuth("search_web", async ({ query, limit, offset, lang, safe_search, time_range, site, file_type, provider, expand_query, expansion_options, enable_ranking, ranking_weights, enable_deduplication, deduplication_thresholds, include_ranking_details, include_deduplication_details, localization }) => {
   try {
     if (!query) {
       return { content: [{ type: "text", text: "Query parameter is required" }], isError: true };
     }
-    const result = await searchWebTool.execute({ query, limit, offset, lang, safe_search, time_range, site, file_type });
+    const result = await searchWebTool.execute({ query, limit, offset, lang, safe_search, time_range, site, file_type, provider, expand_query, expansion_options, enable_ranking, ranking_weights, enable_deduplication, deduplication_thresholds, include_ranking_details, include_deduplication_details, localization });
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
     return { content: [{ type: "text", text: `Search failed: ${error.message}` }], isError: true };
@@ -342,14 +378,37 @@ server.registerTool("crawl_deep", {
     follow_external: z.boolean().optional().describe("Follow links to external domains"),
     respect_robots: z.boolean().optional().describe("Respect robots.txt directives"),
     extract_content: z.boolean().optional().describe("Extract page content during crawl"),
-    concurrency: z.number().min(1).max(20).optional().describe("Number of concurrent requests")
+    concurrency: z.number().min(1).max(20).optional().describe("Number of concurrent requests"),
+    enable_link_analysis: z.boolean().optional().describe("Compute PageRank/link-graph analysis over crawled pages"),
+    link_analysis_options: z.object({
+      dampingFactor: z.number().min(0).max(1).optional(),
+      maxIterations: z.number().min(1).max(1000).optional(),
+      enableCaching: z.boolean().optional()
+    }).optional().describe("PageRank tuning options"),
+    domain_filter: z.object({
+      whitelist: z.array(z.any()).optional(),
+      blacklist: z.array(z.any()).optional(),
+      domain_rules: z.record(z.any()).optional()
+    }).optional().describe("Per-domain allow/deny lists and crawl rules"),
+    import_filter_config: z.string().optional().describe("JSON string of a previously exported domain-filter config"),
+    session: z.object({
+      enabled: z.boolean(),
+      persistCookies: z.boolean().optional(),
+      headers: z.record(z.string()).optional(),
+      initialRequest: z.object({
+        url: z.string().url(),
+        method: z.string().optional(),
+        headers: z.record(z.string()).optional(),
+        body: z.string().optional()
+      }).optional()
+    }).optional().describe("Shared cookie-jar/session for login-then-crawl workflows")
   }
-}, withAuth("crawl_deep", async ({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, concurrency }) => {
+}, withAuth("crawl_deep", async ({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session }) => {
   try {
     if (!url) {
       return { content: [{ type: "text", text: "URL parameter is required" }], isError: true };
     }
-    const result = await crawlDeepTool.execute({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, concurrency });
+    const result = await crawlDeepTool.execute({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session });
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
     return { content: [{ type: "text", text: `Crawl failed: ${error.message}` }], isError: true };
@@ -365,14 +424,21 @@ server.registerTool("map_site", {
     include_sitemap: z.boolean().optional().describe("Include sitemap.xml data in results"),
     max_urls: z.number().min(1).max(10000).optional().describe("Maximum number of URLs to discover"),
     group_by_path: z.boolean().optional().describe("Group URLs by path segments"),
-    include_metadata: z.boolean().optional().describe("Include page metadata for each URL")
+    include_metadata: z.boolean().optional().describe("Include page metadata for each URL"),
+    domain_filter: z.object({
+      whitelist: z.array(z.string()).optional(),
+      blacklist: z.array(z.string()).optional(),
+      include_patterns: z.array(z.string()).optional(),
+      exclude_patterns: z.array(z.string()).optional()
+    }).optional().describe("Per-domain allow/deny lists and URL include/exclude patterns"),
+    import_filter_config: z.string().optional().describe("JSON string of a previously exported domain-filter config")
   }
-}, withAuth("map_site", async ({ url, include_sitemap, max_urls, group_by_path, include_metadata }) => {
+}, withAuth("map_site", async ({ url, include_sitemap, max_urls, group_by_path, include_metadata, domain_filter, import_filter_config }) => {
   try {
     if (!url) {
       return { content: [{ type: "text", text: "URL parameter is required" }], isError: true };
     }
-    const result = await mapSiteTool.execute({ url, include_sitemap, max_urls, group_by_path, include_metadata });
+    const result = await mapSiteTool.execute({ url, include_sitemap, max_urls, group_by_path, include_metadata, domain_filter, import_filter_config });
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
     return { content: [{ type: "text", text: `Site mapping failed: ${error.message}` }], isError: true };
@@ -586,8 +652,34 @@ server.registerTool("scrape_with_actions", {
       script: z.string().optional(),
       timeout: z.number().optional(),
       description: z.string().optional(),
-      continueOnError: z.boolean().default(false),
-      retries: z.number().min(0).max(5).default(0)
+      continueOnError: z.boolean().optional(),
+      retries: z.number().min(0).max(5).optional(),
+      captureAfter: z.boolean().optional().describe("Capture page content after this action"),
+      // wait
+      duration: z.number().min(0).max(30000).optional().describe("wait: milliseconds to wait"),
+      condition: z.enum(['visible', 'hidden', 'enabled', 'disabled', 'stable']).optional().describe("wait: condition on selector"),
+      // click
+      button: z.enum(['left', 'right', 'middle']).optional().describe("click: mouse button"),
+      clickCount: z.number().min(1).max(3).optional().describe("click: number of clicks"),
+      delay: z.number().min(0).max(1000).optional().describe("click/type: delay in ms"),
+      force: z.boolean().optional().describe("click: bypass actionability checks"),
+      position: z.object({ x: z.number(), y: z.number() }).optional().describe("click: relative position"),
+      // type
+      clear: z.boolean().optional().describe("type: clear field before typing"),
+      // press
+      modifiers: z.array(z.enum(['Alt', 'Control', 'Meta', 'Shift'])).optional().describe("press: modifier keys"),
+      // scroll
+      direction: z.enum(['up', 'down', 'left', 'right']).optional().describe("scroll: direction"),
+      distance: z.number().min(0).optional().describe("scroll: pixels to scroll"),
+      smooth: z.boolean().optional().describe("scroll: smooth scrolling"),
+      toElement: z.string().optional().describe("scroll: selector to scroll to"),
+      // screenshot
+      fullPage: z.boolean().optional().describe("screenshot: capture full page"),
+      quality: z.number().min(0).max(100).optional().describe("screenshot: jpeg quality"),
+      format: z.enum(['png', 'jpeg']).optional().describe("screenshot: image format"),
+      // executeJavaScript
+      args: z.array(z.any()).optional().describe("executeJavaScript: arguments passed to the script"),
+      returnResult: z.boolean().optional().describe("executeJavaScript: return the script result")
     })).min(1).max(20).describe("Browser actions to perform before scraping"),
     formats: z.array(z.enum(['markdown', 'html', 'json', 'text', 'screenshots'])).default(['json']).describe("Output formats for scraped content"),
     captureIntermediateStates: z.boolean().default(false).describe("Capture page state after each action"),

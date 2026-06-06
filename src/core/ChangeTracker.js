@@ -173,12 +173,15 @@ export class ChangeTracker extends EventEmitter {
    */
   async compareWithBaseline(url, currentContent, options = {}) {
     const startTime = Date.now();
-    
+
+    // Expected no-baseline case: return a clean error WITHOUT emitting an
+    // unhandled 'error' event (which would crash callers with no 'error' listener).
+    if (!this.snapshots.has(url)) {
+      throw new Error(`No baseline found for ${url} — run create_baseline first`);
+    }
+
     try {
-      if (!this.snapshots.has(url)) {
-        throw new Error(`No baseline found for URL: ${url}`);
-      }
-      
+
       const snapshots = this.snapshots.get(url);
       const baseline = snapshots[snapshots.length - 1]; // Get latest baseline
       
