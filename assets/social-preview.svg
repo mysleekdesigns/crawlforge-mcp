@@ -1,34 +1,98 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="CrawlForge MCP Server social preview">
-  <!-- Source for the GitHub social-preview card (Settings -> General -> Social preview).
-       GitHub only accepts PNG/JPG <1MB, so export this to PNG before uploading.
-       e.g.  rsvg-convert -w 1280 -h 640 assets/social-preview.svg > assets/social-preview.png
-             (or open in a browser / Figma and export). -->
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" viewBox="0 0 1280 640">
+  <!-- Generator: Adobe Illustrator 30.5.1, SVG Export Plug-In . SVG Version: 2.1.4 Build 3)  -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <style>
+      .st0 {
+        fill: url(#linear-gradient1);
+      }
+
+      .st1 {
+        fill: url(#linear-gradient3);
+      }
+
+      .st2 {
+        fill: #9aa4c4;
+        font-size: 28px;
+      }
+
+      .st2, .st3, .st4, .st5, .st6, .st7 {
+        isolation: isolate;
+      }
+
+      .st2, .st4, .st5 {
+        font-family: Helvetica-Bold, Helvetica;
+        font-weight: 700;
+      }
+
+      .st3 {
+        fill: #ff8a00;
+        font-size: 24px;
+      }
+
+      .st3, .st7 {
+        font-family: Helvetica, Helvetica;
+      }
+
+      .st8 {
+        fill: url(#linear-gradient);
+      }
+
+      .st4 {
+        font-size: 40px;
+        letter-spacing: .2em;
+      }
+
+      .st4, .st5 {
+        fill: #fff;
+      }
+
+      .st5 {
+        font-size: 92px;
+      }
+
+      .st6 {
+        fill: none;
+        opacity: .9;
+        stroke: url(#linear-gradient2);
+        stroke-width: 8px;
+      }
+
+      .st7 {
+        fill: #c3cae6;
+        font-size: 34px;
+      }
+    </style>
+    <linearGradient id="linear-gradient" x1="-510.6" y1="3232.9" x2="-509.6" y2="3231.9" gradientTransform="translate(653569 2069085) scale(1280 -640)" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#0b1020"/>
       <stop offset="1" stop-color="#141a32"/>
     </linearGradient>
-    <linearGradient id="ember" x1="0" y1="0" x2="1" y2="0">
+    <linearGradient id="linear-gradient1" x1="-510.6" y1="2912.1" x2="-509.6" y2="2912.1" gradientTransform="translate(653569 23301) scale(1280 -8)" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#ff8a00"/>
-      <stop offset="0.55" stop-color="#ff5630"/>
+      <stop offset=".6" stop-color="#ff5630"/>
+      <stop offset="1" stop-color="#ff2e63"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient2" x1="-507.4" y1="3218.6" x2="-506.4" y2="3218.6" gradientTransform="translate(71109 450765) scale(140 -140)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff8a00"/>
+      <stop offset=".6" stop-color="#ff5630"/>
+      <stop offset="1" stop-color="#ff2e63"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient3" x1="-505.7" y1="3208.3" x2="-504.7" y2="3208.3" gradientTransform="translate(48647 285702) scale(96 -89)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff8a00"/>
+      <stop offset=".6" stop-color="#ff5630"/>
       <stop offset="1" stop-color="#ff2e63"/>
     </linearGradient>
   </defs>
-
-  <rect width="1280" height="640" fill="url(#bg)"/>
-  <rect x="0" y="0" width="1280" height="8" fill="url(#ember)"/>
-
-  <g transform="translate(150,250)">
-    <circle r="70" fill="none" stroke="url(#ember)" stroke-width="8" opacity="0.9"/>
-    <path d="M0,-46 L14,-14 L48,-14 L20,8 L31,43 L0,22 L-31,43 L-20,8 L-48,-14 L-14,-14 Z" fill="url(#ember)"/>
+  <rect class="st8" width="1280" height="640"/>
+  <rect class="st0" width="1280" height="8"/>
+  <g>
+    <circle class="st6" cx="150" cy="164" r="70"/>
+    <path class="st1" d="M150,118l14,32h34l-28,22,11,35-31-21-31,21,11-35-28-22h34l14-32Z"/>
   </g>
-
-  <text x="280" y="240" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="92" font-weight="800" fill="#ffffff">CrawlForge MCP</text>
-  <text x="284" y="320" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="40" font-weight="700" letter-spacing="8" fill="url(#ember)">SERVER</text>
-
-  <text x="150" y="430" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="34" font-weight="400" fill="#c3cae6">26 web scraping, crawling, deep-research &amp; autonomous</text>
-  <text x="150" y="476" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="34" font-weight="400" fill="#c3cae6">extraction tools — clean Markdown &amp; structured JSON.</text>
-
-  <text x="150" y="560" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="28" font-weight="700" fill="#9aa4c4">Claude · Cursor · any MCP client</text>
-  <text x="150" y="600" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="24" font-weight="400" fill="#ff8a00">1,000 free credits · local-Ollama LLM · github.com/mysleekdesigns/crawlforge-mcp</text>
+  <text class="st5" transform="translate(280 154)"><tspan x="0" y="0">CrawlForge MCP</tspan></text>
+  <text class="st4" transform="translate(284 234)"><tspan x="0" y="0">SERVER</tspan></text>
+  <text class="st7" transform="translate(150 342)"><tspan x="0" y="0">26 web scraping, crawling, deep-research &amp; autonomous</tspan></text>
+  <text class="st7" transform="translate(150 388)"><tspan x="0" y="0">extraction tools — clean Markdown &amp; structured JSON.</tspan></text>
+  <text class="st2" transform="translate(150 560)"><tspan x="0" y="0">Claude · Cursor · any MCP client</tspan></text>
+  <text class="st3" transform="translate(150 600)"><tspan x="0" y="0">1,000 free credits · local-Ollama LLM · github.com/mysleekdesigns/crawlforge-mcp</tspan></text>
 </svg>
