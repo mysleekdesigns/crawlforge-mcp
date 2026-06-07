@@ -12,6 +12,16 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
+### Registry-submission prep (2026-06-07, no version bump)
+
+Follow-up to the GitHub discoverability pass: scaffolds publication to the **official MCP
+registry** and the community `awesome-mcp-servers` directories.
+- **package.json** — added `"mcpName": "io.github.mysleekdesigns/crawlforge-mcp-server"` (the registry requires this to match `server.json`'s `name`).
+- **server.json** (new, repo root) — validated against the `2025-12-11` registry schema; npm package `crawlforge-mcp-server`, stdio transport, version synced to `4.6.1`.
+- **docs/registry-submission.md** (new) — `mcp-publisher init/login/publish` steps, version-sync rules, and ready-to-paste PR entries for punkpeye/appcypher `awesome-mcp-servers` (wong2 → mcpservers.org/submit; mcp.so).
+
+Maintainer still runs `mcp-publisher login github && mcp-publisher publish` (browser OAuth) and opens the awesome-list PRs. Validated: `server.json` parses; `name` matches `package.json.mcpName`; versions in sync.
+
 ### GitHub discoverability pass (2026-06-07, no version bump)
 
 Docs/metadata-only change to make the repo (`github.com/mysleekdesigns/crawlforge-mcp`) easier to find on GitHub, modeled on a live analysis of Firecrawl's repo (`firecrawl/firecrawl`, 130k★) performed with CrawlForge's own MCP tools (`scrape` + `extract_metadata`). Firecrawl's findability levers we lacked: 19 GitHub Topics (we had **zero** — the biggest gap), a punchy social-card description, a custom social-preview image, and a banner + comparison/feature tables + community files. Changes (no `src/` code touched):
