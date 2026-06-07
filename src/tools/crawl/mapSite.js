@@ -4,6 +4,14 @@ import { DomainFilter } from '../../utils/domainFilter.js';
 import { normalizeUrl, getBaseUrl } from '../../utils/urlNormalizer.js';
 import { CacheManager } from '../../core/cache/CacheManager.js';
 import { SitemapParser } from '../../utils/sitemapParser.js';
+import { ResultRanker } from '../search/ranking/ResultRanker.js';
+
+// Lazy singleton — avoids creating a CacheManager timer per request
+let _ranker = null;
+function getRanker() {
+  if (!_ranker) _ranker = new ResultRanker({ cacheEnabled: false });
+  return _ranker;
+}
 
 const MapSiteSchema = z.object({
   url: z.string().url(),
@@ -18,7 +26,8 @@ const MapSiteSchema = z.object({
     include_patterns: z.array(z.string()).optional().default([]),
     exclude_patterns: z.array(z.string()).optional().default([])
   }).optional(),
-  import_filter_config: z.string().optional() // JSON string of exported config
+  import_filter_config: z.string().optional(), // JSON string of exported config
+  search: z.string().optional() // when set, rank URLs by relevance and emit ranked_urls
 });
 
 export class MapSiteTool {
@@ -119,6 +128,25 @@ export class MapSiteTool {
         domain_filter_config: domainFilter ? domainFilter.exportConfig() : null,
         filter_stats: domainFilter ? domainFilter.getStats() : null
       };
+
+      // Optional: rank URLs by relevance to a search string
+      if (validated.search) {
+        try {
+          const rankerInput = urlArray.map(url => {
+            let title = url;
+            try {
+              const { pathname } = new URL(url);
+              title = decodeURIComponent(pathname).replace(/[-_/]/g, ' ').trim();
+            } catch { /* keep raw url */ }
+            return { link: url, title, snippet: '' };
+          });
+          const ranked = await getRanker().rankResults(rankerInput, validated.search);
+          result.ranked_urls = ranked.map(r => ({ url: r.link, score: r.finalScore ?? 0 }));
+        } catch {
+          // ranking is best-effort; don't fail the whole call
+          result.ranked_urls = urlArray.map(u => ({ url: u, score: 0 }));
+        }
+      }
 
       // Store in cache before returning
       if (this.cache) {

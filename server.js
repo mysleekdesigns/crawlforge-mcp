@@ -24,6 +24,8 @@ import { DeepResearchTool } from "./src/tools/research/deepResearch.js";
 import { TrackChangesTool } from "./src/tools/tracking/trackChanges/index.js";
 import { GenerateLLMsTxtTool } from "./src/tools/llmstxt/generateLLMsTxt.js";
 import { ScrapeTemplateTool } from "./src/tools/templates/ScrapeTemplateTool.js"; // D3.3
+import { UnifiedScrapeTool } from "./src/tools/scrape/unifiedScrape.js"; // D4 D1
+import { AgentTool } from "./src/tools/agent/agent.js"; // D4 D2
 import { StealthBrowserManager } from "./src/core/StealthBrowserManager.js";
 import { LocalizationManager } from "./src/core/LocalizationManager.js";
 import { memoryMonitor } from "./src/utils/MemoryMonitor.js";
@@ -97,7 +99,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 const server = new McpServer({
   name: "crawlforge",
   version: "4.5.0",
-  description: "Production-ready MCP server with 24 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, change tracking, and local-LLM extraction via Ollama.",
+  description: "Production-ready MCP server with 26 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png"
 });
@@ -111,7 +113,7 @@ server.prompt("getting-started", {
       role: "user",
       content: {
         type: "text",
-        text: "You have access to CrawlForge MCP with 23 web scraping tools. Key tools:\n\n" +
+        text: "You have access to CrawlForge MCP with 26 web scraping tools. Key tools:\n\n" +
           "- fetch_url: Fetch raw HTML/content from any URL\n" +
           "- extract_text: Extract clean text from a webpage\n" +
           "- extract_content: Smart content extraction with readability\n" +
@@ -161,6 +163,8 @@ const deepResearchTool = new DeepResearchTool();
 const trackChangesTool = new TrackChangesTool();
 const generateLLMsTxtTool = new GenerateLLMsTxtTool();
 const scrapeTemplateTool = new ScrapeTemplateTool(); // D3.3
+const unifiedScrapeTool = new UnifiedScrapeTool(); // D4 D1
+const agentTool = new AgentTool(); // D4 D2
 const stealthBrowserManager = new StealthBrowserManager();
 const localizationManager = new LocalizationManager();
 
@@ -181,6 +185,7 @@ deepResearchTool.setMcpServer(server);
 batchScrapeTool.setMcpServer(server);
 crawlDeepTool.setMcpServer(server);
 extractStructuredTool.setMcpServer(server);
+agentTool.setMcpServer(server); // D4 D2: SamplingClient + Elicitation
 AuthManager.setElicitation(elicitation);
 
 // ─── D1.1 Resource Templates (MCP Resources) ─────────────────────────────────
@@ -433,14 +438,15 @@ server.registerTool("map_site", {
       include_patterns: z.array(z.string()).optional(),
       exclude_patterns: z.array(z.string()).optional()
     }).optional().describe("Per-domain allow/deny lists and URL include/exclude patterns"),
-    import_filter_config: z.string().optional().describe("JSON string of a previously exported domain-filter config")
+    import_filter_config: z.string().optional().describe("JSON string of a previously exported domain-filter config"),
+    search: z.string().optional().describe("When set, rank discovered URLs by relevance to this string and emit ranked_urls:[{url,score}]")
   }
-}, withAuth("map_site", async ({ url, include_sitemap, max_urls, group_by_path, include_metadata, domain_filter, import_filter_config }) => {
+}, withAuth("map_site", async ({ url, include_sitemap, max_urls, group_by_path, include_metadata, domain_filter, import_filter_config, search }) => {
   try {
     if (!url) {
       return { content: [{ type: "text", text: "URL parameter is required" }], isError: true };
     }
-    const result = await mapSiteTool.execute({ url, include_sitemap, max_urls, group_by_path, include_metadata, domain_filter, import_filter_config });
+    const result = await mapSiteTool.execute({ url, include_sitemap, max_urls, group_by_path, include_metadata, domain_filter, import_filter_config, search });
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
     return { content: [{ type: "text", text: `Site mapping failed: ${error.message}` }], isError: true };
@@ -798,6 +804,53 @@ server.registerTool("deep_research", {
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
     return { content: [{ type: "text", text: `Deep research failed: ${error.message}` }], isError: true };
+  }
+}));
+
+// Tool: scrape (D4 D1 — unified multi-format single-fetch)
+server.registerTool("scrape", {
+  description: "Use this when you need multiple content formats from a single URL in one call — e.g. markdown + links + metadata together. One fetch, no N-request fan-out. Formats: \"markdown\", \"html\", \"rawHtml\", \"text\", \"links\", \"metadata\", or {type:\"json\",schema,prompt} for LLM-structured extraction. onlyMainContent:true (default) strips boilerplate via Readability. Partial success: per-format warnings never fail the whole call. Example: scrape({url:\"https://example.com\", formats:[\"markdown\",\"links\",\"metadata\"]})",
+  annotations: { title: "Scrape (Multi-Format)", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  inputSchema: {
+    url: z.string().url().describe("The URL to scrape"),
+    formats: z.array(z.union([
+      z.enum(["markdown", "html", "rawHtml", "text", "links", "metadata", "screenshot"]),
+      z.object({
+        type: z.literal("json"),
+        schema: z.record(z.any()).optional().describe("JSON schema for extraction"),
+        prompt: z.string().optional().describe("Extraction instruction for the LLM")
+      })
+    ])).min(1).optional().default(["markdown"]).describe("Formats to return (default: [\"markdown\"])"),
+    onlyMainContent: z.boolean().optional().default(true).describe("Strip boilerplate via Readability (default: true)"),
+    timeoutMs: z.number().min(1000).max(60000).optional().default(15000).describe("Fetch timeout in ms")
+  }
+}, withAuth("scrape", async (params) => {
+  try {
+    const result = await unifiedScrapeTool.execute(params);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { content: [{ type: "text", text: `Scrape failed: ${error.message}` }], isError: true };
+  }
+}));
+
+// Tool: agent (D4 D2 — autonomous NL prompt → search/navigate/extract)
+server.registerTool("agent", {
+  description: "Use this when you need an autonomous agent to research, navigate, and synthesise an answer from the web — no URLs required. The agent plans search queries, fetches and filters relevant pages, and returns a prose or structured answer. model:\"pro\" uses deep multi-source research. Hard limits: maxSteps≤10, maxUrls≤20, 120s wall-clock. Confirms before pro runs. Degraded-but-useful output if no LLM keys/Ollama. Example: agent({prompt:\"What are the top 5 MCP servers in 2025?\", maxUrls:10})",
+  annotations: { title: "Agent (Autonomous)", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  inputSchema: {
+    prompt: z.string().min(1).max(2000).describe("Natural-language task or question"),
+    urls: z.array(z.string().url()).max(20).optional().describe("Optional seed URLs to include (max 20)"),
+    schema: z.record(z.any()).optional().describe("Optional JSON schema for structured output"),
+    model: z.enum(["default", "pro"]).optional().default("default").describe("\"default\" = SamplingClient loop (no keys needed); \"pro\" = full ResearchOrchestrator"),
+    maxSteps: z.number().min(1).max(10).optional().default(5).describe("Max fetch iterations (hard cap: 10)"),
+    maxUrls: z.number().min(1).max(20).optional().default(10).describe("Max URLs to fetch (hard cap: 20)")
+  }
+}, withAuth("agent", async (params) => {
+  try {
+    const result = await agentTool.execute(params);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { content: [{ type: "text", text: `Agent failed: ${error.message}` }], isError: true };
   }
 }));
 
@@ -1224,9 +1277,10 @@ async function runServer() {
     "batch_scrape", "get_batch_results", "scrape_with_actions",
     "deep_research", "track_changes", "generate_llms_txt",
     "stealth_mode", "localization", "extract_structured", "extract_with_llm",
-    "list_ollama_models", "scrape_template"  // D3.3
+    "list_ollama_models", "scrape_template", // D3.3
+    "scrape", "agent"  // D4
   ];
-  console.error(`Tools available (24): ${allTools.join(", ")}`);
+  console.error(`Tools available (26): ${allTools.join(", ")}`);
 
   // Start memory monitoring in development
   if (config.server.nodeEnv === "development") {
@@ -1252,7 +1306,8 @@ async function gracefulShutdown(signal) {
     const toolsToCleanup = [
       batchScrapeTool, scrapeWithActionsTool, deepResearchTool,
       trackChangesTool, generateLLMsTxtTool, stealthBrowserManager,
-      localizationManager, extractStructuredTool
+      localizationManager, extractStructuredTool,
+      agentTool // D4 D2: may hold ResearchOrchestrator
     ].filter(tool => tool && (typeof tool.destroy === 'function' || typeof tool.cleanup === 'function'));
 
     console.error(`Cleaning up ${toolsToCleanup.length} tools...`);

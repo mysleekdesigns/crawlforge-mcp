@@ -1,6 +1,6 @@
 # CrawlForge MCP Server - Production Readiness
 
-**Version:** 4.4.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-06-06
+**Version:** 4.6.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-06-07
 
 ---
 
@@ -10,14 +10,43 @@
 |----------|--------|
 | CrawlForge.dev Integration | ✅ Complete |
 | Security | ✅ 9.7/10 |
-| All 23 Tools | ✅ Working |
-| MCP Compliance | ✅ 100% |
-| Functional Tests | ✅ 20/20 tools via `test-tools.js` (creator-mode path) |
-| Unit Tests | ✅ 277/277 (`npm run test:unit`, sandbox-off) |
+| All 26 Tools | ✅ Working |
+| MCP Compliance | ✅ Harness exits 0 (0 errors) |
+| Functional Tests | ✅ `test-tools.js` 15/15 + 5 network-skipped (100%) |
+| Unit Tests | ✅ Green sandbox-off (`npm run test:unit`); incl. `phaseD-regressions.test.js` 34/34 |
 | npm Published | ✅ Yes |
 
 **Production Readiness Score:** 98.5/100
 
+
+---
+
+## IMPROVEMENT_PLAN Phase D — Firecrawl-Competitive: Agent + Unified Scrape + Onboarding (Complete)
+
+**Completed:** 2026-06-07 | **Version:** 4.6.0 | **Regression tests:** `tests/unit/phaseD-regressions.test.js` (34/34 pass)
+
+Closed the three Firecrawl feature gaps with no clean CrawlForge equivalent, all local-first (no cloud proxy/reliability layer). Purely additive: tool count 24 → 26, no breaking changes.
+
+**D1 — Ease-of-use**
+
+| Item | Change |
+|------|--------|
+| `scrape` (new tool) | Single fetch + one cheerio load → dispatches a `formats` array (`markdown`/`html`/`rawHtml`/`text`/`links`/`metadata`/`screenshot`/`{type:"json",schema,prompt?}`) + `onlyMainContent`; partial-success via per-format `warnings[]`. `src/tools/scrape/unifiedScrape.js` |
+| `extract_text` | `extractBlockText($)` + Readability→markdown conversion exported for reuse; no behavior change. `src/tools/basic/extractText.js` |
+| `map_site` `search=` | Optional `search` ranks discovered URLs (lazy `ResultRanker` singleton) → `ranked_urls:[{url,score}]`; default output unchanged. `src/tools/crawl/mapSite.js` |
+| `crawlforge init` (new CLI) | API-key detection + skill install + idempotent MCP-stanza merge into Claude Code / Claude Desktop / Cursor configs; `--all`/`--client`/`--yes`. `src/cli/commands/init.js` |
+| `SKILL.md` | Canonical agent-fetchable capabilities reference (concatenated `src/skills/*.md` + Phase-D tools section); referenced from README. |
+
+**D2 — `agent` tool**
+
+| Item | Change |
+|------|--------|
+| `agent` (new tool) | NL prompt → autonomous search/navigate/extract → prose-or-structured output, no URLs required. Orchestrates `SearchWebTool`, `fetchAndParse`, `ExtractWithLlm`, `SamplingClient`, and `ResearchOrchestrator` (`pro` tier). `src/tools/agent/agent.js`, `src/core/AgentOrchestrator.js` |
+| Bounded loop | Hardcoded PLAN→GATHER→ACT→DECIDE→SHAPE; **three independent hard stops (`maxSteps`≤10, `maxUrls`≤20, wall-clock) + "answer found", enforced in the orchestrator, never the LLM.** |
+| No-LLM-key path | Returns `{degraded:true, reason, ...evidence}` so the host LLM finishes (mirrors `deep_research`); `ElicitationHelper` confirms `pro` runs (fail-open). |
+| Registration & cost | `scrape`/`agent` registered with `withAuth` + graceful-shutdown cleanup; `getToolCost` `scrape:2`/`agent:8`; `projectCost` scales with formats / `maxUrls`+tier. `server.js`, `src/core/AuthManager.js` |
+
+**D3 — Verification:** `phaseD-regressions.test.js` 34/34 (mocked LLM/search/fetch, no live network; asserts the agent hard stops + clamps, the degraded path, unified `scrape` single-fetch multi-format + partial-success, and `map_site` `search=` ranking). Full unit suite green sandbox-off (sandbox-on `streamableHttp`/`searchWebSearxng` `listen EPERM` failures are the pre-existing localhost-bind cases). `npm test` exits 0 (0 errors). `node test-tools.js` 15/15 + 5 network-skipped. **Deferred:** live MCP smoke tests (require publish + global-binary reinstall) and the optional `crawlforge://skill` MCP resource. See `IMPROVEMENT_PLAN.md`, `PRD.md`, and `CHANGELOG.md` [4.6.0].
 
 ---
 
@@ -136,6 +165,8 @@ Security: daily npm audit + gitleaks secret scan + CodeQL analysis.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 4.6.0 | 2026-06-07 | Phase D Firecrawl-Competitive — new `scrape` (unified single-fetch multi-format) and `agent` (bounded autonomous loop, no URLs required) tools; `map_site` `search=` relevance ranking; `crawlforge init` CLI (API-key + skills + MCP-stanza merge); canonical `SKILL.md`; tool count 24 → 26 |
+| 4.5.0 | 2026-06-07 | Phase C Robustness, Security & Polish — fetch body-size cap; AbortSignal timeouts; opt-in/parallelized llms.txt probing; per-domain rate-limiter; camoufox engine selection; sec-ch-ua/UA consistency; version-derived UA; localization phone/geo fixes; extract_with_llm schema validation + JSON recovery; ISO timestamps in list_ollama_models; new `get_batch_results` tool; PDF page ranges; tool count 23 → 24 |
 | 4.4.0 | 2026-06-06 | Result-Quality Upgrades — Flesch formula corrected; block-preserving extract_text; JSON-LD/microdata in extract_metadata; @attr syntax + max_results + per-field elements_found in scrape_structured; extraction provenance fields in extract_content; content_max_length in crawl_deep; full sitemap-index recursion in map_site; numeric total_results + real BM25/SimHash in search_web; word-boundary topic/emotion matching in analyze_content; token Jaccard similarity in track_changes; outputFormat honored in no-LLM deep_research path |
 | 4.3.0 | 2026-06-06 | Critical Fixes & Restored Capabilities — 9 correctness bugs fixed; 6 MCP schema capabilities restored |
 | 3.2.0 | 2026-05-17 | Modernize — Streamable HTTP transport (stateful sessions, `Mcp-Session-Id`), OAuth 2.1 with PKCE + DCR, structured tool outputs (`outputSchema` / `dualOutput`), OpenTelemetry tracing facade, Prometheus `/metrics`, Grafana dashboard, OAuth quickstart docs |

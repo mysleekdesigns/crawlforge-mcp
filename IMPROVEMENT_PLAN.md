@@ -1,9 +1,9 @@
 # CrawlForge MCP Server — Tool Improvement Plan
 
-**Baseline:** v4.2.12 · **Drives:** Phase A → v4.3.0, Phase B → v4.4.0, Phase C → v4.5.0
-**Source:** 21-agent audit (code-review → live-test → web-research → synthesis) across all 10 tool groups / 23 tools, 2026-06-06. Every `file:line` below was then adversarially re-verified against source (34 claims: 29 confirmed exactly, 5 refined, 0 refuted).
+**Baseline:** v4.2.12 · **Drives:** Phase A → v4.3.0, Phase B → v4.4.0, Phase C → v4.5.0 · **Phase D → v4.6.0 (planned)**
+**Source:** 21-agent audit (code-review → live-test → web-research → synthesis) across all 10 tool groups / 23 tools, 2026-06-06. Every `file:line` below was then adversarially re-verified against source (34 claims: 29 confirmed exactly, 5 refined, 0 refuted). **Phase D** added 2026-06-07 from a competitive review of Firecrawl (github.com/firecrawl/firecrawl) via CrawlForge's own MCP tools, grounded against source by two Plan agents.
 
-> **Goal:** every tool returns correct, non-empty, non-crashing results for its documented use case (Phase A), then produces best-in-class output quality (Phase B), then is robust/secure/consistent (Phase C). Surgical changes; prefer existing dependencies.
+> **Goal:** every tool returns correct, non-empty, non-crashing results for its documented use case (Phase A), then produces best-in-class output quality (Phase B), then is robust/secure/consistent (Phase C). **Then closes the remaining competitive feature gaps to be the most advanced *and* easiest-to-use AI-agent web scraper (Phase D).** Surgical changes; prefer existing dependencies.
 
 > **`/next-phase` note:** the skill's hardcoded Phase-A verification runs `npm run build`, which does **not** exist in this repo. Use the real commands in each phase's **Verification** block: `npm run test:unit`, `npm test`, `node test-tools.js`.
 
@@ -119,6 +119,45 @@
 
 ### C4 — Verification & tests
 - [x] Regression tests (`tests/unit/phaseC-regressions.test.js`, 27 tests); full suites green: `npm run test:unit` 360/360, `node test-tools.js` 20/20, `npm test` exits 0 (0 errors); `npm audit` 4 pre-existing moderate (uuid/node-cron transitive, out of scope).
+
+---
+
+## Phase D — v4.6.0 "Firecrawl-Competitive: Agent + Unified Scrape + Onboarding"
+**Completed:** 2026-06-07 (all code + unit tests shipped; full suites green except sandbox-only localhost-bind suites which pass outside the sandbox. Live MCP smoke tests deferred — they require a publish/reinstall of the global binary, see CLAUDE.md.)
+**Status:** Planned (added 2026-06-07)
+**Goal:** Close the three Firecrawl features with no clean CrawlForge equivalent — an autonomous **agent**, a **unified scrape** entry point, and **ranked map** — plus a one-command onboarding flow, **while staying local-first** (MCP-native primitives + local-LLM via Ollama; no cloud proxy/reliability infrastructure). **Purely additive: 24 → 26 tools, no breaking change to existing tools** (CLAUDE.md "Surgical Changes").
+
+**Scope decisions (locked with user, 2026-06-07):** build Agent tool + Unified scrape + map-search + one-command init/SKILL.md; **stay local-first** (do NOT build proxy rotation or a cloud reliability layer); deliver as a full phased roadmap with per-phase verification.
+
+**Deferred — note as future work, do NOT build this phase:**
+- Firecrawl `/interact` persistent NL-driven live browser session — introduces stateful long-lived sessions and a `liveViewUrl` that needs cloud browser infra CrawlForge doesn't have. (Local fallback would be screenshots, not a live view.)
+- Proxy rotation / "96% coverage" reliability layer (cloud infra — out of local-first scope).
+- Multi-language SDKs — CrawlForge is MCP-first; the protocol *is* the SDK.
+
+### D1 — Ease-of-use (low risk, mostly reuse, additive)
+- [x] **`scrape` (new tool)** — one call takes a `formats` array (`"markdown"|"html"|"rawHtml"|"text"|"links"|"metadata"|"screenshot"` or `{type:"json",schema,prompt?}`) + `onlyMainContent` flag; does a **single fetch + one cheerio load**, then dispatches each format to existing logic (reuse `htmlToMarkdown()`, `extractBlockText`, `extractLinksHandler`, `extractMetadataHandler`, `ExtractStructuredTool.execute`, `BrowserProcessor` for screenshot). Mirror the output shape of `generateFormats()` (`src/tools/advanced/ScrapeWithActionsTool.js:650`). Partial-success → per-format `warnings[]`, never fail the whole call. Avoid N-fetch fan-out (the `providedHtml` path at `extractContent.js:140` is the house pattern). `onlyMainContent` maps to the existing Readability `removeBoilerplate` branch (`extractContent.js:193`). **New:** `src/tools/scrape/unifiedScrape.js`. (L)
+- [x] **extract_text** — `export` `extractBlockText($)` + factor the Readability→markdown block into a reusable helper so `scrape` reuses it without re-fetching. Additive, no behavior change. `src/tools/basic/extractText.js` (S)
+- [x] **map_site `search=`** — add optional `search` string; when set, rank discovered URLs by relevance via the existing `ResultRanker.rankResults()` (`src/tools/search/ranking/ResultRanker.js:71`) using a ~5-line slug adapter (`{link:url, title:decodeURIComponent(pathname).replace(/[-_/]/g,' '), snippet:''}`); emit `ranked_urls:[{url,score}]`. Default (no-`search`) output shape **unchanged** (back-compat). Construct the ranker **lazily/once** to avoid its `CacheManager` timer leaking per request. `src/tools/crawl/mapSite.js:8,100`, `server.js:424,438,443` (M)
+- [x] **`crawlforge init` (new CLI command)** — orchestrate EXISTING pieces (≤150 lines): run setup/API-key flow + `install({target})` (`src/skills/installer.js`) + **merge the MCP server stanza** into the detected client config (`~/.claude.json` / Claude Desktop / Cursor `mcp.json`) — the one genuinely new bit. Flags `--all`/`--client`/`--yes`. **New:** `src/cli/commands/init.js`; register in `src/cli/index.js`; update `package.json` postinstall hint. (M)
+- [x] **SKILL.md** — concatenate `src/skills/*.md` via existing `concatenateSkills()` (`src/skills/installer.js:37`) into one canonical agent-fetchable `SKILL.md`; reference in README + tool descriptions; optionally expose as a `crawlforge://skill` MCP resource (existing ResourceRegistry pattern, `server.js:191-236`). (S)
+
+### D2 — The headline `agent` tool (medium risk: bounded autonomous loop)
+- [x] **`agent` (new tool)** — NL prompt → autonomous search/navigate/extract → prose-or-structured output, **no URLs required**. Input: `prompt`, optional `urls[]` (≤20), optional `schema`, `model:'default'|'pro'`, `maxSteps` (≤10), `maxUrls` (≤20). **~80% orchestration of existing pieces** — reuse `SearchWebTool.execute()`, `fetchAndParse()` (`src/tools/extract/_fetchAndParse.js`), `ExtractWithLlm.execute()` for schema output, `SamplingClient.complete()` for planner/decision reasoning (gives Ollama-default no-key support), and `ResearchOrchestrator.conductResearch()` for `model:'pro'` open-ended prompts. **New:** `src/core/AgentOrchestrator.js` (the loop) + `src/tools/agent/agent.js` (wrapper, with `setMcpServer` per `extractStructured.js:44`). (L)
+- [x] **Bounded loop** — PLAN (1 LLM call) → GATHER (search, ≤maxUrls) → ACT (`fetchAndParse` + `LLMManager.analyzeRelevance` gate) → DECIDE (loop or answer) → SHAPE (schema→`ExtractWithLlm`; prose→synthesis). **Three independent hard stops (steps, URLs, time) + "answer found", enforced in the orchestrator, never trusted to the LLM** — this is the #1 risk (runaway cost / non-termination). Keep it a hardcoded 3-action state machine; do NOT build a generic agent runtime/ReAct/tool-registry (CLAUDE.md "Simplicity First"). (M)
+- [x] **No-LLM-key path** — if Ollama + keys + host-sampling all fail, return a **degraded-but-useful** result (collected search results + fetched text + `{degraded:true,reason}`) so the host LLM finishes, exactly like `deep_research` returns raw evidence (CLAUDE.md:209). Use `ElicitationHelper` to confirm before a `pro`/expensive run (mirrors deep_research >50-URL gate; fail-open). (S)
+- [x] **Registration & cost** — register `agent` after the `deep_research` registration (~`server.js:802`) with `withAuth`; add to graceful-shutdown cleanup; add `"agent"` + `"scrape"` to the tool-name allow-list (`server.js:1221`). `AuthManager.getToolCost()` `agent:8` + `scrape` tier-of-formats; add dynamic `projectCost()` cases (scale with maxUrls + tier; note external LLM API billed separately). `src/core/AuthManager.js`, `src/constants/config.js` (S)
+
+### D3 — Verification & tests
+- [x] Focused regression tests mirroring `phaseA`/`phaseB`/`phaseC` files, **with a mocked LLM** for the agent loop's stop conditions (assert hard termination at `maxSteps`/`maxUrls`).
+- [ ] Live MCP smoke tests (after publish + reconnect): `scrape{formats:["markdown","links","metadata"]}` returns all keys from a single fetch; `scrape{formats:[{type:"json",schema}]}` → structured JSON; `onlyMainContent:false` → full body; `map_site{search:"pricing"}` → sensible `ranked_urls`, no-`search` unchanged; `agent{prompt:"find the founders of <company>"}` → prose, with `schema` → JSON, with no LLM → `degraded:true` + evidence; `crawlforge init --all --yes` → setup + MCP stanza merged + skills installed + `SKILL.md` fetchable.
+- [x] `npm run test:unit` (+`--test-force-exit` if it hangs) + `npm test` green; update `PRD.md` + `CHANGELOG.md` + `docs/PRODUCTION_READINESS.md` + tool counts (24→26); commit + push. (Live MCP tools run the npm-published global binary, so a publish/reinstall is needed to exercise changes through the live MCP — see CLAUDE.md.)
+
+### Phase D critical files
+- **D1:** `src/tools/scrape/unifiedScrape.js` *(new)*, `src/tools/basic/extractText.js`, `src/tools/crawl/mapSite.js`, `src/tools/search/ranking/ResultRanker.js`, `src/cli/commands/init.js` *(new)*, `src/cli/index.js`, `src/skills/installer.js`, `server.js`.
+- **D2:** `src/core/AgentOrchestrator.js` *(new)*, `src/tools/agent/agent.js` *(new)*, `src/tools/extract/extractWithLlm.js`, `src/tools/extract/_fetchAndParse.js`, `src/core/SamplingClient.js`, `src/core/ResearchOrchestrator.js`, `src/core/AuthManager.js`, `server.js`.
+
+### Suggested sequencing
+D1 first (low-risk, additive, immediate DX payoff): unified `scrape` → map-search → `init`/SKILL.md. Then D2 (headline, medium-risk): `agent` default tier → pro tier. Each ships independently with its own tests + docs update + push.
 
 ---
 

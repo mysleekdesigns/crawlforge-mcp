@@ -538,7 +538,13 @@ class AuthManager {
       extract_with_llm: 5,
 
       // D3.3: Pre-built site templates (1 credit per template scrape)
-      scrape_template: 1
+      scrape_template: 1,
+
+      // Phase D (v4.6.0)
+      // scrape: base 2; projectCost() scales with format count
+      scrape: 2,
+      // agent: base 8; projectCost() scales with maxUrls
+      agent: 8
     };
 
     return costs[tool] || 1;
@@ -585,6 +591,20 @@ class AuthManager {
       case 'extract_with_llm':
         note = 'Includes external LLM API call cost (not billed in credits, billed by your LLM provider).';
         break;
+      case 'scrape': {
+        // Base 2 + 1 per format beyond the first
+        const fmtCount = Array.isArray(params?.formats) ? params.formats.length : 1;
+        projected = Math.max(base, base + Math.max(0, fmtCount - 1));
+        note = `Estimated from ${fmtCount} format(s). json format may incur external LLM cost.`;
+        break;
+      }
+      case 'agent': {
+        const agentUrls = params?.maxUrls || 10;
+        const isPro = params?.model === 'pro';
+        projected = Math.max(base, base + Math.ceil(agentUrls / 5) + (isPro ? 5 : 0));
+        note = `Lower-bound estimate. Scales with maxUrls (${agentUrls}).${isPro ? ' pro model adds deep-research cost.' : ''} External LLM billed separately.`;
+        break;
+      }
       default:
         note = 'Fixed cost per invocation.';
     }

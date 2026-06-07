@@ -132,6 +132,8 @@ Restart Cursor to activate.
 - `generate_llms_txt` - Generate AI interaction guidelines
 - `localization` - Multi-language and geo-location management
 
+For the full canonical capabilities reference (all tools, CLI commands, stealth engines, research workflow), see [SKILL.md](SKILL.md).
+
 ## 💳 Pricing
 
 | Plan | Credits/Month | Best For |

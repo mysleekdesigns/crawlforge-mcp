@@ -25,7 +25,7 @@ const BLOCK_ELEMENTS = new Set([
  * @param {import('cheerio').CheerioAPI} $ - loaded cheerio instance
  * @returns {string}
  */
-function extractBlockText($) {
+export function extractBlockText($) {
   const parts = [];
 
   function walk(node) {
@@ -53,6 +53,27 @@ function extractBlockText($) {
 }
 
 /**
+ * Convert raw HTML to GFM markdown using Readability + Turndown.
+ * Accepts the original HTML string and the final URL (needed for Readability).
+ * Returns the markdown string.
+ * @param {string} html - raw HTML
+ * @param {string} pageUrl - URL of the page (used by Readability)
+ * @returns {string}
+ */
+export function readabilityToMarkdown(html, pageUrl) {
+  let articleHtml;
+  try {
+    const dom = new JSDOM(html, { url: pageUrl });
+    const reader = new Readability(dom.window.document);
+    const article = reader.parse();
+    articleHtml = article ? article.content : html;
+  } catch {
+    articleHtml = html;
+  }
+  return htmlToMarkdown(articleHtml);
+}
+
+/**
  * @param {{ url: string, remove_scripts?: boolean, remove_styles?: boolean, output_format?: "text"|"markdown" }} params
  */
 export async function extractTextHandler({ url, remove_scripts, remove_styles, output_format }) {
@@ -76,16 +97,7 @@ export async function extractTextHandler({ url, remove_scripts, remove_styles, o
 
     if (output_format === 'markdown') {
       // Run Readability first to get main content, then convert to GFM markdown
-      let articleHtml;
-      try {
-        const dom = new JSDOM(html, { url: response.url });
-        const reader = new Readability(dom.window.document);
-        const article = reader.parse();
-        articleHtml = article ? article.content : $.html('body');
-      } catch {
-        articleHtml = $.html('body');
-      }
-      result.markdown = htmlToMarkdown(articleHtml);
+      result.markdown = readabilityToMarkdown(html, response.url);
       result.output_format = 'markdown';
       const plainText = result.markdown.replace(/[#*`_\[\]]/g, '').replace(/\s+/g, ' ').trim();
       result.word_count = plainText.split(/\s+/).filter(w => w.length > 0).length;
