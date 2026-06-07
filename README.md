@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="CrawlForge MCP Server" width="640">
+  <img src="https://raw.githubusercontent.com/mysleekdesigns/crawlforge-mcp/main/assets/banner.jpg" alt="CrawlForge MCP Server" width="640">
 </p>
 
 <p align="center">

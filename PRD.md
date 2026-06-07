@@ -12,6 +12,10 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
+### README banner: absolute JPG for npm parity (2026-06-07, no version bump)
+
+README header banner switched from a relative-path SVG (`assets/banner.svg`) to an absolute raw-GitHub URL to the JPG export (`assets/banner.jpg`). npm's README renderer blocks SVG and mishandles relative image paths, so the banner was broken on the npm package page while fine on GitHub; the absolute JPG renders identically on both. README text was already byte-identical between GitHub and the published npm tarball — only the banner rendering differed. Note: the npm page reflects this only after the next published version.
+
 ### Docs move: IMPROVEMENT_PLAN.md → docs/ (2026-06-07, no version bump)
 
 Relocated `IMPROVEMENT_PLAN.md` from the repo root to `docs/IMPROVEMENT_PLAN.md` (identical content, pure `git mv`) to conform to the CLAUDE.md rule "Put all documentation md files into the docs/ folder." No code or tool changes.
