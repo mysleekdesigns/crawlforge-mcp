@@ -60,9 +60,9 @@ These guidelines are working if: fewer unnecessary changes in diffs, fewer rewri
 
 ## Project Overview
 
-CrawlForge MCP Server - A professional MCP (Model Context Protocol) server providing 23 web scraping, crawling, and content processing tools (5 inline + 18 advanced).
+CrawlForge MCP Server - A professional MCP (Model Context Protocol) server providing 26 web scraping, crawling, and content processing tools (5 inline + 21 advanced).
 
-**Current Version:** 4.2.4
+**Current Version:** 4.6.0
 
 ## Development Commands
 
@@ -92,8 +92,10 @@ npm run dev
 # Test MCP protocol compliance
 npm test
 
-# Unit tests (262 tests, no live network)
+# Unit tests (400+ tests across tests/unit/, no live network)
 npm run test:unit
+# Phase D regressions live in tests/unit/phaseD-regressions.test.js (agent hard stops, unified scrape, map_site ranking)
+# Run a single test file:  node --test tests/unit/phaseD-regressions.test.js
 # Note: add --test-force-exit if the run appears to hang at the end — importing
 # StealthBrowserManager (d2-reliability.test.js) leaves a Playwright handle that
 # otherwise delays process exit ~100s. Tests themselves pass either way.
@@ -109,7 +111,9 @@ node test-real-world.js        # Test real-world usage scenarios
 node tests/integration/mcp-protocol-compliance.test.js
 
 # CLI (v4.1.0+, requires global install or npx)
-crawlforge --help              # Show all 15 subcommands
+crawlforge --help              # Show all subcommands
+crawlforge init                # API-key detection + skill install + idempotent MCP-stanza merge (v4.6.0)
+crawlforge init --all --yes    # Merge MCP config into Claude Code / Desktop / Cursor non-interactively
 crawlforge scrape https://example.com
 crawlforge batch --urls urls.txt --format markdown
 crawlforge install-skills --target claude-code
@@ -140,6 +144,7 @@ npm run docker:prod         # Run production container
 - **WebhookDispatcher**: Event notification system for job completion callbacks
 - **ActionExecutor**: Browser automation engine (Playwright-based)
 - **ResearchOrchestrator**: Multi-stage research with query expansion and synthesis
+- **AgentOrchestrator**: Powers the `agent` tool — NL prompt → autonomous PLAN→GATHER→ACT→DECIDE→SHAPE loop with three orchestrator-enforced hard stops (maxSteps≤10, maxUrls≤20, wall-clock) never delegated to the LLM; degraded no-LLM-key path (D2, v4.6.0)
 - **StealthBrowserManager**: Stealth mode scraping with anti-detection; Camoufox (Firefox) engine added in v4.0.0
 - **LocalizationManager**: Multi-language content and localization
 - **ChangeTracker**: Content change tracking over time
@@ -155,7 +160,9 @@ npm run docker:prod         # Run production container
 Tools are organized in subdirectories by category:
 
 - `advanced/` - BatchScrapeTool, ScrapeWithActionsTool
+- `agent/` - agent (AgentOrchestrator-driven autonomous tool, v4.6.0)
 - `basic/` - fetchUrl, extractText, extractLinks, extractMetadata, scrapeStructured
+- `scrape/` - unifiedScrape (single-fetch multi-format `scrape` tool, v4.6.0)
 - `crawl/` - crawlDeep, mapSite
 - `extract/` - analyzeContent, extractContent, extractStructured, extractWithLlm, listOllamaModels, processDocument, summarizeContent
 - `research/` - deepResearch
@@ -164,13 +171,18 @@ Tools are organized in subdirectories by category:
 - `tracking/` - trackChanges
 - `llmstxt/` - generateLLMsTxt
 
-### Available MCP Tools (23 total)
+### Available MCP Tools (26 total)
 
 **Basic Tools (server.js inline, 5):**
 fetch_url, extract_text, extract_links, extract_metadata, scrape_structured
 
-**Advanced Tools (18):**
-search_web, crawl_deep, map_site, extract_content, process_document, summarize_content, analyze_content, extract_structured, extract_with_llm, list_ollama_models, batch_scrape, scrape_with_actions, deep_research, track_changes, generate_llms_txt, stealth_mode, localization, scrape_template
+**Advanced Tools (21):**
+search_web, crawl_deep, map_site, extract_content, process_document, summarize_content, analyze_content, extract_structured, extract_with_llm, list_ollama_models, batch_scrape, scrape_with_actions, deep_research, track_changes, generate_llms_txt, stealth_mode, localization, scrape_template, scrape, agent
+
+**v4.6.0 additions (Phase D):**
+- `scrape` — single fetch + one cheerio load dispatching a `formats` array (markdown/html/rawHtml/text/links/metadata/screenshot/json-schema) + `onlyMainContent`; partial-success via per-format `warnings[]`. Cost: 2.
+- `agent` — NL prompt → autonomous research/extract, no URLs required (see AgentOrchestrator above). Cost: 8.
+- `map_site` gained an optional `search=` param that ranks discovered URLs (`ranked_urls:[{url,score}]`); default output unchanged.
 
 ### MCP Server Entry Point
 

@@ -9,7 +9,7 @@ Professional web scraping and content extraction server implementing the Model C
 
 ## 🎯 Features
 
-- **23 Professional Tools**: Web scraping, deep research, stealth browsing, content analysis, local-LLM extraction (Ollama)
+- **26 Professional Tools**: Web scraping, deep research, an autonomous `agent`, a unified multi-format `scrape`, stealth browsing, content analysis, local-LLM extraction (Ollama)
 - **Free Tier**: 1,000 credits to get started instantly
 - **MCP Compatible**: Works with Claude, Cursor, and other MCP-enabled AI tools
 - **Enterprise Ready**: Scale up with paid plans for production use
@@ -36,6 +36,8 @@ This will:
 - Verify your setup is working
 
 **Don't have an API key?** Get one free at [https://www.crawlforge.dev/signup](https://www.crawlforge.dev/signup)
+
+> **One-step setup (v4.6.0+):** `crawlforge init` detects your API key, installs the agent skill, and idempotently merges the MCP config stanza into Claude Code, Claude Desktop, and Cursor. Use `crawlforge init --all --yes` to configure every detected client non-interactively.
 
 ### 3. Configure Your IDE (if not auto-configured)
 
@@ -107,8 +109,10 @@ Restart Cursor to activate.
 - `extract_text` - Extract clean text from web pages
 - `extract_links` - Get all links from a page
 - `extract_metadata` - Extract page metadata
+- `scrape_template` - Structured data from well-known sites (Amazon, GitHub, LinkedIn, YouTube, Reddit, Hacker News, npm, and more) without writing selectors
 
 ### Advanced Tools (2-3 credits)
+- `scrape` - **Unified single-fetch, multi-format extraction.** Pass a `formats` array (markdown/html/rawHtml/text/links/metadata/screenshot/json-schema) plus `onlyMainContent`; one fetch serves every requested format with per-format partial-success warnings
 - `scrape_structured` - Extract structured data with CSS selectors
 - `search_web` - Search the web using Google Search API
 - `summarize_content` - Generate intelligent summaries
@@ -117,10 +121,12 @@ Restart Cursor to activate.
 - `extract_with_llm` - Natural-language extraction. **Defaults to a local Ollama model — no API key, no API costs.** Pass `provider: "openai" | "anthropic"` with the matching key for cloud models.
 - `list_ollama_models` - List the Ollama models installed locally (free; helps you pick a `model` for `extract_with_llm`)
 - `track_changes` - Monitor content changes over time
+- `get_batch_results` - Retrieve paginated results for a `batch_scrape` job by `batchId`
 
 ### Premium Tools (5-10 credits)
+- `agent` - **Autonomous research/extraction from a natural-language prompt — no URLs required.** Plans, gathers, and shapes an answer under hard safety stops (max steps/URLs/wall-clock enforced by the orchestrator, never the LLM)
 - `crawl_deep` - Deep crawl entire websites
-- `map_site` - Discover and map website structure
+- `map_site` - Discover and map website structure (optional `search=` ranks the discovered URLs)
 - `batch_scrape` - Process multiple URLs simultaneously
 - `deep_research` - Multi-stage research with source verification
 - `stealth_mode` - Anti-detection browser management
@@ -144,7 +150,7 @@ For the full canonical capabilities reference (all tools, CLI commands, stealth 
 | **Enterprise** | 250,000 | Large scale operations |
 
 **All plans include:**
-- Access to all 23 tools
+- Access to all 26 tools
 - Credits never expire and roll over month-to-month
 - API access and webhook notifications
 
