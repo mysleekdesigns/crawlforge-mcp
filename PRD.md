@@ -33,6 +33,8 @@ Working-tree changes for the third execution phase of `IMPROVEMENT_PLAN.md`. Com
 - `process_document` (markdown builder) — de-dup the `<title>` heading when it equals the first `<h1>`.
 - `extract_structured` — User-Agent unified to the versioned `CrawlForge/<version>` string.
 
+**Verification:** `npm run test:unit` 333/333 pass (sandbox-off); `npm test` MCP harness exits 0 with 0 errors. Follow-up fix `9484000` — the initial body-size cap unconditionally read `response.headers.get()` / `response.body.getReader()` and crashed all 5 basic tools on responses without a Headers object or `ReadableStream` body (caught by the phaseA/phaseB regression mocks); now optional-chained and the streaming guard is skipped when no readable body is present.
+
 ### v4.4.0 — Phase B: Result-Quality Upgrades (2026-06-06)
 
 Second execution phase of `IMPROVEMENT_PLAN.md`. Closed all 12 Phase-B quality items — "working" tools now return accurate, well-structured, high-fidelity data.
