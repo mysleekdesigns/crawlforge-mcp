@@ -3,6 +3,35 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.5.0] - 2026-06-07
+
+Phase C of `IMPROVEMENT_PLAN.md` — "Robustness, Security & Polish". Closes all C-series items so tools are robust, polite on the network, and consistent in their contracts. Regression coverage ships in `tests/unit/phaseC-regressions.test.js` (27 tests).
+
+### Added
+
+- **`get_batch_results` tool** — paginated retrieval of `batch_scrape` results by `batchId` (`page` / `pageSize`). Tool count 23 → 24. Also restored `list_ollama_models` to the startup tool list. `server.js`, `src/tools/advanced/batchScrape/index.js`
+- **`stealth_mode` engine selection** — `engine: 'chromium'` (default) | `'camoufox'`, wired through the operation-based `scrape_with_stealth` → `createStealthContext` → `launchStealthBrowser` path; a mismatched running browser is torn down before switching. `src/core/StealthBrowserManager.js`
+- **`extract_with_llm` structured output** — when a `schema` is provided and the provider is Anthropic, output is forced via tool-use (`tools` + `tool_choice`), guaranteeing schema-shaped JSON; output is then validated with zod (`valid` / `validationErrors` in the result). Truncation metadata (`truncated`, `original_length`) is surfaced. `src/tools/extract/extractWithLlm.js`
+- **`process_document` page ranges** — `options.pageRange: {start, end}` (1-based, inclusive) returns exactly those pages via per-page `pagerender` capture. The server `options` schema is now passthrough so granular options (`maxPages`, `pageRange`, `extractText`, …) actually reach the tool instead of being stripped. `src/core/processing/PDFProcessor.js`, `src/tools/extract/processDocument.js`, `server.js`
+
+### Fixed
+
+- **`fetch_url` body-size cap** — Content-Length pre-check plus a streaming byte-count guard (configurable via `MAX_FETCH_BODY_SIZE`, default 25 MB) prevents memory exhaustion across all basic tools. The guard is defensive: responses without a Headers object or a `ReadableStream` body are returned unchanged so native `.text()`/`.json()` keep working. `src/tools/basic/_fetch.js`, `src/constants/config.js`
+- **Ineffective fetch timeouts** — replaced the no-op `timeout:` option (ignored by Node `fetch`) with `AbortSignal.timeout(...)` in `extract_content`, `process_document`, and `track_changes`. `src/tools/extract/extractContent.js`, `src/tools/extract/processDocument.js`, `src/tools/tracking/trackChanges/differ.js`
+- **`generate_llms_txt` intrusive probing** — security-path and rate-limit probing are now opt-in (`checkSecurity`, `probeRateLimit` default `false`); remaining probes run in bounded parallel batches instead of long sequential loops. `src/core/LLMsTxtAnalyzer.js`, `src/tools/llmstxt/generateLLMsTxt.js`
+- **`crawl_deep` rate limiting & logging** — per-domain rate-limiter map (reused rather than recreated per URL); filter/robots block messages routed through `logger.debug` instead of raw `console.error` (stdout-hygiene). `src/core/crawlers/BFSCrawler.js`
+- **`stealth_mode` sec-ch-ua mismatch** — `sec-ch-ua` brand versions are derived from the resolved User-Agent's Chrome major version (was hardcoded `120` against a `121` UA). `src/core/StealthBrowserManager.js`
+- **Stale User-Agent** — `fetch_url` / `extract_structured` now send a version-derived `CrawlForge/<version> (+https://crawlforge.dev)` UA (was `CrawlForge/1.0.0` / `CrawlForge-MCP/3.0`). `src/tools/basic/_fetch.js`, `src/tools/extract/extractStructured.js`
+- **`localization` geo-blocking & phone regex** — `handle_geo_blocking` renamed to `detect_geo_blocking` (it only detects and recommends — no bypass is applied); fixed the US phone regex (`\\d` → `\d`). `src/core/LocalizationManager.js`, `server.js`
+- **`extract_with_llm` JSON recovery** — extracts the first *balanced* embedded JSON object/array (string/escape-aware), tolerating prose both before and after the JSON; previously only leading-prose-then-trailing-JSON was recovered. `src/tools/extract/extractWithLlm.js`
+- **`list_ollama_models` robustness** — hardened against a non-array `models` field; `modified_at` normalized to ISO 8601. `src/tools/extract/listOllamaModels.js`
+- **`process_document` page extraction** — `extractPDFPages` now produces a real page range; previously its `endPage` was clobbered by `maxPages` and `startPage > 1` only logged a warning while returning all pages. `src/core/processing/PDFProcessor.js`
+- **`batch_scrape` markdown title / webhook status** — markdown builder de-dups the `<title>` heading against the first `<h1>`; webhook delivery status is returned on the batch result. `src/tools/advanced/batchScrape/worker.js`, `reporter.js`, `index.js`
+
+### Verified
+
+`npm run test:unit` 360/360 (sandbox-off; sandbox-on `listen EPERM` failures are the pre-existing HTTP-transport/searxng port-binding cases). `node test-tools.js` 20/20 (100%). `npm test` MCP harness exits 0 (0 errors). `npm audit`: 4 pre-existing moderate advisories (uuid/node-cron transitive) — out of Phase-C scope. Version bumped 4.4.0 → 4.5.0; tool count 23 → 24.
+
 ## [4.4.0] - 2026-06-06
 
 Phase B of `IMPROVEMENT_PLAN.md` — "Result-Quality Upgrades". Closes 12 quality items so "working" tools return accurate, well-structured, high-fidelity data. Each fix ships a reproduce→pass regression test in `tests/unit/phaseB-regressions.test.js` (56 tests).

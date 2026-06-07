@@ -19,7 +19,12 @@ const ProcessDocumentSchema = z.object({
     extractMetadata: z.boolean().default(true),
     password: z.string().optional(),
     maxPages: z.number().min(1).max(500).default(100),
-    
+    // C3: extract a specific 1-based, inclusive page range from a PDF
+    pageRange: z.object({
+      start: z.number().min(1).default(1),
+      end: z.number().min(1).optional()
+    }).optional(),
+
     // Web content options
     useReadability: z.boolean().default(true),
     extractStructuredData: z.boolean().default(true),
@@ -195,7 +200,8 @@ export class ProcessDocumentTool {
         extractText: options.extractText,
         extractMetadata: options.extractMetadata,
         password: options.password,
-        maxPages: options.maxPages
+        maxPages: options.maxPages,
+        ...(options.pageRange ? { pageRange: options.pageRange } : {})
       }
     });
 

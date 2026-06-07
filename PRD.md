@@ -12,9 +12,9 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
-### Phase C (in progress) — Robustness, Security & Polish (2026-06-07)
+### v4.5.0 — Phase C: Robustness, Security & Polish (2026-06-07)
 
-Working-tree changes for the third execution phase of `IMPROVEMENT_PLAN.md`. Committed as work-in-progress (IMPROVEMENT_PLAN checkboxes not yet flipped, no version bump, full phase-verification block not yet run).
+Third and final execution phase of `IMPROVEMENT_PLAN.md`. Closes all C-series items — no memory/DoS vectors, correct timeouts, polite networking, consistent contracts, accurate metadata.
 
 **C1 — Robustness:**
 - `fetch_url` (`src/tools/basic/_fetch.js`) — added a body-size cap (Content-Length pre-check + streaming byte-count guard, configurable via `MAX_FETCH_BODY_SIZE`, default 25 MB → `src/constants/config.js`); User-Agent now derived from `package.json` version (`CrawlForge/<version> (+https://crawlforge.dev)`) instead of the stale `CrawlForge/1.0.0`.
@@ -28,12 +28,13 @@ Working-tree changes for the third execution phase of `IMPROVEMENT_PLAN.md`. Com
 **C3 — Tool quality:**
 - New `get_batch_results` tool (`server.js`) — paginated retrieval of `batch_scrape` results by `batchId` (tool count 23 → 24); also restored `list_ollama_models` to the startup tool list.
 - `localization` — `handle_geo_blocking` renamed to `detect_geo_blocking` (no bypass is actually applied; returns recommendations only); fixed the US phone regex (`\\d` → `\d`).
-- `extract_with_llm` — surfaces input-truncation metadata (`truncated`, `original_length`); `parseJson` recovers the first embedded JSON object/array when the response isn't a clean document.
+- `extract_with_llm` — forces Anthropic structured output via tool-use (`tools` + `tool_choice`) when a `schema` is given; validates output with zod (`valid` / `validationErrors`); `parseJson` recovers the first *balanced* embedded JSON object/array (string/escape-aware, tolerates prose before and after); surfaces input-truncation metadata (`truncated`, `original_length`).
 - `list_ollama_models` — hardened against non-array responses; `modified_at` normalized to ISO 8601.
-- `process_document` (markdown builder) — de-dup the `<title>` heading when it equals the first `<h1>`.
+- `process_document` — true page-range extraction (`pageRange:{start,end}` via per-page `pagerender` capture; `extractPDFPages` no longer returns all pages); server `options` schema made passthrough so granular options reach the tool; markdown builder de-dups the `<title>` heading vs the first `<h1>`.
+- `batch_scrape` — webhook delivery status returned on the result.
 - `extract_structured` — User-Agent unified to the versioned `CrawlForge/<version>` string.
 
-**Verification:** `npm run test:unit` 333/333 pass (sandbox-off); `npm test` MCP harness exits 0 with 0 errors. Follow-up fix `9484000` — the initial body-size cap unconditionally read `response.headers.get()` / `response.body.getReader()` and crashed all 5 basic tools on responses without a Headers object or `ReadableStream` body (caught by the phaseA/phaseB regression mocks); now optional-chained and the streaming guard is skipped when no readable body is present.
+**Verification:** `npm run test:unit` 360/360 pass (sandbox-off), incl. new `tests/unit/phaseC-regressions.test.js` (27 tests); `node test-tools.js` 20/20; `npm test` MCP harness exits 0 (0 errors); `npm audit` 4 pre-existing moderate (uuid/node-cron transitive, out of scope). Version bumped 4.4.0 → 4.5.0. Follow-up fix `9484000` (during initial WIP commit) — the body-size cap unconditionally read `response.headers.get()` / `response.body.getReader()` and crashed all 5 basic tools on responses without a Headers object or `ReadableStream` body (caught by the phaseA/phaseB regression mocks); now optional-chained with the streaming guard skipped when no readable body is present.
 
 ### v4.4.0 — Phase B: Result-Quality Upgrades (2026-06-06)
 

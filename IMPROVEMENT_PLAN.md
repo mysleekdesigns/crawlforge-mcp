@@ -96,29 +96,29 @@
 ---
 
 ## Phase C — v4.5.0 "Robustness, Security & Polish"
-**Completed:**
+**Completed:** 2026-06-07 (all items shipped; full suites green)
 **Goal:** No memory/DoS vectors, correct timeouts, polite networking, consistent contracts, accurate metadata.
 
 ### C1 — Resource safety & network
-- [ ] **_fetch.js** — enforce a configurable max body-size cap (Content-Length check + streaming abort) to prevent memory-exhaustion across all basic tools. `src/tools/basic/_fetch.js:19` (M)
-- [ ] **timeouts** — replace ineffective `timeout:` options with `AbortSignal.timeout(...)` wherever native `fetch` is used (Node fetch ignores `timeout`). `src/tools/extract/extractContent.js:161-166`, `src/tools/tracking/trackChanges/differ.js:11-22`, et al. (S)
-- [ ] **generate_llms_txt / LLMsTxtAnalyzer** — parallelize + cap the dozens of sequential probe fetches; make intrusive path/security/rate probing opt-in. `src/core/LLMsTxtAnalyzer.js:176-264,297-352` (M)
-- [ ] **BFSCrawler** — keep a per-domain rate-limiter map (don't recreate the limiter when `effectiveRateLimit` changes); route filter/robots decisions through the logger, not raw `console.error` (stdout-hygiene). `src/core/crawlers/BFSCrawler.js:145-159,179-181` (M)
+- [x] **_fetch.js** — enforce a configurable max body-size cap (Content-Length check + streaming abort) to prevent memory-exhaustion across all basic tools. `src/tools/basic/_fetch.js:19` (M)
+- [x] **timeouts** — replace ineffective `timeout:` options with `AbortSignal.timeout(...)` wherever native `fetch` is used (Node fetch ignores `timeout`). `src/tools/extract/extractContent.js:161-166`, `src/tools/tracking/trackChanges/differ.js:11-22`, et al. (S)
+- [x] **generate_llms_txt / LLMsTxtAnalyzer** — parallelize + cap the dozens of sequential probe fetches; make intrusive path/security/rate probing opt-in. `src/core/LLMsTxtAnalyzer.js:176-264,297-352` (M)
+- [x] **BFSCrawler** — keep a per-domain rate-limiter map (don't recreate the limiter when `effectiveRateLimit` changes); route filter/robots decisions through the logger, not raw `console.error` (stdout-hygiene). `src/core/crawlers/BFSCrawler.js:145-159,179-181` (M)
 
 ### C2 — Stealth / anti-detection (post-4.2.12 residuals)
-- [ ] **stealth_mode** — sync the `sec-ch-ua` brand version to the chosen UA's Chrome major version (currently hardcoded `120` vs UA `121`). `src/core/StealthBrowserManager.js:538-548` (S)
-- [ ] **stealth_mode** — honor/validate `engine:'camoufox'` in the operation-based `create_context`/`create_page` API (currently always launches Chromium). `src/core/StealthBrowserManager.js:338-387,1942-1965` (M)
+- [x] **stealth_mode** — sync the `sec-ch-ua` brand version to the chosen UA's Chrome major version (currently hardcoded `120` vs UA `121`). `src/core/StealthBrowserManager.js:538-548` (S)
+- [x] **stealth_mode** — honor/validate `engine:'camoufox'` in the operation-based `create_context`/`create_page` API (currently always launches Chromium). `src/core/StealthBrowserManager.js:338-387,1942-1965` (M)
 
 ### C3 — Polish & consistency
-- [ ] **fetch_url / extract_structured** — version-derived realistic User-Agent (drop stale `CrawlForge/1.0.0`). `src/tools/basic/_fetch.js:22`, `src/tools/extract/extractStructured.js` (S)
-- [ ] **localization** — fix the US phone regex escaping (`\\d`→`\d`); make geo-blocking honest (apply a real strategy or rename to "detect"). `src/core/LocalizationManager.js:507-544,1323-1390` (S)
-- [ ] **extract_with_llm** — schema-validate output (zod), add JSON-substring recovery (locate embedded JSON), enforce Anthropic structured output via tool-use; surface truncation metadata (`truncated`, `original_length`). `src/tools/extract/extractWithLlm.js:73,87-94,136-143,356-371` (M)
-- [ ] **list_ollama_models** — normalize `modified_at` to ISO timestamps and harden non-array response handling (currently only a `|| []` fallback at line 44). `src/tools/extract/listOllamaModels.js:44,47` (S)
-- [ ] **batch_scrape** — register `get_batch_results` / accept a `page` param; de-dup the markdown title; return webhook delivery status. `src/tools/advanced/BatchScrapeTool.js`, `src/tools/advanced/batchScrape/*` (S)
-- [ ] **process_document** — *re-verify first*, then fix PDF layout/section/page-range handling if confirmed (pdf-parse loses multi-column/table layout; `maxPages` discards rather than range-extracts). `src/core/processing/PDFProcessor.js` (M)
+- [x] **fetch_url / extract_structured** — version-derived realistic User-Agent (drop stale `CrawlForge/1.0.0`). `src/tools/basic/_fetch.js:22`, `src/tools/extract/extractStructured.js` (S)
+- [x] **localization** — fix the US phone regex escaping (`\\d`→`\d`); make geo-blocking honest (apply a real strategy or rename to "detect"). `src/core/LocalizationManager.js:507-544,1323-1390` (S)
+- [x] **extract_with_llm** — schema-validate output (zod), add JSON-substring recovery (balanced embedded JSON), enforce Anthropic structured output via tool-use; surface truncation metadata (`truncated`, `original_length`). `src/tools/extract/extractWithLlm.js:73,87-94,136-143,356-371` (M)
+- [x] **list_ollama_models** — normalize `modified_at` to ISO timestamps and harden non-array response handling (currently only a `|| []` fallback at line 44). `src/tools/extract/listOllamaModels.js:44,47` (S)
+- [x] **batch_scrape** — register `get_batch_results` / accept a `page` param; de-dup the markdown title; return webhook delivery status. `src/tools/advanced/BatchScrapeTool.js`, `src/tools/advanced/batchScrape/*` (S)
+- [x] **process_document** — *re-verified*: fixed page-range extraction (per-page `pagerender` capture + true `pageRange:{start,end}` slice; `maxPages` no longer clobbers the range) and made the server `options` schema passthrough so granular options reach the tool. Multi-column/table layout remains a documented pdf-parse limitation (engine swap out of scope). `src/core/processing/PDFProcessor.js`, `src/tools/extract/processDocument.js`, `server.js` (M)
 
 ### C4 — Verification & tests
-- [ ] Regression tests; full suites green (`npm run test:unit`, `npm test`, `node test-tools.js`, `node tests/integration/mcp-protocol-compliance.test.js`); update docs; `npm audit`.
+- [x] Regression tests (`tests/unit/phaseC-regressions.test.js`, 27 tests); full suites green: `npm run test:unit` 360/360, `node test-tools.js` 20/20, `npm test` exits 0 (0 errors); `npm audit` 4 pre-existing moderate (uuid/node-cron transitive, out of scope).
 
 ---
 

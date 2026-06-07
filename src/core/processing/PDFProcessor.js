@@ -16,6 +16,12 @@ const PDFProcessorSchema = z.object({
     extractText: z.boolean().default(true),
     password: z.string().optional(),
     maxPages: z.number().min(1).max(1000).default(100),
+    // C3: true page-range extraction (1-based, inclusive). When set, only the
+    // text from pages [start..end] is returned.
+    pageRange: z.object({
+      start: z.number().min(1).default(1),
+      end: z.number().min(1).optional()
+    }).optional(),
     parseOptions: z.object({
       normalizeWhitespace: z.boolean().default(true),
       disableCombineTextItems: z.boolean().default(false)
@@ -95,11 +101,28 @@ export class PDFProcessor {
         return result;
       }
 
+      // C3: when a page range is requested, capture per-page text so we can
+      // return exactly pages [start..end] (pdf-parse otherwise concatenates the
+      // whole document and its `max` option only caps the *upper* page bound).
+      const pageRange = processingOptions.pageRange;
+      const capturedPages = [];
+
       // Parse PDF with options
       const parseOptions = {
         ...processingOptions.parseOptions,
         max: processingOptions.maxPages
       };
+
+      // If extracting a range, raise `max` to at least the requested end page
+      // and install a pagerender that records each page's text.
+      if (pageRange) {
+        if (pageRange.end) {
+          parseOptions.max = Math.max(parseOptions.max, pageRange.end);
+        } else {
+          parseOptions.max = processingOptions.maxPages;
+        }
+        parseOptions.pagerender = (pageData) => this._renderPage(pageData, capturedPages);
+      }
 
       if (processingOptions.password) {
         parseOptions.password = processingOptions.password;
@@ -118,7 +141,15 @@ export class PDFProcessor {
 
       // Extract text content
       if (processingOptions.extractText) {
-        result.text = this.cleanPDFText(pdfData.text);
+        if (pageRange) {
+          const start = pageRange.start || 1;
+          const end = pageRange.end || capturedPages.length;
+          const slice = capturedPages.slice(start - 1, end);
+          result.text = this.cleanPDFText(slice.join('\n\n'));
+          result.extractedPages = { start, end, count: slice.length };
+        } else {
+          result.text = this.cleanPDFText(pdfData.text);
+        }
       }
 
       // Extract metadata
@@ -414,34 +445,52 @@ export class PDFProcessor {
   }
 
   /**
-   * Extract specific pages from PDF
-   * @param {Object} params - Processing parameters with page range
-   * @returns {Promise<Object>} - Processing result for specified pages
+   * Render a single PDF page to text and record it.
+   * Mirrors pdf-parse's default render (newline on Y-position change) but
+   * accumulates per-page text so callers can slice a true page range.
+   * Note: like pdf-parse, this does not reconstruct multi-column / table
+   * layout — column order follows the PDF's text-item stream.
+   * @param {Object} pageData - pdf.js page proxy from pdf-parse
+   * @param {string[]} sink - array that receives this page's text
+   * @returns {Promise<string>}
+   */
+  async _renderPage(pageData, sink) {
+    const textContent = await pageData.getTextContent({
+      normalizeWhitespace: true,
+      disableCombineTextItems: false
+    });
+    let lastY;
+    let text = '';
+    for (const item of textContent.items) {
+      if (lastY === item.transform[5] || lastY === undefined) {
+        text += item.str;
+      } else {
+        text += '\n' + item.str;
+      }
+      lastY = item.transform[5];
+    }
+    sink.push(text);
+    // pdf-parse joins page renders with '\n\n' for pdfData.text
+    return text;
+  }
+
+  /**
+   * Extract a specific page range from a PDF (1-based, inclusive).
+   * @param {Object} params - Processing parameters
+   * @param {number} [params.startPage=1] - First page to include
+   * @param {number} [params.endPage] - Last page to include (defaults to end)
+   * @returns {Promise<Object>} - Processing result for the requested pages
    */
   async extractPDFPages(params) {
     const { startPage = 1, endPage, ...processingParams } = params;
-    
-    // Override parse options to limit page range
-    const options = {
-      ...processingParams.options,
-      parseOptions: {
-        ...processingParams.options?.parseOptions,
-        max: endPage || processingParams.options?.maxPages || 100
-      }
-    };
 
-    const result = await this.processPDF({
+    return this.processPDF({
       ...processingParams,
-      options
+      options: {
+        ...processingParams.options,
+        pageRange: { start: startPage, ...(endPage ? { end: endPage } : {}) }
+      }
     });
-
-    if (result.success && result.text && startPage > 1) {
-      // This is a simplified approach - pdf-parse doesn't provide per-page text
-      // For proper page-by-page extraction, consider using pdf2pic or pdf-poppler
-      console.warn('Page-specific extraction is limited with current PDF parser');
-    }
-
-    return result;
   }
 }
 

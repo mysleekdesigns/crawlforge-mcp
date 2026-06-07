@@ -96,8 +96,8 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "4.4.0",
-  description: "Production-ready MCP server with 23 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, change tracking, and local-LLM extraction via Ollama.",
+  version: "4.5.0",
+  description: "Production-ready MCP server with 24 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, change tracking, and local-LLM extraction via Ollama.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png"
 });
@@ -474,7 +474,9 @@ server.registerTool("process_document", {
   inputSchema: {
     source: z.string().describe("Document source - URL or file path"),
     sourceType: z.enum(['url', 'pdf_url', 'file', 'pdf_file']).optional().describe("Type of document source"),
-    options: z.object({}).optional().describe("Additional processing options")
+    // C3: passthrough so granular options (maxPages, pageRange:{start,end},
+    // extractText, outputFormat, etc.) reach the tool instead of being stripped.
+    options: z.object({}).passthrough().optional().describe("Additional processing options (maxPages, pageRange:{start,end}, extractText, extractMetadata, password, outputFormat, ...)")
   }
 }, withAuth("process_document", async ({ source, sourceType, options }) => {
   try {
