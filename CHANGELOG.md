@@ -3,6 +3,18 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.6.3] - 2026-06-07
+
+Patch — README rendering fix so the npm package page matches GitHub. No tool or runtime behavior changes.
+
+### Fixed
+
+- **README banner broken on npm.** The header banner used a relative-path SVG (`assets/banner.svg`); npm's README renderer blocks SVG and mishandles relative image paths, so the banner showed broken on the npm package page while rendering fine on GitHub. Pointed it at the absolute raw-GitHub URL of the JPG export (`assets/banner.jpg`), which renders identically on both. npm only refreshes a package's README on publish, so this required a new version. `README.md`
+
+### Changed
+
+- **Version sync** — `package.json`, `server.json` (manifest + npm package entry), and the `McpServer` version in `server.js` (which had lagged at `4.5.0`) all bumped to `4.6.3`.
+
 ## [4.6.2] - 2026-06-07
 
 Patch — enables publication to the official MCP registry (`registry.modelcontextprotocol.io`). No tool or runtime behavior changes.

@@ -12,9 +12,9 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
-### README banner: absolute JPG for npm parity (2026-06-07, no version bump)
+### v4.6.3 — README npm-parity fix (2026-06-07)
 
-README header banner switched from a relative-path SVG (`assets/banner.svg`) to an absolute raw-GitHub URL to the JPG export (`assets/banner.jpg`). npm's README renderer blocks SVG and mishandles relative image paths, so the banner was broken on the npm package page while fine on GitHub; the absolute JPG renders identically on both. README text was already byte-identical between GitHub and the published npm tarball — only the banner rendering differed. Note: the npm page reflects this only after the next published version.
+README header banner switched from a relative-path SVG (`assets/banner.svg`) to an absolute raw-GitHub URL to the JPG export (`assets/banner.jpg`). npm's README renderer blocks SVG and mishandles relative image paths, so the banner was broken on the npm package page while fine on GitHub; the absolute JPG renders identically on both. README text was already byte-identical between GitHub and the published npm tarball — only the banner rendering differed. Since npm only refreshes a package README on publish, this shipped as a version bump: `package.json`, `server.json` (manifest + npm entry), and the `McpServer` version in `server.js` (which had lagged at `4.5.0`) all synced to `4.6.3`, then `npm publish`. Files: `README.md`, `package.json`, `server.json`, `server.js`, `CHANGELOG.md`, `PRD.md`.
 
 ### Docs move: IMPROVEMENT_PLAN.md → docs/ (2026-06-07, no version bump)
 
