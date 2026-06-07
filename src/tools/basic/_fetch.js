@@ -51,8 +51,9 @@ export async function fetchWithTimeout(url, options = {}) {
   // --- Body-size cap ---
 
   // Early rejection via Content-Length (servers may omit or lie — guard below
-  // handles that case).
-  const contentLengthHeader = response.headers.get('content-length');
+  // handles that case). Optional-chained so non-standard responses (e.g. test
+  // mocks) without a Headers object don't throw.
+  const contentLengthHeader = response.headers?.get?.('content-length') ?? null;
   if (contentLengthHeader !== null) {
     const declared = parseInt(contentLengthHeader, 10);
     if (!isNaN(declared) && declared > maxBodySize) {
@@ -60,6 +61,13 @@ export async function fetchWithTimeout(url, options = {}) {
         `Response body too large: Content-Length ${declared} exceeds limit of ${maxBodySize} bytes`
       );
     }
+  }
+
+  // Only the streaming byte-count guard requires a readable body. Responses
+  // without a ReadableStream body (already-buffered responses, test mocks)
+  // are returned unchanged so callers' native .text()/.json() still work.
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    return response;
   }
 
   // Stream the body and abort if accumulated bytes exceed the cap.
