@@ -12,6 +12,10 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
+### Docs move: IMPROVEMENT_PLAN.md → docs/ (2026-06-07, no version bump)
+
+Relocated `IMPROVEMENT_PLAN.md` from the repo root to `docs/IMPROVEMENT_PLAN.md` (identical content, pure `git mv`) to conform to the CLAUDE.md rule "Put all documentation md files into the docs/ folder." No code or tool changes.
+
 ### v4.6.2 — MCP registry submission prep (2026-06-07)
 
 Follow-up to the GitHub discoverability pass: enables publication to the **official MCP
