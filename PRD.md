@@ -12,15 +12,25 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
-### Registry-submission prep (2026-06-07, no version bump)
+### v4.6.2 — MCP registry submission prep (2026-06-07)
 
-Follow-up to the GitHub discoverability pass: scaffolds publication to the **official MCP
-registry** and the community `awesome-mcp-servers` directories.
-- **package.json** — added `"mcpName": "io.github.mysleekdesigns/crawlforge-mcp-server"` (the registry requires this to match `server.json`'s `name`).
-- **server.json** (new, repo root) — validated against the `2025-12-11` registry schema; npm package `crawlforge-mcp-server`, stdio transport, version synced to `4.6.1`.
-- **docs/registry-submission.md** (new) — `mcp-publisher init/login/publish` steps, version-sync rules, and ready-to-paste PR entries for punkpeye/appcypher `awesome-mcp-servers` (wong2 → mcpservers.org/submit; mcp.so).
+Follow-up to the GitHub discoverability pass: enables publication to the **official MCP
+registry** and the community `awesome-mcp-servers` directories. Required a version bump because
+the registry validates the **published npm tarball**, not local files (two failures surfaced
+this live during `mcp-publisher publish`):
+- **422** — registry caps `server.json` `description` at **≤100 chars** (trimmed to 84).
+- **400** — registry rejected the package: the npm tarball for `4.6.1` lacked `mcpName`.
+  `mcpName` must ship *inside the published package*, so `4.6.1` → **`4.6.2`** and re-publish
+  to npm before `mcp-publisher publish`.
 
-Maintainer still runs `mcp-publisher login github && mcp-publisher publish` (browser OAuth) and opens the awesome-list PRs. Validated: `server.json` parses; `name` matches `package.json.mcpName`; versions in sync.
+Changes:
+- **package.json** — `version` 4.6.1 → 4.6.2; added `"mcpName": "io.github.mysleekdesigns/crawlforge-mcp-server"`.
+- **server.json** (new, repo root) — `2025-12-11` schema; npm `crawlforge-mcp-server`, stdio, version 4.6.2; ≤100-char description.
+- **docs/registry-submission.md** (new) — `mcp-publisher` runbook + ready-to-paste PR entries for punkpeye/appcypher `awesome-mcp-servers` (wong2 → mcpservers.org/submit; mcp.so).
+
+Maintainer runs `npm publish` (4.6.2, tarball now carries `mcpName`) → `mcp-publisher publish`
+→ opens the awesome-list PRs. Validated: `server.json` parses; `name` == `package.json.mcpName`;
+versions in sync; description 84 chars.
 
 ### GitHub discoverability pass (2026-06-07, no version bump)
 

@@ -3,6 +3,16 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.6.2] - 2026-06-07
+
+Patch — enables publication to the official MCP registry (`registry.modelcontextprotocol.io`). No tool or runtime behavior changes.
+
+### Added
+
+- **`mcpName` field in `package.json`** (`io.github.mysleekdesigns/crawlforge-mcp-server`). The MCP registry fetches the published npm tarball and rejects packages whose `package.json` lacks an `mcpName` matching the registry submission — so this required a new published version.
+- **`server.json`** (repo root) — registry manifest validated against the `2025-12-11` schema; npm package `crawlforge-mcp-server`, stdio transport. Registry `description` trimmed to ≤100 chars per schema validation.
+- **`docs/registry-submission.md`** — `mcp-publisher` publish runbook + ready-to-paste `awesome-mcp-servers` entries.
+
 ## [4.6.1] - 2026-06-07
 
 Patch — fixes the `agent` tool's autonomous search, caught by live MCP smoke testing of the v4.6.0 release.
