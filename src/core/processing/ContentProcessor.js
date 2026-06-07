@@ -401,9 +401,10 @@ export class ContentProcessor {
 
     const avgWordsPerSentence = words.length / sentences.length;
     const avgCharsPerWord = charactersNoSpaces / words.length;
-    
-    // Simple readability score (lower is better)
-    const readabilityScore = (avgWordsPerSentence * 1.015) + (avgCharsPerWord * 84.6) - 206.835;
+    const avgSyllablesPerWord = words.reduce((sum, w) => sum + this._countSyllables(w), 0) / words.length;
+
+    // Flesch Reading-Ease: higher score = easier to read
+    const readabilityScore = 206.835 - (1.015 * avgWordsPerSentence) - (84.6 * avgSyllablesPerWord);
 
     return {
       sentences: sentences.length,
@@ -412,6 +413,7 @@ export class ContentProcessor {
       charactersNoSpaces,
       avgWordsPerSentence: Math.round(avgWordsPerSentence * 100) / 100,
       avgCharsPerWord: Math.round(avgCharsPerWord * 100) / 100,
+      avgSyllablesPerWord: Math.round(avgSyllablesPerWord * 100) / 100,
       readabilityScore: Math.round(readabilityScore * 100) / 100,
       readabilityLevel: this.getReadabilityLevel(readabilityScore)
     };
@@ -430,6 +432,20 @@ export class ContentProcessor {
     if (score >= 50) return 'Fairly Difficult';
     if (score >= 30) return 'Difficult';
     return 'Very Difficult';
+  }
+
+  /**
+   * Count syllables in a word (heuristic)
+   * @param {string} word
+   * @returns {number}
+   */
+  _countSyllables(word) {
+    const w = word.toLowerCase().replace(/[^a-z]/g, '');
+    if (w.length <= 3) return 1;
+    // Remove trailing silent e
+    const stripped = w.replace(/e$/, '');
+    const matches = stripped.match(/[aeiouy]+/g);
+    return Math.max(1, matches ? matches.length : 1);
   }
 
   /**

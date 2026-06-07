@@ -266,9 +266,9 @@ export class AnalyzeContentTool {
     };
 
     const keywordStr = keywords.join(' ').toLowerCase();
-    
+
     for (const [category, categoryKeywords] of Object.entries(categories)) {
-      const matches = categoryKeywords.filter(word => keywordStr.includes(word));
+      const matches = categoryKeywords.filter(word => new RegExp(`\\b${word}\\b`).test(keywordStr));
       if (matches.length > 0) {
         return category;
       }
@@ -394,13 +394,18 @@ export class AnalyzeContentTool {
       anticipation: ['excited', 'eager', 'looking forward', 'anticipating', 'expecting']
     };
 
-    const words = text.toLowerCase().split(/\s+/);
+    const lowerText = text.toLowerCase();
+    const words = lowerText.split(/\s+/);
     const emotions = [];
 
     for (const [emotion, emotionKeywords] of Object.entries(emotionWords)) {
-      const matches = words.filter(word => emotionKeywords.some(keyword => word.includes(keyword)));
-      if (matches.length > 0) {
-        const intensity = Math.min(1, matches.length / Math.max(words.length / 100, 1));
+      const matchCount = emotionKeywords.reduce((count, keyword) => {
+        const re = new RegExp(`\\b${keyword}\\b`, 'g');
+        const found = lowerText.match(re);
+        return count + (found ? found.length : 0);
+      }, 0);
+      if (matchCount > 0) {
+        const intensity = Math.min(1, matchCount / Math.max(words.length / 100, 1));
         emotions.push({
           emotion,
           intensity: Math.round(intensity * 100) / 100

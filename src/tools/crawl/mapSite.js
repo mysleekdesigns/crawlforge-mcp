@@ -3,6 +3,7 @@ import { load } from 'cheerio';
 import { DomainFilter } from '../../utils/domainFilter.js';
 import { normalizeUrl, getBaseUrl } from '../../utils/urlNormalizer.js';
 import { CacheManager } from '../../core/cache/CacheManager.js';
+import { SitemapParser } from '../../utils/sitemapParser.js';
 
 const MapSiteSchema = z.object({
   url: z.string().url(),
@@ -33,6 +34,7 @@ export class MapSiteTool {
     this.timeout = timeout;
     // Per-session result cache: avoids redundant site maps for the same root URL
     this.cache = cacheEnabled ? new CacheManager({ ttl: cacheTTL }) : null;
+    this.sitemapParser = new SitemapParser({ userAgent, timeout, enableCaching: cacheEnabled, cacheTTL });
   }
 
   async execute(params) {
@@ -131,61 +133,32 @@ export class MapSiteTool {
   }
 
   async fetchSitemapUrls(baseUrl, domainFilter = null) {
-    const urls = new Set();
-    const sitemapUrls = [
-      `${baseUrl}/sitemap.xml`,
-      `${baseUrl}/sitemap_index.xml`,
-      `${baseUrl}/sitemap-index.xml`,
-      `${baseUrl}/sitemaps.xml`
-    ];
+    // Discover sitemaps via robots.txt and common paths, then parse with full
+    // SitemapParser support (sitemap-index recursion, gzip, CDATA/entities).
+    const discovered = await this.sitemapParser.discoverSitemaps(baseUrl, {
+      checkRobotsTxt: true,
+      checkCommonPaths: true,
+      checkSitemapIndex: false
+    });
 
-    for (const sitemapUrl of sitemapUrls) {
+    const urls = new Set();
+    for (const sitemapUrl of discovered) {
       try {
-        const response = await this.fetchWithTimeout(sitemapUrl);
-        if (response.ok) {
-          const xml = await response.text();
-          const extractedUrls = this.parseSitemap(xml);
-          
-          // Apply domain filter if provided
-          extractedUrls.forEach(url => {
+        const parsed = await this.sitemapParser.parseSitemap(sitemapUrl, {
+          includeMetadata: false,
+          followIndexes: true
+        });
+        if (parsed.success) {
+          for (const entry of parsed.urls) {
+            const url = entry.loc || entry;
             if (!domainFilter || domainFilter.isAllowed(url).allowed) {
               urls.add(url);
             }
-          });
-          
-          // If we found a sitemap, don't try others
-          if (urls.size > 0) break;
+          }
         }
+        if (urls.size > 0) break;
       } catch {
-        // Continue to next sitemap URL
-      }
-    }
-
-    return Array.from(urls);
-  }
-
-  parseSitemap(xml) {
-    const urls = new Set();
-    
-    // Extract URLs from sitemap
-    const urlMatches = xml.match(/<loc>([^<]+)<\/loc>/g);
-    if (urlMatches) {
-      urlMatches.forEach(match => {
-        const url = match.replace(/<\/?loc>/g, '').trim();
-        if (url) urls.add(url);
-      });
-    }
-
-    // Check for nested sitemaps (sitemap index)
-    const sitemapMatches = xml.match(/<sitemap>[\s\S]*?<\/sitemap>/g);
-    if (sitemapMatches) {
-      for (const sitemapMatch of sitemapMatches) {
-        const locMatch = sitemapMatch.match(/<loc>([^<]+)<\/loc>/);
-        if (locMatch && locMatch[1]) {
-          // We could recursively fetch nested sitemaps here
-          // For now, just add the sitemap URL itself
-          urls.add(locMatch[1]);
-        }
+        // Continue to next discovered sitemap
       }
     }
 
@@ -362,7 +335,7 @@ export class MapSiteTool {
       max_depth: 0,
       average_depth: 0,
       url_lengths: {
-        min: Infinity,
+        min: null,
         max: 0,
         average: 0
       }
@@ -374,7 +347,7 @@ export class MapSiteTool {
     for (const url of urls) {
       try {
         const urlObj = new URL(url);
-        
+
         // Count secure URLs
         if (urlObj.protocol === 'https:') {
           stats.secure_urls++;
@@ -396,7 +369,7 @@ export class MapSiteTool {
         // Track URL lengths
         const length = url.length;
         totalLength += length;
-        stats.url_lengths.min = Math.min(stats.url_lengths.min, length);
+        stats.url_lengths.min = stats.url_lengths.min === null ? length : Math.min(stats.url_lengths.min, length);
         stats.url_lengths.max = Math.max(stats.url_lengths.max, length);
 
         // Track file extensions

@@ -191,18 +191,27 @@ export class ResultRanker {
     // Calculate term frequencies
     const termFreqs = this.getTermFrequencies(contentTerms);
 
+    // Build per-term document frequency across all results
+    const docFreqs = {};
+    for (const r of allResults) {
+      const rContent = [r.title || '', r.snippet || '', r.htmlSnippet || ''].join(' ');
+      const rTerms = new Set(this.tokenize(rContent.toLowerCase()));
+      for (const t of rTerms) {
+        docFreqs[t] = (docFreqs[t] || 0) + 1;
+      }
+    }
+
     let score = 0;
     for (const term of queryTerms) {
       const tf = termFreqs[term] || 0;
       if (tf > 0) {
-        // Document frequency (simplified - assume term appears in some docs)
-        const df = Math.min(allResults.length * 0.1, 1); // Conservative estimate
+        const df = docFreqs[term] || 1;
         const idf = Math.log((allResults.length - df + 0.5) / (df + 0.5));
-        
+
         // BM25 formula
         const numerator = tf * (k1 + 1);
         const denominator = tf + k1 * (1 - b + b * (contentLength / avgDocLength));
-        
+
         score += idf * (numerator / denominator);
       }
     }

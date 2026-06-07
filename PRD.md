@@ -12,6 +12,30 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
+### v4.4.0 — Phase B: Result-Quality Upgrades (2026-06-06)
+
+Second execution phase of `IMPROVEMENT_PLAN.md`. Closed all 12 Phase-B quality items — "working" tools now return accurate, well-structured, high-fidelity data.
+
+**B1 — Extraction fidelity:**
+- `extract_content` / `process_document` — corrected the inverted Flesch Reading-Ease formula to `206.835 − 1.015·avgWordsPerSentence − 84.6·avgSyllablesPerWord` (was char-based and inverted); added a `_countSyllables` helper and exposed `avgSyllablesPerWord`. Higher score = easier reading. `src/core/processing/ContentProcessor.js`
+- `extract_text` — text mode now joins block-level elements with `\n\n` instead of collapsing all whitespace; markdown mode runs `@mozilla/readability` before Turndown, and `turndown-plugin-gfm` renders HTML tables as GFM pipe tables. `src/tools/basic/extractText.js`, `src/utils/htmlToMarkdown.js`
+- `extract_metadata` — now parses and returns `json_ld` and `microdata` (previously advertised but absent); title follows an `og:title → <title> → h1` fallback chain. `src/tools/basic/extractMetadata.js`
+- `scrape_structured` — added `@attr` attribute-extraction syntax (`a@href`, `img@src`), a `max_results` param, and changed `elements_found` from a result-key count to a per-field DOM-match-count object. `src/tools/basic/scrapeStructured.js`, `server.js`
+- `extract_structured` — moved the "CSS fallback used" note from `validationErrors` into a separate `extractionNotes` array (no longer penalizes confidence); improved `ul/ol > li` array/list extraction. `src/tools/extract/extractStructured.js`
+- `extract_content` — added `extractionMethod` (`readability` / `fallback_boilerplate_removal` / `raw_body_text`), `fallback_reason`, `confidence`, and `finalUrl` so callers can distinguish Readability output from last-resort body text. `src/tools/extract/extractContent.js`
+
+**B2 — Crawl & search quality:**
+- `crawl_deep` — new `content_max_length` param + `truncated` flag replacing the hardcoded 500-char cut; no `...` appended to already-short content. `src/tools/crawl/crawlDeep.js`, `server.js`
+- `map_site` — now reuses `src/utils/sitemapParser.js` for sitemap-index recursion, gzip (`.xml.gz`) decompression, real cheerio XML parsing (CDATA/entities), and robots.txt sitemap discovery; `min=Infinity` fixed to `null`. `src/tools/crawl/mapSite.js`
+- `search_web` — `total_results` is now a Number; real per-term BM25 IDF (replacing the constant `df`); true 64-bit SimHash via two independent FNV-1a seeds (bits 32-63 no longer mirror 0-31); top-level `finalScore`/`contentHash`/`scores`/internal fields stripped unless detail flags are set. `src/tools/search/providers/searxng.js`, `ranking/ResultRanker.js`, `ranking/ResultDeduplicator.js`, `searchWeb.js`
+- `analyze_content` — word-boundary (`\bword\b`) topic categorization and emotion detection, eliminating substring false-positives (`'happy'`→`'app'`, `'glade'`→`'glad'`). `src/tools/extract/analyzeContent.js`
+
+**B3 — Tracking & research quality:**
+- `track_changes` — token-based Jaccard `calculateSimilarity()` (was length-only) with a sensible `DEFAULT_CHANGE_THRESHOLD = 0.85`. `src/tools/tracking/trackChanges/differ.js`
+- `deep_research` — the no-LLM `raw_evidence` path now honors `outputFormat` (`summary` trims to top-5, `citations_only` returns citation shape + `citationSummary`, `conflicts_focus` surfaces a `conflictsNote`) and ranks evidence by credibility instead of silently ignoring the format. `src/tools/research/deepResearch.js`
+
+**B4 — Verification:** new `tests/unit/phaseB-regressions.test.js` (56 reproduce→pass tests across all 12 items). Full recursive unit suite 488/488 green sandbox-off (the sandbox-on `listen EPERM 127.0.0.1` failures are the pre-existing HTTP-transport/searxng port-binding cases). `node test-tools.js` 20/20 (100%). `npm test` MCP harness exits 0 (0 errors). Version bumped 4.3.0 → 4.4.0; added `turndown-plugin-gfm` dependency. Files: `IMPROVEMENT_PLAN.md`, `PRD.md`, `CHANGELOG.md`, `server.js`, `package.json`, `package-lock.json`, 17 src files, 3 doc files, 1 new test.
+
 ### v4.3.0 — Phase A: Critical Fixes & Restored Capabilities (2026-06-06)
 
 First execution phase of `IMPROVEMENT_PLAN.md` (from the 23-tool audit). Closed all 9 Phase-A critical-correctness items and restored 6 silently-dropped MCP capabilities.

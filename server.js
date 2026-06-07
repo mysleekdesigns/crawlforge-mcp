@@ -96,7 +96,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "4.3.0",
+  version: "4.4.0",
   description: "Production-ready MCP server with 23 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, change tracking, and local-LLM extraction via Ollama.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png"
@@ -299,7 +299,8 @@ server.registerTool("scrape_structured", {
   annotations: { title: "Scrape Structured Data", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to scrape"),
-    selectors: z.record(z.string()).describe("CSS selectors mapping field names to selectors")
+    selectors: z.record(z.string()).describe("CSS selectors mapping field names to selectors. Append @attr to extract an attribute instead of text (e.g. \"a.link@href\", \"img@src\")"),
+    max_results: z.number().int().min(1).optional().describe("Maximum number of matches to return per field when a selector matches multiple elements")
   }
 }, withAuth("scrape_structured", scrapeStructuredHandler));
 
@@ -378,6 +379,7 @@ server.registerTool("crawl_deep", {
     follow_external: z.boolean().optional().describe("Follow links to external domains"),
     respect_robots: z.boolean().optional().describe("Respect robots.txt directives"),
     extract_content: z.boolean().optional().describe("Extract page content during crawl"),
+    content_max_length: z.number().min(1).max(100000).optional().describe("Maximum characters of page content to include per page (default 500); sets a truncated flag when trimmed"),
     concurrency: z.number().min(1).max(20).optional().describe("Number of concurrent requests"),
     enable_link_analysis: z.boolean().optional().describe("Compute PageRank/link-graph analysis over crawled pages"),
     link_analysis_options: z.object({
@@ -403,12 +405,12 @@ server.registerTool("crawl_deep", {
       }).optional()
     }).optional().describe("Shared cookie-jar/session for login-then-crawl workflows")
   }
-}, withAuth("crawl_deep", async ({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session }) => {
+}, withAuth("crawl_deep", async ({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, content_max_length, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session }) => {
   try {
     if (!url) {
       return { content: [{ type: "text", text: "URL parameter is required" }], isError: true };
     }
-    const result = await crawlDeepTool.execute({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session });
+    const result = await crawlDeepTool.execute({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, content_max_length, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session });
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
     return { content: [{ type: "text", text: `Crawl failed: ${error.message}` }], isError: true };

@@ -69,29 +69,29 @@
 ---
 
 ## Phase B — v4.4.0 "Result-Quality Upgrades"
-**Completed:**
+**Completed:** 2026-06-06
 **Goal:** "Working" tools return accurate, well-structured, high-fidelity data.
 
 ### B1 — Extraction fidelity
-- [ ] **extract_content / process_document** — fix the inverted Flesch Reading-Ease formula (subtract components from 206.835; use syllables-per-word, not chars) and align both tools' implementations + `getReadabilityLevel`. `src/core/processing/ContentProcessor.js:406,425-433` (S)
-- [ ] **extract_text** — preserve block structure (join block-level elements with `\n\n` for text mode); run `@mozilla/readability` before Turndown for markdown mode; load `turndown-plugin-gfm` for tables. `src/tools/basic/extractText.js:27,29`, `src/utils/htmlToMarkdown.js` (M)
-- [ ] **extract_metadata** — parse JSON-LD/microdata (advertised but absent); stronger title fallback chain (og:title → `<title>` → h1). `src/tools/basic/extractMetadata.js` (S)
-- [ ] **scrape_structured** — support attribute extraction (`href`/`src`/`@attr`), add `max_results`, and fix `elements_found` which counts result *keys* rather than actual DOM matches (return real per-field match counts). The bad-selector vs no-match distinction already exists (try/catch) but rarely fires since cheerio doesn't throw on valid-but-empty selectors. `src/tools/basic/scrapeStructured.js:29,31,47` (M)
-- [ ] **extract_structured** — move the "CSS fallback used" note out of `validationErrors` into its own `extractionNotes`; stop penalizing confidence for that note; improve array/list extraction (detect `ul/ol > li`, support a repeating base selector). `src/tools/extract/extractStructured.js:215-220,234-262` (M)
-- [ ] **extract_content** — add `extractionMethod` / `fallback_reason` / `confidence` + `finalUrl` so callers can tell Readability output from last-resort body text. `src/tools/extract/extractContent.js:192-216` (M)
+- [x] **extract_content / process_document** — fix the inverted Flesch Reading-Ease formula (subtract components from 206.835; use syllables-per-word, not chars) and align both tools' implementations + `getReadabilityLevel`. `src/core/processing/ContentProcessor.js:406,425-433` (S)
+- [x] **extract_text** — preserve block structure (join block-level elements with `\n\n` for text mode); run `@mozilla/readability` before Turndown for markdown mode; load `turndown-plugin-gfm` for tables. `src/tools/basic/extractText.js:27,29`, `src/utils/htmlToMarkdown.js` (M)
+- [x] **extract_metadata** — parse JSON-LD/microdata (advertised but absent); stronger title fallback chain (og:title → `<title>` → h1). `src/tools/basic/extractMetadata.js` (S)
+- [x] **scrape_structured** — support attribute extraction (`href`/`src`/`@attr`), add `max_results`, and fix `elements_found` which counts result *keys* rather than actual DOM matches (return real per-field match counts). The bad-selector vs no-match distinction already exists (try/catch) but rarely fires since cheerio doesn't throw on valid-but-empty selectors. `src/tools/basic/scrapeStructured.js:29,31,47` (M)
+- [x] **extract_structured** — move the "CSS fallback used" note out of `validationErrors` into its own `extractionNotes`; stop penalizing confidence for that note; improve array/list extraction (detect `ul/ol > li`, support a repeating base selector). `src/tools/extract/extractStructured.js:215-220,234-262` (M)
+- [x] **extract_content** — add `extractionMethod` / `fallback_reason` / `confidence` + `finalUrl` so callers can tell Readability output from last-resort body text. `src/tools/extract/extractContent.js:192-216` (M)
 
 ### B2 — Crawl & search quality
-- [ ] **crawl_deep** — add a `content_max_length` param + `truncated` flag (replace the hardcoded 500-char cut; don't append `...` to already-short content). `src/tools/crawl/crawlDeep.js:255` (M)
-- [ ] **map_site** — recurse sitemap-index `<loc>` entries; handle gzipped sitemaps (`.xml.gz`); replace the naive `/<loc>…<\/loc>/` regex with a real XML/cheerio parser (handle CDATA/entities); discover sitemaps via robots.txt; fix `min=Infinity→null`. **Reuse the existing `src/utils/sitemapParser.js`.** `src/tools/crawl/mapSite.js:167-193,235` (M)
-- [ ] **search_web** — type `total_results` as a Number (`providers/searxng.js:120` wraps it in `String()`); compute real BM25 IDF (per-term document frequency, not the constant `df=Math.min(len*0.1,1)`); use a true 64-bit SimHash (`stringHash` is 32-bit and `>>` is mod-32, so bits 32-63 duplicate 0-31); strip the leaked top-level `finalScore` and `contentHash` fields when details aren't requested (the cleanup at `searchWeb.js:281-293,409-414` only removes the nested `rankingDetails`/`deduplicationInfo`). `searchWeb.js:300,419`, `ranking/ResultRanker.js:105-106,199`, `ranking/ResultDeduplicator.js:113-114,570-578` (M)
-- [ ] **analyze_content** — word-boundary topic categorization + emotion detection (stop substring false-positives: `'happy'`→`'app'`, `'glade'`→`'glad'`). `src/tools/extract/analyzeContent.js:271,401` (M)
+- [x] **crawl_deep** — add a `content_max_length` param + `truncated` flag (replace the hardcoded 500-char cut; don't append `...` to already-short content). `src/tools/crawl/crawlDeep.js:255` (M)
+- [x] **map_site** — recurse sitemap-index `<loc>` entries; handle gzipped sitemaps (`.xml.gz`); replace the naive `/<loc>…<\/loc>/` regex with a real XML/cheerio parser (handle CDATA/entities); discover sitemaps via robots.txt; fix `min=Infinity→null`. **Reuse the existing `src/utils/sitemapParser.js`.** `src/tools/crawl/mapSite.js:167-193,235` (M)
+- [x] **search_web** — type `total_results` as a Number (`providers/searxng.js:120` wraps it in `String()`); compute real BM25 IDF (per-term document frequency, not the constant `df=Math.min(len*0.1,1)`); use a true 64-bit SimHash (`stringHash` is 32-bit and `>>` is mod-32, so bits 32-63 duplicate 0-31); strip the leaked top-level `finalScore` and `contentHash` fields when details aren't requested (the cleanup at `searchWeb.js:281-293,409-414` only removes the nested `rankingDetails`/`deduplicationInfo`). `searchWeb.js:300,419`, `ranking/ResultRanker.js:105-106,199`, `ranking/ResultDeduplicator.js:113-114,570-578` (M)
+- [x] **analyze_content** — word-boundary topic categorization + emotion detection (stop substring false-positives: `'happy'`→`'app'`, `'glade'`→`'glad'`). `src/tools/extract/analyzeContent.js:271,401` (M)
 
 ### B3 — Tracking & research quality
-- [ ] **track_changes** — real content similarity (Jaccard/diff-based) instead of length-only comparison; sensible default change threshold. `src/tools/tracking/trackChanges/differ.js` (M)
-- [ ] **deep_research** — the no-LLM `raw_evidence` early-return (intentional) bypasses the `outputFormat` switch, so `summary`/`citations_only`/`conflicts_focus` silently do nothing without an LLM. Either document `outputFormat` as LLM-only **or** add lightweight no-LLM formatting; also rank evidence by relevance. `src/tools/research/deepResearch.js:382-394,401-456` (S)
+- [x] **track_changes** — real content similarity (Jaccard/diff-based) instead of length-only comparison; sensible default change threshold. `src/tools/tracking/trackChanges/differ.js` (M)
+- [x] **deep_research** — the no-LLM `raw_evidence` early-return (intentional) bypasses the `outputFormat` switch, so `summary`/`citations_only`/`conflicts_focus` silently do nothing without an LLM. Either document `outputFormat` as LLM-only **or** add lightweight no-LLM formatting; also rank evidence by relevance. `src/tools/research/deepResearch.js:382-394,401-456` (S)
 
 ### B4 — Verification & tests
-- [ ] Regression/quality tests for each B item; suites green; update docs.
+- [x] Regression/quality tests for each B item; suites green; update docs.
 
 ---
 

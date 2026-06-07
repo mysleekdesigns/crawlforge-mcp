@@ -545,27 +545,50 @@ export class ResultDeduplicator {
   }
 
   /**
-   * SimHash implementation for content similarity
+   * SimHash implementation for content similarity.
+   * Uses two independent 32-bit FNV-1a hashes (seeded differently) to produce
+   * independent high/low 32-bit words, giving a true 64-bit fingerprint so that
+   * bits 32-63 are not a duplicate of bits 0-31.
    */
   simHash(text, bits = 64) {
     const tokens = text.split(/\s+/);
     const hashBits = new Array(bits).fill(0);
-    
+
     for (const token of tokens) {
-      const hash = this.stringHash(token);
-      
-      for (let i = 0; i < bits; i++) {
-        const bit = (hash >> i) & 1;
-        hashBits[i] += bit ? 1 : -1;
+      const lo = this._fnv1a32(token, 0x811c9dc5);
+      const hi = this._fnv1a32(token, 0x84222325); // different seed
+
+      for (let i = 0; i < 32; i++) {
+        hashBits[i]      += ((lo >>> i) & 1) ? 1 : -1;
+      }
+      for (let i = 0; i < 32; i++) {
+        hashBits[32 + i] += ((hi >>> i) & 1) ? 1 : -1;
       }
     }
-    
+
     // Convert to binary string
     return hashBits.map(bit => bit > 0 ? '1' : '0').join('');
   }
 
   /**
-   * String hash function
+   * FNV-1a 32-bit hash with a configurable offset basis (seed).
+   * @param {string} str
+   * @param {number} seed - 32-bit unsigned offset basis
+   * @returns {number} 32-bit unsigned integer
+   */
+  _fnv1a32(str, seed) {
+    const FNV_PRIME = 0x01000193;
+    let hash = seed >>> 0;
+    for (let i = 0; i < str.length; i++) {
+      hash ^= str.charCodeAt(i);
+      // Multiply by FNV prime using 32-bit arithmetic
+      hash = Math.imul(hash, FNV_PRIME) >>> 0;
+    }
+    return hash;
+  }
+
+  /**
+   * String hash function (kept for hashResults / cache-key use)
    */
   stringHash(str) {
     let hash = 0;

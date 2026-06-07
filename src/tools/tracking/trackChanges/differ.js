@@ -4,6 +4,38 @@
  */
 
 /**
+ * Default Jaccard similarity threshold below which a change is considered
+ * meaningful (i.e. worth flagging). 0.85 means content must be at least 85 %
+ * similar to be treated as "no significant change".
+ */
+export const DEFAULT_CHANGE_THRESHOLD = 0.85;
+
+/**
+ * Compute token-based Jaccard similarity between two text strings.
+ * Tokenises on whitespace; returns a value in [0, 1] where 1 is identical.
+ *
+ * @param {string} text1
+ * @param {string} text2
+ * @returns {number}
+ */
+export function calculateSimilarity(text1, text2) {
+  if (!text1 && !text2) return 1;
+  if (!text1 || !text2) return 0;
+
+  const tokenise = (str) => new Set(str.toLowerCase().split(/\s+/).filter(Boolean));
+  const setA = tokenise(text1);
+  const setB = tokenise(text2);
+
+  let intersection = 0;
+  for (const token of setA) {
+    if (setB.has(token)) intersection++;
+  }
+
+  const union = setA.size + setB.size - intersection;
+  return union === 0 ? 1 : intersection / union;
+}
+
+/**
  * Fetch the HTML/text content of a URL with change-tracking headers.
  * @param {string} url
  * @returns {Promise<{ content: string, metadata: Object }>}

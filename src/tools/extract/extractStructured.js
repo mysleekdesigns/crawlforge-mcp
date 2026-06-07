@@ -129,7 +129,8 @@ export class ExtractStructuredTool {
         validation: {
           valid: extractionResult.valid || false,
           errors: extractionResult.validationErrors || []
-        }
+        },
+        extractionNotes: extractionResult.extractionNotes || []
       };
 
     } catch (error) {
@@ -156,17 +157,50 @@ export class ExtractStructuredTool {
     let fieldsFound = 0;
 
     for (const [key, fieldSchema] of Object.entries(properties)) {
+      const isArrayField = fieldSchema.type === 'array';
+
       // Use explicit selector hint if provided
       const selector = selectorHints[key];
       if (selector) {
-        const el = $(selector);
-        if (el.length > 0) {
-          const rawValue = el.first().text().trim();
-          if (rawValue) {
-            extracted[key] = this._coerceValue(rawValue, fieldSchema);
-            fieldsFound++;
-            continue;
+        const els = $(selector);
+        if (els.length > 0) {
+          if (isArrayField || els.length > 1) {
+            const values = els.map((_, el) => $(el).text().trim()).get().filter(Boolean);
+            if (values.length > 0) {
+              extracted[key] = values;
+              fieldsFound++;
+              continue;
+            }
+          } else {
+            const rawValue = els.first().text().trim();
+            if (rawValue) {
+              extracted[key] = this._coerceValue(rawValue, fieldSchema);
+              fieldsFound++;
+              continue;
+            }
           }
+        }
+      }
+
+      // For array fields: detect ul/ol > li patterns before meta/common selectors
+      if (isArrayField) {
+        const listSelectors = [
+          `ul.${key} > li`, `ol.${key} > li`,
+          `#${key} > li`, `[data-${key}] > li`,
+          `ul[class*="${key}"] > li`, `ol[class*="${key}"] > li`
+        ];
+        let listValues = null;
+        for (const lsel of listSelectors) {
+          const items = $(lsel);
+          if (items.length > 0) {
+            listValues = items.map((_, el) => $(el).text().trim()).get().filter(Boolean);
+            break;
+          }
+        }
+        if (listValues && listValues.length > 0) {
+          extracted[key] = listValues;
+          fieldsFound++;
+          continue;
         }
       }
 
@@ -189,11 +223,20 @@ export class ExtractStructuredTool {
       for (const sel of commonSelectors) {
         const el = $(sel);
         if (el.length > 0) {
-          const rawValue = el.first().text().trim();
-          if (rawValue) {
-            extracted[key] = this._coerceValue(rawValue, fieldSchema);
-            fieldsFound++;
-            break;
+          if (isArrayField && el.length > 1) {
+            const values = el.map((_, item) => $(item).text().trim()).get().filter(Boolean);
+            if (values.length > 0) {
+              extracted[key] = values;
+              fieldsFound++;
+              break;
+            }
+          } else {
+            const rawValue = el.first().text().trim();
+            if (rawValue) {
+              extracted[key] = this._coerceValue(rawValue, fieldSchema);
+              fieldsFound++;
+              break;
+            }
           }
         }
       }
@@ -215,7 +258,8 @@ export class ExtractStructuredTool {
     return {
       data: extracted,
       valid: errors.length === 0,
-      validationErrors: errors.length > 0 ? errors : ['Used CSS selector fallback extraction']
+      validationErrors: errors,
+      extractionNotes: ['Used CSS selector fallback extraction']
     };
   }
 
@@ -254,7 +298,7 @@ export class ExtractStructuredTool {
       base = result.valid ? 0.6 : 0.4;
     }
 
-    // Penalize for validation errors
+    // Penalize only for actual validation errors (not extractionNotes)
     const errorCount = (result.validationErrors || []).length;
     const penalty = Math.min(0.3, errorCount * 0.1);
 

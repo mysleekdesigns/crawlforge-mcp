@@ -117,8 +117,8 @@ export async function searchViaSearxng(opts = {}) {
   return {
     items,
     searchInformation: {
-      totalResults: String(rawResults.length),
-      searchTime: data.answers ? 0 : 0
+      totalResults: rawResults.length,
+      searchTime: 0
     },
     queries: {},
     context: {}

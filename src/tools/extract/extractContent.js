@@ -201,6 +201,9 @@ export class ExtractContentTool {
         result.content = {
           text: processingResult.readability.textContent || processingResult.readability.content,
         };
+        result.extractionMethod = 'readability';
+        result.confidence = 0.9;
+        result.finalUrl = url;
 
         // Convert to markdown if requested
         if (options.outputFormat === 'markdown') {
@@ -210,6 +213,10 @@ export class ExtractContentTool {
         result.content = {
           text: processingResult.fallback_content.content
         };
+        result.extractionMethod = 'fallback_boilerplate_removal';
+        result.fallback_reason = 'Readability did not detect an article; used boilerplate-removal fallback';
+        result.confidence = 0.5;
+        result.finalUrl = url;
       } else {
         // Last resort: extract text from HTML
         result.content = {
@@ -220,6 +227,10 @@ export class ExtractContentTool {
             includeImageAlt: true
           })
         };
+        result.extractionMethod = 'raw_body_text';
+        result.fallback_reason = 'Neither Readability nor boilerplate-removal yielded content; extracted raw body text';
+        result.confidence = 0.2;
+        result.finalUrl = url;
       }
 
       // Include HTML if requested
