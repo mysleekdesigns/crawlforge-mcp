@@ -1,19 +1,63 @@
-# CrawlForge MCP Server
+<p align="center">
+  <img src="assets/banner.svg" alt="CrawlForge MCP Server" width="640">
+</p>
 
-Professional web scraping and content extraction server implementing the Model Context Protocol (MCP). Get started with **1,000 free credits** - no credit card required!
+<p align="center">
+  <b>26 web scraping, crawling, deep-research &amp; autonomous-extraction tools for Claude, Cursor &amp; any MCP client.</b><br>
+  Clean Markdown &amp; structured JSON from any site. Get started with <b>1,000 free credits</b> — no credit card required.
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
-[![MCP Protocol](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io/)
-[![npm version](https://img.shields.io/npm/v/crawlforge-mcp-server.svg)](https://www.npmjs.com/package/crawlforge-mcp-server)
+<p align="center">
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen" alt="Node.js Version"></a>
+  <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-Compatible-blue" alt="MCP Protocol"></a>
+  <a href="https://www.npmjs.com/package/crawlforge-mcp-server"><img src="https://img.shields.io/npm/v/crawlforge-mcp-server.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/crawlforge-mcp-server"><img src="https://img.shields.io/npm/dm/crawlforge-mcp-server.svg" alt="npm downloads"></a>
+  <a href="https://github.com/mysleekdesigns/crawlforge-mcp/stargazers"><img src="https://img.shields.io/github/stars/mysleekdesigns/crawlforge-mcp?style=social" alt="GitHub stars"></a>
+</p>
 
-## 🎯 Features
+<p align="center">
+  ⭐ <b><a href="https://github.com/mysleekdesigns/crawlforge-mcp">Star us on GitHub</a></b> to follow along — it genuinely helps others discover the project.
+</p>
 
-- **26 Professional Tools**: Web scraping, deep research, an autonomous `agent`, a unified multi-format `scrape`, stealth browsing, content analysis, local-LLM extraction (Ollama)
-- **Free Tier**: 1,000 credits to get started instantly
-- **MCP Compatible**: Works with Claude, Cursor, and other MCP-enabled AI tools
-- **Enterprise Ready**: Scale up with paid plans for production use
-- **Credit-Based**: Pay only for what you use
+## Table of Contents
+
+- [Why CrawlForge?](#-why-crawlforge)
+- [CrawlForge vs. alternatives](#-crawlforge-vs-alternatives)
+- [Quick Start (2 Minutes)](#-quick-start-2-minutes)
+- [Available Tools](#-available-tools)
+- [Pricing](#-pricing)
+- [Advanced Configuration](#-advanced-configuration)
+- [Usage Examples](#-usage-examples)
+- [Security & Privacy](#-security--privacy)
+- [Support](#-support)
+- [Contributing](#-contributing)
+
+## 🎯 Why CrawlForge?
+
+- **26 MCP-native tools** — scraping, crawling, search, deep research, an autonomous `agent`, a unified multi-format `scrape`, document processing, stealth browsing, and more, callable directly from your AI assistant.
+- **Generous free tier** — 1,000 credits to start instantly, no credit card. Credits never expire and roll over month-to-month.
+- **Local-LLM by default** — `extract_with_llm` runs against a local **Ollama** model out of the box: no LLM API key, no per-token cost, and your data never leaves your machine. Cloud (OpenAI/Anthropic) is opt-in.
+- **LLM-ready output** — clean Markdown, structured JSON (schema-driven), screenshots, links, and metadata from a single fetch.
+- **Autonomous `agent`** — describe what you need in natural language; it plans, gathers, and shapes an answer under orchestrator-enforced hard stops (max steps/URLs/wall-clock) — no URLs required.
+- **Security-hardened** — SSRF protection on every request, a fail-closed backend allow-list, a vetted action allowlist for browser automation, and per-tool credit gating.
+- **Works everywhere MCP does** — Claude Desktop, Claude Code, Cursor, and any other MCP-enabled client, configured in one command.
+
+## 📊 CrawlForge vs. alternatives
+
+| | **CrawlForge MCP** | Firecrawl | Raw scraping API |
+|---|:---:|:---:|:---:|
+| Native MCP server | ✅ 26 tools | ✅ | ❌ |
+| Free tier | ✅ 1,000 credits, rollover | Limited | Varies |
+| Self-hosted / local LLM extraction (Ollama) | ✅ default, $0/token | ❌ | ❌ |
+| Autonomous agent (no URLs needed) | ✅ `agent` | ✅ | ❌ |
+| Deep research with source verification | ✅ `deep_research` | Partial | ❌ |
+| Browser automation / actions | ✅ `scrape_with_actions` | ✅ | Varies |
+| Stealth / anti-detection engines | ✅ Chromium + Camoufox | ✅ | Add-on |
+| Pre-built site templates | ✅ 10 sites | ❌ | ❌ |
+| License | MIT | AGPL-3.0 | Proprietary |
+
+> Comparison reflects publicly documented capabilities at time of writing. CrawlForge is MIT-licensed and MCP-first — built to plug straight into AI coding assistants.
 
 ## 🚀 Quick Start (2 Minutes)
 
@@ -104,41 +148,55 @@ Restart Cursor to activate.
 
 ## 📊 Available Tools
 
-### Basic Tools (1 credit each)
-- `fetch_url` - Fetch content from any URL
-- `extract_text` - Extract clean text from web pages
-- `extract_links` - Get all links from a page
-- `extract_metadata` - Extract page metadata
-- `scrape_template` - Structured data from well-known sites (Amazon, GitHub, LinkedIn, YouTube, Reddit, Hacker News, npm, and more) without writing selectors
+**Basic Tools** (1 credit each)
 
-### Advanced Tools (2-3 credits)
-- `scrape` - **Unified single-fetch, multi-format extraction.** Pass a `formats` array (markdown/html/rawHtml/text/links/metadata/screenshot/json-schema) plus `onlyMainContent`; one fetch serves every requested format with per-format partial-success warnings
-- `scrape_structured` - Extract structured data with CSS selectors
-- `search_web` - Search the web using Google Search API
-- `summarize_content` - Generate intelligent summaries
-- `analyze_content` - Comprehensive content analysis
-- `extract_structured` - LLM-powered schema-driven extraction
-- `extract_with_llm` - Natural-language extraction. **Defaults to a local Ollama model — no API key, no API costs.** Pass `provider: "openai" | "anthropic"` with the matching key for cloud models.
-- `list_ollama_models` - List the Ollama models installed locally (free; helps you pick a `model` for `extract_with_llm`)
-- `track_changes` - Monitor content changes over time
-- `get_batch_results` - Retrieve paginated results for a `batch_scrape` job by `batchId`
+| Tool | What it does |
+|------|--------------|
+| `fetch_url` | Fetch content from any URL |
+| `extract_text` | Extract clean text from web pages |
+| `extract_links` | Get all links from a page |
+| `extract_metadata` | Extract page metadata (title, OG tags, schema.org) |
+| `scrape_template` | Structured data from well-known sites (Amazon, GitHub, LinkedIn, YouTube, Reddit, Hacker News, npm, and more) without writing selectors |
 
-### Premium Tools (5-10 credits)
-- `agent` - **Autonomous research/extraction from a natural-language prompt — no URLs required.** Plans, gathers, and shapes an answer under hard safety stops (max steps/URLs/wall-clock enforced by the orchestrator, never the LLM)
-- `crawl_deep` - Deep crawl entire websites
-- `map_site` - Discover and map website structure (optional `search=` ranks the discovered URLs)
-- `batch_scrape` - Process multiple URLs simultaneously
-- `deep_research` - Multi-stage research with source verification
-- `stealth_mode` - Anti-detection browser management
+**Advanced Tools** (2–3 credits)
 
-### Heavy Processing (3-10 credits)
-- `process_document` - Multi-format document processing
-- `extract_content` - Enhanced content extraction
-- `scrape_with_actions` - Browser automation chains
-- `generate_llms_txt` - Generate AI interaction guidelines
-- `localization` - Multi-language and geo-location management
+| Tool | What it does |
+|------|--------------|
+| `scrape` | **Unified single-fetch, multi-format extraction.** Pass a `formats` array (markdown/html/rawHtml/text/links/metadata/screenshot/json-schema) plus `onlyMainContent`; one fetch serves every requested format with per-format partial-success warnings |
+| `scrape_structured` | Extract structured data with CSS selectors |
+| `search_web` | Search the web using Google Search API |
+| `summarize_content` | Generate intelligent summaries |
+| `analyze_content` | Comprehensive content analysis |
+| `extract_structured` | LLM-powered schema-driven extraction |
+| `extract_with_llm` | Natural-language extraction. **Defaults to a local Ollama model — no API key, no API costs.** Pass `provider: "openai" \| "anthropic"` with the matching key for cloud models |
+| `list_ollama_models` | List the Ollama models installed locally (free; helps you pick a `model` for `extract_with_llm`) |
+| `track_changes` | Monitor content changes over time |
+| `get_batch_results` | Retrieve paginated results for a `batch_scrape` job by `batchId` |
+
+**Premium Tools** (5–10 credits)
+
+| Tool | What it does |
+|------|--------------|
+| `agent` | **Autonomous research/extraction from a natural-language prompt — no URLs required.** Plans, gathers, and shapes an answer under hard safety stops (max steps/URLs/wall-clock enforced by the orchestrator, never the LLM) |
+| `crawl_deep` | Deep crawl entire websites |
+| `map_site` | Discover and map website structure (optional `search=` ranks the discovered URLs) |
+| `batch_scrape` | Process multiple URLs simultaneously |
+| `deep_research` | Multi-stage research with source verification |
+| `stealth_mode` | Anti-detection browser management |
+
+**Heavy Processing** (3–10 credits)
+
+| Tool | What it does |
+|------|--------------|
+| `process_document` | Multi-format document processing |
+| `extract_content` | Enhanced content extraction |
+| `scrape_with_actions` | Browser automation chains |
+| `generate_llms_txt` | Generate AI interaction guidelines |
+| `localization` | Multi-language and geo-location management |
 
 For the full canonical capabilities reference (all tools, CLI commands, stealth engines, research workflow), see [SKILL.md](SKILL.md).
+
+<p align="right"><a href="#table-of-contents">↑ Back to top</a></p>
 
 ## 💳 Pricing
 
@@ -240,6 +298,10 @@ See [docs/sandboxing-and-approvals.md](docs/sandboxing-and-approvals.md) for the
 ### Security Updates
 
 **v3.0.3 (2025-10-01)**: Removed authentication bypass vulnerability. All users must authenticate with valid API keys.
+
+For the full security policy and how to report a vulnerability, see [SECURITY.md](SECURITY.md).
+
+<p align="right"><a href="#table-of-contents">↑ Back to top</a></p>
 
 ## 🆘 Support
 

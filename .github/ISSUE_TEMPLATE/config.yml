@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 Documentation
+    url: https://www.crawlforge.dev/docs
+    about: Setup guides, tool reference, and CLI docs.
+  - name: 💬 Discord community
+    url: https://discord.gg/crawlforge
+    about: Ask questions and chat with other CrawlForge users.
+  - name: 🔐 Security vulnerability
+    url: https://github.com/mysleekdesigns/crawlforge-mcp/security/policy
+    about: Please report security issues privately — do not open a public issue.

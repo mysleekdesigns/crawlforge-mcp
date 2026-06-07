@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="220" viewBox="0 0 880 220" role="img" aria-label="CrawlForge MCP Server">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="1" stop-color="#141a32"/>
+    </linearGradient>
+    <linearGradient id="ember" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff8a00"/>
+      <stop offset="0.55" stop-color="#ff5630"/>
+      <stop offset="1" stop-color="#ff2e63"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="880" height="220" rx="20" fill="url(#bg)"/>
+
+  <!-- forge spark mark -->
+  <g transform="translate(70,110)">
+    <circle r="46" fill="none" stroke="url(#ember)" stroke-width="5" opacity="0.9"/>
+    <path d="M0,-30 L9,-9 L31,-9 L13,5 L20,28 L0,14 L-20,28 L-13,5 L-31,-9 L-9,-9 Z" fill="url(#ember)"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="150" y="108" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="56" font-weight="800" fill="#ffffff">CrawlForge</text>
+  <text x="152" y="150" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="26" font-weight="700" letter-spacing="6" fill="url(#ember)">MCP SERVER</text>
+
+  <!-- tagline -->
+  <text x="152" y="184" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="16" font-weight="400" fill="#9aa4c4">26 web scraping, crawling &amp; research tools for Claude, Cursor &amp; any MCP client</text>
+</svg>

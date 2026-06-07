@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="CrawlForge MCP Server social preview">
+  <!-- Source for the GitHub social-preview card (Settings -> General -> Social preview).
+       GitHub only accepts PNG/JPG <1MB, so export this to PNG before uploading.
+       e.g.  rsvg-convert -w 1280 -h 640 assets/social-preview.svg > assets/social-preview.png
+             (or open in a browser / Figma and export). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="1" stop-color="#141a32"/>
+    </linearGradient>
+    <linearGradient id="ember" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff8a00"/>
+      <stop offset="0.55" stop-color="#ff5630"/>
+      <stop offset="1" stop-color="#ff2e63"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1280" height="8" fill="url(#ember)"/>
+
+  <g transform="translate(150,250)">
+    <circle r="70" fill="none" stroke="url(#ember)" stroke-width="8" opacity="0.9"/>
+    <path d="M0,-46 L14,-14 L48,-14 L20,8 L31,43 L0,22 L-31,43 L-20,8 L-48,-14 L-14,-14 Z" fill="url(#ember)"/>
+  </g>
+
+  <text x="280" y="240" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="92" font-weight="800" fill="#ffffff">CrawlForge MCP</text>
+  <text x="284" y="320" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="40" font-weight="700" letter-spacing="8" fill="url(#ember)">SERVER</text>
+
+  <text x="150" y="430" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="34" font-weight="400" fill="#c3cae6">26 web scraping, crawling, deep-research &amp; autonomous</text>
+  <text x="150" y="476" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="34" font-weight="400" fill="#c3cae6">extraction tools — clean Markdown &amp; structured JSON.</text>
+
+  <text x="150" y="560" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="28" font-weight="700" fill="#9aa4c4">Claude · Cursor · any MCP client</text>
+  <text x="150" y="600" font-family="'Segoe UI',Helvetica,Arial,sans-serif" font-size="24" font-weight="400" fill="#ff8a00">1,000 free credits · local-Ollama LLM · github.com/mysleekdesigns/crawlforge-mcp</text>
+</svg>

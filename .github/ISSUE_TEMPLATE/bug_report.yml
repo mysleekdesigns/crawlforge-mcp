@@ -1,0 +1,57 @@
+name: 🐛 Bug Report
+description: Report a problem with the CrawlForge MCP Server
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to file a bug report! Please fill out the sections below.
+  - type: input
+    id: version
+    attributes:
+      label: CrawlForge version
+      description: Output of `crawlforge --version` (or the npm version you installed).
+      placeholder: "4.6.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: MCP client
+      options:
+        - Claude Desktop
+        - Claude Code
+        - Cursor
+        - Other (specify below)
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including the tool you were calling.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Call `scrape` with ...
+        2. See error ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: false
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Node.js version (`node -v`), and anything else relevant.
+      placeholder: "macOS 15 · Node 20.11 · global install"
+    validations:
+      required: false

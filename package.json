@@ -1,7 +1,7 @@
 {
   "name": "crawlforge-mcp-server",
   "version": "4.6.1",
-  "description": "CrawlForge MCP Server - Professional Model Context Protocol server with 23 web scraping, crawling, and content processing tools. Defaults to local Ollama for LLM extraction (no API key needed); OpenAI/Anthropic available as opt-in. v4.0 adds Markdown-first output, pre-built site templates, Camoufox stealth engine, and cost transparency.",
+  "description": "CrawlForge MCP Server - Professional Model Context Protocol server with 26 web scraping, crawling, deep-research, and autonomous-extraction tools. Returns clean Markdown and structured JSON for Claude, Cursor, and any MCP client. Defaults to local Ollama for LLM extraction (no API key needed); OpenAI/Anthropic available as opt-in. Includes a unified multi-format scrape tool, an autonomous agent, pre-built site templates, and Camoufox stealth browsing.",
   "main": "server.js",
   "bin": {
     "crawlforge": "src/cli/index.js",
@@ -50,7 +50,19 @@
     "llms-txt",
     "llms-txt-generator",
     "ai-compliance",
-    "website-analysis"
+    "website-analysis",
+    "mcp-server",
+    "claude",
+    "cursor",
+    "ollama",
+    "ai-agents",
+    "deep-research",
+    "stealth-browser",
+    "html-to-markdown",
+    "llm",
+    "crawl",
+    "batch-scrape",
+    "screenshot"
   ],
   "author": {
     "name": "Simon Lacey",

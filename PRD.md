@@ -12,6 +12,17 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
+### GitHub discoverability pass (2026-06-07, no version bump)
+
+Docs/metadata-only change to make the repo (`github.com/mysleekdesigns/crawlforge-mcp`) easier to find on GitHub, modeled on a live analysis of Firecrawl's repo (`firecrawl/firecrawl`, 130k★) performed with CrawlForge's own MCP tools (`scrape` + `extract_metadata`). Firecrawl's findability levers we lacked: 19 GitHub Topics (we had **zero** — the biggest gap), a punchy social-card description, a custom social-preview image, and a banner + comparison/feature tables + community files. Changes (no `src/` code touched):
+- **README.md** — centered SVG banner, expanded badge row + "Star us" CTA, Table of Contents, "Why CrawlForge?" value props, a **CrawlForge-vs-Firecrawl-vs-raw-API comparison table**, tool lists converted to grouped tables, back-to-top links.
+- **package.json** — fixed stale description ("23 tools / v4.0" → 26 tools, current capabilities); keywords 24 → 36 (added `mcp-server`, `claude`, `cursor`, `ollama`, `ai-agents`, `deep-research`, `stealth-browser`, `html-to-markdown`, `llm`, `crawl`, `batch-scrape`, `screenshot`).
+- **assets/** — new `banner.svg` (README header) + `social-preview.svg` (1280×640 source for the GitHub social card; PNG export uploaded manually — web-UI only).
+- **Community files** — `.github/ISSUE_TEMPLATE/{bug_report,feature_request,config}.yml`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/FUNDING.yml`, root `SECURITY.md` + `CODE_OF_CONDUCT.md` (lights up GitHub's community-profile checklist).
+- **GitHub repo metadata** — 20 MCP-tuned Topics + new description/homepage set via `gh repo edit` (requires maintainer `gh` re-auth; see plan). Manual follow-up: upload the social-preview PNG; submit to MCP awesome-lists / official MCP registry.
+
+Verification: `npm test` exit 0; unit suite 381/381 pass (sandbox-off; HTTP-bind tests need a real `127.0.0.1` listen). SVGs well-formed; `package.json` parses.
+
 ### v4.6.1 — Patch: agent autonomous-search fix (2026-06-07)
 
 Caught by live MCP smoke testing of the freshly-published v4.6.0 binary. The `agent` tool's GATHER phase (`src/core/AgentOrchestrator.js`) parsed search results as the MCP content-wrapped shape (`sr.content[0].text`), but `SearchWebTool.execute()` returns the **raw** results object — so `parsed` was always `null`, no URLs were ever queued, and every `agent` call without seed `urls[]` returned `{degraded:true, reason:"No content could be fetched…"}` (`steps:0`). Autonomous research — the headline Phase D capability — was effectively non-functional; only the seed-URL path worked. The Phase D unit test masked it by mocking `_searchTool.execute()` with the content-wrapped shape (encoding the orchestrator's wrong assumption). Fix: orchestrator now handles both shapes; all six search-tool mocks in `tests/unit/phaseD-regressions.test.js` corrected to the real raw shape so the suite guards the path. Verified live (`agent({prompt})` no-URL now searches → fetches → synthesizes). Unit suite 381/0 (sandbox-off); `npm test` 0 errors. Version 4.6.0 → 4.6.1. Files: `src/core/AgentOrchestrator.js`, `tests/unit/phaseD-regressions.test.js`, `CHANGELOG.md`, `PRD.md`, `package.json`.
