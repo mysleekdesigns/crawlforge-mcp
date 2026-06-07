@@ -111,7 +111,6 @@ function generateFormats($, html, formats) {
 function buildMarkdown($) {
   let md = '';
   const title = $('title').text().trim();
-  if (title) md += `# ${title}\n\n`;
 
   const selectors = ['article', 'main', '.content', '#content', '.post-content', '.entry-content'];
   let $body = null;
@@ -120,6 +119,12 @@ function buildMarkdown($) {
     if ($body.length > 0) break;
   }
   if (!$body || $body.length === 0) $body = $('body');
+
+  // C3: de-dup title — only emit the <title> heading if the page has no <h1>
+  // or if the first <h1> text differs from the <title> text (case-insensitive).
+  const firstH1 = $body.find('h1').first().text().trim();
+  const titleDuplicated = firstH1 && firstH1.toLowerCase() === title.toLowerCase();
+  if (title && !titleDuplicated) md += `# ${title}\n\n`;
 
   $body.find('h1').each((_, el) => { md += `# ${$(el).text().trim()}\n\n`; });
   $body.find('h2').each((_, el) => { md += `## ${$(el).text().trim()}\n\n`; });

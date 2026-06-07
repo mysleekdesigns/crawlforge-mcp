@@ -168,7 +168,7 @@ export class ExtractContentTool {
           headers: {
             'User-Agent': 'Mozilla/5.0 (compatible; MCP-WebScraper/3.0; Enhanced-Content-Extractor)'
           },
-          timeout: 15000
+          signal: AbortSignal.timeout(15000)
         });
 
         if (!response.ok) {

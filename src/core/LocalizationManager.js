@@ -499,12 +499,14 @@ export class LocalizationManager extends EventEmitter {
   }
   
   /**
-   * Detect and handle geo-blocked content
+   * Detect geo-blocked content and return suggestions.
+   * C3: renamed from handleGeoBlocking — no bypass is actually applied here;
+   * the returned bypassStrategies are recommendations only.
    * @param {string} url - URL to check
    * @param {Object} response - HTTP response object
-   * @returns {Object} - Analysis and bypass suggestions
+   * @returns {Object} - Detection result and bypass suggestions
    */
-  async handleGeoBlocking(url, response) {
+  async detectGeoBlocking(url, response) {
     const geoBlockingIndicators = [
       /not available in your country/i,
       /access denied/i,
@@ -1386,8 +1388,9 @@ export class LocalizationManager extends EventEmitter {
     }
     
     // Phone number pattern analysis
+    // C3: fix US pattern — was using \\d (literal backslash-d) instead of \d
     const phonePatterns = {
-      'US': /\+1[\s.-]?\(?\\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/,
+      'US': /\+1[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/,
       'GB': /\+44[\s.-]?\d{2,4}[\s.-]?\d{6,8}/,
       'DE': /\+49[\s.-]?\d{2,4}[\s.-]?\d{6,8}/,
       'FR': /\+33[\s.-]?\d{1}[\s.-]?\d{8}/

@@ -15,6 +15,11 @@ export const config = {
     apiBaseUrl: resolveApiEndpoint(process.env.CRAWLFORGE_API_URL || 'https://www.crawlforge.dev')
   },
 
+  // Fetch body-size cap
+  fetch: {
+    maxBodySize: parseInt(process.env.MAX_FETCH_BODY_SIZE || String(25 * 1024 * 1024)) // 25 MB
+  },
+
   // Performance
   performance: {
     maxWorkers: parseInt(process.env.MAX_WORKERS || '10'),

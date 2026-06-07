@@ -161,7 +161,9 @@ export class BatchScrapeTool extends EventEmitter {
       this.stats.lastUpdated = Date.now();
       this.activeBatches.delete(batchId);
 
-      await sendWebhookNotification('batch_completed', batchResult, webhookConfig, this.webhookDispatcher, this.enableWebhookNotifications);
+      // C3: include webhook delivery status in the result
+      const webhookStatus = await sendWebhookNotification('batch_completed', batchResult, webhookConfig, this.webhookDispatcher, this.enableWebhookNotifications);
+      if (webhookStatus) batchResult.webhookDelivery = webhookStatus;
       this.emit('batchCompleted', batchResult);
       return batchResult;
     } catch (error) {

@@ -68,20 +68,26 @@ function resolveProvider(provider) {
 
 /**
  * Build the user message text that goes to the LLM.
+ * C3: also returns truncation metadata so the caller can surface it.
+ * @returns {{ userMessage: string, truncated: boolean, original_length: number }}
  */
 function buildUserMessage(userPrompt, text, schema) {
-  const truncated = text.length > MAX_INPUT_CHARS ? text.slice(0, MAX_INPUT_CHARS) + '\n[...truncated]' : text;
+  const original_length = text.length;
+  const truncated = original_length > MAX_INPUT_CHARS;
+  const body = truncated ? text.slice(0, MAX_INPUT_CHARS) + '\n[...truncated]' : text;
   let msg = `Extraction instruction: ${userPrompt}\n\n`;
   if (schema && Object.keys(schema).length > 0) {
     msg += `Output schema hint:\n${JSON.stringify(schema, null, 2)}\n\n`;
   }
-  msg += `Web page content:\n${truncated}\n\nReturn only valid JSON.`;
-  return msg;
+  msg += `Web page content:\n${body}\n\nReturn only valid JSON.`;
+  return { userMessage: msg, truncated, original_length };
 }
 
 /**
  * Parse JSON from an LLM response string defensively.
  * Strips markdown code fences if present.
+ * C3: if the stripped string is not a full JSON document, locate the first
+ * embedded JSON object or array and try to parse that substring.
  * Returns parsed object or throws.
  */
 function parseJson(raw) {
@@ -90,7 +96,27 @@ function parseJson(raw) {
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```\s*$/, '')
     .trim();
-  return JSON.parse(stripped);
+
+  // Fast path: well-formed JSON
+  try {
+    return JSON.parse(stripped);
+  } catch (_) {
+    // Fall through to substring recovery
+  }
+
+  // C3: locate the first JSON object or array in the string
+  const objStart = stripped.indexOf('{');
+  const arrStart = stripped.indexOf('[');
+  const start = objStart === -1 ? arrStart :
+                arrStart === -1 ? objStart :
+                Math.min(objStart, arrStart);
+  if (start !== -1) {
+    const slice = stripped.slice(start);
+    return JSON.parse(slice);
+  }
+
+  // Re-throw the original parse error with the full content
+  throw new SyntaxError(`No JSON found in LLM response: ${stripped.slice(0, 200)}`);
 }
 
 // ── OpenAI call ───────────────────────────────────────────────────────────────
@@ -304,7 +330,7 @@ export class ExtractWithLlm {
     const systemMessage =
       'You extract structured data from web content per the user\'s instructions. Return JSON only.';
 
-    const userMessage = buildUserMessage(prompt, text, schema);
+    const { userMessage, truncated: inputTruncated, original_length } = buildUserMessage(prompt, text, schema);
 
     // Step 2: First LLM call — with sampling fallback for 'auto' provider
     // Fallback chain: Ollama → API key (handled by resolveProvider) → sampling → error
@@ -369,13 +395,19 @@ export class ExtractWithLlm {
       }
     }
 
-    return {
+    // C3: surface truncation metadata so callers know the input was clipped
+    const result = {
       success: true,
       data: parsed,
       provider: resolvedModel === 'sampling' ? 'sampling' : provider,
       model: resolvedModel || model,
       usage
     };
+    if (inputTruncated) {
+      result.truncated = true;
+      result.original_length = original_length;
+    }
+    return result;
   }
 }
 

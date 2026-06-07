@@ -640,6 +640,27 @@ server.registerTool("batch_scrape", {
   }
 }));
 
+// Tool: get_batch_results — C3: retrieve paginated results for a completed batch
+server.registerTool("get_batch_results", {
+  description: "Retrieve paginated results for a completed or in-progress batch_scrape job. Use the batchId returned by batch_scrape. Example: get_batch_results({batchId: \"batch_1234567890_abc\", page: 2, pageSize: 25})",
+  annotations: { title: "Get Batch Results", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  inputSchema: {
+    batchId: z.string().describe("The batch ID returned by batch_scrape"),
+    page: z.number().min(1).default(1).describe("Page number (1-based)"),
+    pageSize: z.number().min(1).max(100).default(25).describe("Number of results per page")
+  }
+}, withAuth("get_batch_results", async ({ batchId, page = 1, pageSize = 25 }) => {
+  try {
+    if (!batchId) {
+      return { content: [{ type: "text", text: "batchId parameter is required" }], isError: true };
+    }
+    const result = await batchScrapeTool.getBatchResults(batchId, page, pageSize);
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { content: [{ type: "text", text: `get_batch_results failed: ${error.message}` }], isError: true };
+  }
+}));
+
 // Tool: scrape_with_actions
 server.registerTool("scrape_with_actions", {
   description: "Use this when you need to interact with a page before scraping — login, click buttons, fill forms, scroll, or wait for dynamic content to load. Use for SPAs, login-gated content, or multi-step flows. Screenshots from this tool are stored as crawlforge://screenshot/{actionId} resources. Example: scrape_with_actions({url: \"https://app.com/dashboard\", actions: [{type:\"click\",selector:\"#login\"},{type:\"type\",selector:\"#email\",text:\"user@a.com\"}]})",
@@ -1106,8 +1127,9 @@ server.registerTool("localization", {
         };
         break;
       case 'handle_geo_blocking':
-        if (!params.url || !params.response) throw new Error('url and response are required for handle_geo_blocking operation');
-        result = await localizationManager.handleGeoBlocking(params.url, params.response);
+      case 'detect_geo_blocking':
+        if (!params.url || !params.response) throw new Error('url and response are required for detect_geo_blocking operation');
+        result = await localizationManager.detectGeoBlocking(params.url, params.response);
         break;
       case 'auto_detect':
         if (!params.content || !params.url) throw new Error('content and url are required for auto_detect operation');
@@ -1197,12 +1219,12 @@ async function runServer() {
     "fetch_url", "extract_text", "extract_links", "extract_metadata", "scrape_structured",
     "search_web", "crawl_deep", "map_site",
     "extract_content", "process_document", "summarize_content", "analyze_content",
-    "batch_scrape", "scrape_with_actions",
+    "batch_scrape", "get_batch_results", "scrape_with_actions",
     "deep_research", "track_changes", "generate_llms_txt",
     "stealth_mode", "localization", "extract_structured", "extract_with_llm",
-    "scrape_template"  // D3.3
+    "list_ollama_models", "scrape_template"  // D3.3
   ];
-  console.error(`Tools available (23): ${allTools.join(", ")}`);
+  console.error(`Tools available (24): ${allTools.join(", ")}`);
 
   // Start memory monitoring in development
   if (config.server.nodeEnv === "development") {

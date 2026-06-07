@@ -8,6 +8,11 @@ import { z } from 'zod';
 import { ElicitationHelper } from '../../core/ElicitationHelper.js'; // D1.4
 import { load } from 'cheerio';
 import { LLMManager } from '../../core/llm/LLMManager.js';
+import { createRequire } from 'module';
+
+const _require = createRequire(import.meta.url);
+const _pkg = _require('../../../package.json');
+const CRAWLFORGE_UA = `CrawlForge/${_pkg.version} (+https://crawlforge.dev)`;
 import { fetchAndParse } from './_fetchAndParse.js';
 
 const ExtractStructuredSchema = z.object({
@@ -30,7 +35,7 @@ export class ExtractStructuredTool {
   constructor(options = {}) {
     this.llmManager = null;
     this.llmConfig = options.llmConfig || {};
-    this.userAgent = 'Mozilla/5.0 (compatible; CrawlForge-MCP/3.0; ExtractStructured)';
+    this.userAgent = CRAWLFORGE_UA;
     // D1.4: Elicitation helper
     this._elicitation = new ElicitationHelper({});
   }

@@ -13,7 +13,8 @@ const GenerateLLMsTxtSchema = z.object({
     maxPages: z.number().min(10).max(500).optional().default(100).describe('Maximum pages to analyze'),
     detectAPIs: z.boolean().optional().default(true).describe('Whether to detect API endpoints'),
     analyzeContent: z.boolean().optional().default(true).describe('Whether to analyze content types'),
-    checkSecurity: z.boolean().optional().default(true).describe('Whether to check security boundaries'),
+    checkSecurity: z.boolean().optional().default(false).describe('Whether to probe security-sensitive paths (opt-in; sends requests to /admin, /login, etc.)'),
+    probeRateLimit: z.boolean().optional().default(false).describe('Whether to send repeated probe requests to estimate rate limits (opt-in; fires ~5 requests)'),
     respectRobots: z.boolean().optional().default(true).describe('Whether to respect robots.txt')
   }).optional().default({}),
 

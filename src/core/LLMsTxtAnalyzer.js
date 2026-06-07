@@ -28,7 +28,10 @@ export class LLMsTxtAnalyzer {
       respectRobots: options.respectRobots !== false,
       detectAPIs: options.detectAPIs !== false,
       analyzeContent: options.analyzeContent !== false,
-      checkSecurity: options.checkSecurity !== false,
+      // C1: intrusive probing is now opt-in (default false) to avoid hammering
+      // security-sensitive and rate-probe paths on every generation run.
+      checkSecurity: options.checkSecurity === true,
+      probeRateLimit: options.probeRateLimit === true,
       ...options
     };
 
@@ -70,26 +73,31 @@ export class LLMsTxtAnalyzer {
         analysisOptions: { ...this.options, ...options }
       };
 
-      // Phase 1: Site Structure Analysis
+      // Phase 1: Site Structure Analysis (must run first — subsequent phases
+      // depend on the URL list it produces)
       await this.analyzeSiteStructure(url, options);
 
-      // Phase 2: API Detection
+      // Phases 2-5 run in parallel where they are independent of each other.
+      // detectAPIEndpoints and analyzeSecurity each fire a bounded set of probe
+      // fetches (capped at PROBE_CONCURRENCY concurrent requests per phase).
+      // analyzeRateLimiting is only executed when the caller opts in via
+      // probeRateLimit:true — its 5 sequential requests are intrusive.
+      const parallelTasks = [];
+
       if (this.options.detectAPIs) {
-        await this.detectAPIEndpoints(url);
+        parallelTasks.push(this.detectAPIEndpoints(url));
       }
-
-      // Phase 3: Content Classification
       if (this.options.analyzeContent) {
-        await this.classifyContent();
+        parallelTasks.push(this.classifyContent());
       }
-
-      // Phase 4: Security Analysis
       if (this.options.checkSecurity) {
-        await this.analyzeSecurity(url);
+        parallelTasks.push(this.analyzeSecurity(url));
+      }
+      if (this.options.probeRateLimit) {
+        parallelTasks.push(this.analyzeRateLimiting(url));
       }
 
-      // Phase 5: Rate Limiting Analysis
-      await this.analyzeRateLimiting(url);
+      await Promise.all(parallelTasks);
 
       // Phase 6: Generate Guidelines
       await this.generateUsageGuidelines();
@@ -160,35 +168,43 @@ export class LLMsTxtAnalyzer {
 
   /**
    * Detect API endpoints and data sources
+   * C1: probe fetches run in parallel (capped at PROBE_CONCURRENCY).
    */
   async detectAPIEndpoints(baseUrl) {
     logger.info('Detecting API endpoints...');
 
+    const PROBE_CONCURRENCY = 6;
+
     try {
-      const apis = [];
       const commonPaths = [
         '/api', '/v1', '/v2', '/v3', '/rest', '/graphql',
         '/data', '/feed', '/json', '/xml', '/rss',
         '/.well-known', '/openapi', '/swagger'
       ];
 
-      // Check common API paths
-      for (const path of commonPaths) {
-        const apiUrl = `${baseUrl}${path}`;
-        try {
-          const response = await this.fetchWithTimeout(apiUrl, { timeout: 5000 });
-          if (response.ok) {
-            const contentType = response.headers.get('content-type') || '';
-            apis.push({
-              url: apiUrl,
-              type: this.determineAPIType(apiUrl, contentType),
-              status: response.status,
-              contentType,
-              accessible: true
-            });
-          }
-        } catch {
-          // API endpoint not accessible or doesn't exist
+      // Run path probes in parallel batches
+      const apis = [];
+      for (let i = 0; i < commonPaths.length; i += PROBE_CONCURRENCY) {
+        const batch = commonPaths.slice(i, i + PROBE_CONCURRENCY);
+        const results = await Promise.allSettled(
+          batch.map(async (path) => {
+            const apiUrl = `${baseUrl}${path}`;
+            const response = await this.fetchWithTimeout(apiUrl, { timeout: 5000 });
+            if (response.ok) {
+              const contentType = response.headers.get('content-type') || '';
+              return {
+                url: apiUrl,
+                type: this.determineAPIType(apiUrl, contentType),
+                status: response.status,
+                contentType,
+                accessible: true
+              };
+            }
+            return null;
+          })
+        );
+        for (const r of results) {
+          if (r.status === 'fulfilled' && r.value) apis.push(r.value);
         }
       }
 
@@ -278,13 +294,14 @@ export class LLMsTxtAnalyzer {
 
   /**
    * Analyze security boundaries and sensitive areas
+   * C1: probe fetches run in parallel (capped at PROBE_CONCURRENCY).
    */
   async analyzeSecurity(baseUrl) {
     logger.info('Analyzing security boundaries...');
 
-    try {
-      const securityAreas = [];
+    const PROBE_CONCURRENCY = 6;
 
+    try {
       // Check for common sensitive paths
       const sensitivePaths = [
         '/admin', '/administrator', '/wp-admin', '/cms',
@@ -294,21 +311,28 @@ export class LLMsTxtAnalyzer {
         '/config', '/settings', '/env'
       ];
 
-      for (const path of sensitivePaths) {
-        const testUrl = `${baseUrl}${path}`;
-        try {
-          const response = await this.fetchWithTimeout(testUrl, { timeout: 3000 });
-          if (response.status === 200 || response.status === 302 || response.status === 401) {
-            securityAreas.push({
-              path,
-              url: testUrl,
-              status: response.status,
-              type: this.classifySecurityArea(path),
-              recommendation: 'restrict'
-            });
-          }
-        } catch {
-          // Area not accessible
+      // Run path probes in parallel batches
+      const securityAreas = [];
+      for (let i = 0; i < sensitivePaths.length; i += PROBE_CONCURRENCY) {
+        const batch = sensitivePaths.slice(i, i + PROBE_CONCURRENCY);
+        const results = await Promise.allSettled(
+          batch.map(async (path) => {
+            const testUrl = `${baseUrl}${path}`;
+            const response = await this.fetchWithTimeout(testUrl, { timeout: 3000 });
+            if (response.status === 200 || response.status === 302 || response.status === 401) {
+              return {
+                path,
+                url: testUrl,
+                status: response.status,
+                type: this.classifySecurityArea(path),
+                recommendation: 'restrict'
+              };
+            }
+            return null;
+          })
+        );
+        for (const r of results) {
+          if (r.status === 'fulfilled' && r.value) securityAreas.push(r.value);
         }
       }
 

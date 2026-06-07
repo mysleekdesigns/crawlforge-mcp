@@ -41,14 +41,25 @@ export class ListOllamaModelsTool {
       return { success: false, baseUrl, error: `Invalid JSON from Ollama: ${err.message}` };
     }
 
-    const models = (data.models || []).map((m) => ({
-      name: m.name,
-      size_bytes: m.size,
-      modified_at: m.modified_at,
-      family: m.details?.family,
-      parameter_size: m.details?.parameter_size,
-      quantization: m.details?.quantization_level
-    }));
+    // C3: harden against non-array response; normalize modified_at to ISO 8601.
+    const rawModels = Array.isArray(data.models) ? data.models :
+                      Array.isArray(data) ? data : [];
+
+    const models = rawModels.map((m) => {
+      let modified_at = m.modified_at ?? null;
+      if (modified_at !== null) {
+        const d = new Date(modified_at);
+        modified_at = isNaN(d.getTime()) ? modified_at : d.toISOString();
+      }
+      return {
+        name: m.name,
+        size_bytes: m.size,
+        modified_at,
+        family: m.details?.family,
+        parameter_size: m.details?.parameter_size,
+        quantization: m.details?.quantization_level
+      };
+    });
 
     return {
       success: true,

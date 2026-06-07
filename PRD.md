@@ -6,11 +6,32 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — all three shipped in v4.1.0 — without breaking any existing MCP tools or the current setup flow.
 
-**Last Updated:** 2026-06-06
+**Last Updated:** 2026-06-07
 
 ---
 
 ## Release History
+
+### Phase C (in progress) — Robustness, Security & Polish (2026-06-07)
+
+Working-tree changes for the third execution phase of `IMPROVEMENT_PLAN.md`. Committed as work-in-progress (IMPROVEMENT_PLAN checkboxes not yet flipped, no version bump, full phase-verification block not yet run).
+
+**C1 — Robustness:**
+- `fetch_url` (`src/tools/basic/_fetch.js`) — added a body-size cap (Content-Length pre-check + streaming byte-count guard, configurable via `MAX_FETCH_BODY_SIZE`, default 25 MB → `src/constants/config.js`); User-Agent now derived from `package.json` version (`CrawlForge/<version> (+https://crawlforge.dev)`) instead of the stale `CrawlForge/1.0.0`.
+- Fetch timeouts — `extractContent.js`, `processDocument.js`, `trackChanges/differ.js` switched the non-standard `timeout:` option to a real `signal: AbortSignal.timeout(...)`.
+- `generate_llms_txt` (`LLMsTxtAnalyzer.js`) — intrusive probing is now opt-in: `checkSecurity` and new `probeRateLimit` default to `false`; API/security path probes run in bounded parallel batches (`PROBE_CONCURRENCY=6`) instead of long sequential loops; rate-limit probing only fires when explicitly requested.
+- `crawl_deep` (`BFSCrawler.js`) — per-domain rate-limiter map (reuse rather than recreate per URL); domain/robots block messages moved from `console.error` to `logger.debug`.
+
+**C2 — Stealth:**
+- `stealth_mode` (`StealthBrowserManager.js`) — `engine` config (`'chromium'` default | `'camoufox'`); engine switch tears down a mismatched running browser and delegates to `CamoufoxAdapter` when selected; `sec-ch-ua` brand versions now derived from the resolved User-Agent's Chrome major version so the two headers stay consistent.
+
+**C3 — Tool quality:**
+- New `get_batch_results` tool (`server.js`) — paginated retrieval of `batch_scrape` results by `batchId` (tool count 23 → 24); also restored `list_ollama_models` to the startup tool list.
+- `localization` — `handle_geo_blocking` renamed to `detect_geo_blocking` (no bypass is actually applied; returns recommendations only); fixed the US phone regex (`\\d` → `\d`).
+- `extract_with_llm` — surfaces input-truncation metadata (`truncated`, `original_length`); `parseJson` recovers the first embedded JSON object/array when the response isn't a clean document.
+- `list_ollama_models` — hardened against non-array responses; `modified_at` normalized to ISO 8601.
+- `process_document` (markdown builder) — de-dup the `<title>` heading when it equals the first `<h1>`.
+- `extract_structured` — User-Agent unified to the versioned `CrawlForge/<version>` string.
 
 ### v4.4.0 — Phase B: Result-Quality Upgrades (2026-06-06)
 

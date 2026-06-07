@@ -50,7 +50,7 @@ export async function fetchContent(url) {
         'Accept-Encoding': 'gzip, deflate',
         'Cache-Control': 'no-cache'
       },
-      timeout: 30000
+      signal: AbortSignal.timeout(30000)
     });
 
     if (!response.ok) {

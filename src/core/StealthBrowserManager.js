@@ -47,14 +47,17 @@ const StealthConfigSchema = z.object({
     spoofMediaDevices: z.boolean().default(true),
     spoofBatteryAPI: z.boolean().default(true)
   }).optional(),
-  
+
   fingerprinting: z.object({
     canvasNoise: z.boolean().default(true),
     webglSpoofing: z.boolean().default(true),
     audioContextSpoofing: z.boolean().default(true),
     fontSpoofing: z.boolean().default(true),
     hardwareSpoofing: z.boolean().default(true)
-  }).optional()
+  }).optional(),
+
+  // C2: browser engine selection — 'chromium' (default) or 'camoufox' (Firefox-based)
+  engine: z.enum(['chromium', 'camoufox']).optional().default('chromium')
 });
 
 export class StealthBrowserManager {
@@ -232,16 +235,41 @@ export class StealthBrowserManager {
   }
 
   /**
-   * Launch stealth browser with anti-detection configurations
+   * Launch stealth browser with anti-detection configurations.
+   * C2: honours config.engine — 'chromium' (default) or 'camoufox' (Firefox-based).
    */
   async launchStealthBrowser(config = {}) {
+    const validatedConfig = StealthConfigSchema.parse({ ...this.defaultConfig, ...config });
+
+    // C2: if the requested engine differs from the running browser, tear it down first.
+    if (this.browser && this._launchedEngine && this._launchedEngine !== validatedConfig.engine) {
+      await this.browser.close().catch(() => {});
+      this.browser = null;
+    }
+
     if (this.browser) {
       return this.browser;
     }
 
-    const validatedConfig = StealthConfigSchema.parse({ ...this.defaultConfig, ...config });
-    
-    // Base browser args for stealth
+    // C2: delegate to CamoufoxAdapter when engine === 'camoufox'
+    if (validatedConfig.engine === 'camoufox') {
+      const adapter = new CamoufoxAdapter();
+      const available = await adapter.isAvailable();
+      if (!available) {
+        throw new Error(
+          'camoufox is not installed. Run: npm install camoufox to use the Firefox-based stealth engine.'
+        );
+      }
+      this.browser = await adapter.launch({
+        headless: true,
+        launchOptions: {}
+      });
+      this._launchedEngine = 'camoufox';
+      return this.browser;
+    }
+
+    this._launchedEngine = 'chromium';
+    // Base browser args for stealth (Chromium path)
     const stealthArgs = [
       '--no-sandbox',
       '--disable-dev-shm-usage',
@@ -498,6 +526,9 @@ export class StealthBrowserManager {
    * Generate advanced HTTP headers with realistic patterns
    */
   generateAdvancedHeaders(config, selectedOS) {
+    // Resolve the UA first so sec-ch-ua brand version can match.
+    const resolvedUA = this.selectRealisticUserAgent(config, selectedOS);
+
     const headers = {
       'Accept-Language': `${(config.locale || 'en-US').toLowerCase()},en;q=0.9`,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
@@ -512,8 +543,8 @@ export class StealthBrowserManager {
       'sec-ch-ua-platform': this.generateSecChUaPlatform(selectedOS)
     };
 
-    // Add sec-ch-ua header
-    headers['sec-ch-ua'] = this.generateSecChUaHeader();
+    // C2: pass UA so sec-ch-ua brand version matches the Chrome major version.
+    headers['sec-ch-ua'] = this.generateSecChUaHeader(resolvedUA);
 
     // Randomize some headers
     if (Math.random() < 0.25) {
@@ -533,15 +564,23 @@ export class StealthBrowserManager {
   }
 
   /**
-   * Generate sec-ch-ua header
+   * Generate sec-ch-ua header.
+   * C2: brand versions are derived from the UA's Chrome major version so
+   * sec-ch-ua and the User-Agent header stay consistent.
+   * @param {string} [userAgent] — the selected user agent string
    */
-  generateSecChUaHeader() {
+  generateSecChUaHeader(userAgent = '') {
+    // Extract Chrome major version from the UA (e.g. "Chrome/121.0.0.0" → "121").
+    // Fall back to 121 if the UA is not a Chrome UA.
+    const match = userAgent.match(/Chrome\/(\d+)/i);
+    const version = match ? match[1] : '121';
+
     const brands = [
       { brand: 'Not_A Brand', version: '8' },
-      { brand: 'Chromium', version: '120' },
-      { brand: 'Google Chrome', version: '120' }
+      { brand: 'Chromium', version },
+      { brand: 'Google Chrome', version }
     ];
-    
+
     return brands
       .map(b => `"${b.brand}";v="${b.version}"`)
       .join(', ');

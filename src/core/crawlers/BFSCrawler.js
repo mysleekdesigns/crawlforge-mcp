@@ -6,6 +6,9 @@ import { RobotsChecker } from '../../utils/robotsChecker.js';
 import { DomainFilter } from '../../utils/domainFilter.js';
 import { LinkAnalyzer } from '../analysis/LinkAnalyzer.js';
 import { normalizeUrl, extractLinks, isValidUrl } from '../../utils/urlNormalizer.js';
+import { Logger } from '../../utils/Logger.js';
+
+const logger = new Logger('BFSCrawler');
 
 export class BFSCrawler {
   constructor(options = {}) {
@@ -43,7 +46,10 @@ export class BFSCrawler {
     
     this.queue = new QueueManager({ concurrency, timeout });
     this.cache = new CacheManager({ ttl: 3600000 }); // 1 hour cache
+    // C1: per-domain rate-limiter map — reuse existing limiter when
+    // effectiveRateLimit hasn't changed, rather than recreating it on every URL.
     this.rateLimiter = new RateLimiter({ requestsPerSecond: 10 });
+    this._domainRateLimiters = new Map();
     this.robotsChecker = respectRobots ? new RobotsChecker(userAgent) : null;
     
     // Initialize domain filter (create new if not provided)
@@ -142,13 +148,13 @@ export class BFSCrawler {
     });
     
     if (!filterDecision.allowed) {
-      console.error(`Domain filter blocks: ${normalizedUrl} - ${filterDecision.reason}`);
+      logger.debug(`Domain filter blocks: ${normalizedUrl} - ${filterDecision.reason}`);
       return;
     }
-    
+
     // Backward compatibility: also check legacy patterns
     if (!this.shouldCrawlUrl(normalizedUrl)) {
-      console.error(`Legacy pattern blocks: ${normalizedUrl}`);
+      logger.debug(`Legacy pattern blocks: ${normalizedUrl}`);
       return;
     }
 
@@ -156,7 +162,7 @@ export class BFSCrawler {
     if (this.respectRobots && this.robotsChecker) {
       const canFetch = await this.robotsChecker.canFetch(normalizedUrl);
       if (!canFetch) {
-        console.error(`Robots.txt blocks: ${normalizedUrl}`);
+        logger.debug(`Robots.txt blocks: ${normalizedUrl}`);
         return;
       }
     }
@@ -171,17 +177,22 @@ export class BFSCrawler {
 
       if (!pageData) {
         // Apply domain-specific rate limiting
+        // C1: reuse per-domain limiter from the map to avoid recreating on each URL.
         const urlObj = new URL(normalizedUrl);
-        const domainRules = this.domainFilter.getDomainRules(urlObj.hostname);
-        
-        // Use domain-specific rate limit if available
+        const domain = urlObj.hostname;
+        const domainRules = this.domainFilter.getDomainRules(domain);
         const effectiveRateLimit = domainRules.rateLimit || 10;
-        if (this.rateLimiter.requestsPerSecond !== effectiveRateLimit) {
-          // Update rate limiter for this domain
-          this.rateLimiter = new RateLimiter({ requestsPerSecond: effectiveRateLimit });
+
+        if (!this._domainRateLimiters.has(domain)) {
+          this._domainRateLimiters.set(domain, new RateLimiter({ requestsPerSecond: effectiveRateLimit }));
+        } else {
+          const existing = this._domainRateLimiters.get(domain);
+          if (existing.requestsPerSecond !== effectiveRateLimit) {
+            this._domainRateLimiters.set(domain, new RateLimiter({ requestsPerSecond: effectiveRateLimit }));
+          }
         }
-        
-        await this.rateLimiter.checkLimit(normalizedUrl);
+
+        await this._domainRateLimiters.get(domain).checkLimit(normalizedUrl);
 
         // Fetch the page
         pageData = await this.fetchPage(normalizedUrl);
