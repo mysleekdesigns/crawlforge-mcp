@@ -3,6 +3,15 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.6.1] - 2026-06-07
+
+Patch — fixes the `agent` tool's autonomous search, caught by live MCP smoke testing of the v4.6.0 release.
+
+### Fixed
+
+- **`agent` tool: autonomous search (GATHER) was a no-op.** `AgentOrchestrator` parsed search results assuming the MCP content-wrapped shape (`sr.content[0].text`), but `SearchWebTool.execute()` returns the **raw** results object — so `parsed` was always `null`, no URLs were ever queued, and any `agent` call without seed `urls[]` returned `{degraded:true, reason:"No content could be fetched…"}`. The orchestrator now handles both shapes (`sr.content?.[0]?.text ? JSON.parse(...) : sr`). `src/core/AgentOrchestrator.js`
+- **Test gap that masked the above.** `tests/unit/phaseD-regressions.test.js` mocked `_searchTool.execute()` with the content-wrapped shape, encoding the orchestrator's wrong assumption. All six mocks now return the **raw** shape that the real `SearchWebTool` returns, so the suite guards this path. Verified live: `agent({prompt})` with no URLs now searches, fetches, and synthesizes.
+
 ## [4.6.0] - 2026-06-07
 
 Phase D of `IMPROVEMENT_PLAN.md` — "Firecrawl-Competitive: Agent + Unified Scrape + Onboarding". Closes the three Firecrawl feature gaps with no clean CrawlForge equivalent — an autonomous **agent**, a **unified scrape** entry point, and **ranked map** — plus a one-command onboarding flow, all **local-first** (MCP-native primitives + local-LLM via Ollama; no cloud proxy/reliability layer). Purely additive: tool count 24 → 26, no breaking changes to existing tools. Regression coverage ships in `tests/unit/phaseD-regressions.test.js`.

@@ -182,7 +182,9 @@ export class AgentOrchestrator {
           if (deadline()) break;
           try {
             const sr = await searchTool.execute({ query: q, limit: Math.ceil(capUrls / searchQueries.length) });
-            const parsed = sr?.content?.[0]?.text ? JSON.parse(sr.content[0].text) : null;
+            // SearchWebTool.execute() returns the raw results object; the MCP content-wrapped
+            // shape only appears if a caller (e.g. server.js) wraps it. Handle both.
+            const parsed = sr?.content?.[0]?.text ? JSON.parse(sr.content[0].text) : sr;
             if (parsed?.results) {
               for (const r of parsed.results) {
                 if (r.link && !urlQueue.includes(r.link)) urlQueue.push(r.link);

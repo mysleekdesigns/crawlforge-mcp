@@ -12,6 +12,10 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ## Release History
 
+### v4.6.1 — Patch: agent autonomous-search fix (2026-06-07)
+
+Caught by live MCP smoke testing of the freshly-published v4.6.0 binary. The `agent` tool's GATHER phase (`src/core/AgentOrchestrator.js`) parsed search results as the MCP content-wrapped shape (`sr.content[0].text`), but `SearchWebTool.execute()` returns the **raw** results object — so `parsed` was always `null`, no URLs were ever queued, and every `agent` call without seed `urls[]` returned `{degraded:true, reason:"No content could be fetched…"}` (`steps:0`). Autonomous research — the headline Phase D capability — was effectively non-functional; only the seed-URL path worked. The Phase D unit test masked it by mocking `_searchTool.execute()` with the content-wrapped shape (encoding the orchestrator's wrong assumption). Fix: orchestrator now handles both shapes; all six search-tool mocks in `tests/unit/phaseD-regressions.test.js` corrected to the real raw shape so the suite guards the path. Verified live (`agent({prompt})` no-URL now searches → fetches → synthesizes). Unit suite 381/0 (sandbox-off); `npm test` 0 errors. Version 4.6.0 → 4.6.1. Files: `src/core/AgentOrchestrator.js`, `tests/unit/phaseD-regressions.test.js`, `CHANGELOG.md`, `PRD.md`, `package.json`.
+
 ### v4.6.0 — Phase D: Firecrawl-Competitive — Agent + Unified Scrape + Onboarding (2026-06-07)
 
 Fourth execution phase of `IMPROVEMENT_PLAN.md`. Closes the three Firecrawl feature gaps with no clean CrawlForge equivalent — an autonomous **agent**, a **unified scrape** entry point, and **ranked map** — plus a one-command onboarding flow, all **local-first** (MCP-native primitives + local-LLM via Ollama; no cloud proxy/reliability layer). Purely additive: tool count 24 → 26, no breaking changes to existing tools.

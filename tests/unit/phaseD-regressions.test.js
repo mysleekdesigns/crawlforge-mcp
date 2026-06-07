@@ -92,18 +92,14 @@ describe('D1.1 AgentOrchestrator terminates at maxSteps', async () => {
 
     // Mock search tool: returns enough URLs to fill the queue
     const searchUrls = Array.from({ length: 15 }, (_, i) => `https://example.com/p${i}`);
+    // SearchWebTool.execute() returns the raw results object (not MCP content-wrapped).
     o._searchTool = {
       execute: async () => ({
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            results: searchUrls.map((u, i) => ({
-              link: u,
-              title: `Page ${i}`,
-              snippet: 'testing content for agent orchestrator'
-            }))
-          })
-        }]
+        results: searchUrls.map((u, i) => ({
+          link: u,
+          title: `Page ${i}`,
+          snippet: 'testing content for agent orchestrator'
+        }))
       })
     };
 
@@ -146,16 +142,11 @@ describe('D1.2 AgentOrchestrator terminates at maxUrls', async () => {
     const searchUrls = Array.from({ length: 15 }, (_, i) => `https://test.com/page${i}`);
     o._searchTool = {
       execute: async () => ({
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            results: searchUrls.map((u, i) => ({
-              link: u,
-              title: `Test ${i}`,
-              snippet: 'research topic content here'
-            }))
-          })
-        }]
+        results: searchUrls.map((u, i) => ({
+          link: u,
+          title: `Test ${i}`,
+          snippet: 'research topic content here'
+        }))
       })
     };
 
@@ -197,16 +188,11 @@ describe('D1.3 AgentOrchestrator clamps maxSteps to hard ceiling of 10', async (
     const searchUrls = Array.from({ length: 30 }, (_, i) => `https://clamp-test.com/p${i}`);
     o._searchTool = {
       execute: async () => ({
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            results: searchUrls.map((u, i) => ({
-              link: u,
-              title: `Page ${i}`,
-              snippet: 'content clamp test data'
-            }))
-          })
-        }]
+        results: searchUrls.map((u, i) => ({
+          link: u,
+          title: `Page ${i}`,
+          snippet: 'content clamp test data'
+        }))
       })
     };
 
@@ -264,16 +250,11 @@ describe('D1.4 AgentOrchestrator clamps maxUrls to hard ceiling of 20', async ()
     const searchUrls = Array.from({ length: 50 }, (_, i) => `https://maxurls-test.com/p${i}`);
     o._searchTool = {
       execute: async () => ({
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            results: searchUrls.map((u, i) => ({
-              link: u,
-              title: `URL ${i}`,
-              snippet: 'large url test query data content'
-            }))
-          })
-        }]
+        results: searchUrls.map((u, i) => ({
+          link: u,
+          title: `URL ${i}`,
+          snippet: 'large url test query data content'
+        }))
       })
     };
 
@@ -318,10 +299,7 @@ describe('D1.5 AgentOrchestrator wall-clock time-budget stop', async () => {
     // Search tool should be reachable but deadline will fire before any fetch
     o._searchTool = {
       execute: async () => ({
-        content: [{
-          type: 'text',
-          text: JSON.stringify({ results: [{ link: 'https://wallclock.com/page', title: 'T', snippet: 'test query content data' }] })
-        }]
+        results: [{ link: 'https://wallclock.com/page', title: 'T', snippet: 'test query content data' }]
       })
     };
 
@@ -370,12 +348,7 @@ describe('D1.6 AgentOrchestrator no-LLM-key path returns degraded, not throw', a
     // Search tool returns one URL with relevant content
     o._searchTool = {
       execute: async () => ({
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            results: [{ link: 'https://nollm.com/page', title: 'No LLM', snippet: 'nollm test evidence content' }]
-          })
-        }]
+        results: [{ link: 'https://nollm.com/page', title: 'No LLM', snippet: 'nollm test evidence content' }]
       })
     };
 
