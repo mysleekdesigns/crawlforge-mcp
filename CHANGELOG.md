@@ -3,7 +3,9 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
-## [Unreleased]
+## [4.6.4] - 2026-06-09
+
+Patch — fixes `deep_research` silently returning zero sources (and the same hole in `agent model:"pro"`), caught by live MCP usage.
 
 ### Fixed
 
@@ -15,6 +17,10 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
 ### Added
 
 - **`tests/unit/researchSearchKey.test.js`** — 11 regression tests: key plumbing across all five research approaches, agent-pro `searchConfig` forwarding, loud all-failed behavior + metrics accuracy, partial-failure tolerance, and error-payload surfacing.
+
+### Changed
+
+- **Version sync** — `package.json`, `server.json` (manifest + npm package entry), and the `McpServer` version in `server.js` bumped to `4.6.4`.
 
 ## [4.6.3] - 2026-06-07
 
