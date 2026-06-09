@@ -500,54 +500,56 @@ class AuthManager {
   }
 
   /**
-   * Get credit cost for a tool
+   * Get credit cost for a tool.
+   *
+   * Open-core Phase 1 (docs/tier-map.md): this table is the single source of
+   * truth shared with the backend (crawlforge-website/src/lib/credits.ts).
+   * Tier 0 tools run locally on the user's machine and cost 0; Tier 1 tools
+   * are metered per COGS.
+   *
+   * @param {string} tool
+   * @param {object} [params] — invocation params; only used for per-call
+   *        exceptions (scrape's screenshot format needs a server browser).
    */
-  getToolCost(tool) {
+  getToolCost(tool, params) {
+    // Tier-0 exception: the screenshot format of `scrape` is browser-backed
+    if (tool === 'scrape' && Array.isArray(params?.formats) && params.formats.includes('screenshot')) {
+      return 2;
+    }
+
     const costs = {
-      // Basic tools (1 credit)
-      fetch_url: 1,
-      extract_text: 1,
-      extract_links: 1,
-      extract_metadata: 1,
-      
-      // Advanced tools (2-3 credits)
-      scrape_structured: 2,
-      search_web: 2,
-      summarize_content: 2,
-      analyze_content: 2,
-      
-      // Premium tools (5-10 credits)
-      crawl_deep: 5,
-      map_site: 5,
-      batch_scrape: 5,
-      deep_research: 10,
-      stealth_mode: 10,
-      
-      // Heavy processing (3-5 credits)
-      process_document: 3,
-      extract_content: 3,
-      scrape_with_actions: 5,
-      generate_llms_txt: 3,
-      localization: 5,
+      // Tier 0 — free, local (key optional)
+      fetch_url: 0,
+      extract_text: 0,
+      extract_links: 0,
+      extract_metadata: 0,
+      scrape_structured: 0,
+      scrape_template: 0,
+      extract_content: 0,
+      scrape: 0, // 2 if formats includes 'screenshot' (handled above)
+      summarize_content: 0,
+      analyze_content: 0,
+      extract_with_llm: 0,
+      extract_structured: 0,
+      process_document: 0,
+      list_ollama_models: 0,
+      get_batch_results: 0, // retrieval of an already-paid batch job
+
+      // Tier 1 — metered (costs reflect COGS)
+      map_site: 3,
       track_changes: 3,
-      
-      // Phase 1: LLM-Powered Structured Extraction
-      extract_structured: 4,
-
-      // D3.3: Pre-built site templates (1 credit — same as fetch_url)
-      extract_with_llm: 5,
-
-      // D3.3: Pre-built site templates (1 credit per template scrape)
-      scrape_template: 1,
-
-      // Phase D (v4.6.0)
-      // scrape: base 2; projectCost() scales with format count
-      scrape: 2,
-      // agent: base 8; projectCost() scales with maxUrls
-      agent: 8
+      generate_llms_txt: 5,
+      search_web: 5,
+      crawl_deep: 5,
+      batch_scrape: 5,
+      scrape_with_actions: 5,
+      localization: 5,
+      agent: 8, // projectCost() scales with maxUrls
+      deep_research: 10,
+      stealth_mode: 10
     };
 
-    return costs[tool] || 1;
+    return costs[tool] ?? 1;
   }
 
   /**
@@ -563,11 +565,11 @@ class AuthManager {
    * @returns {{ projected: number, note: string }}
    */
   projectCost(toolName, params) {
-    const base = this.getToolCost(toolName);
+    const base = this.getToolCost(toolName, params);
 
     // Override for tools whose cost scales with params
     let projected = base;
-    let note = 'Fixed cost per invocation.';
+    let note = base === 0 ? 'Free local tool — no credits charged.' : 'Fixed cost per invocation.';
 
     switch (toolName) {
       case 'batch_scrape': {
@@ -589,13 +591,14 @@ class AuthManager {
         break;
       }
       case 'extract_with_llm':
-        note = 'Includes external LLM API call cost (not billed in credits, billed by your LLM provider).';
+        note = 'Free local tool. External LLM API call billed by your LLM provider, not in credits.';
         break;
       case 'scrape': {
-        // Base 2 + 1 per format beyond the first
-        const fmtCount = Array.isArray(params?.formats) ? params.formats.length : 1;
-        projected = Math.max(base, base + Math.max(0, fmtCount - 1));
-        note = `Estimated from ${fmtCount} format(s). json format may incur external LLM cost.`;
+        // Free local tool; only the browser-backed screenshot format is metered
+        projected = base;
+        note = base > 0
+          ? 'screenshot format requires a server browser (2 credits). Other formats are free.'
+          : 'Free local tool — no credits charged. json format may incur external LLM cost.';
         break;
       }
       case 'agent': {
@@ -606,7 +609,7 @@ class AuthManager {
         break;
       }
       default:
-        note = 'Fixed cost per invocation.';
+        note = base === 0 ? 'Free local tool — no credits charged.' : 'Fixed cost per invocation.';
     }
 
     return { projected, note };
