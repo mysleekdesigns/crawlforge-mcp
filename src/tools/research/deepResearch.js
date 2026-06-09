@@ -2,6 +2,7 @@ import { z } from 'zod';
 // D1.4: Elicitation helper (injected from server.js or can be used standalone)
 import { ElicitationHelper } from '../../core/ElicitationHelper.js';
 import { ResearchOrchestrator } from '../../core/ResearchOrchestrator.js';
+import { getToolConfig } from '../../constants/config.js';
 import { Logger } from '../../utils/Logger.js';
 
 /**
@@ -172,6 +173,20 @@ export class DeepResearchTool {
           this.buildResearchOptions(validated)
         );
 
+        // conductResearch never rejects — orchestrator failures come back as a
+        // handleResearchError() payload. Surface them as a failed run instead
+        // of formatting them into a success-shaped result.
+        if (researchResults?.error) {
+          this.activeSessions.delete(sessionId);
+          return {
+            success: false,
+            sessionId,
+            error: researchResults.error,
+            partialResults: validated.includeRawData ? researchResults.partialResults : undefined,
+            recommendations: researchResults.recommendations
+          };
+        }
+
         // Format results according to output preference
         const formattedResults = this.formatResults(researchResults, validated);
 
@@ -236,7 +251,15 @@ export class DeepResearchTool {
    */
   buildOrchestratorConfig(params) {
     const baseConfig = { ...this.defaultOrchestratorConfig };
-    
+
+    // The orchestrator constructs its own SearchWebTool, so it needs the same
+    // config (apiKey/apiBaseUrl) as the registered search_web tool — without
+    // it every internal search throws and research returns zero sources.
+    baseConfig.searchConfig = {
+      ...getToolConfig('search_web'),
+      ...baseConfig.searchConfig
+    };
+
     // Add LLM configuration if provided
     if (params.llmConfig) {
       baseConfig.llmConfig = params.llmConfig;
@@ -259,6 +282,7 @@ export class DeepResearchTool {
           maxDepth: Math.min(params.maxDepth, 8),
           enableSourceVerification: true,
           searchConfig: {
+            ...baseConfig.searchConfig,
             enableRanking: true,
             rankingWeights: {
               authority: 0.4, // Higher weight for academic sources
@@ -275,6 +299,7 @@ export class DeepResearchTool {
           ...scopeConfig,
           maxDepth: Math.min(params.maxDepth, 6),
           searchConfig: {
+            ...baseConfig.searchConfig,
             enableRanking: true,
             rankingWeights: {
               freshness: 0.4, // Prioritize recent content
@@ -301,6 +326,7 @@ export class DeepResearchTool {
           enableConflictDetection: true,
           maxDepth: params.maxDepth,
           searchConfig: {
+            ...baseConfig.searchConfig,
             enableDeduplication: true,
             deduplicationThresholds: {
               url: 0.9,

@@ -409,18 +409,20 @@ export class ResearchOrchestrator extends EventEmitter {
    */
   async gatherInitialSources(queries, options) {
     const allSources = [];
+    const searchErrors = [];
+    const attemptedQueries = queries.slice(0, 5);
     const maxSourcesPerQuery = Math.ceil(this.maxUrls / queries.length);
-    
+
     await this.processWithTimeLimit(async () => {
-      const searchPromises = queries.slice(0, 5).map(async (query) => {
+      const searchPromises = attemptedQueries.map(async (query) => {
         try {
-          this.metrics.searchQueries++;
           const searchResults = await this.searchTool.execute({
             query,
             limit: maxSourcesPerQuery,
             enable_ranking: true,
             enable_deduplication: true
           });
+          this.metrics.searchQueries++;
 
           if (searchResults.results && searchResults.results.length > 0) {
             const processedResults = searchResults.results.map(result => ({
@@ -437,6 +439,7 @@ export class ResearchOrchestrator extends EventEmitter {
           return [];
         } catch (error) {
           this.logger.warn('Search failed for query', { query, error: error.message });
+          searchErrors.push({ query, error: error.message });
           return [];
         }
       });
@@ -444,6 +447,14 @@ export class ResearchOrchestrator extends EventEmitter {
       const results = await Promise.all(searchPromises);
       results.forEach(sources => allSources.push(...sources));
     });
+
+    // Fail loudly when every search threw (e.g. missing API key) instead of
+    // reporting a successful research run with zero sources.
+    if (searchErrors.length === attemptedQueries.length && searchErrors.length > 0) {
+      throw new Error(
+        `All ${searchErrors.length} search queries failed — first error: ${searchErrors[0].error}`
+      );
+    }
 
     // Deduplicate and rank sources
     const uniqueSources = this.deduplicateSources(allSources);

@@ -99,7 +99,10 @@ export class AgentOrchestrator {
       const { ResearchOrchestrator } = await import('./ResearchOrchestrator.js');
       this._researchOrchestrator = new ResearchOrchestrator({
         maxUrls: 50,
-        timeLimit: DEFAULT_WALL_CLOCK_MS
+        timeLimit: DEFAULT_WALL_CLOCK_MS,
+        // Without this the orchestrator builds a keyless SearchWebTool and
+        // every pro-model search silently fails (zero sources).
+        searchConfig: this._searchConfig
       });
     }
     return this._researchOrchestrator;
@@ -147,6 +150,15 @@ export class AgentOrchestrator {
           timeLimit: wallClockMs,
           researchApproach: 'focused'
         });
+        // conductResearch never rejects — failures come back as an error payload
+        if (result?.error) {
+          return {
+            success: false,
+            degraded: true,
+            reason: `pro research failed: ${result.error}`,
+            answer: null
+          };
+        }
         return { success: true, answer: result, model: 'pro', degraded: false };
       } catch (err) {
         // Fall through to default path on pro failure

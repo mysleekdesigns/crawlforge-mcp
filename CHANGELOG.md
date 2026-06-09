@@ -3,6 +3,19 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [Unreleased]
+
+### Fixed
+
+- **`deep_research` returned zero sources, silently.** `ResearchOrchestrator` builds its own private `SearchWebTool`, but no layer of the `deep_research` stack ever passed it the `search_web` tool config (`apiKey`/`apiBaseUrl`): `server.js` constructs `DeepResearchTool` with no options, and `buildOrchestratorConfig()`'s per-approach `searchConfig` blocks carried only ranking/dedup weights. Every internal search threw "API key is required", the per-query catch swallowed it, and — because `metrics.searchQueries` incremented *before* the call — the result reported a successful run with 4–5 search queries and `urlsProcessed: 0`. (Pre open-core Phase 2 this failed loudly at construction; the key-optional constructor turned it into silent empty success.) `buildOrchestratorConfig()` now merges `getToolConfig('search_web')` into `searchConfig` for all five research approaches. `src/tools/research/deepResearch.js`
+- **`agent` tool `model:"pro"` had the same hole.** `AgentOrchestrator` passed its `searchConfig` to its direct search tool but not to the `ResearchOrchestrator` it lazily constructs for pro runs. Now forwarded. `src/core/AgentOrchestrator.js`
+- **All-queries-failed searches no longer masquerade as success.** `gatherInitialSources()` now throws when every attempted search query fails (carrying the first underlying error), and only counts `metrics.searchQueries` for searches that actually executed; partial failure (some queries fail, some succeed) still proceeds. `src/core/ResearchOrchestrator.js`
+- **Orchestrator error payloads surfaced as failures.** `conductResearch()` never rejects — it returns a `handleResearchError()` payload — which `DeepResearchTool` previously formatted into a `success: true` result and the agent pro path wrapped as a successful answer. Both now detect the `error` field and return `success: false` with the message (deep_research includes `partialResults` under `includeRawData` and the recovery recommendations). `src/tools/research/deepResearch.js`, `src/core/AgentOrchestrator.js`
+
+### Added
+
+- **`tests/unit/researchSearchKey.test.js`** — 11 regression tests: key plumbing across all five research approaches, agent-pro `searchConfig` forwarding, loud all-failed behavior + metrics accuracy, partial-failure tolerance, and error-payload surfacing.
+
 ## [4.6.3] - 2026-06-07
 
 Patch — README rendering fix so the npm package page matches GitHub. No tool or runtime behavior changes.
