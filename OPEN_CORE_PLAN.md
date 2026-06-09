@@ -112,18 +112,34 @@ Tier-0 tools: `fetch_url`, `extract_text`, `extract_links`, `extract_metadata`,
 you already have.
 
 **Tasks**
-- [ ] Pull credits-by-tool for the last 90 days from `UsageLog` (website already exposes
-      `src/app/api/dashboard/usage` + `src/app/api/usage/tools`, or run a one-off Prisma query).
-- [ ] Rank tools by share of paid credit consumption.
-- [ ] Record the finding here:
+- [x] Pull credits-by-tool for the last 90 days from `UsageLog` — ran
+      `crawlforge-website/scripts/usage-by-tool-90d.ts` (new, read-only Prisma groupBy)
+      against production on 2026-06-09.
+- [x] Rank tools by share of paid credit consumption.
+- [x] Record the finding here (window 2026-03-11 → 2026-06-09; **6 active users, 1 paid**;
+      2,932 total credits, 1,974 from paid plans — costs are the *old* pre-Phase-1 table):
 
       | Tool | % of paid credits (90d) | Already server-side? |
       |------|------------------------:|----------------------|
-      | _fill in_ | | |
+      | `search_web` | **82.7%** (1,633 cr, 380 calls) | ✅ yes (`/api/v1/search`) |
+      | `deep_research` | 6.6% (130 cr, 13 calls) | ❌ local |
+      | `extract_content` | 5.8% (114 cr) | n/a — now Tier-0 free |
+      | `scrape` | 3.3% (66 cr) | n/a — now Tier-0 free |
+      | `fetch_url` | 1.4% (28 cr) | n/a — now Tier-0 free |
+      | everything else | <0.2% each | — |
+      | `stealth_mode` | **0%** paid (1 free-tier call total) | ❌ stub |
 
 **Decision gate**
-- [ ] If revenue concentrates in `search_web` + `stealth_mode` → **stop after Phase 4.**
-- [ ] Else → list the specific Tier-1 tools that justify Phase 5.
+- [x] Revenue concentrates overwhelmingly in `search_web` (82.7% of paid credits), which is
+      **already server-side and enforceable**. Tier-0 tools we just freed carried only ~10% of
+      paid credits — cheap to give up, and uncollectable from a patched client anyway.
+      → **Stop after Phase 4. Phase 5 is not justified by data.**
+- [x] No Tier-1 tool clears the bar for Phase 5. `deep_research` (6.6%, 13 calls) is the only
+      other non-trivial paid consumer — revisit only if its absolute volume grows. Note
+      `stealth_mode` had essentially zero usage (1 call, none paid), so Phase 4 remains
+      justified **strategically** (proof-of-pattern; the one tool whose value is real,
+      unhostable infrastructure) rather than by current revenue — at this scale (~2k paid
+      credits/90d) enforcement-driven migration beyond it would be premature optimization.
 
 **Risk:** none (read-only) · **Repos:** backend (read)
 
