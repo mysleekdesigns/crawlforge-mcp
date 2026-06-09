@@ -80,20 +80,27 @@ Tier-0 tools: `fetch_url`, `extract_text`, `extract_links`, `extract_metadata`,
 `summarize_content`, `analyze_content`, `extract_with_llm`, `process_document`, `list_ollama_models`.
 
 **Tasks**
-- [ ] Set all Tier-0 tools to cost 0 (from Phase 1 table).
-- [ ] `src/server/withAuth.js`: a 0-cost tool skips the credit check **and** the usage report.
-- [ ] `src/core/AuthManager.js`: allow Tier-0 tools to run with **no configured API key**
-      (relax the "not configured" hard-fail for 0-cost tools only).
-- [ ] Keep the `screenshot` format of `scrape` gated as Tier-1 (needs server browser).
-- [ ] README + pricing-page copy: "free local tools + metered premium tools."
-- [ ] Reconcile plan naming: README says *Free / Starter / Professional / Enterprise*; engine uses
-      *free / hobby / professional / business* (`crawlforge-website/src/lib/stripe/products.ts`).
+- [x] Set all Tier-0 tools to cost 0 (done in Phase 1 table).
+- [x] `src/server/withAuth.js`: a 0-cost tool skips the credit check **and** the usage report
+      (including the error path's half-credit charge, which would have billed 1 credit).
+- [x] `src/core/AuthManager.js`: allow Tier-0 tools to run with **no configured API key**
+      (`checkCredits(0)` returns true before the "not configured" hard-fail).
+- [x] `server.js`: the no-key startup gate no longer `process.exit(0)`s — server starts in
+      free-tier mode with a stderr notice. `SearchWebTool` constructor no longer throws without
+      a key (requirement moved to execute() time; SearXNG provider unaffected).
+- [x] Keep the `screenshot` format of `scrape` gated as Tier-1 (params-aware `getToolCost` → 2).
+- [x] README + pricing-page copy: "free local tools + metered premium tools"
+      (README tool tables restructured; website pricing page `toolCredits` re-tiered +
+      `pricing.credits` strings updated in all 4 locales; playground gained the 3 new tools).
+- [x] Reconcile plan naming: README now uses the engine's names —
+      *Free / Hobby ($19) / Professional ($99) / Business ($399)*.
 
 **Verification**
-- [ ] With **no** API key configured: Tier-0 tools return results, no credit error;
-      `_cost.actual === 0`.
-- [ ] With no key: Tier-1 tools still demand a key.
-- [ ] `npm test` (MCP compliance) + `npm run test:unit` green.
+- [x] With **no** API key configured: Tier-0 tools return results, no credit error;
+      `_cost.actual === 0` (`scripts/smoke-free-tier.mjs` — 6/6 checks, live stdio run).
+- [x] With no key: Tier-1 tools still demand a key (`search_web` → "CrawlForge not configured").
+- [x] `npm test` (MCP compliance, same pre-existing 70% baseline) + `npm run test:unit`
+      (387/387, incl. 6 new Phase-2 tests) green; website `type-check` + `test:unit:stable` green.
 
 **Risk:** low · **Repos:** client + docs/site copy
 

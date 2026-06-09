@@ -4,7 +4,8 @@
  * (OpenTelemetry spans + Prometheus counters) added in v3.2.0.
  *
  * Contract:
- *   - resolves toolCost once per call
+ *   - resolves toolCost once per call (params-aware; 0-cost Tier-0 tools skip
+ *     the credit check and usage reports entirely — open-core Phase 2)
  *   - try/finally guarantees a single `tool invocation` log line per call
  *   - log payload: { toolName, paramHash, durationMs, outcome, creditCost, creatorMode }
  *   - outcome ∈ { 'success' | 'error' | 'insufficient_credits' }
@@ -35,12 +36,16 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
       const startTime = Date.now();
       const paramHash = hashParams(params);
       const creatorMode = authManager.isCreatorMode();
-      const creditCost = creatorMode ? 0 : authManager.getToolCost(toolName);
+      // Params-aware: scrape's screenshot format is metered, other formats free
+      const creditCost = creatorMode ? 0 : authManager.getToolCost(toolName, params);
+      // Open-core Phase 2: Tier-0 tools (cost 0) run locally for free — no
+      // credit check, no usage report, and no API key required.
+      const freeTier = creditCost === 0;
       let outcome = 'pending';
       let thrown = null;
 
       try {
-        if (!creatorMode) {
+        if (!creatorMode && !freeTier) {
           const hasCredits = await authManager.checkCredits(creditCost);
           if (!hasCredits) {
             outcome = 'insufficient_credits';
@@ -85,7 +90,7 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
           // Cost injection must never break the request path
         }
 
-        if (!creatorMode) {
+        if (!creatorMode && !freeTier) {
           await authManager.reportUsage(toolName, creditCost, params, 200, Date.now() - startTime);
         }
 
@@ -93,7 +98,7 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
       } catch (error) {
         outcome = 'error';
         thrown = error;
-        if (!creatorMode) {
+        if (!creatorMode && !freeTier) {
           await authManager.reportUsage(
             toolName,
             Math.max(1, Math.floor(creditCost * 0.5)),

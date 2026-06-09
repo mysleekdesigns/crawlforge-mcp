@@ -79,19 +79,23 @@ export class SearchWebTool {
     // Check for Creator Mode - allows search without API key for development/testing
     const isCreatorMode = isCreatorModeVerified();
 
+    // Open-core Phase 2: no API key is allowed at construction time (the server
+    // now starts in free-tier mode without one). The key requirement is
+    // enforced at execute() time instead, so Tier-0 tools keep working.
     if (!apiKey && !isCreatorMode) {
-      throw new Error('CrawlForge API key is required for search functionality');
-    }
-
-    // Create the search adapter (CrawlForge API proxy or Google Search API direct in Creator Mode)
-    try {
-      this.searchAdapter = SearchProviderFactory.createAdapter(apiKey, {
-        apiBaseUrl,
-        creatorMode: isCreatorMode
-      });
-      this.isCreatorModeFallback = !apiKey && isCreatorMode;
-    } catch (error) {
-      throw new Error(`Failed to initialize search adapter: ${error.message}`);
+      this.searchAdapter = null;
+      this.isCreatorModeFallback = false;
+    } else {
+      // Create the search adapter (CrawlForge API proxy or Google Search API direct in Creator Mode)
+      try {
+        this.searchAdapter = SearchProviderFactory.createAdapter(apiKey, {
+          apiBaseUrl,
+          creatorMode: isCreatorMode
+        });
+        this.isCreatorModeFallback = !apiKey && isCreatorMode;
+      } catch (error) {
+        throw new Error(`Failed to initialize search adapter: ${error.message}`);
+      }
     }
 
     this.cache = cacheEnabled ? new CacheManager({ ttl: cacheTTL }) : null;
@@ -122,6 +126,11 @@ export class SearchWebTool {
         return await this._executeViaSearxng(validated);
       }
       // --- end SearXNG short-circuit ---
+
+      // Free-tier mode: search via the CrawlForge proxy needs an API key
+      if (!this.searchAdapter) {
+        throw new Error('CrawlForge API key is required for search functionality. Get one at https://www.crawlforge.dev/signup');
+      }
 
       // Apply localization if specified
       let localizedParams = validated;

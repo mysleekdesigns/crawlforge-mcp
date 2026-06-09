@@ -213,3 +213,68 @@ test('reportUsage: queued entries flush on next successful reportUsage call', as
 
   await removeTempHome(tempHome);
 });
+
+// ─── Open-core Phase 2 — free Tier-0 tools, key-optional ─────────────────────
+
+test('checkCredits: cost 0 returns true with NO config (key-optional free tier)', async (t) => {
+  if (skipIfCreatorMode(t)) return;
+  const tempHome = await makeTempHome();
+  resetSingleton(tempHome, 'test-user-free');
+  authManager.config = null; // simulate: no API key configured
+
+  let fetchCalled = false;
+  global.fetch = async () => { fetchCalled = true; throw new Error('must not be called'); };
+
+  try {
+    assert.equal(await authManager.checkCredits(0), true, 'free tools pass without a key');
+    assert.equal(fetchCalled, false, 'no backend call for a 0-cost check');
+  } finally {
+    await removeTempHome(tempHome);
+  }
+});
+
+test('checkCredits: metered cost with NO config still throws "not configured"', async (t) => {
+  if (skipIfCreatorMode(t)) return;
+  const tempHome = await makeTempHome();
+  resetSingleton(tempHome, 'test-user-free-2');
+  authManager.config = null;
+
+  try {
+    await assert.rejects(
+      () => authManager.checkCredits(5),
+      /not configured/i,
+      'Tier-1 tools must still demand a key'
+    );
+  } finally {
+    await removeTempHome(tempHome);
+  }
+});
+
+test('getToolCost: reconciled tier-map table (Tier 0 free, Tier 1 metered, screenshot surcharge)', () => {
+  // Tier 0 — free local
+  for (const tool of [
+    'fetch_url', 'extract_text', 'extract_links', 'extract_metadata', 'scrape_structured',
+    'scrape_template', 'extract_content', 'scrape', 'summarize_content', 'analyze_content',
+    'extract_with_llm', 'extract_structured', 'process_document', 'list_ollama_models',
+    'get_batch_results'
+  ]) {
+    assert.equal(authManager.getToolCost(tool), 0, `${tool} should be free`);
+  }
+  // Tier 1 — metered
+  assert.equal(authManager.getToolCost('map_site'), 3);
+  assert.equal(authManager.getToolCost('track_changes'), 3);
+  assert.equal(authManager.getToolCost('generate_llms_txt'), 5);
+  assert.equal(authManager.getToolCost('search_web'), 5);
+  assert.equal(authManager.getToolCost('crawl_deep'), 5);
+  assert.equal(authManager.getToolCost('batch_scrape'), 5);
+  assert.equal(authManager.getToolCost('scrape_with_actions'), 5);
+  assert.equal(authManager.getToolCost('localization'), 5);
+  assert.equal(authManager.getToolCost('agent'), 8);
+  assert.equal(authManager.getToolCost('deep_research'), 10);
+  assert.equal(authManager.getToolCost('stealth_mode'), 10);
+  // Per-call exception: scrape's screenshot format needs a server browser
+  assert.equal(authManager.getToolCost('scrape', { formats: ['markdown', 'screenshot'] }), 2);
+  assert.equal(authManager.getToolCost('scrape', { formats: ['markdown'] }), 0);
+  // Unknown tools fall back to 1 (not 0)
+  assert.equal(authManager.getToolCost('unknown_tool'), 1);
+});

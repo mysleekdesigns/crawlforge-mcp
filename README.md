@@ -67,7 +67,9 @@
 npm install -g crawlforge-mcp-server
 ```
 
-### 2. Setup Your API Key
+### 2. Setup Your API Key (optional for the free local tools)
+
+The 15 free local tools work immediately with **no API key at all** — skip straight to step 3 if that's all you need. To unlock the metered premium tools (`search_web`, `crawl_deep`, `stealth_mode`, `agent`, …):
 
 ```bash
 npx crawlforge-setup
@@ -148,7 +150,9 @@ Restart Cursor to activate.
 
 ## 📊 Available Tools
 
-**Basic Tools** (1 credit each)
+CrawlForge is **open-core**: 15 tools run locally on your machine and are **completely free — no API key required**. The metered premium tools cover real infrastructure (search fees, proxies, browser farms) and need an API key.
+
+**Free Local Tools** (0 credits, no API key needed)
 
 | Tool | What it does |
 |------|--------------|
@@ -156,43 +160,33 @@ Restart Cursor to activate.
 | `extract_text` | Extract clean text from web pages |
 | `extract_links` | Get all links from a page |
 | `extract_metadata` | Extract page metadata (title, OG tags, schema.org) |
-| `scrape_template` | Structured data from well-known sites (Amazon, GitHub, LinkedIn, YouTube, Reddit, Hacker News, npm, and more) without writing selectors |
-
-**Advanced Tools** (2–3 credits)
-
-| Tool | What it does |
-|------|--------------|
-| `scrape` | **Unified single-fetch, multi-format extraction.** Pass a `formats` array (markdown/html/rawHtml/text/links/metadata/screenshot/json-schema) plus `onlyMainContent`; one fetch serves every requested format with per-format partial-success warnings |
+| `scrape` | **Unified single-fetch, multi-format extraction.** Pass a `formats` array (markdown/html/rawHtml/text/links/metadata/screenshot/json-schema) plus `onlyMainContent`; one fetch serves every requested format with per-format partial-success warnings. *The `screenshot` format is the one metered exception (2 credits — needs a server browser)* |
 | `scrape_structured` | Extract structured data with CSS selectors |
-| `search_web` | Search the web using Google Search API |
+| `scrape_template` | Structured data from well-known sites (Amazon, GitHub, LinkedIn, YouTube, Reddit, Hacker News, npm, and more) without writing selectors |
+| `extract_content` | Enhanced content extraction |
 | `summarize_content` | Generate intelligent summaries |
 | `analyze_content` | Comprehensive content analysis |
-| `extract_structured` | LLM-powered schema-driven extraction |
+| `extract_structured` | LLM-powered schema-driven extraction (your own LLM key or local Ollama) |
 | `extract_with_llm` | Natural-language extraction. **Defaults to a local Ollama model — no API key, no API costs.** Pass `provider: "openai" \| "anthropic"` with the matching key for cloud models |
-| `list_ollama_models` | List the Ollama models installed locally (free; helps you pick a `model` for `extract_with_llm`) |
-| `track_changes` | Monitor content changes over time |
+| `process_document` | Multi-format document processing |
+| `list_ollama_models` | List the Ollama models installed locally (helps you pick a `model` for `extract_with_llm`) |
 | `get_batch_results` | Retrieve paginated results for a `batch_scrape` job by `batchId` |
 
-**Premium Tools** (5–10 credits)
+**Metered Premium Tools** (3–10 credits, API key required)
 
-| Tool | What it does |
-|------|--------------|
-| `agent` | **Autonomous research/extraction from a natural-language prompt — no URLs required.** Plans, gathers, and shapes an answer under hard safety stops (max steps/URLs/wall-clock enforced by the orchestrator, never the LLM) |
-| `crawl_deep` | Deep crawl entire websites |
-| `map_site` | Discover and map website structure (optional `search=` ranks the discovered URLs) |
-| `batch_scrape` | Process multiple URLs simultaneously |
-| `deep_research` | Multi-stage research with source verification |
-| `stealth_mode` | Anti-detection browser management |
-
-**Heavy Processing** (3–10 credits)
-
-| Tool | What it does |
-|------|--------------|
-| `process_document` | Multi-format document processing |
-| `extract_content` | Enhanced content extraction |
-| `scrape_with_actions` | Browser automation chains |
-| `generate_llms_txt` | Generate AI interaction guidelines |
-| `localization` | Multi-language and geo-location management |
+| Tool | Credits | What it does |
+|------|---------|--------------|
+| `map_site` | 3 | Discover and map website structure (optional `search=` ranks the discovered URLs) |
+| `track_changes` | 3 | Monitor content changes over time |
+| `search_web` | 5 | Search the web using Google Search API |
+| `crawl_deep` | 5 | Deep crawl entire websites |
+| `batch_scrape` | 5 | Process multiple URLs simultaneously |
+| `scrape_with_actions` | 5 | Browser automation chains |
+| `generate_llms_txt` | 5 | Generate AI interaction guidelines |
+| `localization` | 5 | Multi-language and geo-location management |
+| `agent` | 8 | **Autonomous research/extraction from a natural-language prompt — no URLs required.** Plans, gathers, and shapes an answer under hard safety stops (max steps/URLs/wall-clock enforced by the orchestrator, never the LLM) |
+| `deep_research` | 10 | Multi-stage research with source verification |
+| `stealth_mode` | 10 | Anti-detection browser management |
 
 For the full canonical capabilities reference (all tools, CLI commands, stealth engines, research workflow), see [SKILL.md](SKILL.md).
 
@@ -200,15 +194,17 @@ For the full canonical capabilities reference (all tools, CLI commands, stealth 
 
 ## 💳 Pricing
 
+**15 local tools are free forever — no API key, no credit card.** Credits only meter the premium tools that run on CrawlForge infrastructure.
+
 | Plan | Credits/Month | Best For |
 |------|---------------|----------|
 | **Free** | 1,000 | Testing & personal projects |
-| **Starter** | 5,000 | Small projects & development |
-| **Professional** | 50,000 | Professional use & production |
-| **Enterprise** | 250,000 | Large scale operations |
+| **Hobby** ($19) | 5,000 | Small projects & development |
+| **Professional** ($99) | 50,000 | Professional use & production |
+| **Business** ($399) | 250,000 | Large scale operations |
 
 **All plans include:**
-- Access to all 26 tools
+- Access to all 26 tools (the 15 local tools never consume credits)
 - Credits never expire and roll over month-to-month
 - API access and webhook notifications
 
@@ -277,7 +273,7 @@ Once configured, use these tools in your AI assistant:
 
 ## 🔒 Security & Privacy
 
-- **Secure Authentication**: API keys required for all operations (no bypass methods)
+- **Secure Authentication**: API keys required for all metered premium tools (the 15 free local tools run without one)
 - **Local Storage**: API keys stored securely at `~/.crawlforge/config.json`
 - **HTTPS Only**: All connections use encrypted HTTPS
 - **No Data Retention**: We don't store scraped data, only usage logs
@@ -291,7 +287,7 @@ Once configured, use these tools in your AI assistant:
 - **Action allowlist**: `scrape_with_actions` accepts only 7 action types (`wait`, `click`, `type`, `press`, `scroll`, `screenshot`, `executeJavaScript`). No download, file-write, or arbitrary cross-page navigation primitives exist.
 - **JavaScript gate**: The `executeJavaScript` action throws by default. Set `ALLOW_JAVASCRIPT_EXECUTION=true` at deploy time to enable (not recommended in production).
 - **MCP Elicitation** (v3.6.0): Four tools request user confirmation before executing expensive operations — `deep_research` (>50 URLs), `batch_scrape` (sync mode, >25 URLs), `crawl_deep` (projected >500 pages), `extract_structured` (schema has >3 required fields with no LLM configured). Credit-low situations also elicit. Confirmation is best-effort: if the MCP client does not support elicitation the tool proceeds (fail-open).
-- **Per-tool credit gating**: Every tool is wrapped with `withAuth()`, which checks and deducts credits before execution. Fail-closed since v3.0.18.
+- **Per-tool credit gating**: Every tool is wrapped with `withAuth()`; metered tools check and deduct credits before execution (fail-closed since v3.0.18). Free local tools (cost 0) skip the credit path entirely.
 
 See [docs/sandboxing-and-approvals.md](docs/sandboxing-and-approvals.md) for the full reference.
 

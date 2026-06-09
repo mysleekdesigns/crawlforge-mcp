@@ -238,7 +238,12 @@ class AuthManager {
     if (this.isCreatorMode()) {
       return true;
     }
-    
+
+    // Open-core Phase 2: Tier-0 tools cost 0 and run without an API key
+    if (estimatedCredits === 0) {
+      return true;
+    }
+
     if (!this.config) {
       throw new Error('CrawlForge not configured. Run setup first.');
     }

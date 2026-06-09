@@ -26,11 +26,16 @@ function makeFakeLogger() {
 
 function makeFakeAuth({ creatorMode = false, creditsOk = true, toolCost = 1 } = {}) {
   const reportCalls = [];
+  const checkCalls = [];
+  const costCalls = [];
   return {
     reportCalls,
+    checkCalls,
+    costCalls,
     isCreatorMode: () => creatorMode,
-    getToolCost: () => toolCost,
-    checkCredits: async () => creditsOk,
+    getToolCost: (tool, params) => { costCalls.push([tool, params]); return toolCost; },
+    checkCredits: async (...args) => { checkCalls.push(args); return creditsOk; },
+    projectCost: () => ({ projected: toolCost, note: 'test' }),
     reportUsage: async (...args) => { reportCalls.push(args); }
   };
 }
@@ -126,6 +131,55 @@ test('withAuth: creator mode skips credit checks and reports, but still logs', a
   assert.equal(line.context.creditCost, 0, 'creator mode reports zero credit cost');
   assert.equal(line.context.outcome, 'success');
   assert.equal(auth.reportCalls.length, 0, 'no usage report in creator mode');
+});
+
+// ─── Open-core Phase 2 — free Tier-0 tools (cost 0) ──────────────────────────
+
+test('withAuth: 0-cost tool skips credit check and usage report, still logs and runs', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 0 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const handler = withAuth('fetch_url', async () => ({
+    content: [{ type: 'text', text: JSON.stringify({ ok: true }) }]
+  }));
+  const result = await handler({ url: 'https://example.com' });
+
+  assert.equal(auth.checkCalls.length, 0, 'no credit check for a free tool');
+  assert.equal(auth.reportCalls.length, 0, 'no usage report for a free tool');
+  const parsed = JSON.parse(result.content[0].text);
+  assert.equal(parsed._cost.actual, 0, '_cost.actual surfaces 0');
+  assert.equal(logger.calls.length, 1, 'still exactly one log line');
+  assert.equal(logger.calls[0].context.creditCost, 0);
+  assert.equal(logger.calls[0].context.outcome, 'success');
+});
+
+test('withAuth: 0-cost tool error path reports no usage (no half-credit charge)', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 0 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  await assert.rejects(
+    () => withAuth('extract_text', async () => { throw new Error('boom'); })({}),
+    /boom/
+  );
+
+  assert.equal(auth.reportCalls.length, 0, 'free tool must not be charged half credits on error');
+  assert.equal(logger.calls[0].context.outcome, 'error');
+});
+
+test('withAuth: resolves cost with params (scrape screenshot surcharge)', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 2 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const params = { url: 'https://example.com', formats: ['markdown', 'screenshot'] };
+  await withAuth('scrape', async () => ({ content: [{ type: 'text', text: '{}' }] }))(params);
+
+  assert.deepEqual(auth.costCalls[0], ['scrape', params], 'getToolCost receives the invocation params');
+  assert.equal(auth.checkCalls.length, 1, 'metered invocation still checks credits');
+  assert.equal(auth.reportCalls.length, 1, 'metered invocation still reports usage');
+  assert.equal(auth.reportCalls[0][1], 2, 'reports the params-resolved cost');
 });
 
 // ─── v3.2.0 (C4) — observability ──────────────────────────────────────────────

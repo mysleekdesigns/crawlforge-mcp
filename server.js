@@ -68,23 +68,15 @@ if (!AuthManager.isAuthenticated() && !AuthManager.isCreatorMode()) {
       process.exit(1);
     }
   } else {
-    console.log('');
-    console.log('╔═══════════════════════════════════════════════════════╗');
-    console.log('║        CrawlForge MCP Server - Setup Required         ║');
-    console.log('╚═══════════════════════════════════════════════════════╝');
-    console.log('');
-    console.log('Welcome! This appears to be your first time using CrawlForge.');
-    console.log('');
-    console.log('To get started, please run:');
-    console.log('  npm run setup');
-    console.log('');
-    console.log('Or set your API key via environment variable:');
-    console.log('  export CRAWLFORGE_API_KEY="your_api_key_here"');
-    console.log('');
-    console.log('Get your free API key at: https://www.crawlforge.dev/signup');
-    console.log('(Includes 1,000 free credits!)');
-    console.log('');
-    process.exit(0);
+    // Open-core Phase 2: no API key is fine — start in free-tier mode.
+    // Tier-0 tools (cost 0) run locally without a key; Tier-1 metered tools
+    // return a "not configured" error until a key is set.
+    // Status → stderr; stdout is reserved for the MCP JSON-RPC stream.
+    console.error('ℹ️  CrawlForge running in free-tier mode (no API key configured).');
+    console.error('   Free local tools work out of the box. Premium tools (search_web,');
+    console.error('   crawl_deep, stealth_mode, agent, deep_research, …) need an API key:');
+    console.error('   get one at https://www.crawlforge.dev/signup, then run `npm run setup`');
+    console.error('   or set CRAWLFORGE_API_KEY.');
   }
 }
 
