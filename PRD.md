@@ -6,11 +6,15 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — all three shipped in v4.1.0 — without breaking any existing MCP tools or the current setup flow.
 
-**Last Updated:** 2026-06-07
+**Last Updated:** 2026-06-15
 
 ---
 
 ## Release History
+
+### CI test fixes — stale basic-tool assertions + coverage hang (2026-06-15, no version bump)
+
+GitHub's `test:coverage` job surfaced three failing assertions in `tests/integration/tools/basicTools.test.js`, all stale test expectations that hadn't been updated when the B1 contracts changed (no source bug): (1) `extractMetadata` title — test still expected `<title>` ('Test Page') but B1's fallback chain is `og:title → <title> → h1`, so it now returns 'OG Title'; (2) `scrapeStructured` `elements_found` — B1 made it a per-field DOM-match object, but the test asserted `>= 1` on the object (`NaN`); (3) `extractLinks` `filter_external` — the integration test asserted "keeps internal", but Phase A (A1.1, v4.3.0) deliberately defined `filter_external:true` to return **only external** links and locked it with a regression test, so the *integration* test was wrong (the code was correct — an initial code "fix" was reverted after the A1.1 regression test caught it). All three corrected to match shipped contracts. Separately, the "Error: The operation was canceled" at the end of the CI coverage step was the `test:coverage` script hanging on the dangling Playwright handle left by importing `StealthBrowserManager` (the same case CLAUDE.md documents); added `--test-force-exit` to the script (the unit-test CI step already had it). The other 14 "failures" in a local coverage run are the pre-existing `searchWebSearxng`/`streamableHttp` suites that fail only under the command sandbox's `listen EPERM 127.0.0.1` restriction — verified 451/451 green with the sandbox disabled. Files: `tests/integration/tools/basicTools.test.js`, `package.json`, `PRD.md`.
 
 ### v4.6.4 — Fix: deep_research silent zero-source runs + agent-pro search key plumbing (2026-06-09)
 

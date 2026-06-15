@@ -215,12 +215,14 @@ test('extractLinksHandler: deduplicates repeated links', async () => {
   }
 });
 
-test('extractLinksHandler: filter_external:true removes external links', async () => {
+test('extractLinksHandler: filter_external:true returns only external links', async () => {
   mockFetch(SAMPLE_HTML);
   try {
     const result = await extractLinksHandler({ url: 'https://example.com/', filter_external: true });
     const parsed = JSON.parse(result.content[0].text);
-    assert.ok(parsed.links.every(l => !l.is_external), 'all links should be internal when filter_external is true');
+    // Phase A (A1.1): filter_external:true keeps ONLY external links
+    assert.ok(parsed.links.length > 0, 'should return external links');
+    assert.ok(parsed.links.every(l => l.is_external), 'all links should be external when filter_external is true');
   } finally {
     restoreFetch();
   }
@@ -244,7 +246,8 @@ test('extractMetadataHandler: happy path extracts title, description, keywords, 
     const result = await extractMetadataHandler({ url: 'https://example.com/' });
     assert.ok(!result.isError);
     const parsed = JSON.parse(result.content[0].text);
-    assert.equal(parsed.title, 'Test Page');
+    // B1: title fallback chain is og:title → <title> → h1, so og:title wins here
+    assert.equal(parsed.title, 'OG Title');
     assert.equal(parsed.description, 'A test page description');
     assert.ok(Array.isArray(parsed.keywords));
     assert.ok(parsed.keywords.includes('test'));
@@ -282,7 +285,9 @@ test('scrapeStructuredHandler: happy path extracts data using CSS selectors', as
     const parsed = JSON.parse(result.content[0].text);
     assert.ok(typeof parsed.data === 'object');
     assert.ok(parsed.data.heading.includes('Main Heading'));
-    assert.ok(parsed.elements_found >= 1);
+    // B1: elements_found reports per-field DOM match counts (object), not a total
+    assert.equal(typeof parsed.elements_found, 'object');
+    assert.ok(parsed.elements_found.heading >= 1);
     assert.ok(typeof parsed.url === 'string');
   } finally {
     restoreFetch();
