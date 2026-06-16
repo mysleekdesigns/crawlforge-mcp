@@ -6,11 +6,15 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — all three shipped in v4.1.0 — without breaking any existing MCP tools or the current setup flow.
 
-**Last Updated:** 2026-06-15
+**Last Updated:** 2026-06-16
 
 ---
 
 ## Release History
+
+### v4.6.5 — Fix: deep_research relevance (query-expansion pollution + off-topic authority) (2026-06-16)
+
+Follow-up to v4.6.4. That release restored search *execution*; live use showed the searches still returned junk on commercial topics — a competitor-analysis run came back with ~2 usable sources, and instrumented repro surfaced DNI SCIF specs, university course catalogs and a DLA logistics handbook ranked as "top sources." Root causes: (1) `ResearchOrchestrator.generateResearchVariations()` appended academic/scientific suffixes (`what is …`, `… explained`, `… research paper`, `… peer reviewed`) to *every* topic regardless of `researchApproach`, dragging web search toward abstract government/academic PDFs; (2) `researchApproach` never reached query generation — it only set ranking weights in `buildOrchestratorConfig()`, so the orchestrator always behaved as `broad`; (3) `verifySourceCredibility()` rewarded `.gov`/`.edu` with 0.9 domain authority irrespective of topical relevance, so unrelated authoritative pages dominated. Three fixes: approach-aware query variations (`academic` keeps scholarly suffixes; `current_events` uses recency terms; `broad`/`focused`/`comparative` use commercial intent — `review`, `comparison`, `vs alternatives`, `pricing`, `best …`, `company`; stale hardcoded `2024` dropped); `researchApproach` now plumbed into the orchestrator constructor; credibility blended with per-source relevance (`overallCredibility *= 0.4 + 0.6 * relevanceScore`) so zero-overlap sources drop below the 0.3 threshold. Verified via instrumented repro: a clean commercial topic ("Sweetwater music gear retailer competitor comparison") now returns entirely on-topic sources (Sweetwater coverage, samash "Sweetwater vs Guitar Center", Reverb comparison, Yelp reviews) with no government/academic noise. Scoped out by request: bot-protected discussion sources (Reddit, Quora, gearspace, Facebook) return HTTP 403 to the plain-`fetch` extraction path — confirmed that realistic browser headers do **not** bypass their TLS-fingerprint/JS-challenge defenses; recovering those needs a browser/stealth extraction path. Unit 374/374 sandbox-on (the 13 `streamableHttp`/`searchWebSearxng` cases pass 24/24 sandbox-off; `listen EPERM` only). Shipped as **v4.6.5** (`package.json`, `server.json` ×2, `server.js` synced) and published to npm. Files: `src/core/ResearchOrchestrator.js`, `src/tools/research/deepResearch.js`, `CHANGELOG.md`, `PRD.md`.
 
 ### CI test fixes — stale basic-tool assertions + coverage hang (2026-06-15, no version bump)
 

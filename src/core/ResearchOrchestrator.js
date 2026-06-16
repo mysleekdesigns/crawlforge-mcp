@@ -34,12 +34,14 @@ export class ResearchOrchestrator extends EventEmitter {
       enableConflictDetection = true,
       cacheEnabled = true,
       cacheTTL = 1800000, // 30 minutes
+      researchApproach = 'broad',
       searchConfig = {},
       crawlConfig = {},
       extractConfig = {},
       summarizeConfig = {}
     } = options;
 
+    this.researchApproach = researchApproach;
     this.maxDepth = Math.min(Math.max(1, maxDepth), 10);
     this.maxUrls = Math.min(Math.max(1, maxUrls), 1000);
     this.timeLimit = Math.min(Math.max(30000, timeLimit), 300000);
@@ -269,32 +271,50 @@ export class ResearchOrchestrator extends EventEmitter {
   }
 
   /**
-   * Generate research-specific query variations
+   * Generate research-specific query variations, tuned to the research approach.
+   *
+   * Academic/scientific suffixes ("peer reviewed", "research paper", "what is")
+   * only help when the caller actually asked for an academic search. Appending
+   * them to commercial or comparative topics dragged web search toward
+   * irrelevant government/academic PDFs and long-tail noise — the cause of
+   * near-empty research runs on niche commercial topics.
    */
   generateResearchVariations(topic) {
-    const variations = [];
-    
-    // Question-based variations
-    variations.push(`what is ${topic}`);
-    variations.push(`how does ${topic} work`);
-    variations.push(`${topic} explained`);
-    variations.push(`${topic} research`);
-    variations.push(`${topic} studies`);
-    variations.push(`${topic} analysis`);
-    
-    // Academic and authoritative variations
-    variations.push(`${topic} academic`);
-    variations.push(`${topic} scientific`);
-    variations.push(`${topic} research paper`);
-    variations.push(`${topic} peer reviewed`);
-    
-    // Current and historical context
-    variations.push(`latest ${topic}`);
-    variations.push(`current ${topic}`);
-    variations.push(`${topic} 2024`);
-    variations.push(`${topic} trends`);
-    
-    return variations.slice(0, 10); // Limit variations
+    const approach = this.researchApproach || 'broad';
+
+    if (approach === 'academic') {
+      return [
+        `${topic} research`,
+        `${topic} study`,
+        `${topic} analysis`,
+        `${topic} academic`,
+        `${topic} scientific`,
+        `${topic} research paper`,
+        `${topic} peer reviewed`,
+        `${topic} explained`
+      ];
+    }
+
+    if (approach === 'current_events') {
+      return [
+        `latest ${topic}`,
+        `${topic} news`,
+        `recent ${topic}`,
+        `${topic} update`,
+        `${topic} announcement`
+      ];
+    }
+
+    // broad / focused / comparative — commercial & general intent
+    return [
+      `${topic} review`,
+      `${topic} reviews`,
+      `${topic} comparison`,
+      `${topic} vs alternatives`,
+      `${topic} pricing`,
+      `best ${topic}`,
+      `${topic} company`
+    ];
   }
 
   /**
@@ -644,8 +664,19 @@ export class ResearchOrchestrator extends EventEmitter {
           citationPotential: this.assessCitationPotential(source)
         };
 
-        const overallCredibility = this.calculateOverallCredibility(credibilityFactors);
-        
+        let overallCredibility = this.calculateOverallCredibility(credibilityFactors);
+
+        // Down-weight topically-irrelevant sources so high-authority but
+        // off-topic pages (e.g. a .gov PDF unrelated to the query) don't
+        // dominate the results. relevanceScore is keyword-based here (no LLM):
+        // ~1 when the topic appears in the content, ~0 when it doesn't.
+        const relevance = typeof source.relevanceScore === 'number'
+          ? source.relevanceScore
+          : null;
+        if (relevance !== null) {
+          overallCredibility *= (0.4 + 0.6 * relevance);
+        }
+
         // Only include sources that meet minimum credibility threshold
         if (overallCredibility >= 0.3) {
           verifiedSources.push({

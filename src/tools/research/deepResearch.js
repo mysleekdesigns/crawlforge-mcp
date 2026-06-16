@@ -271,7 +271,11 @@ export class DeepResearchTool {
     const scopeConfig = {
       maxUrls: params.maxUrls,
       timeLimit: params.timeLimit,
-      concurrency: params.concurrency
+      concurrency: params.concurrency,
+      // The orchestrator tunes its query expansion to the approach (commercial
+      // vs academic vs current-events); without this it always used academic
+      // variations, which poisoned commercial/comparative searches.
+      researchApproach: params.researchApproach
     };
 
     switch (params.researchApproach) {

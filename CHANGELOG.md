@@ -3,6 +3,25 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.6.5] - 2026-06-16
+
+Patch — fixes `deep_research` returning irrelevant / near-empty results on commercial topics. The v4.6.4 fix restored search execution; this fixes what those searches *find*.
+
+### Fixed
+
+- **Query expansion poisoned commercial/comparative research.** `ResearchOrchestrator.generateResearchVariations()` appended academic/scientific suffixes (`what is …`, `… explained`, `… research paper`, `… peer reviewed`, `… scientific`) to *every* topic regardless of `researchApproach`. On a competitor analysis this dragged web search toward irrelevant government/academic PDFs (reproduced: DNI SCIF specs, university course catalogs, a DLA logistics handbook surfaced as "top sources"), and on niche commercial topics it left only 1–2 usable sources. Variations are now tuned to the approach: `academic` keeps the scholarly suffixes, `current_events` uses recency terms, and `broad`/`focused`/`comparative` use commercial intent (`review`, `comparison`, `vs alternatives`, `pricing`, `best …`, `company`). Also dropped the stale hardcoded `2024` year suffix. `src/core/ResearchOrchestrator.js`
+- **`researchApproach` never reached query generation.** It only configured search ranking weights in `buildOrchestratorConfig()`; the orchestrator itself always behaved as `broad`. `DeepResearchTool.buildOrchestratorConfig()` now passes `researchApproach` into the orchestrator config, and the `ResearchOrchestrator` constructor accepts and stores it. `src/tools/research/deepResearch.js`, `src/core/ResearchOrchestrator.js`
+- **High-authority off-topic pages dominated results.** `verifySourceCredibility()` scored `.gov`/`.edu` at 0.9 domain authority irrespective of topical relevance, so unrelated authoritative pages ranked as top sources. Credibility is now blended with the per-source relevance signal (`overallCredibility *= 0.4 + 0.6 * relevanceScore`), demoting (and, at zero keyword overlap, dropping below the 0.3 threshold) sources that don't actually match the topic. `src/core/ResearchOrchestrator.js`
+
+### Notes
+
+- Unaddressed by design (scoped out): discussion sources behind bot protection (Reddit, Quora, gearspace, Facebook) return HTTP 403 to the plain-`fetch` extraction path; verified that realistic browser headers do **not** bypass their TLS-fingerprint/JS-challenge defenses. Recovering those needs a browser/stealth extraction path.
+- Unit suite: 374/374 (sandbox-on); the 13 `streamableHttp` / `searchWebSearxng` cases fail only under the sandbox's `listen EPERM` localhost-bind restriction and pass 24/24 with the sandbox disabled.
+
+### Changed
+
+- **Version sync** — `package.json`, `server.json` (manifest + npm package entry), and the `McpServer` version in `server.js` bumped to `4.6.5`.
+
 ## [4.6.4] - 2026-06-09
 
 Patch — fixes `deep_research` silently returning zero sources (and the same hole in `agent model:"pro"`), caught by live MCP usage.
