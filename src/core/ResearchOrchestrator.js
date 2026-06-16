@@ -35,6 +35,19 @@ export class ResearchOrchestrator extends EventEmitter {
       cacheEnabled = true,
       cacheTTL = 1800000, // 30 minutes
       researchApproach = 'broad',
+      // Stealth-browser fallback for sources that block the plain fetch/extract
+      // path (Reddit, Quora, forums → HTTP 403). On by default; bounded so it
+      // cannot blow the research time budget. Disable with
+      // RESEARCH_STEALTH_FALLBACK=false.
+      enableStealthFallback = process.env.RESEARCH_STEALTH_FALLBACK !== 'false',
+      maxStealthRetries = parseInt(process.env.RESEARCH_MAX_STEALTH_RETRIES || '8', 10),
+      // 'auto' (default) prefers Camoufox (Firefox anti-detect — beats
+      // Cloudflare/DataDome that headless Chromium can't) and falls back to
+      // Chromium stealth when Camoufox/its binary is unavailable. Force one
+      // with RESEARCH_STEALTH_ENGINE=camoufox|chromium.
+      stealthEngine = process.env.RESEARCH_STEALTH_ENGINE || 'auto',
+      stealthLevel = 'medium',
+      stealthTimeoutMs = 20000,
       searchConfig = {},
       crawlConfig = {},
       extractConfig = {},
@@ -48,6 +61,18 @@ export class ResearchOrchestrator extends EventEmitter {
     this.concurrency = Math.min(Math.max(1, concurrency), 20);
     this.enableSourceVerification = enableSourceVerification;
     this.enableConflictDetection = enableConflictDetection;
+
+    // Stealth fallback config + lazy state (browser launched only on first block)
+    this.enableStealthFallback = enableStealthFallback;
+    this.maxStealthRetries = Math.max(0, maxStealthRetries);
+    this.stealthEngine = stealthEngine;
+    this.stealthLevel = stealthLevel;
+    this.stealthTimeoutMs = stealthTimeoutMs;
+    this._stealthManager = null;     // Chromium StealthBrowserManager (fallback engine)
+    this._stealthBrowser = null;     // Camoufox browser handle (preferred engine)
+    this._stealthEngineActive = null;
+    this._stealthInit = null;
+    this._stealthCount = 0;
 
     // Initialize tools
     this.searchTool = new SearchWebTool(searchConfig);
@@ -101,7 +126,9 @@ export class ResearchOrchestrator extends EventEmitter {
       llmAnalysisCalls: 0,
       semanticAnalysisTime: 0,
       queryExpansionTime: 0,
-      synthesisTime: 0
+      synthesisTime: 0,
+      stealthRetries: 0,
+      stealthRecovered: 0
     };
   }
 
@@ -203,6 +230,9 @@ export class ResearchOrchestrator extends EventEmitter {
     Object.keys(this.metrics).forEach(key => {
       this.metrics[key] = 0;
     });
+
+    // Reset per-run stealth-retry budget
+    this._stealthCount = 0;
   }
 
   /**
@@ -551,11 +581,38 @@ export class ResearchOrchestrator extends EventEmitter {
             }
 
             // Normalize content to string (extract_content returns {text: "..."}, fallback returns string)
-            const contentText = contentData && contentData.content
-              ? (typeof contentData.content === 'string'
-                  ? contentData.content
-                  : (contentData.content.text || ''))
+            const normalizeContent = (cd) => cd && cd.content
+              ? (typeof cd.content === 'string' ? cd.content : (cd.content.text || ''))
               : '';
+            let contentText = normalizeContent(contentData);
+
+            // Stealth fallback: high-value discussion sources (Reddit, Quora,
+            // forums) return HTTP 403 to the plain fetch/extract path. When the
+            // normal path produced no usable content, retry through a real
+            // fingerprinted browser and re-run extraction on the rendered HTML.
+            // Bounded by maxStealthRetries + a per-page timeout.
+            const blocked = !contentData || contentData.success === false || contentText.trim().length === 0;
+            if (blocked && this.enableStealthFallback && this._stealthCount < this.maxStealthRetries) {
+              this._stealthCount++;
+              this.metrics.stealthRetries++;
+              try {
+                const stealthHtml = await this._stealthFetchHtml(source.link);
+                if (stealthHtml) {
+                  contentData = await this.extractTool.execute({
+                    url: source.link,
+                    html: stealthHtml,
+                    options: { includeMetadata: true, includeStructuredData: true }
+                  });
+                  contentText = normalizeContent(contentData);
+                  if (contentData && contentData.success !== false && contentText.trim().length > 0) {
+                    this.metrics.stealthRecovered++;
+                    this.logActivity('stealth_recovery', { url: source.link });
+                  }
+                }
+              } catch (stealthError) {
+                this.logger.warn('Stealth fallback failed', { url: source.link, error: stealthError.message });
+              }
+            }
 
             // Only count and enhance sources that actually produced non-empty content.
             // Skip failed extractions and empty {text:""} results.
@@ -641,8 +698,132 @@ export class ResearchOrchestrator extends EventEmitter {
       }
     });
 
+    // Tear down the stealth browser as soon as the extraction stage is done —
+    // it is only needed here and would otherwise leak a Playwright handle.
+    await this._closeStealth();
+
     // Sort by relevance score (LLM or traditional)
     return detailedFindings.sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
+  }
+
+  /**
+   * Lazily launch the stealth browser once. The heavy browser stack is only
+   * loaded when a source actually blocks the plain path. Engine selection:
+   *   - 'camoufox'/'auto' → Camoufox (Firefox anti-detect). Loaded via the CJS
+   *     build (its ESM bundle has a broken dynamic-require). Beats Cloudflare/
+   *     DataDome challenges that patched headless Chromium can't pass.
+   *   - 'chromium', or any Camoufox failure under 'auto' → StealthBrowserManager.
+   */
+  async _getStealthBrowser() {
+    if (!this._stealthInit) {
+      this._stealthInit = (async () => {
+        if (this.stealthEngine === 'camoufox' || this.stealthEngine === 'auto') {
+          try {
+            const { createRequire } = await import('module');
+            const require = createRequire(import.meta.url);
+            const camoufox = require('camoufox'); // CJS build — ESM build is broken
+            await this._ensureCamoufoxLayout(camoufox);
+            this._stealthBrowser = await camoufox.Camoufox({ headless: true });
+            this._stealthEngineActive = 'camoufox';
+            this.logger.info('Stealth fallback using Camoufox (Firefox) engine');
+            return;
+          } catch (e) {
+            if (this.stealthEngine === 'camoufox') throw e; // explicit request → surface
+            this.logger.warn('Camoufox unavailable, falling back to Chromium stealth', { error: e.message });
+          }
+        }
+        const { StealthBrowserManager } = await import('./StealthBrowserManager.js');
+        this._stealthManager = new StealthBrowserManager();
+        await this._stealthManager.launchStealthBrowser({ level: this.stealthLevel });
+        this._stealthEngineActive = 'chromium';
+      })();
+    }
+    await this._stealthInit;
+  }
+
+  /**
+   * macOS packaging fix for camoufox-js: it expects properties.json in
+   * Camoufox.app/Contents/MacOS/, but the .app bundle ships it under
+   * Contents/Resources/. Bridge it so the launcher can boot. Best-effort.
+   */
+  async _ensureCamoufoxLayout(camoufox) {
+    if (process.platform !== 'darwin' || !camoufox?.INSTALL_DIR) return;
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const appDir = path.join(camoufox.INSTALL_DIR, 'Camoufox.app', 'Contents');
+      const target = path.join(appDir, 'MacOS', 'properties.json');
+      const source = path.join(appDir, 'Resources', 'properties.json');
+      if (!fs.existsSync(target) && fs.existsSync(source)) {
+        fs.copyFileSync(source, target);
+      }
+    } catch { /* best-effort; launch surfaces a real error if it matters */ }
+  }
+
+  /**
+   * Fetch a URL's fully-rendered HTML through the stealth browser. Returns the
+   * HTML string, or null if every attempt was blocked / empty.
+   *
+   * Cloudflare/DataDome challenges are probabilistic — the same URL may serve a
+   * challenge on one load and the real page on the next — so Camoufox retries a
+   * few times with a fresh page each attempt. Chromium can't clear these at all
+   * (proven), so it gets a single attempt to avoid burning the time budget.
+   */
+  async _stealthFetchHtml(url) {
+    await this._getStealthBrowser();
+    const attempts = this._stealthEngineActive === 'camoufox' ? 3 : 1;
+    for (let i = 0; i < attempts; i++) {
+      const html = await this._stealthFetchOnce(url);
+      if (html) return html;
+    }
+    return null;
+  }
+
+  /** One stealth navigation. Fresh page/context; judges blocked by rendered content. */
+  async _stealthFetchOnce(url) {
+    let page;
+    if (this._stealthEngineActive === 'camoufox') {
+      page = await this._stealthBrowser.newPage();
+    } else {
+      const { contextId } = await this._stealthManager.createStealthContext({ level: this.stealthLevel });
+      page = await this._stealthManager.createStealthPage(contextId);
+    }
+    try {
+      const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: this.stealthTimeoutMs });
+      // Do NOT bail on the initial HTTP status: anti-bot challenges (Cloudflare
+      // Turnstile) return 403 on the first response and only resolve to the
+      // real page after their JS runs. Let it settle, then judge by the
+      // *rendered* content instead.
+      await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+      await page.waitForTimeout(2500).catch(() => {});
+      const html = await page.content();
+      const title = (await page.title().catch(() => '')) || '';
+      const bodyLen = await page.evaluate(() => document.body?.innerText?.trim().length || 0).catch(() => 0);
+
+      // Still a challenge/block page → treat as blocked.
+      const challengeTitle = /just a moment|checking your browser|attention required|verify you are human|access denied|^blocked$/i.test(title);
+      const status = resp ? resp.status() : 0;
+      if (challengeTitle) return null;
+      if (status >= 400 && bodyLen < 500) return null; // hard block (e.g. Reddit 403 shell)
+      if (bodyLen < 200) return null;                  // empty / interstitial
+      return html && html.length > 200 ? html : null;
+    } finally {
+      await page.close().catch(() => {});
+    }
+  }
+
+  /** Close the stealth browser and reset its lazy state (idempotent). */
+  async _closeStealth() {
+    try {
+      if (this._stealthBrowser) await this._stealthBrowser.close().catch(() => {});
+      if (this._stealthManager) await this._stealthManager.cleanup().catch(() => {});
+    } catch (e) {
+      this.logger.warn('Stealth browser cleanup failed', { error: e.message });
+    }
+    this._stealthBrowser = null;
+    this._stealthManager = null;
+    this._stealthEngineActive = null;
+    this._stealthInit = null;
   }
 
   /**
@@ -1484,7 +1665,10 @@ export class ResearchOrchestrator extends EventEmitter {
     try {
       // Stop any active research
       this.stopResearch();
-      
+
+      // Tear down the stealth browser if one was launched
+      await this._closeStealth();
+
       // Clear cache if available
       if (this.cache && typeof this.cache.clear === "function") {
         await this.cache.clear();
@@ -1522,9 +1706,11 @@ export class ResearchOrchestrator extends EventEmitter {
         llmAnalysisCalls: 0,
         semanticAnalysisTime: 0,
         queryExpansionTime: 0,
-        synthesisTime: 0
+        synthesisTime: 0,
+        stealthRetries: 0,
+        stealthRecovered: 0
       };
-      
+
     } catch (error) {
       // Silent cleanup - do not throw errors during cleanup
       console.warn("Warning during ResearchOrchestrator cleanup:", error.message);

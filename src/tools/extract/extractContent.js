@@ -11,6 +11,11 @@ import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js'; // D3.1
 
 const ExtractContentSchema = z.object({
   url: z.string().url(),
+  // Pre-rendered HTML to process directly instead of fetching `url` (e.g. a
+  // post-action page from scrape_with_actions, or a stealth-browser render in
+  // deep_research). Without this field Zod stripped it and the tool always
+  // re-fetched the URL — silently defeating any pre-fetched-HTML caller.
+  html: z.string().optional(),
   options: z.object({
     // Content extraction options
     useReadability: z.boolean().default(true),

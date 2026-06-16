@@ -3,6 +3,28 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.6.6] - 2026-06-16
+
+Adds a real browser / stealth extraction fallback to `deep_research` so sources that block the plain `fetch` path (Reddit, Quora, forums, DataDome/Cloudflare-protected pages) can still be read.
+
+### Added
+
+- **Stealth-browser extraction fallback in `deep_research`.** When the normal fetch/extract path yields no usable content (HTTP 403, JS-wall, empty body), `ResearchOrchestrator.exploreSourcesInDepth()` now retries the source through a real fingerprinted browser and re-runs extraction on the rendered HTML. Lazy (the browser stack only loads when a source is actually blocked), bounded (`maxStealthRetries`, default 8, + per-page timeout), and torn down when the extraction stage ends. Block/challenge pages are rejected by *rendered content* (title + body heuristics), not the initial HTTP status, so "Just a moment…"/"Blocked" shells never pollute results. New metrics: `stealthRetries`, `stealthRecovered`. Env: `RESEARCH_STEALTH_FALLBACK=false` to disable, `RESEARCH_STEALTH_ENGINE=camoufox|chromium|auto`, `RESEARCH_MAX_STEALTH_RETRIES`. `src/core/ResearchOrchestrator.js`
+- **Camoufox (Firefox anti-detect) engine, preferred under `auto`.** Headless Chromium can't clear modern challenges (verified: Cloudflare Turnstile / DataDome / hard 403s all block it). Camoufox does — verified recovering Quora (3.5k chars) and Trustpilot (16k chars) that were fully blocked. Loaded via its CJS build (the package's ESM bundle has a broken dynamic-require), with a macOS `properties.json` path bridge, and a graceful fall back to Chromium stealth → plain fetch when Camoufox or its binary is absent. Optional dependency. **Requires a one-time binary fetch:** `npx camoufox fetch`. `src/core/ResearchOrchestrator.js`, `package.json`
+
+### Fixed
+
+- **`extract_content` silently ignored pre-rendered HTML.** `ExtractContentSchema` never declared the `html` field the handler reads (`const { url, html: providedHtml }`), so Zod stripped it and the tool always re-fetched the URL — defeating every pre-fetched-HTML caller (the new stealth path, and `scrape_with_actions` post-action pages). Schema now accepts optional `html`. `src/tools/extract/extractContent.js`
+
+### Notes
+
+- Hard IP-reputation blocks (e.g. Reddit's edge 403) still resist headless stealth from any IP — those need residential/mobile proxies, which are out of scope here.
+- Unit suite: 377/377 (sandbox-on; +3 new stealth-fallback regression tests in `tests/unit/researchStealthFallback.test.js`). The 13 `streamableHttp`/`searchWebSearxng` cases fail only under the sandbox `listen EPERM` restriction and pass 24/24 sandbox-off.
+
+### Changed
+
+- **Version sync** — `package.json`, `server.json` (manifest + npm package entry), and the `McpServer` version in `server.js` bumped to `4.6.6`.
+
 ## [4.6.5] - 2026-06-16
 
 Patch — fixes `deep_research` returning irrelevant / near-empty results on commercial topics. The v4.6.4 fix restored search execution; this fixes what those searches *find*.

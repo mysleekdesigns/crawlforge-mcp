@@ -2,6 +2,29 @@
 
 CrawlForge supports two browser engines for the `stealth_mode` tool.
 
+## `deep_research` stealth extraction fallback (v4.6.6)
+
+`deep_research` automatically retries blocked sources through a real browser. When the normal fetch/extract path returns no usable content (HTTP 403, JS-wall, empty body), `ResearchOrchestrator` renders the page in a fingerprinted browser and re-extracts from the rendered HTML. It is bounded (`RESEARCH_MAX_STEALTH_RETRIES`, default 8, plus a per-page timeout) and lazy (the browser stack loads only when a source is actually blocked).
+
+Engine selection is via `RESEARCH_STEALTH_ENGINE`:
+
+- `auto` (default) — prefer Camoufox, fall back to Chromium stealth, then plain fetch.
+- `camoufox` — force Camoufox (surfaces an error if unavailable).
+- `chromium` — force the Chromium stealth manager.
+
+Disable entirely with `RESEARCH_STEALTH_FALLBACK=false`.
+
+**One-time setup for Camoufox** (the engine that actually clears Cloudflare/DataDome — headless Chromium cannot): install the optional dependency and fetch its Firefox binary:
+
+```bash
+npm install camoufox      # optional dependency; already declared in optionalDependencies
+npx camoufox fetch        # one-time ~130 MB Firefox binary download
+```
+
+Without the binary, `deep_research` silently falls back to Chromium stealth, then to plain fetch. Hard IP-reputation blocks (e.g. Reddit's edge 403) resist headless stealth from any IP and need residential proxies (not provided).
+
+
+
 ## Available Engines
 
 ### `playwright` (default)
