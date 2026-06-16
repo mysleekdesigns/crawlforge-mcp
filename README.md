@@ -229,6 +229,11 @@ export OLLAMA_DEFAULT_MODEL="llama3.2"             # default; any locally-pulled
 # Optional: Cloud LLM keys — only needed when you pass provider: "openai" or "anthropic"
 export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
+
+# Optional: deep_research stealth extraction fallback (v4.6.6) — see below
+export RESEARCH_STEALTH_ENGINE="auto"      # auto (default) | camoufox | chromium
+export RESEARCH_STEALTH_FALLBACK="true"    # set to "false" to disable entirely
+export RESEARCH_MAX_STEALTH_RETRIES="8"    # cap on stealth retries per research run
 ```
 
 ### Local-LLM quickstart (`extract_with_llm` with Ollama)
@@ -246,6 +251,31 @@ ollama pull llama3.2
 # 4. Extract — defaults to Ollama with the model from step 2
 #    extract_with_llm({ url: "https://example.com", prompt: "…", model: "llama3.2" })
 ```
+
+### Stealth extraction for `deep_research` (Camoufox)
+
+`deep_research` automatically retries sources that block the normal fetch path (Reddit, Quora, forums, and Cloudflare/DataDome-protected pages return HTTP 403) through a **real fingerprinted browser**, then re-extracts from the rendered HTML. It's bounded (`RESEARCH_MAX_STEALTH_RETRIES`, default 8, plus a per-page timeout) and lazy — the browser stack only loads when a source is actually blocked.
+
+Engine selection (`RESEARCH_STEALTH_ENGINE`):
+
+- **`auto`** (default) — prefer **Camoufox** (Firefox anti-detect), fall back to Chromium stealth, then plain fetch.
+- **`camoufox`** — force Camoufox.
+- **`chromium`** — force the Chromium stealth engine.
+
+Headless Chromium **cannot** clear modern challenges (Cloudflare Turnstile, DataDome) — **Camoufox can**. In testing it recovered Quora and Trustpilot pages that were otherwise fully blocked. To enable it, install the optional dependency and run its one-time binary fetch:
+
+```bash
+# Camoufox is declared as an optional dependency, so a normal install already pulls it.
+# If you installed with --no-optional, add it explicitly:
+npm install camoufox
+
+# One-time download of the Camoufox Firefox binary (~130 MB):
+npx camoufox fetch
+```
+
+Without the Camoufox binary, `deep_research` silently falls back to Chromium stealth and then to plain fetch — no errors, just lower recovery on heavily-protected sites. Disable the whole fallback with `RESEARCH_STEALTH_FALLBACK=false`.
+
+> **Note:** Hard IP-reputation blocks (e.g. Reddit's edge `403`) resist headless stealth from any IP and require residential/mobile proxies, which CrawlForge does not provide. See [docs/stealth-engines.md](docs/stealth-engines.md) for details.
 
 ### Manual Configuration
 
