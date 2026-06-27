@@ -199,7 +199,7 @@ For the full canonical capabilities reference (all tools, CLI commands, stealth 
 | **Business** ($399) | 250,000 | Large scale operations |
 
 **All plans include:**
-- Access to all 26 tools (the 15 local tools never consume credits)
+- Access to all 26 tools
 - Credits never expire and roll over month-to-month
 - API access and webhook notifications
 
@@ -298,7 +298,7 @@ Once configured, use these tools in your AI assistant:
 
 ## 🔒 Security & Privacy
 
-- **Secure Authentication**: API keys required for all metered premium tools (the 15 free local tools run without one)
+- **Secure Authentication**: API keys required for all metered tools
 - **Local Storage**: API keys stored securely at `~/.crawlforge/config.json`
 - **HTTPS Only**: All connections use encrypted HTTPS
 - **No Data Retention**: We don't store scraped data, only usage logs
