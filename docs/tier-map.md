@@ -1,6 +1,11 @@
 # CrawlForge Tool Tier Map — Free-Local vs Paid-Server
 
-**Status:** Proposal / decision input · **Drafted:** 2026-06-09
+> **⚠️ SUPERSEDED (2026-06-27).** The Tier 0 (free-local) / Tier 1 split below was
+> reverted. **Every tool is now metered and requires an API key — there is no free tier.**
+> Per-tool costs follow the paid "Scheme B" table (see `PRD.md` → "Reverted open-core free
+> tier" and `src/core/AuthManager.js getToolCost()`). Kept for historical context only.
+
+**Status:** Superseded (was: Proposal / decision input) · **Drafted:** 2026-06-09
 **Drives:** `TOOL_CREDIT_COSTS` (both repos), MCP-client routing, pricing-page copy, Stripe (no change).
 
 ## Why this exists

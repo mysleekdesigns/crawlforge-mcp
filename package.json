@@ -1,6 +1,6 @@
 {
   "name": "crawlforge-mcp-server",
-  "version": "4.6.6",
+  "version": "4.7.0",
   "mcpName": "io.github.mysleekdesigns/crawlforge-mcp-server",
   "description": "CrawlForge MCP Server - Professional Model Context Protocol server with 26 web scraping, crawling, deep-research, and autonomous-extraction tools. Returns clean Markdown and structured JSON for Claude, Cursor, and any MCP client. Defaults to local Ollama for LLM extraction (no API key needed); OpenAI/Anthropic available as opt-in. Includes a unified multi-format scrape tool, an autonomous agent, pre-built site templates, and Camoufox stealth browsing.",
   "main": "server.js",

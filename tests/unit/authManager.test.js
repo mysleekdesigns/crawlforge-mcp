@@ -214,20 +214,20 @@ test('reportUsage: queued entries flush on next successful reportUsage call', as
   await removeTempHome(tempHome);
 });
 
-// ─── Open-core Phase 2 — free Tier-0 tools, key-optional ─────────────────────
+// ─── All tools require an API key (no free tier) ─────────────────────────────
 
-test('checkCredits: cost 0 returns true with NO config (key-optional free tier)', async (t) => {
+test('checkCredits: cheapest tool with NO config throws "not configured" (no free tier)', async (t) => {
   if (skipIfCreatorMode(t)) return;
   const tempHome = await makeTempHome();
-  resetSingleton(tempHome, 'test-user-free');
+  resetSingleton(tempHome, 'test-user-nokey');
   authManager.config = null; // simulate: no API key configured
 
-  let fetchCalled = false;
-  global.fetch = async () => { fetchCalled = true; throw new Error('must not be called'); };
-
   try {
-    assert.equal(await authManager.checkCredits(0), true, 'free tools pass without a key');
-    assert.equal(fetchCalled, false, 'no backend call for a 0-cost check');
+    await assert.rejects(
+      () => authManager.checkCredits(1),
+      /not configured/i,
+      'even a 1-credit tool must demand a key'
+    );
   } finally {
     await removeTempHome(tempHome);
   }
@@ -250,31 +250,27 @@ test('checkCredits: metered cost with NO config still throws "not configured"', 
   }
 });
 
-test('getToolCost: reconciled tier-map table (Tier 0 free, Tier 1 metered, screenshot surcharge)', () => {
-  // Tier 0 — free local
-  for (const tool of [
-    'fetch_url', 'extract_text', 'extract_links', 'extract_metadata', 'scrape_structured',
-    'scrape_template', 'extract_content', 'scrape', 'summarize_content', 'analyze_content',
-    'extract_with_llm', 'extract_structured', 'process_document', 'list_ollama_models',
-    'get_batch_results'
-  ]) {
-    assert.equal(authManager.getToolCost(tool), 0, `${tool} should be free`);
+test('getToolCost: fully-paid Scheme B table (no free tier, key required for all tools)', () => {
+  const expected = {
+    fetch_url: 1, extract_text: 1, extract_links: 1, extract_metadata: 1, scrape_template: 1,
+    list_ollama_models: 1, get_batch_results: 1,
+    scrape_structured: 2, extract_content: 2, map_site: 2, process_document: 2, localization: 2, scrape: 2,
+    track_changes: 3, analyze_content: 3, extract_structured: 3, extract_with_llm: 3,
+    summarize_content: 4, crawl_deep: 4,
+    stealth_mode: 5, scrape_with_actions: 5, batch_scrape: 5, search_web: 5, generate_llms_txt: 5,
+    agent: 8,
+    deep_research: 10
+  };
+  for (const [tool, cost] of Object.entries(expected)) {
+    assert.equal(authManager.getToolCost(tool), cost, `${tool} should cost ${cost}`);
   }
-  // Tier 1 — metered
-  assert.equal(authManager.getToolCost('map_site'), 3);
-  assert.equal(authManager.getToolCost('track_changes'), 3);
-  assert.equal(authManager.getToolCost('generate_llms_txt'), 5);
-  assert.equal(authManager.getToolCost('search_web'), 5);
-  assert.equal(authManager.getToolCost('crawl_deep'), 5);
-  assert.equal(authManager.getToolCost('batch_scrape'), 5);
-  assert.equal(authManager.getToolCost('scrape_with_actions'), 5);
-  assert.equal(authManager.getToolCost('localization'), 5);
-  assert.equal(authManager.getToolCost('agent'), 8);
-  assert.equal(authManager.getToolCost('deep_research'), 10);
-  assert.equal(authManager.getToolCost('stealth_mode'), 10);
-  // Per-call exception: scrape's screenshot format needs a server browser
+  // No tool is free
+  for (const cost of Object.values(expected)) {
+    assert.ok(cost >= 1, 'every tool costs at least 1 credit');
+  }
+  // scrape is a flat 2 regardless of format (screenshot no longer surcharged)
   assert.equal(authManager.getToolCost('scrape', { formats: ['markdown', 'screenshot'] }), 2);
-  assert.equal(authManager.getToolCost('scrape', { formats: ['markdown'] }), 0);
-  // Unknown tools fall back to 1 (not 0)
+  assert.equal(authManager.getToolCost('scrape', { formats: ['markdown'] }), 2);
+  // Unknown tools fall back to 1
   assert.equal(authManager.getToolCost('unknown_tool'), 1);
 });

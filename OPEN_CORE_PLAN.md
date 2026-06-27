@@ -1,6 +1,11 @@
 # Open-Core Migration Plan — Make the CrawlForge API Non-Bypassable
 
-**Status:** Proposal · awaiting approval · **Drafted:** 2026-06-09
+> **⚠️ SUPERSEDED (2026-06-27).** The open-core "free Tier 0 + key-optional" model
+> described below was reverted. **Every tool is now metered and requires an API key —
+> there is no free tier.** Per-tool costs follow the paid "Scheme B" table. See
+> `PRD.md` → "Reverted open-core free tier". This document is kept for historical context only.
+
+**Status:** Superseded (was: Proposal · awaiting approval) · **Drafted:** 2026-06-09
 **Companion docs:** `docs/tier-map.md` (tool tiers + reconciled cost table) ·
 `docs/security-remediation-plan.md` (issued-key hardening)
 

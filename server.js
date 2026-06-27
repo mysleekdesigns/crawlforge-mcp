@@ -68,15 +68,14 @@ if (!AuthManager.isAuthenticated() && !AuthManager.isCreatorMode()) {
       process.exit(1);
     }
   } else {
-    // Open-core Phase 2: no API key is fine — start in free-tier mode.
-    // Tier-0 tools (cost 0) run locally without a key; Tier-1 metered tools
-    // return a "not configured" error until a key is set.
+    // Every tool is metered and requires an API key — there is no free tier.
+    // The server still starts so the MCP client can list tools, but every
+    // tool call errors with "not configured" until a key is set.
     // Status → stderr; stdout is reserved for the MCP JSON-RPC stream.
-    console.error('ℹ️  CrawlForge running in free-tier mode (no API key configured).');
-    console.error('   Free local tools work out of the box. Premium tools (search_web,');
-    console.error('   crawl_deep, stealth_mode, agent, deep_research, …) need an API key:');
-    console.error('   get one at https://www.crawlforge.dev/signup, then run `npm run setup`');
-    console.error('   or set CRAWLFORGE_API_KEY.');
+    console.error('⚠️  No CrawlForge API key configured — all tools require a key.');
+    console.error('   Every tool (fetch_url, search_web, deep_research, …) is metered.');
+    console.error('   Get a key at https://www.crawlforge.dev/signup, then run `npm run setup`');
+    console.error('   or set CRAWLFORGE_API_KEY. Tool calls will error until a key is set.');
   }
 }
 
@@ -90,7 +89,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "4.6.6",
+  version: "4.7.0",
   description: "Production-ready MCP server with 26 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png"

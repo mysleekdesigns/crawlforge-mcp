@@ -3,6 +3,23 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.7.0] - 2026-06-27
+
+Reverts the open-core "free Tier 0" model. **Every tool is now metered and requires an API key — there is no free tier.**
+
+### Changed
+
+- **All tools are paid and key-gated.** `AuthManager.getToolCost()` reverts to the paid "Scheme B" table (no zero-cost tools): 1 credit (`fetch_url`, `extract_text`, `extract_links`, `extract_metadata`, `scrape_template`, `list_ollama_models`, `get_batch_results`), 2 (`scrape_structured`, `extract_content`, `map_site`, `process_document`, `localization`, `scrape`), 3 (`track_changes`, `analyze_content`, `extract_structured`, `extract_with_llm`), 4 (`summarize_content`, `crawl_deep`), 5 (`stealth_mode`, `scrape_with_actions`, `batch_scrape`, `search_web`, `generate_llms_txt`), 8 (`agent`), 10 (`deep_research`). The `scrape` screenshot surcharge special-case is dropped (flat 2). `src/core/AuthManager.js`
+- **Every invocation requires a valid API key.** Removed the `freeTier` 0-cost short-circuit in `withAuth` (every call now checks credits and reports usage on success and error), removed `AuthManager.checkCredits(0) → true`, and reverted the `server.js` no-key startup banner — the server still starts so the MCP client can list tools, but every tool call returns "not configured" until a key is set. `src/server/withAuth.js`, `src/core/AuthManager.js`, `server.js`
+
+### Migration
+
+- This is a behavior change for anyone who relied on the free local tools: a CrawlForge API key is now required for **all** tools. New accounts still receive 1,000 free trial credits. Get a key at https://www.crawlforge.dev/signup and run `npm run setup` (or set `CRAWLFORGE_API_KEY`).
+
+### Notes
+
+- Tests updated (Scheme B + key-required assertions); `scripts/smoke-free-tier.mjs` replaced with `scripts/smoke-require-key.mjs`. Unit 401/401; MCP compliance at its pre-existing 70% baseline. Cross-repo parity with `crawlforge-website` `credits.ts` verified (0/26 mismatches via `scripts/verify-cost-parity.mjs`). `docs/tier-map.md` and `OPEN_CORE_PLAN.md` marked superseded.
+
 ## [4.6.6] - 2026-06-16
 
 Adds a real browser / stealth extraction fallback to `deep_research` so sources that block the plain `fetch` path (Reddit, Quora, forums, DataDome/Cloudflare-protected pages) can still be read.

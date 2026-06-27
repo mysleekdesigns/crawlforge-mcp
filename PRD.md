@@ -6,11 +6,15 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — all three shipped in v4.1.0 — without breaking any existing MCP tools or the current setup flow.
 
-**Last Updated:** 2026-06-16
+**Last Updated:** 2026-06-27
 
 ---
 
 ## Release History
+
+### v4.7.0 — Reverted open-core free tier (all tools paid + API key required) (2026-06-27)
+
+Product decision: undo the open-core "15 free local tools" model. **Every tool is now metered and requires an API key — there is no free tier.** Per-tool costs reverted to the historical "Scheme B" paid table (the scheme the website billing backend, docs, and templates always used — distinct from the MCP backend's old internal table, which differed on ~8 tools e.g. `search_web` 2-vs-5, `map_site` 5-vs-2). `AuthManager.getToolCost()` now returns no zeros: **1 cr** (`fetch_url`, `extract_text`, `extract_links`, `extract_metadata`, `scrape_template`, `list_ollama_models`, `get_batch_results`), **2 cr** (`scrape_structured`, `extract_content`, `map_site`, `process_document`, `localization`, `scrape`), **3 cr** (`track_changes`, `analyze_content`, `extract_structured`, `extract_with_llm`), **4 cr** (`summarize_content`, `crawl_deep`), **5 cr** (`stealth_mode`, `scrape_with_actions`, `batch_scrape`, `search_web`, `generate_llms_txt`), **8 cr** (`agent`), **10 cr** (`deep_research`). The `scrape` screenshot surcharge special-case is dropped (flat 2). Mechanics: removed the `freeTier` 0-cost short-circuit in `withAuth.js` (every call now checks credits + reports usage on success and error), removed `AuthManager.checkCredits(0) → true`, and reverted the `server.js` no-key startup banner — the server still starts so the MCP client can list tools, but every tool call errors `not configured` until a key is set. `getToolCost(tool, params)` → `getToolCost(tool)` (params no longer affect cost). Tests updated (`authManager.test.js` Scheme B table + key-required assertions; `withAuth.test.js` metered-tool tests); `scripts/smoke-free-tier.mjs` replaced with `scripts/smoke-require-key.mjs` (server starts keyless, `fetch_url` + `search_web` both demand a key, banner on stderr — 5/5). Unit **401/401** sandbox-off; MCP compliance at its pre-existing **70%** baseline (0 errors, 26 tools). Website reverted in lockstep (`src/lib/credits.ts` `TOOL_CREDIT_COSTS`, pricing page + i18n, docs `list_ollama_models` 0→1, templates `CREDIT_COSTS`); `scripts/verify-cost-parity.mjs` confirms both maps match. **Bumped 4.6.6 → 4.7.0** (`package.json`, `server.json` ×2, `server.js`, `CHANGELOG.md`); **takes effect for live MCP clients only after an npm publish.** `docs/tier-map.md` + `OPEN_CORE_PLAN.md` marked superseded. Files: `src/core/AuthManager.js`, `src/server/withAuth.js`, `server.js`, `src/tools/search/searchWeb.js`, `README.md`, `CHANGELOG.md`, `package.json`, `server.json`, `scripts/smoke-require-key.mjs` (new, replaces `smoke-free-tier.mjs`), `tests/unit/{authManager,withAuth}.test.js`, `PRD.md`; website: `src/lib/credits.ts`, `src/app/[locale]/pricing/page.tsx`, docs/templates, i18n.
 
 ### v4.6.6 — deep_research stealth extraction fallback + Camoufox engine (2026-06-16)
 

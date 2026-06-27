@@ -79,9 +79,10 @@ export class SearchWebTool {
     // Check for Creator Mode - allows search without API key for development/testing
     const isCreatorMode = isCreatorModeVerified();
 
-    // Open-core Phase 2: no API key is allowed at construction time (the server
-    // now starts in free-tier mode without one). The key requirement is
-    // enforced at execute() time instead, so Tier-0 tools keep working.
+    // The server can start without a key so the MCP client can list tools, so
+    // construction must not throw here. Every tool is metered and the key
+    // requirement is enforced before execute() runs (withAuth credit check)
+    // and again at execute() time below.
     if (!apiKey && !isCreatorMode) {
       this.searchAdapter = null;
       this.isCreatorModeFallback = false;
@@ -127,7 +128,7 @@ export class SearchWebTool {
       }
       // --- end SearXNG short-circuit ---
 
-      // Free-tier mode: search via the CrawlForge proxy needs an API key
+      // Search via the CrawlForge proxy needs an API key
       if (!this.searchAdapter) {
         throw new Error('CrawlForge API key is required for search functionality. Get one at https://www.crawlforge.dev/signup');
       }

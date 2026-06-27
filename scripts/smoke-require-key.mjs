@@ -1,9 +1,9 @@
 /**
- * Open-core Phase 2 smoke test: with NO API key configured the server must
- * start (no exit 0), serve Tier-0 tools for free (_cost.actual === 0), and
- * reject Tier-1 tools with a "not configured" error.
+ * Smoke test: with NO API key configured the server must still start (so the
+ * MCP client can list tools), but EVERY tool — including the formerly-free
+ * ones — must demand a key. There is no free tier.
  *
- * Usage: node scripts/smoke-free-tier.mjs
+ * Usage: node scripts/smoke-require-key.mjs
  * (Runs the local server.js with HOME pointed at a temp dir so the real
  * ~/.crawlforge config is never touched.)
  */
@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const tempHome = mkdtempSync(join(tmpdir(), 'crawlforge-free-tier-'));
+const tempHome = mkdtempSync(join(tmpdir(), 'crawlforge-require-key-'));
 
 const env = { ...process.env, HOME: tempHome };
 delete env.CRAWLFORGE_API_KEY;
@@ -57,38 +57,37 @@ function check(label, ok, detail = '') {
   if (!ok) failures++;
 }
 
+function demandsKey(result) {
+  const text = JSON.stringify(result?.result ?? result?.error ?? {});
+  return /not configured|run setup|api key (is )?required/i.test(text);
+}
+
 try {
   const init = await rpc('initialize', {
     protocolVersion: '2024-11-05',
     capabilities: {},
-    clientInfo: { name: 'free-tier-smoke', version: '1.0.0' }
+    clientInfo: { name: 'require-key-smoke', version: '1.0.0' }
   });
   check('server starts and answers initialize with no API key', !!init.result?.serverInfo);
   server.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
 
-  // Tier-0 tool: must succeed, free
-  const free = await rpc('tools/call', {
+  // Formerly-free tool: must now demand a key
+  const basic = await rpc('tools/call', {
     name: 'fetch_url',
     arguments: { url: 'https://example.com' }
   }, 60000);
-  const freeText = free.result?.content?.[0]?.text ?? '';
-  let cost = null;
-  try { cost = JSON.parse(freeText)._cost; } catch { /* not JSON */ }
-  check('fetch_url (Tier 0) succeeds without a key', !free.result?.isError && !free.error, free.error?.message ?? '');
-  check('fetch_url _cost.actual === 0', cost?.actual === 0, `got ${JSON.stringify(cost)}`);
+  check('fetch_url demands a key (no free tier)', demandsKey(basic), JSON.stringify(basic.result ?? basic.error ?? {}).slice(0, 160));
 
-  // Tier-1 tool: must demand a key
-  const paid = await rpc('tools/call', {
+  // Premium tool: must demand a key
+  const premium = await rpc('tools/call', {
     name: 'search_web',
     arguments: { query: 'test' }
   }, 60000);
-  const paidText = JSON.stringify(paid.result ?? paid.error ?? {});
-  const demandsKey = /not configured|run setup/i.test(paidText);
-  check('search_web (Tier 1) still demands a key', demandsKey, paidText.slice(0, 160));
+  check('search_web demands a key', demandsKey(premium), JSON.stringify(premium.result ?? premium.error ?? {}).slice(0, 160));
 
-  check('server still alive (no exit 0 on missing key)', server.exitCode === null);
+  check('server still alive (lists tools without a key)', server.exitCode === null);
   const banner = stderrLines.join('');
-  check('free-tier notice printed to stderr', /free-tier mode/i.test(banner));
+  check('"all tools require a key" notice printed to stderr', /all tools require a key/i.test(banner));
 } catch (err) {
   check('smoke test ran to completion', false, err.message);
 } finally {

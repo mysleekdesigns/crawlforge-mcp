@@ -67,9 +67,9 @@
 npm install -g crawlforge-mcp-server
 ```
 
-### 2. Setup Your API Key (optional for the free local tools)
+### 2. Setup Your API Key (required)
 
-The 15 free local tools work immediately with **no API key at all** — skip straight to step 3 if that's all you need. To unlock the metered premium tools (`search_web`, `crawl_deep`, `stealth_mode`, `agent`, …):
+Every tool requires a CrawlForge API key — new accounts get 1,000 free trial credits to start:
 
 ```bash
 npx crawlforge-setup
@@ -150,43 +150,38 @@ Restart Cursor to activate.
 
 ## 📊 Available Tools
 
-CrawlForge is **open-core**: 15 tools run locally on your machine and are **completely free — no API key required**. The metered premium tools cover real infrastructure (search fees, proxies, browser farms) and need an API key.
+CrawlForge requires a CrawlForge API key — **every tool is metered and consumes credits**. New accounts get **1,000 free trial credits** to start. Get a key at [crawlforge.dev/signup](https://www.crawlforge.dev/signup).
 
-**Free Local Tools** (0 credits, no API key needed)
-
-| Tool | What it does |
-|------|--------------|
-| `fetch_url` | Fetch content from any URL |
-| `extract_text` | Extract clean text from web pages |
-| `extract_links` | Get all links from a page |
-| `extract_metadata` | Extract page metadata (title, OG tags, schema.org) |
-| `scrape` | **Unified single-fetch, multi-format extraction.** Pass a `formats` array (markdown/html/rawHtml/text/links/metadata/screenshot/json-schema) plus `onlyMainContent`; one fetch serves every requested format with per-format partial-success warnings. *The `screenshot` format is the one metered exception (2 credits — needs a server browser)* |
-| `scrape_structured` | Extract structured data with CSS selectors |
-| `scrape_template` | Structured data from well-known sites (Amazon, GitHub, LinkedIn, YouTube, Reddit, Hacker News, npm, and more) without writing selectors |
-| `extract_content` | Enhanced content extraction |
-| `summarize_content` | Generate intelligent summaries |
-| `analyze_content` | Comprehensive content analysis |
-| `extract_structured` | LLM-powered schema-driven extraction (your own LLM key or local Ollama) |
-| `extract_with_llm` | Natural-language extraction. **Defaults to a local Ollama model — no API key, no API costs.** Pass `provider: "openai" \| "anthropic"` with the matching key for cloud models |
-| `process_document` | Multi-format document processing |
-| `list_ollama_models` | List the Ollama models installed locally (helps you pick a `model` for `extract_with_llm`) |
-| `get_batch_results` | Retrieve paginated results for a `batch_scrape` job by `batchId` |
-
-**Metered Premium Tools** (3–10 credits, API key required)
+**All Tools** (API key required)
 
 | Tool | Credits | What it does |
 |------|---------|--------------|
-| `map_site` | 3 | Discover and map website structure (optional `search=` ranks the discovered URLs) |
+| `fetch_url` | 1 | Fetch content from any URL |
+| `extract_text` | 1 | Extract clean text from web pages |
+| `extract_links` | 1 | Get all links from a page |
+| `extract_metadata` | 1 | Extract page metadata (title, OG tags, schema.org) |
+| `scrape_template` | 1 | Structured data from well-known sites (Amazon, GitHub, LinkedIn, YouTube, Reddit, Hacker News, npm, and more) without writing selectors |
+| `list_ollama_models` | 1 | List the Ollama models installed locally (helps you pick a `model` for `extract_with_llm`) |
+| `get_batch_results` | 1 | Retrieve paginated results for a `batch_scrape` job by `batchId` |
+| `scrape` | 2 | **Unified single-fetch, multi-format extraction.** Pass a `formats` array (markdown/html/rawHtml/text/links/metadata/screenshot/json-schema) plus `onlyMainContent`; one fetch serves every requested format with per-format partial-success warnings |
+| `scrape_structured` | 2 | Extract structured data with CSS selectors |
+| `extract_content` | 2 | Enhanced content extraction |
+| `map_site` | 2 | Discover and map website structure (optional `search=` ranks the discovered URLs) |
+| `process_document` | 2 | Multi-format document processing |
+| `localization` | 2 | Multi-language and geo-location management |
 | `track_changes` | 3 | Monitor content changes over time |
+| `analyze_content` | 3 | Comprehensive content analysis |
+| `extract_structured` | 3 | LLM-powered schema-driven extraction (your own LLM key or local Ollama) |
+| `extract_with_llm` | 3 | Natural-language extraction. Defaults to a local Ollama model; pass `provider: "openai" \| "anthropic"` with the matching key for cloud models (external LLM billed by your provider) |
+| `summarize_content` | 4 | Generate intelligent summaries |
+| `crawl_deep` | 4 | Deep crawl entire websites |
 | `search_web` | 5 | Search the web using Google Search API |
-| `crawl_deep` | 5 | Deep crawl entire websites |
 | `batch_scrape` | 5 | Process multiple URLs simultaneously |
 | `scrape_with_actions` | 5 | Browser automation chains |
 | `generate_llms_txt` | 5 | Generate AI interaction guidelines |
-| `localization` | 5 | Multi-language and geo-location management |
+| `stealth_mode` | 5 | Anti-detection browser management |
 | `agent` | 8 | **Autonomous research/extraction from a natural-language prompt — no URLs required.** Plans, gathers, and shapes an answer under hard safety stops (max steps/URLs/wall-clock enforced by the orchestrator, never the LLM) |
 | `deep_research` | 10 | Multi-stage research with source verification |
-| `stealth_mode` | 10 | Anti-detection browser management |
 
 For the full canonical capabilities reference (all tools, CLI commands, stealth engines, research workflow), see [SKILL.md](SKILL.md).
 
@@ -194,7 +189,7 @@ For the full canonical capabilities reference (all tools, CLI commands, stealth 
 
 ## 💳 Pricing
 
-**15 local tools are free forever — no API key, no credit card.** Credits only meter the premium tools that run on CrawlForge infrastructure.
+**Every tool is metered and requires an API key.** New accounts get 1,000 free trial credits — no credit card required to start.
 
 | Plan | Credits/Month | Best For |
 |------|---------------|----------|
@@ -238,7 +233,7 @@ export RESEARCH_MAX_STEALTH_RETRIES="8"    # cap on stealth retries per research
 
 ### Local-LLM quickstart (`extract_with_llm` with Ollama)
 
-`extract_with_llm` defaults to a local Ollama model — no API key, no API costs, no data leaving your machine.
+`extract_with_llm` defaults to a local Ollama model — no LLM-provider key, no per-token LLM costs, and no data leaving your machine (the CrawlForge credit cost still applies).
 
 ```bash
 # 1. Install Ollama:  https://ollama.com
@@ -317,7 +312,7 @@ Once configured, use these tools in your AI assistant:
 - **Action allowlist**: `scrape_with_actions` accepts only 7 action types (`wait`, `click`, `type`, `press`, `scroll`, `screenshot`, `executeJavaScript`). No download, file-write, or arbitrary cross-page navigation primitives exist.
 - **JavaScript gate**: The `executeJavaScript` action throws by default. Set `ALLOW_JAVASCRIPT_EXECUTION=true` at deploy time to enable (not recommended in production).
 - **MCP Elicitation** (v3.6.0): Four tools request user confirmation before executing expensive operations — `deep_research` (>50 URLs), `batch_scrape` (sync mode, >25 URLs), `crawl_deep` (projected >500 pages), `extract_structured` (schema has >3 required fields with no LLM configured). Credit-low situations also elicit. Confirmation is best-effort: if the MCP client does not support elicitation the tool proceeds (fail-open).
-- **Per-tool credit gating**: Every tool is wrapped with `withAuth()`; metered tools check and deduct credits before execution (fail-closed since v3.0.18). Free local tools (cost 0) skip the credit path entirely.
+- **Per-tool credit gating**: Every tool is wrapped with `withAuth()` and is metered — credits are checked and deducted before execution, and a valid API key is required for every tool (fail-closed since v3.0.18).
 
 See [docs/sandboxing-and-approvals.md](docs/sandboxing-and-approvals.md) for the full reference.
 
