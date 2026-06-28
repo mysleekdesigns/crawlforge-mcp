@@ -3,6 +3,15 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.7.1] - 2026-06-28
+
+Patch release: two correctness fixes surfaced by a full live audit of all 26 MCP tools (every tool confirmed functional with zero runtime errors; these were the only defects found).
+
+### Fixed
+
+- **`deep_research` `credibilityThreshold` now takes effect.** The schema-validated param (default 0.3) was a silent no-op — it was routed to `conductResearch` options instead of the orchestrator constructor (which never read it), while `verifySourceCredibility()` hardcoded `>= 0.3`. The constructor now reads and clamps it `[0,1]`, and all three source-inclusion gates (`verifySourceCredibility`, `compileSupportingEvidence`, `generateKeyFindings`) honor it. Verified live: `credibilityThreshold` 0.0 → 4 sources, 0.7 → 1. `src/core/ResearchOrchestrator.js`, `src/tools/research/deepResearch.js`
+- **`generate_llms_txt` no longer emits literal `undefined`.** The `llms-full.txt` rate-limiting section printed `undefinedms`/`undefined` because `analyzeRateLimiting()` only runs with `probeRateLimit:true`, leaving `analysis.rateLimit` as the empty-object init `{}` (truthy, so the template rendered its undefined fields). Now initialized with conservative defaults (1000ms / 5 / 30); the average-response line renders only when actually measured. `src/core/LLMsTxtAnalyzer.js`, `src/tools/llmstxt/generateLLMsTxt.js`
+
 ## [4.7.0] - 2026-06-27
 
 Reverts the open-core "free Tier 0" model. **Every tool is now metered and requires an API key — there is no free tier.**
