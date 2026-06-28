@@ -296,7 +296,7 @@ class MCPProtocolComplianceTestSuite {
             params: {
               name: 'fetch_url',
               arguments: {
-                url: 'https://httpbin.org/get'
+                url: 'https://example.com'
               }
             }
           },
@@ -310,7 +310,7 @@ class MCPProtocolComplianceTestSuite {
             params: {
               name: 'fetch_url',
               arguments: {
-                url: 'https://httpbin.org/get'
+                url: 'https://example.com'
               }
             }
           },
@@ -325,7 +325,7 @@ class MCPProtocolComplianceTestSuite {
             params: {
               name: 'fetch_url',
               arguments: {
-                url: 'https://httpbin.org/get'
+                url: 'https://example.com'
               }
             }
           },
@@ -339,7 +339,7 @@ class MCPProtocolComplianceTestSuite {
             params: {
               name: 'fetch_url',
               arguments: {
-                url: 'https://httpbin.org/get'
+                url: 'https://example.com'
               }
             }
           },
@@ -460,19 +460,19 @@ class MCPProtocolComplianceTestSuite {
       for (const testCase of errorTestCases) {
         try {
           const response = await this.sendRequest(testCase.request);
-          
-          const hasError = !!response.error;
-          const correctErrorCode = hasError && response.error.code === testCase.expectedErrorCode;
-          const hasErrorMessage = hasError && !!response.error.message;
-          
+
+          const { hasError, code, message } = this.extractError(response);
+          const correctErrorCode = hasError && code === testCase.expectedErrorCode;
+          const hasErrorMessage = hasError && !!message;
+
           errorTestResults.push({
             name: testCase.name,
             success: hasError && correctErrorCode && hasErrorMessage,
             hasError,
             correctErrorCode,
             hasErrorMessage,
-            actualErrorCode: response.error?.code,
-            errorMessage: response.error?.message
+            actualErrorCode: code,
+            errorMessage: message
           });
         } catch (error) {
           errorTestResults.push({
@@ -515,7 +515,7 @@ class MCPProtocolComplianceTestSuite {
         {
           name: 'fetch_url',
           arguments: {
-            url: 'https://httpbin.org/get',
+            url: 'https://example.com',
             timeout: 5000
           },
           validateResponse: (result) => {
@@ -526,7 +526,7 @@ class MCPProtocolComplianceTestSuite {
         {
           name: 'extract_metadata',
           arguments: {
-            url: 'https://httpbin.org/html'
+            url: 'https://example.com'
           },
           validateResponse: (result) => {
             return result && typeof result.title === 'string' && 
@@ -536,7 +536,7 @@ class MCPProtocolComplianceTestSuite {
         {
           name: 'scrape_structured',
           arguments: {
-            url: 'https://httpbin.org/html',
+            url: 'https://example.com',
             selectors: {
               title: 'title',
               heading: 'h1'
@@ -624,7 +624,7 @@ class MCPProtocolComplianceTestSuite {
           testCases: [
             {
               name: 'valid-parameters',
-              args: { url: 'https://httpbin.org/get' },
+              args: { url: 'https://example.com' },
               expectSuccess: true
             },
             {
@@ -639,7 +639,7 @@ class MCPProtocolComplianceTestSuite {
             },
             {
               name: 'invalid-timeout',
-              args: { url: 'https://httpbin.org/get', timeout: 'invalid' },
+              args: { url: 'https://example.com', timeout: 'invalid' },
               expectSuccess: false
             }
           ]
@@ -649,7 +649,7 @@ class MCPProtocolComplianceTestSuite {
           testCases: [
             {
               name: 'valid-parameters',
-              args: { url: 'https://httpbin.org/html' },
+              args: { url: 'https://example.com' },
               expectSuccess: true
             },
             {
@@ -659,7 +659,7 @@ class MCPProtocolComplianceTestSuite {
             },
             {
               name: 'invalid-boolean',
-              args: { url: 'https://httpbin.org/html', remove_scripts: 'not-boolean' },
+              args: { url: 'https://example.com', remove_scripts: 'not-boolean' },
               expectSuccess: false
             }
           ]
@@ -682,7 +682,7 @@ class MCPProtocolComplianceTestSuite {
             };
             
             const response = await this.sendRequest(request);
-            const hasError = !!response.error;
+            const { hasError } = this.extractError(response);
             const success = testCase.expectSuccess ? !hasError : hasError;
             
             validationResults.push({
@@ -736,7 +736,7 @@ class MCPProtocolComplianceTestSuite {
       const schemaTests = [
         {
           toolName: 'fetch_url',
-          arguments: { url: 'https://httpbin.org/get' },
+          arguments: { url: 'https://example.com' },
           validateSchema: (result) => {
             return typeof result.status === 'number' &&
                    typeof result.statusText === 'string' &&
@@ -749,7 +749,7 @@ class MCPProtocolComplianceTestSuite {
         },
         {
           toolName: 'extract_text',
-          arguments: { url: 'https://httpbin.org/html' },
+          arguments: { url: 'https://example.com' },
           validateSchema: (result) => {
             return typeof result.text === 'string' &&
                    typeof result.word_count === 'number' &&
@@ -759,7 +759,7 @@ class MCPProtocolComplianceTestSuite {
         },
         {
           toolName: 'extract_metadata',
-          arguments: { url: 'https://httpbin.org/html' },
+          arguments: { url: 'https://example.com' },
           validateSchema: (result) => {
             return typeof result.title === 'string' &&
                    typeof result.description === 'string' &&
@@ -850,7 +850,7 @@ class MCPProtocolComplianceTestSuite {
         params: {
           name: 'fetch_url',
           arguments: {
-            url: `https://httpbin.org/delay/${i % 3}`
+            url: 'https://example.com'
           }
         }
       }));
@@ -914,7 +914,7 @@ class MCPProtocolComplianceTestSuite {
         params: {
           name: 'scrape_structured',
           arguments: {
-            url: 'https://httpbin.org/html',
+            url: 'https://example.com',
             selectors: largeSelectors
           }
         }
@@ -1119,6 +1119,25 @@ class MCPProtocolComplianceTestSuite {
            inputSchema.type === 'object' &&
            inputSchema.properties &&
            typeof inputSchema.properties === 'object';
+  }
+
+  /**
+   * Normalize an error response across both MCP error shapes.
+   * Protocol-level errors (e.g. unknown method) arrive as a top-level JSON-RPC
+   * `error`; tool-level errors (unknown tool, input validation) arrive in-band
+   * as a result with `isError: true` and the code embedded in the text
+   * (e.g. "MCP error -32602: ..."). Both are valid error responses per spec.
+   */
+  extractError(response) {
+    if (response?.error) {
+      return { hasError: true, code: response.error.code, message: response.error.message };
+    }
+    if (response?.result?.isError) {
+      const text = response.result.content?.[0]?.text || '';
+      const match = text.match(/MCP error (-?\d+)/);
+      return { hasError: true, code: match ? parseInt(match[1], 10) : undefined, message: text };
+    }
+    return { hasError: false, code: undefined, message: undefined };
   }
 
   /**
