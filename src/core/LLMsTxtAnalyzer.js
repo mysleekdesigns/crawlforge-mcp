@@ -50,7 +50,16 @@ export class LLMsTxtAnalyzer {
       apis: [],
       contentTypes: {},
       securityAreas: [],
-      rateLimit: {},
+      // Conservative defaults so output never renders `undefined` when live
+      // rate-limit probing is skipped (analyzeRateLimiting only runs with
+      // probeRateLimit:true). Overwritten with measured values when probed.
+      rateLimit: {
+        recommendedDelay: 1000,
+        maxConcurrency: 5,
+        recommendedRPM: 30,
+        reasoning: 'Conservative defaults applied; live rate-limit probing was not performed (pass probeRateLimit:true to measure actual response times).',
+        averageResponseTime: null
+      },
       guidelines: {},
       metadata: {},
       errors: []

@@ -391,7 +391,9 @@ export class GenerateLLMsTxtTool {
       lines.push('');
       lines.push('### Technical Justification');
       lines.push(`${analysis.rateLimit.reasoning}`);
-      lines.push(`Average response time: ${analysis.rateLimit.averageResponseTime}ms`);
+      if (analysis.rateLimit.averageResponseTime != null) {
+        lines.push(`Average response time: ${analysis.rateLimit.averageResponseTime}ms`);
+      }
       lines.push('');
     }
 

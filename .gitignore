@@ -80,6 +80,9 @@ web_modules/
 .env.local
 .env.creator  # Never commit your creator secret!
 
+# Local MCP server config (contains creator secret + API keys — never commit!)
+.mcp.json
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache

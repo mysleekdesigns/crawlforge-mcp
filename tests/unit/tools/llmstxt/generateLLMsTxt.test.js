@@ -129,3 +129,47 @@ describe('generateLLMsTxt tool', () => {
     assert.ok(Array.isArray(result.analysis.apiEndpoints));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression: real renderer must never emit literal "undefined"
+// (rateLimit is only probed when probeRateLimit:true; the un-probed default
+//  used to render "undefinedms / undefined" in the llms-full.txt template)
+// ---------------------------------------------------------------------------
+
+describe('generateLLMsFullTxt real renderer — no undefined leakage', () => {
+  function baseAnalysis(analysisDefaults) {
+    return {
+      ...analysisDefaults, // brings the real default rateLimit
+      metadata: { analyzedAt: '2026-06-28T00:00:00Z', baseUrl: 'https://example.com' },
+      structure: { totalPages: 1, navigation: {}, sitemap: [] },
+      contentTypes: { public: [], restricted: [], forms: [], media: [] },
+      apis: [],
+      securityAreas: []
+    };
+  }
+
+  test('un-probed analysis renders conservative defaults, zero "undefined"', async () => {
+    const { GenerateLLMsTxtTool } = await import('../../../../src/tools/llmstxt/generateLLMsTxt.js');
+    const { LLMsTxtAnalyzer } = await import('../../../../src/core/LLMsTxtAnalyzer.js');
+
+    const defaults = new LLMsTxtAnalyzer().analysis;
+    assert.equal(defaults.rateLimit.recommendedDelay, 1000, 'default delay populated');
+    assert.equal(defaults.rateLimit.averageResponseTime, null, 'avg response unset when un-probed');
+
+    const full = new GenerateLLMsTxtTool().generateLLMsFullTxt(baseAnalysis(defaults), {}, 'standard');
+    assert.ok(!/undefined/.test(full), 'llms-full.txt must not contain the literal "undefined"');
+    assert.match(full, /Delay between requests:\*\* 1000ms minimum/);
+    assert.ok(!/Average response time/.test(full), 'avg-response line omitted when un-probed');
+  });
+
+  test('probed analysis still renders measured average response time', async () => {
+    const { GenerateLLMsTxtTool } = await import('../../../../src/tools/llmstxt/generateLLMsTxt.js');
+    const { LLMsTxtAnalyzer } = await import('../../../../src/core/LLMsTxtAnalyzer.js');
+
+    const a = baseAnalysis(new LLMsTxtAnalyzer().analysis);
+    a.rateLimit = { recommendedDelay: 425, maxConcurrency: 10, recommendedRPM: 60, reasoning: 'Fast site.', averageResponseTime: 850 };
+    const full = new GenerateLLMsTxtTool().generateLLMsFullTxt(a, {}, 'standard');
+    assert.ok(!/undefined/.test(full));
+    assert.match(full, /Average response time: 850ms/);
+  });
+});
