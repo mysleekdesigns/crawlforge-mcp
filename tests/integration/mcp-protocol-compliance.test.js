@@ -207,7 +207,7 @@ class MCPProtocolComplianceTestSuite {
         serverCapabilities: initResponse?.result?.capabilities
       });
       
-      console.log('   ✅ Protocol initialization test completed');
+      console.log(`   ${isValidInit ? '✅' : '⚠️'} Protocol initialization test ${isValidInit ? 'passed' : 'completed with failures'}`);
       
     } catch (error) {
       this.results.addError('protocolInitialization', error);
@@ -266,7 +266,8 @@ class MCPProtocolComplianceTestSuite {
         allSchemasValid
       });
       
-      console.log(`   ✅ Tool discovery test completed (${tools.length} tools found)`);
+      const toolDiscoveryPassed = isValidResponse && allSchemasValid && missingTools.length === 0;
+      console.log(`   ${toolDiscoveryPassed ? '✅' : '⚠️'} Tool discovery test ${toolDiscoveryPassed ? 'passed' : 'completed with failures'} (${tools.length} tools found)`);
       
     } catch (error) {
       this.results.addError('toolDiscovery', error);
@@ -381,7 +382,7 @@ class MCPProtocolComplianceTestSuite {
         results: formatTestResults
       });
       
-      console.log(`   ✅ Request/response format test completed`);
+      console.log(`   ${allFormatTestsPass ? '✅' : '⚠️'} Request/response format test ${allFormatTestsPass ? 'passed' : 'completed with failures'}`);
       
     } catch (error) {
       this.results.addError('requestResponseFormat', error);
@@ -491,7 +492,7 @@ class MCPProtocolComplianceTestSuite {
         results: errorTestResults
       });
       
-      console.log(`   ✅ Error handling test completed`);
+      console.log(`   ${allErrorTestsPass ? '✅' : '⚠️'} Error handling test ${allErrorTestsPass ? 'passed' : 'completed with failures'}`);
       
     } catch (error) {
       this.results.addError('errorHandling', error);
@@ -598,7 +599,7 @@ class MCPProtocolComplianceTestSuite {
         results: executionResults
       });
       
-      console.log(`   ✅ Tool execution test completed`);
+      console.log(`   ${allExecutionTestsPass ? '✅' : '⚠️'} Tool execution test ${allExecutionTestsPass ? 'passed' : 'completed with failures'}`);
       
     } catch (error) {
       this.results.addError('toolExecution', error);
@@ -713,7 +714,7 @@ class MCPProtocolComplianceTestSuite {
         results: validationResults
       });
       
-      console.log(`   ✅ Parameter validation test completed`);
+      console.log(`   ${allValidationTestsPass ? '✅' : '⚠️'} Parameter validation test ${allValidationTestsPass ? 'passed' : 'completed with failures'}`);
       
     } catch (error) {
       this.results.addError('parameterValidation', error);
@@ -823,7 +824,7 @@ class MCPProtocolComplianceTestSuite {
         results: schemaResults
       });
       
-      console.log(`   ✅ Response schema test completed`);
+      console.log(`   ${allSchemaTestsPass ? '✅' : '⚠️'} Response schema test ${allSchemaTestsPass ? 'passed' : 'completed with failures'}`);
       
     } catch (error) {
       this.results.addError('responseSchema', error);
@@ -880,7 +881,8 @@ class MCPProtocolComplianceTestSuite {
         }))
       });
       
-      console.log(`   ✅ Concurrent requests test completed (${duration}ms)`);
+      const concurrentPassed = allRequestsSuccessful && isConcurrent;
+      console.log(`   ${concurrentPassed ? '✅' : '⚠️'} Concurrent requests test ${concurrentPassed ? 'passed' : 'completed with failures'} (${duration}ms)`);
       
     } catch (error) {
       this.results.addError('concurrentRequests', error);
@@ -929,7 +931,7 @@ class MCPProtocolComplianceTestSuite {
         errorMessage: response.error?.message
       });
       
-      console.log(`   ✅ Large payload handling test completed`);
+      console.log(`   ${success ? '✅' : '⚠️'} Large payload handling test ${success ? 'passed' : 'completed with failures'}`);
       
     } catch (error) {
       this.results.addError('largePayloadHandling', error);
@@ -970,7 +972,8 @@ class MCPProtocolComplianceTestSuite {
         serverProcessAlive: this.serverProcess && !this.serverProcess.killed
       });
       
-      console.log(`   ✅ Transport layer test completed (${roundTripTime}ms)`);
+      const transportPassed = transportWorking && responsiveTransport;
+      console.log(`   ${transportPassed ? '✅' : '⚠️'} Transport layer test ${transportPassed ? 'passed' : 'completed with failures'} (${roundTripTime}ms)`);
       
     } catch (error) {
       this.results.addError('transportLayer', error);
@@ -1275,7 +1278,9 @@ async function runMCPComplianceTests() {
     
     console.log('\n📋 MCP Compliance Test Summary:');
     console.log('─'.repeat(60));
-    console.log(`✅ Status: ${report.compliance.status}`);
+    const statusIcon = report.compliance.status === 'COMPLIANT' ? '✅'
+      : report.compliance.status === 'PARTIAL_COMPLIANCE' ? '⚠️' : '❌';
+    console.log(`${statusIcon} Status: ${report.compliance.status}`);
     console.log(`📊 Total Tests: ${report.summary.totalTests}`);
     console.log(`🎯 Success Rate: ${report.summary.successRate.toFixed(1)}%`);
     console.log(`❌ Total Errors: ${report.summary.totalErrors}`);
