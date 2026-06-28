@@ -15,6 +15,22 @@ const _pkg = _require('../../../package.json');
 const CRAWLFORGE_UA = `CrawlForge/${_pkg.version} (+https://crawlforge.dev)`;
 import { fetchAndParse } from './_fetchAndParse.js';
 
+// Semantic element selectors for well-known field names, tried as a last
+// resort in the CSS fallback so common fields (e.g. "title") still resolve when
+// no LLM provider and no selectorHints are available. Element/text selectors
+// only — meta tags are already handled separately above.
+const SEMANTIC_FIELD_SELECTORS = {
+  title: ['h1', 'title'],
+  name: ['h1', 'title'],
+  heading: ['h1', 'h2'],
+  headline: ['h1', 'h2'],
+  description: ['article p', 'main p', '.description', 'p'],
+  summary: ['article p', 'main p', 'p'],
+  author: ['[rel="author"]', '.author', '.byline'],
+  date: ['time', '.date'],
+  published: ['time', '.published', '.date']
+};
+
 const ExtractStructuredSchema = z.object({
   url: z.string().url(),
   schema: z.object({
@@ -241,6 +257,33 @@ export class ExtractStructuredTool {
               extracted[key] = this._coerceValue(rawValue, fieldSchema);
               fieldsFound++;
               break;
+            }
+          }
+        }
+      }
+
+      // Last resort: semantic element selectors for well-known field names
+      // (e.g. title -> <h1>/<title>) so common fields resolve without hints.
+      if (!(key in extracted)) {
+        const semanticSelectors = SEMANTIC_FIELD_SELECTORS[key.toLowerCase()];
+        if (semanticSelectors) {
+          for (const sel of semanticSelectors) {
+            const el = $(sel);
+            if (el.length === 0) continue;
+            if (isArrayField && el.length > 1) {
+              const values = el.map((_, item) => $(item).text().trim()).get().filter(Boolean);
+              if (values.length > 0) {
+                extracted[key] = values;
+                fieldsFound++;
+                break;
+              }
+            } else {
+              const rawValue = el.first().text().trim();
+              if (rawValue) {
+                extracted[key] = this._coerceValue(rawValue, fieldSchema);
+                fieldsFound++;
+                break;
+              }
             }
           }
         }

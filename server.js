@@ -89,7 +89,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "4.7.1",
+  version: "4.7.2",
   description: "Production-ready MCP server with 26 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png"
@@ -736,6 +736,19 @@ server.registerTool("scrape_with_actions", {
 }, withAuth("scrape_with_actions", async (params) => {
   try {
     const result = await scrapeWithActionsTool.execute(params);
+
+    // Publish captured screenshots as crawlforge://screenshot/{actionId}
+    // resources (the documented contract) and annotate each with its URI.
+    if (Array.isArray(result.screenshots)) {
+      result.screenshots = result.screenshots.map((shot) => {
+        if (shot?.actionId && shot?.data) {
+          resourceRegistry.storeScreenshot(shot.actionId, shot.data);
+          return { ...shot, resourceUri: `crawlforge://screenshot/${shot.actionId}` };
+        }
+        return shot;
+      });
+    }
+
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
     return { content: [{ type: "text", text: `Scrape with actions failed: ${error.message}` }], isError: true };

@@ -619,6 +619,13 @@ export class ScrapeWithActionsTool extends EventEmitter {
         customSelectors: params.extractionOptions?.selectors
       };
 
+      // extractContent only emits content.markdown when explicitly asked; honor
+      // a requested "markdown" format so generateFormats doesn't fall back to a
+      // "Content not available in markdown format" placeholder.
+      if (params.formats?.includes('markdown')) {
+        options.outputFormat = 'markdown';
+      }
+
       // Prefer the post-action live page HTML captured during action execution.
       // This ensures the final content reflects clicks/typing/navigation rather
       // than re-fetching the original (pre-action) URL.

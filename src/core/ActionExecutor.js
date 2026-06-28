@@ -23,8 +23,8 @@ const WaitActionSchema = BaseActionSchema.extend({
   selector: z.string().optional(),
   condition: z.enum(['visible', 'hidden', 'enabled', 'disabled', 'stable']).optional(),
   text: z.string().optional()
-}).refine(data => data.duration || data.milliseconds || data.selector || data.text, {
-  message: 'Wait action requires duration/milliseconds, selector, or text'
+}).refine(data => data.duration || data.milliseconds || data.timeout || data.selector || data.text, {
+  message: 'Wait action requires duration/milliseconds/timeout, selector, or text'
 });
 
 const ClickActionSchema = BaseActionSchema.extend({
@@ -329,6 +329,18 @@ export class ActionExecutor extends EventEmitter {
           executionContext.results.push(actionResult);
           this.stats.totalActions++;
 
+          // Collect screenshots produced by successful screenshot actions so
+          // they surface in the tool result (not just error screenshots).
+          if (actionResult.success && action.type === 'screenshot' && actionResult.result?.data) {
+            executionContext.screenshots.push({
+              actionId: actionResult.id,
+              data: actionResult.result.data,
+              format: actionResult.result.format,
+              fullPage: actionResult.result.fullPage,
+              timestamp: actionResult.timestamp
+            });
+          }
+
           if (actionResult.success) {
             this.stats.successfulActions++;
           } else {
@@ -382,7 +394,16 @@ export class ActionExecutor extends EventEmitter {
       this.emit('actionStarted', { actionId, action, chainId: executionContext.id });
 
       let result;
-      const timeout = action.timeout || this.defaultTimeout;
+      let timeout = action.timeout || this.defaultTimeout;
+
+      // A `wait` action that uses `timeout` as its pause duration (no
+      // duration/milliseconds/selector/text) must not also use that same value
+      // as its abort deadline, or the abort would race the wait. Give headroom.
+      if (action.type === 'wait' &&
+          !action.duration && !action.milliseconds && !action.selector && !action.text &&
+          action.timeout) {
+        timeout = Math.max(this.defaultTimeout, action.timeout + 5000);
+      }
 
       // Execute based on action type with timeout
       const executionPromise = this.executeActionByType(page, action);
@@ -467,8 +488,11 @@ export class ActionExecutor extends EventEmitter {
    * @returns {Promise<Object>} Wait result
    */
   async executeWaitAction(page, action) {
-    // Handle both 'duration' and 'milliseconds' for backwards compatibility
-    const waitTime = action.duration || action.milliseconds;
+    // Handle 'duration'/'milliseconds' (and 'timeout' as a pause duration only
+    // when no selector/text is given — selector/text waits use 'timeout' as
+    // their abort deadline instead).
+    const waitTime = action.duration || action.milliseconds ||
+      (!action.selector && !action.text ? action.timeout : undefined);
     if (waitTime) {
       await this.delay(waitTime);
       return { waited: waitTime };
@@ -492,7 +516,7 @@ export class ActionExecutor extends EventEmitter {
       return { text: action.text };
     }
 
-    throw new Error('Wait action requires duration, selector, or text');
+    throw new Error('Wait action requires duration/milliseconds/timeout, selector, or text');
   }
 
   /**

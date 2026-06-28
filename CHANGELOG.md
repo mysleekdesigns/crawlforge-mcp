@@ -3,6 +3,23 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.7.2] - 2026-06-28
+
+Patch release: a second full live audit of all 26 MCP tools (each invoked through the real `mcp__crawlforge__*` interface and judged on actual output, not just "no exception"). 24 tools passed outright; `extract_structured` and `scrape_with_actions` were genuinely broken, which root-caused to **6 distinct defects** — all fixed and verified end-to-end through a freshly-spawned `server.js` (real browser + JSON-RPC round-trip).
+
+### Fixed
+
+- **`scrape_with_actions` wait action rejected `{type:"wait", timeout:1000}`.** The inner `ActionExecutor` validator required `duration`/`milliseconds`/`selector`/`text` and treated `timeout` only as the abort deadline, so the exact shape used by the project's own `test-tools.js` failed Zod validation. `timeout` is now accepted as a wait *duration* when no selector/text is given (selector/text waits still use it as the abort deadline), with an abort-race guard so a pure-`timeout` wait can't time itself out. `src/core/ActionExecutor.js`
+- **`scrape_with_actions` returned a markdown placeholder.** Requesting `formats:["markdown"]` yielded the literal `"Content not available in markdown format"` because `extractFinalContent()` never asked the extractor for markdown (`extractContent` only emits `content.markdown` when `outputFormat:'markdown'`). Now passes `outputFormat:'markdown'` when markdown is requested. `src/tools/advanced/ScrapeWithActionsTool.js`
+- **`scrape_with_actions` never surfaced screenshots.** Successful `screenshot` actions were never collected into `executionContext.screenshots` (only error screenshots were), so the top-level `screenshots[]` was always empty. Successful screenshots are now collected (with `actionId`, `data`, `format`, `fullPage`). `src/core/ActionExecutor.js`
+- **`crawlforge://screenshot/{actionId}` resources were never created.** `ResourceRegistry.storeScreenshot()` existed but was never called, so the documented screenshot resources never materialized. The `scrape_with_actions` handler now registers each captured screenshot and annotates it with its `resourceUri`. `server.js`
+- **`resources/read` threw for every resource type.** The MCP SDK hands the read callback a `URL` object, but `parseResourceUri()` calls `String#startsWith`, which throws on a URL — a latent bug first made reachable by the screenshot-resource fix. `readResource()` now coerces the URI to a string. `src/resources/ResourceRegistry.js`
+- **`extract_structured` returned empty `{}` with no LLM and no hints.** The CSS fallback only mapped schema fields via `selectorHints`/meta tags/class-or-id matches, so a field literally named `title` never resolved to `<h1>`/`<title>`. Added a small semantic-selector map for well-known field names (title, description, author, date, …) as a last resort, so common fields resolve on the no-LLM path. `src/tools/extract/extractStructured.js`
+
+### Notes
+
+- Verification: default `npm run test:unit` **406/406** (sandbox-off; the 13 `streamableHttp`/`searchWebSearxng` cases are the pre-existing `listen EPERM` sandbox artifacts only); dedicated real-browser integration + full JSON-RPC e2e through a fresh server all green; MCP compliance unchanged at its pre-existing 70% baseline (`git stash` A/B confirmed). Live MCP clients pick this up via `npm install -g crawlforge-mcp-server@latest` (or an `/mcp` reconnect for the project's local-`server.js` config).
+
 ## [4.7.1] - 2026-06-28
 
 Patch release: two correctness fixes surfaced by a full live audit of all 26 MCP tools (every tool confirmed functional with zero runtime errors; these were the only defects found).

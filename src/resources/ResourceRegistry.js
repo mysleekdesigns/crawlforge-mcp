@@ -167,6 +167,9 @@ export class ResourceRegistry {
    * @returns {{ contents: Array<{ uri: string, mimeType: string, text?: string, blob?: string }> }}
    */
   async readResource(uri) {
+    // The MCP SDK hands the read callback a URL object, not a string; coerce so
+    // the sub-readers and parseResourceUri (which calls String#startsWith) work.
+    uri = typeof uri === 'string' ? uri : (uri?.href ?? String(uri));
     const parsed = parseResourceUri(uri);
     if (!parsed) {
       throw new Error(`Unknown resource URI: ${uri}`);
