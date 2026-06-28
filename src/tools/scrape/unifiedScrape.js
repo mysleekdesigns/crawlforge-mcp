@@ -26,7 +26,7 @@ const JsonFormatSchema = z.object({
 });
 
 const FormatSchema = z.union([
-  z.enum(['markdown', 'html', 'rawHtml', 'text', 'links', 'metadata', 'screenshot']),
+  z.enum(['markdown', 'html', 'rawHtml', 'text', 'links', 'metadata', 'screenshot', 'branding']),
   JsonFormatSchema
 ]);
 
@@ -35,7 +35,17 @@ export const UnifiedScrapeSchema = z.object({
   formats: z.array(FormatSchema).min(1).default(['markdown']),
   onlyMainContent: z.boolean().optional().default(true),
   // Pass-through to fetchAndParse
-  timeoutMs: z.number().min(1000).max(60000).optional().default(15000)
+  timeoutMs: z.number().min(1000).max(60000).optional().default(15000),
+  // Optional, additive: only consulted when 'branding' / 'screenshot' is requested.
+  brandingOptions: z.object({
+    fetchLinkedCss: z.boolean().optional().default(true),
+    maxStylesheets: z.number().min(0).max(20).optional().default(10)
+  }).optional(),
+  screenshotOptions: z.object({
+    fullPage: z.boolean().optional().default(false),
+    format: z.enum(['png', 'jpeg']).optional().default('png'),
+    quality: z.number().min(0).max(100).optional()
+  }).optional()
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -155,6 +165,9 @@ export class UnifiedScrapeTool {
   constructor(options = {}) {
     this._extractWithLlm = null;
     this._extractWithLlmConfig = options.llmConfig || {};
+    // Optional shared ActionExecutor (injected from server.js so we reuse the
+    // existing browser pool rather than spinning up a second one).
+    this._actionExecutor = options.actionExecutor || null;
   }
 
   /** Lazy-load ExtractWithLlm to avoid pulling in heavy deps unless needed. */
@@ -166,6 +179,15 @@ export class UnifiedScrapeTool {
     return this._extractWithLlm;
   }
 
+  /** Lazy-load an ActionExecutor only when a screenshot is actually requested. */
+  async _getActionExecutor() {
+    if (!this._actionExecutor) {
+      const { default: ActionExecutor } = await import('../../core/ActionExecutor.js');
+      this._actionExecutor = new ActionExecutor({ enableLogging: false });
+    }
+    return this._actionExecutor;
+  }
+
   /**
    * Execute a unified scrape.
    * @param {object} params - UnifiedScrapeSchema-compatible input
@@ -173,7 +195,7 @@ export class UnifiedScrapeTool {
    */
   async execute(params) {
     const validated = UnifiedScrapeSchema.parse(params);
-    const { url, formats, onlyMainContent, timeoutMs } = validated;
+    const { url, formats, onlyMainContent, timeoutMs, brandingOptions, screenshotOptions } = validated;
 
     // Single fetch
     let html, $, finalUrl;
@@ -291,10 +313,48 @@ export class UnifiedScrapeTool {
           }
           break;
 
+        case 'branding':
+          try {
+            const { extractBranding } = await import('./_brandingExtractor.js');
+            const branding = await extractBranding($, finalUrl, {
+              fetchLinkedCss: brandingOptions?.fetchLinkedCss ?? true,
+              maxStylesheets: brandingOptions?.maxStylesheets ?? 10
+            });
+            if (Array.isArray(branding.warnings)) {
+              warnings.push(...branding.warnings);
+              delete branding.warnings;
+            }
+            content.branding = branding;
+          } catch (err) {
+            content.branding = {};
+            warnings.push(`branding: ${err.message}`);
+          }
+          break;
+
         case 'screenshot':
-          // Screenshot requires a browser; not available in the basic scrape path.
-          content.screenshots = [];
-          warnings.push('screenshot: browser screenshots are not available in the scrape tool; use scrape_with_actions for screenshots');
+          // Opt-in browser path: only launched when 'screenshot' is requested.
+          try {
+            const exec = await this._getActionExecutor();
+            const r = await exec.executeActionChain(
+              finalUrl,
+              {
+                actions: [{
+                  type: 'screenshot',
+                  fullPage: screenshotOptions?.fullPage ?? false,
+                  format: screenshotOptions?.format ?? 'png',
+                  ...(screenshotOptions?.quality != null ? { quality: screenshotOptions.quality } : {})
+                }]
+              },
+              { headless: true, timeout: 30000 }
+            );
+            content.screenshots = Array.isArray(r?.screenshots) ? r.screenshots : [];
+            if (content.screenshots.length === 0) {
+              warnings.push('screenshot: capture produced no image');
+            }
+          } catch (err) {
+            content.screenshots = [];
+            warnings.push(`screenshot: ${err.message}`);
+          }
           break;
 
         default:

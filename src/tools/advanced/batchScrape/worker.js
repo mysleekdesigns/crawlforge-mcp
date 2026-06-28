@@ -5,25 +5,31 @@
  */
 
 import { load } from 'cheerio';
+import { ssrfGuard, isSsrfError } from '../../../utils/ssrfGuard.js';
+import { throttleHost } from '../../../utils/hostRateLimiter.js';
 
 const USER_AGENT = 'MCP-WebScraper-BatchTool/1.0.0';
 
 /**
- * Fetch a URL with AbortController timeout.
+ * Fetch a URL with AbortController timeout (SSRF-guarded + per-host throttled).
  */
 export async function fetchUrl(url, options = {}) {
   const { timeout = 15000, headers = {} } = options;
+  const guard = ssrfGuard(url); // SSRF pre-flight (throws before connecting)
+  await throttleHost(url);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   try {
     const response = await fetch(url, {
       signal: controller.signal,
-      headers: { 'User-Agent': USER_AGENT, ...headers }
+      headers: { 'User-Agent': USER_AGENT, ...headers },
+      ...guard
     });
     clearTimeout(timeoutId);
     return response;
   } catch (error) {
     clearTimeout(timeoutId);
+    if (isSsrfError(error)) throw new Error(error.cause?.message || error.message);
     if (error.name === 'AbortError') throw new Error(`Request timeout after ${timeout}ms`);
     throw error;
   }

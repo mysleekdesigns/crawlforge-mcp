@@ -3,6 +3,8 @@
  * URL content fetching and history/stat helper functions.
  */
 
+import { safeFetch } from '../../../utils/ssrfGuard.js';
+
 /**
  * Default Jaccard similarity threshold below which a change is considered
  * meaningful (i.e. worth flagging). 0.85 means content must be at least 85 %
@@ -42,7 +44,7 @@ export function calculateSimilarity(text1, text2) {
  */
 export async function fetchContent(url) {
   try {
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       headers: {
         'User-Agent': 'MCP-WebScraper-ChangeTracker/3.0',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',

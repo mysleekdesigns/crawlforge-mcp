@@ -164,6 +164,10 @@ snapshots/*.snap
 snapshots/metadata/*.meta
 snapshots/temp/
 
+# Runtime async-job and scheduled-monitor stores
+jobs/
+monitors/
+
 # Editor directories and files
 .idea
 .vscode

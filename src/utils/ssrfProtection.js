@@ -414,14 +414,7 @@ export class SSRFProtection {
       return false;
     }
   }
-  /**
 
-  /**
-   * Check for path traversal patterns in raw URL before parsing
-   * @param {string} url - Raw URL to check
-   * @returns {Object} - Result with violations array
-   */
-   * Validate URL path for suspicious patterns
   /**
    * Check for path traversal patterns in raw URL before parsing
    * @param {string} url - Raw URL to check
@@ -454,9 +447,13 @@ export class SSRFProtection {
     
     return { violations };
   }
-   * @param {string} path 
+
+  /**
+   * Validate URL path for suspicious patterns
+   * @param {string} path
    * @returns {Object}
-   */  validatePath(path) {
+   */
+  validatePath(path) {
     const suspiciousPatterns = [
       /\.\.\//, // Directory traversal
       /\/etc\//, // System files

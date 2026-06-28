@@ -9,6 +9,7 @@ import { ContentProcessor } from '../../core/processing/ContentProcessor.js';
 import { BrowserProcessor } from '../../core/processing/BrowserProcessor.js';
 import { HTMLCleaner, ContentQualityAssessor } from '../../utils/contentUtils.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js'; // D3.1
+import { safeFetch } from '../../utils/ssrfGuard.js';
 
 const ProcessDocumentSchema = z.object({
   source: z.string().min(1),
@@ -275,7 +276,7 @@ export class ProcessDocumentTool {
       pageTitle = browserResult.title;
     } else {
       // Simple HTTP fetch
-      const response = await fetch(source, {
+      const response = await safeFetch(source, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (compatible; MCP-WebScraper/3.0; Document-Processor)'
         },

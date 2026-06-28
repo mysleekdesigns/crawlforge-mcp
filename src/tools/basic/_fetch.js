@@ -5,6 +5,8 @@
 
 import { config } from '../../constants/config.js';
 import { createRequire } from 'module';
+import { ssrfGuard, isSsrfError } from '../../utils/ssrfGuard.js';
+import { throttleHost } from '../../utils/hostRateLimiter.js';
 
 // Derive User-Agent from package version so it reflects the actual release.
 const _require = createRequire(import.meta.url);
@@ -27,6 +29,13 @@ export async function fetchWithTimeout(url, options = {}) {
   const { timeout = 10000, headers = {} } = options;
   const maxBodySize = config.fetch.maxBodySize;
 
+  // SSRF pre-flight (protocol / metadata host). Throws a clear error before any
+  // connection is attempted; `guard.dispatcher` enforces IP rules at connect time.
+  const guard = ssrfGuard(url);
+
+  // Per-host politeness throttle (before the timeout window starts).
+  await throttleHost(url);
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
@@ -37,11 +46,15 @@ export async function fetchWithTimeout(url, options = {}) {
       headers: {
         'User-Agent': CRAWLFORGE_UA,
         ...headers
-      }
+      },
+      ...guard
     });
     clearTimeout(timeoutId);
   } catch (error) {
     clearTimeout(timeoutId);
+    if (isSsrfError(error)) {
+      throw new Error(error.cause?.message || error.message);
+    }
     if (error.name === 'AbortError') {
       throw new Error(`Request timeout after ${timeout}ms`);
     }

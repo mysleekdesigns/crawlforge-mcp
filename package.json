@@ -1,6 +1,6 @@
 {
   "name": "crawlforge-mcp-server",
-  "version": "4.7.2",
+  "version": "4.8.0",
   "mcpName": "io.github.mysleekdesigns/crawlforge-mcp-server",
   "description": "CrawlForge MCP Server - Professional Model Context Protocol server with 26 web scraping, crawling, deep-research, and autonomous-extraction tools. Returns clean Markdown and structured JSON for Claude, Cursor, and any MCP client. Defaults to local Ollama for LLM extraction (no API key needed); OpenAI/Anthropic available as opt-in. Includes a unified multi-format scrape tool, an autonomous agent, pre-built site templates, and Camoufox stealth browsing.",
   "main": "server.js",
@@ -22,6 +22,7 @@
     "test:tools": "node test-tools.js",
     "test:real-world": "node test-real-world.js",
     "test:all": "bash run-all-tests.sh",
+    "skills:gen": "node scripts/generate-skill-md.mjs",
     "postinstall": "echo '\nCrawlForge MCP Server installed!\n\nQuick start: run \"npx crawlforge init\" to configure your API key, install skills, and register the MCP server with your AI clients.\nOr run \"npx crawlforge-setup\" to configure your API key only.\n'",
     "docker:build": "docker build -t crawlforge .",
     "docker:dev": "docker-compose up crawlforge-dev",

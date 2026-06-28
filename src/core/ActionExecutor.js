@@ -6,6 +6,12 @@
 import { z } from 'zod';
 import BrowserProcessor from './processing/BrowserProcessor.js';
 import { EventEmitter } from 'events';
+import { createHash } from 'node:crypto';
+
+// executeJavaScript hardening limits (only relevant when the deploy-time flag
+// ALLOW_JAVASCRIPT_EXECUTION=true is set; JS execution stays off by default).
+const JS_MAX_SCRIPT_LENGTH = parseInt(process.env.JS_MAX_SCRIPT_LENGTH || '10000', 10);
+const JS_EXECUTION_TIMEOUT_MS = parseInt(process.env.JS_EXECUTION_TIMEOUT_MS || '5000', 10);
 
 // Action schemas
 const BaseActionSchema = z.object({
@@ -715,17 +721,53 @@ export class ActionExecutor extends EventEmitter {
       );
     }
     
-    // Log security warning when JS execution is enabled
-    console.warn('⚠️  SECURITY WARNING: JavaScript execution is enabled. This allows arbitrary code execution!');
-    
-    const result = await page.evaluate(
-      new Function('...args', action.script),
-      ...action.args
+    const script = typeof action.script === 'string' ? action.script : '';
+    const args = Array.isArray(action.args) ? action.args : [];
+
+    // Defense-in-depth: bound script size before evaluating.
+    if (script.length > JS_MAX_SCRIPT_LENGTH) {
+      throw new Error(
+        `JavaScript execution rejected: script length ${script.length} exceeds limit of ${JS_MAX_SCRIPT_LENGTH} ` +
+        `(set JS_MAX_SCRIPT_LENGTH to raise it).`
+      );
+    }
+
+    // Structured audit log to stderr (stdout is reserved for the MCP JSON-RPC stream).
+    const scriptHash = createHash('sha256').update(script).digest('hex').slice(0, 16);
+    let targetUrl = 'unknown';
+    try { targetUrl = page.url(); } catch { /* page may be closed */ }
+    console.warn(
+      '[security] executeJavaScript ' + JSON.stringify({
+        ts: new Date().toISOString(),
+        url: targetUrl,
+        scriptSha256: scriptHash,
+        scriptLength: script.length,
+        argCount: args.length
+      })
     );
-    
+
+    // Bound execution time independent of the generic per-action timeout.
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`JavaScript execution timed out after ${JS_EXECUTION_TIMEOUT_MS}ms`)),
+        JS_EXECUTION_TIMEOUT_MS
+      );
+    });
+
+    let result;
+    try {
+      result = await Promise.race([
+        page.evaluate(new Function('...args', script), ...args),
+        timeout
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+
     return {
-      script: action.script,
-      args: action.args,
+      script,
+      args,
       result: action.returnResult ? result : undefined
     };
   }

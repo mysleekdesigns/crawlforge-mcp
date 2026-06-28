@@ -3,6 +3,7 @@ import zlib from 'zlib';
 import { promisify } from 'util';
 import { CacheManager } from '../core/cache/CacheManager.js';
 import { normalizeUrl } from './urlNormalizer.js';
+import { safeFetch } from './ssrfGuard.js';
 
 const gunzip = promisify(zlib.gunzip);
 
@@ -632,7 +633,7 @@ export class SitemapParser {
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         signal: controller.signal,
         headers: {
           'User-Agent': this.userAgent,

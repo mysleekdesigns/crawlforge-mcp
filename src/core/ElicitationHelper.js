@@ -24,7 +24,16 @@ export class ElicitationHelper {
    * @returns {boolean}
    */
   get supported() {
-    return !!(this._mcpServer?.server?.elicit);
+    const server = this._mcpServer?.server;
+    // The MCP SDK exposes elicitation via Server.elicitInput(); it is only
+    // usable when the connected CLIENT advertised the `elicitation` capability.
+    if (typeof server?.elicitInput !== 'function') return false;
+    try {
+      const caps = server.getClientCapabilities?.();
+      return !!caps?.elicitation;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -48,7 +57,7 @@ export class ElicitationHelper {
         .join('\n');
       const fullMessage = detailLines ? `${message}\n\n${detailLines}` : message;
 
-      const result = await this._mcpServer.server.elicit({
+      const result = await this._mcpServer.server.elicitInput({
         message: fullMessage,
         requestedSchema: {
           type: 'object',
@@ -63,7 +72,8 @@ export class ElicitationHelper {
         },
       });
 
-      return result?.content?.confirmed === true;
+      // Only an explicit accept + confirmed=true proceeds; decline/cancel = stop.
+      return result?.action === 'accept' && result?.content?.confirmed === true;
     } catch (err) {
       this._logger.warn('Elicitation request failed — proceeding without confirmation', { error: err.message });
       return true; // fail-open
@@ -87,7 +97,7 @@ export class ElicitationHelper {
     }
 
     try {
-      const result = await this._mcpServer.server.elicit({
+      const result = await this._mcpServer.server.elicitInput({
         message,
         requestedSchema: {
           type: 'object',
@@ -103,7 +113,10 @@ export class ElicitationHelper {
         },
       });
 
-      return result?.content?.[fieldName] || defaultValue || null;
+      if (result?.action === 'accept' && result?.content?.[fieldName] != null) {
+        return result.content[fieldName];
+      }
+      return defaultValue || null;
     } catch (err) {
       this._logger.warn('Elicitation request failed', { error: err.message });
       return defaultValue || null;

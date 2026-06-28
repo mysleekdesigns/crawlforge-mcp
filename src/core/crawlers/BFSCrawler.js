@@ -7,6 +7,7 @@ import { DomainFilter } from '../../utils/domainFilter.js';
 import { LinkAnalyzer } from '../analysis/LinkAnalyzer.js';
 import { normalizeUrl, extractLinks, isValidUrl } from '../../utils/urlNormalizer.js';
 import { Logger } from '../../utils/Logger.js';
+import { safeFetch } from '../../utils/ssrfGuard.js';
 
 const logger = new Logger('BFSCrawler');
 
@@ -284,7 +285,7 @@ export class BFSCrawler {
         setTimeout(() => controller.abort(), effectiveTimeout);
       }
 
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         signal: controller.signal,
         headers
       });

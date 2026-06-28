@@ -3,7 +3,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { install } from '../../skills/installer.js';
+import { install, installHook } from '../../skills/installer.js';
 
 const HOME = process.env.HOME || process.env.USERPROFILE || '';
 
@@ -61,6 +61,7 @@ export function register(program) {
     .description('Set up CrawlForge: verify API key, install skills, and register the MCP server with your AI clients')
     .option('--all', 'Install skills to all targets and register all detected client configs')
     .option('--client <name>', 'Target client to register: claude-code, claude-desktop, or cursor')
+    .option('--with-hook', 'Add an opt-in UserPromptSubmit reminder to boost skill auto-activation')
     .option('--yes', 'Non-interactive — assume yes to all prompts')
     .action(async (opts) => {
       const out = (msg) => process.stderr.write(msg + '\n');
@@ -80,12 +81,22 @@ export function register(program) {
       try {
         const results = await install({ target: skillTarget, force: false, cwd: process.cwd() });
         if (results.installed.length > 0) {
-          out('Skills installed: ' + results.installed.length + ' file(s)');
+          out('Skills installed: ' + results.installed.length + ' skill(s)');
         } else {
           out('Skills: already up to date (use crawlforge install-skills --force to overwrite)');
         }
       } catch (err) {
         out('Warning: skill install failed — ' + err.message);
+      }
+
+      // 2b. Optional forced-eval hook (opt-in)
+      if (opts.withHook) {
+        try {
+          const hook = installHook();
+          out(hook.added ? 'Forced-eval hook added: ' + hook.path : 'Forced-eval hook already present');
+        } catch (err) {
+          out('Warning: could not add forced-eval hook — ' + err.message);
+        }
       }
 
       // 3. MCP stanza merge

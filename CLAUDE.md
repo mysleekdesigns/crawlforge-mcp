@@ -62,7 +62,7 @@ These guidelines are working if: fewer unnecessary changes in diffs, fewer rewri
 
 CrawlForge MCP Server - A professional MCP (Model Context Protocol) server providing 26 web scraping, crawling, and content processing tools (5 inline + 21 advanced).
 
-**Current Version:** 4.6.0
+**Current Version:** 4.8.0
 
 ## Development Commands
 
@@ -241,7 +241,7 @@ When adding a new tool to server.js:
 
 Key mechanisms for security-conscious future sessions:
 
-- **SSRF** (`src/utils/ssrfProtection.js`): Every scraped URL validated — http/https only; blocks loopback, RFC1918, IPv6 ULA/link-local, cloud metadata endpoints; blocks dangerous ports (22, 25, 53, 445, 3306, 5432, 6379, 27017, etc.); redirects re-validated per hop, capped at 5; pre-parse path-traversal rejection. Blocklist-based — no per-deployment outbound allowlist.
+- **SSRF** (`src/utils/ssrfGuard.js` enforcing `src/utils/ssrfProtection.js`): As of v4.8.0 SSRF is actually enforced on the live scraping fetch path (previously `ssrfProtection.js` was unwired). `ssrfGuard` injects an undici dispatcher whose connect-time `lookup` validates every connection — initial request and each redirect hop — and pins the validated IP (closing the DNS-rebinding TOCTOU window). Stage 1 (default) blocks loopback, link-local/cloud-metadata (169.254.169.254), and 0.0.0.0; `SSRF_STRICT=true` adds full RFC1918/ULA/etc. enforcement. Kill switch `SSRF_PROTECTION_ENABLED=false`; `ALLOWED_DOMAINS` allowlist bypass. Wired into every read-scrape site (`_fetch.js`, `_fetchAndParse.js`, `batchScrape/worker.js`, `mapSite.js`, `BFSCrawler.js`, extract/template/session/research/llms-txt/robots/sitemap/track-changes fetches) via `ssrfGuard()`/`safeFetch()`. http/https only; dangerous ports + path-traversal still rejected by `ssrfProtection.js`.
 - **endpointGuard** (`src/core/endpointGuard.js`): Hard allow-list of `{crawlforge.dev, www.crawlforge.dev, api.crawlforge.dev}` for the server's own backend calls; HTTPS required; fail-closed. Localhost only in creator mode (v3.0.18).
 - **Action allowlist** (`src/core/ActionExecutor.js`): `scrape_with_actions` accepts only 7 action types: `wait`, `click`, `type`, `press`, `scroll`, `screenshot`, `executeJavaScript`. `executeJavaScript` throws unless `ALLOW_JAVASCRIPT_EXECUTION=true` is set at deploy time (off by default).
 - **Elicitation** (`src/core/ElicitationHelper.js`): User confirmation requested for `deep_research` (>50 URLs), `batch_scrape` (sync, >25 URLs), `crawl_deep` (projected >500 pages), `extract_structured` (schema has >3 required fields, no LLM configured), and credit-low situations. Fail-open if client does not support elicitation.

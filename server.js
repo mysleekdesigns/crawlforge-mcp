@@ -154,7 +154,7 @@ const deepResearchTool = new DeepResearchTool();
 const trackChangesTool = new TrackChangesTool();
 const generateLLMsTxtTool = new GenerateLLMsTxtTool();
 const scrapeTemplateTool = new ScrapeTemplateTool(); // D3.3
-const unifiedScrapeTool = new UnifiedScrapeTool(); // D4 D1
+const unifiedScrapeTool = new UnifiedScrapeTool({ actionExecutor: scrapeWithActionsTool.actionExecutor }); // D4 D1 (+v4.8 screenshot reuses the shared browser pool)
 const agentTool = new AgentTool(); // D4 D2
 const stealthBrowserManager = new StealthBrowserManager();
 const localizationManager = new LocalizationManager();
@@ -177,6 +177,7 @@ batchScrapeTool.setMcpServer(server);
 crawlDeepTool.setMcpServer(server);
 extractStructuredTool.setMcpServer(server);
 agentTool.setMcpServer(server); // D4 D2: SamplingClient + Elicitation
+trackChangesTool.setMcpServer(server); // v4.8: SamplingClient for scheduled-monitor goal judging
 AuthManager.setElicitation(elicitation);
 
 // ─── D1.1 Resource Templates (MCP Resources) ─────────────────────────────────
@@ -813,12 +814,12 @@ server.registerTool("deep_research", {
 
 // Tool: scrape (D4 D1 — unified multi-format single-fetch)
 server.registerTool("scrape", {
-  description: "Use this when you need multiple content formats from a single URL in one call — e.g. markdown + links + metadata together. One fetch, no N-request fan-out. Formats: \"markdown\", \"html\", \"rawHtml\", \"text\", \"links\", \"metadata\", or {type:\"json\",schema,prompt} for LLM-structured extraction. onlyMainContent:true (default) strips boilerplate via Readability. Partial success: per-format warnings never fail the whole call. Example: scrape({url:\"https://example.com\", formats:[\"markdown\",\"links\",\"metadata\"]})",
+  description: "Use this when you need multiple content formats from a single URL in one call — e.g. markdown + links + metadata together. One fetch, no N-request fan-out. Formats: \"markdown\", \"html\", \"rawHtml\", \"text\", \"links\", \"metadata\", \"branding\" (static design tokens: colors, fonts, logo), \"screenshot\" (renders in a browser, returns crawlforge://screenshot/{id} resources), or {type:\"json\",schema,prompt} for LLM-structured extraction. onlyMainContent:true (default) strips boilerplate via Readability. Partial success: per-format warnings never fail the whole call. Example: scrape({url:\"https://example.com\", formats:[\"markdown\",\"links\",\"branding\"]})",
   annotations: { title: "Scrape (Multi-Format)", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to scrape"),
     formats: z.array(z.union([
-      z.enum(["markdown", "html", "rawHtml", "text", "links", "metadata", "screenshot"]),
+      z.enum(["markdown", "html", "rawHtml", "text", "links", "metadata", "screenshot", "branding"]),
       z.object({
         type: z.literal("json"),
         schema: z.record(z.any()).optional().describe("JSON schema for extraction"),
@@ -826,11 +827,31 @@ server.registerTool("scrape", {
       })
     ])).min(1).optional().default(["markdown"]).describe("Formats to return (default: [\"markdown\"])"),
     onlyMainContent: z.boolean().optional().default(true).describe("Strip boilerplate via Readability (default: true)"),
-    timeoutMs: z.number().min(1000).max(60000).optional().default(15000).describe("Fetch timeout in ms")
+    timeoutMs: z.number().min(1000).max(60000).optional().default(15000).describe("Fetch timeout in ms"),
+    brandingOptions: z.object({
+      fetchLinkedCss: z.boolean().optional().default(true).describe("Fetch linked stylesheets for richer color/font extraction"),
+      maxStylesheets: z.number().min(0).max(20).optional().default(10).describe("Max linked stylesheets to fetch")
+    }).optional().describe("Options for the \"branding\" format"),
+    screenshotOptions: z.object({
+      fullPage: z.boolean().optional().default(false).describe("Capture the full scrollable page"),
+      format: z.enum(["png", "jpeg"]).optional().default("png"),
+      quality: z.number().min(0).max(100).optional().describe("JPEG quality (jpeg only)")
+    }).optional().describe("Options for the \"screenshot\" format")
   }
 }, withAuth("scrape", async (params) => {
   try {
     const result = await unifiedScrapeTool.execute(params);
+    // Publish any captured screenshots as crawlforge://screenshot/{actionId}
+    // resources and annotate each with its URI (mirrors scrape_with_actions).
+    if (Array.isArray(result?.content?.screenshots)) {
+      result.content.screenshots = result.content.screenshots.map((shot) => {
+        if (shot?.actionId && shot?.data) {
+          resourceRegistry.storeScreenshot(shot.actionId, shot.data);
+          return { ...shot, resourceUri: `crawlforge://screenshot/${shot.actionId}` };
+        }
+        return shot;
+      });
+    }
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
     return { content: [{ type: "text", text: `Scrape failed: ${error.message}` }], isError: true };
@@ -863,10 +884,10 @@ server.registerTool("track_changes", {
   description: "Use this when you need to monitor a URL for content changes over time — e.g. competitor pricing, regulation updates, product availability. Start with operation:\"create_baseline\", then periodically use operation:\"compare\" to diff. Supports webhooks and scheduled monitoring. Example: track_changes({url: \"https://example.com/pricing\", operation: \"create_baseline\"})",
   annotations: { title: "Track Changes", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
-    url: z.string().url().describe("The URL to track changes for"),
+    url: z.string().url().optional().describe("The URL to track changes for (optional for list_scheduled_monitors)"),
     operation: z.enum([
       'create_baseline', 'compare', 'monitor', 'get_history', 'get_stats',
-      'create_scheduled_monitor', 'stop_scheduled_monitor', 'get_dashboard',
+      'create_scheduled_monitor', 'stop_scheduled_monitor', 'list_scheduled_monitors', 'get_dashboard',
       'export_history', 'create_alert_rule', 'generate_trend_report', 'get_monitoring_templates'
     ]).default('compare').describe("Tracking operation to perform"),
     content: z.string().optional().describe("Content to compare against baseline"),
@@ -930,10 +951,14 @@ server.registerTool("track_changes", {
       }).optional()
     }).optional().describe("Notification configuration for webhooks and Slack"),
     scheduledMonitorOptions: z.object({
-      schedule: z.string().optional(),
+      schedule: z.string().optional().describe("Optional cron expression (power users)"),
       templateId: z.string().optional(),
-      enabled: z.boolean().default(true)
-    }).optional().describe("Scheduled monitoring options with cron expressions"),
+      enabled: z.boolean().default(true),
+      interval: z.number().min(60000).optional().describe("Polling interval in ms (default 1h)"),
+      goal: z.string().optional().describe("Plain-English alert goal; an LLM judges whether a change matches (degrades to threshold if no LLM)"),
+      monitorId: z.string().optional().describe("Monitor id for stop_scheduled_monitor"),
+      notificationThreshold: z.enum(['minor', 'moderate', 'major', 'critical']).optional()
+    }).optional().describe("Scheduled monitoring: recurring compare + notify, optional plain-English goal"),
     alertRuleOptions: z.object({
       ruleId: z.string().optional(),
       condition: z.string().optional(),
@@ -1269,6 +1294,14 @@ async function runServer() {
     }
   } else {
     await connectStdio(server);
+  }
+
+  // v4.8: start the scheduled-monitor engine (loads persisted monitors, catches
+  // up any due runs). Best-effort — a scheduler failure must not block startup.
+  try {
+    await trackChangesTool.startScheduler();
+  } catch (err) {
+    console.error('Scheduled-monitor engine failed to start:', err.message);
   }
 
   console.error(`Environment: ${config.server.nodeEnv}`);

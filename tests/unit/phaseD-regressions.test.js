@@ -457,10 +457,10 @@ describe('D2.1 UnifiedScrapeTool single fetch returns all four formats', async (
 });
 
 describe('D2.2 UnifiedScrapeTool partial failure yields warnings but not full failure', async () => {
-  test('screenshot format produces a warning entry but result.success remains true', async () => {
+  test('screenshot format captures via the shared executor (v4.8)', async () => {
     const { UnifiedScrapeTool } = await import('../../src/tools/scrape/unifiedScrape.js');
 
-    globalThis.fetch = async (url) => ({
+    globalThis.fetch = async () => ({
       ok: true,
       status: 200,
       url: 'https://example.com/',
@@ -468,8 +468,36 @@ describe('D2.2 UnifiedScrapeTool partial failure yields warnings but not full fa
       text: async () => MINIMAL_HTML
     });
 
-    const tool = new UnifiedScrapeTool();
-    // screenshot requires a browser — it will add a warning but not fail
+    // Inject a stub executor so the test is deterministic (no real browser).
+    let called = 0;
+    const stubExec = { executeActionChain: async () => { called++; return { screenshots: [{ actionId: 'a1', data: 'BASE64', format: 'png' }] }; } };
+    const tool = new UnifiedScrapeTool({ actionExecutor: stubExec });
+    const result = await tool.execute({
+      url: 'https://example.com/',
+      formats: ['markdown', 'screenshot'],
+      onlyMainContent: false
+    });
+
+    assert.equal(result.success, true);
+    assert.ok('markdown' in result.content, 'markdown should still be present');
+    assert.equal(called, 1, 'screenshot should invoke the executor exactly once');
+    assert.equal(result.content.screenshots[0].actionId, 'a1');
+  });
+
+  test('screenshot capture failure degrades to a warning but result.success remains true', async () => {
+    const { UnifiedScrapeTool } = await import('../../src/tools/scrape/unifiedScrape.js');
+
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      url: 'https://example.com/',
+      headers: { get: () => 'text/html' },
+      text: async () => MINIMAL_HTML
+    });
+
+    // Executor that throws -> partial-success contract: warning, not a hard fail.
+    const failExec = { executeActionChain: async () => { throw new Error('browser unavailable'); } };
+    const tool = new UnifiedScrapeTool({ actionExecutor: failExec });
     const result = await tool.execute({
       url: 'https://example.com/',
       formats: ['markdown', 'screenshot'],
@@ -478,10 +506,7 @@ describe('D2.2 UnifiedScrapeTool partial failure yields warnings but not full fa
 
     assert.equal(result.success, true, 'result must still succeed with partial warning');
     assert.ok('markdown' in result.content, 'markdown should still be present');
-    assert.ok(Array.isArray(result.warnings), 'warnings should be an array');
-    assert.ok(result.warnings.length > 0, 'at least one warning expected for screenshot');
-
-    // The warning should mention screenshot
+    assert.ok(Array.isArray(result.warnings) && result.warnings.length > 0, 'a warning is expected');
     const screenshotWarn = result.warnings.find(w => w.toLowerCase().includes('screenshot'));
     assert.ok(screenshotWarn, `Expected a screenshot warning, got: ${JSON.stringify(result.warnings)}`);
   });

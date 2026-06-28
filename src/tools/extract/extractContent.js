@@ -8,6 +8,7 @@ import { ContentProcessor } from '../../core/processing/ContentProcessor.js';
 import { BrowserProcessor } from '../../core/processing/BrowserProcessor.js';
 import { HTMLCleaner, ContentQualityAssessor } from '../../utils/contentUtils.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js'; // D3.1
+import { safeFetch } from '../../utils/ssrfGuard.js';
 
 const ExtractContentSchema = z.object({
   url: z.string().url(),
@@ -169,7 +170,7 @@ export class ExtractContentTool {
         pageTitle = browserResult.title;
       } else {
         // Simple HTTP fetch
-        const response = await fetch(url, {
+        const response = await safeFetch(url, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (compatible; MCP-WebScraper/3.0; Enhanced-Content-Extractor)'
           },

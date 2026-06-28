@@ -7,6 +7,7 @@
  */
 
 import { TemplateRegistry } from './TemplateRegistry.js';
+import { safeFetch } from '../../utils/ssrfGuard.js';
 
 export class ScrapeTemplateTool {
   constructor() {
@@ -39,7 +40,7 @@ export class ScrapeTemplateTool {
     const timeoutId = setTimeout(() => controller.abort(), timeout);
     let html;
     try {
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         signal: controller.signal,
         headers: {
           'User-Agent': 'Mozilla/5.0 (compatible; CrawlForge-TemplateScraper/4.0)'

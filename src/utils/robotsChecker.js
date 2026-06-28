@@ -1,4 +1,5 @@
 import robotsParser from 'robots-parser';
+import { safeFetch } from './ssrfGuard.js';
 
 export class RobotsChecker {
   constructor(userAgent = 'CrawlForge/1.0') {
@@ -32,7 +33,7 @@ export class RobotsChecker {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       
-      const response = await fetch(robotsUrl, {
+      const response = await safeFetch(robotsUrl, {
         signal: controller.signal,
         headers: {
           'User-Agent': this.userAgent

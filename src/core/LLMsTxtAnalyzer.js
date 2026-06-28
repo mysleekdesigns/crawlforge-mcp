@@ -4,6 +4,7 @@ import { MapSiteTool } from '../tools/crawl/mapSite.js';
 import { CrawlDeepTool } from '../tools/crawl/crawlDeep.js';
 import { normalizeUrl, getBaseUrl } from '../utils/urlNormalizer.js';
 import { Logger } from '../utils/Logger.js';
+import { safeFetch } from '../utils/ssrfGuard.js';
 
 const logger = new Logger('LLMsTxtAnalyzer');
 
@@ -442,7 +443,7 @@ export class LLMsTxtAnalyzer {
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         signal: controller.signal,
         headers: {
           'User-Agent': this.options.userAgent

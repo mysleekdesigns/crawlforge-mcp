@@ -8,6 +8,7 @@ import { ResultRanker } from '../tools/search/ranking/ResultRanker.js';
 import { CacheManager } from './cache/CacheManager.js';
 import { Logger } from '../utils/Logger.js';
 import { LLMManager } from './llm/LLMManager.js';
+import { safeFetch } from '../utils/ssrfGuard.js';
 
 /**
  * ResearchOrchestrator - Multi-stage research orchestration engine with LLM integration
@@ -552,7 +553,7 @@ export class ResearchOrchestrator extends EventEmitter {
               });
               // Fallback: use fetch + basic text extraction
               try {
-                const fetchResponse = await fetch(source.link, {
+                const fetchResponse = await safeFetch(source.link, {
                   headers: { 'User-Agent': 'CrawlForge-Research/1.0' },
                   signal: AbortSignal.timeout(10000)
                 });

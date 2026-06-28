@@ -1,7 +1,7 @@
 /**
  * install-skills command -- install CrawlForge skill files into AI coding tools.
  */
-import { install } from '../../skills/installer.js';
+import { install, installHook } from '../../skills/installer.js';
 
 export function register(program) {
   program
@@ -10,6 +10,7 @@ export function register(program) {
     .option('--target <target>', 'Target: claude-code, cursor, vscode, or all', 'all')
     .option('--force', 'Overwrite existing skill files')
     .option('--dry-run', 'Show what would be installed without writing files')
+    .option('--with-hook', 'Also add an opt-in UserPromptSubmit reminder to boost skill auto-activation')
     .action(async (opts) => {
       try {
         const results = await install({
@@ -18,6 +19,14 @@ export function register(program) {
           dryRun: Boolean(opts.dryRun),
           cwd: process.cwd()
         });
+
+        if (opts.withHook && !opts.dryRun) {
+          const hook = installHook();
+          process.stdout.write(
+            (hook.added ? 'Added forced-eval hook: ' : 'Forced-eval hook already present: ') +
+            hook.path + '\n'
+          );
+        }
 
         if (opts.dryRun) {
           process.stdout.write('Dry run -- would install to:\n');

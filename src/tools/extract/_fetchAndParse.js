@@ -11,6 +11,7 @@
  */
 
 import { load } from 'cheerio';
+import { safeFetch } from '../../utils/ssrfGuard.js';
 
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (compatible; CrawlForge-MCP/3.0)';
 const DEFAULT_TIMEOUT_MS = 15000;
@@ -32,7 +33,7 @@ export async function fetchAndParse(url, options = {}) {
     stripTags = ['script', 'style', 'noscript', 'iframe', 'svg']
   } = options;
 
-  const response = await fetch(url, {
+  const response = await safeFetch(url, {
     headers: {
       'User-Agent': userAgent,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'

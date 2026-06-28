@@ -17,6 +17,8 @@ import { EventEmitter } from 'events';
 import ChangeTracker from '../../../core/ChangeTracker.js';
 import SnapshotManager from '../../../core/SnapshotManager.js';
 import CacheManager from '../../../core/cache/CacheManager.js';
+import { MonitorStore } from '../../../core/MonitorStore.js';
+import { MonitorScheduler } from '../../../core/MonitorScheduler.js';
 import { TrackChangesSchema } from './schema.js';
 import { fetchContent, mergeHistoryData, matchesSignificanceFilter, calculateAverageInterval, calculateSignificanceDistribution } from './differ.js';
 import { performMonitoringCheck, stopMonitor } from './monitor.js';
@@ -56,7 +58,42 @@ export class TrackChangesTool extends EventEmitter {
     this.activeMonitors = new Map();
     this.monitorStats = new Map();
 
+    // Scheduled-monitor subsystem (timers are NOT started here — only the
+    // single server-owned instance calls startScheduler()).
+    this._mcpServer = null;
+    this.monitorStore = new MonitorStore({ storageDir: this.options.monitorStorageDir || './monitors' });
+    this.scheduler = new MonitorScheduler({ tool: this, store: this.monitorStore });
+
     this.initialize();
+  }
+
+  /** Wire the MCP server so the goal-judge can use SamplingClient (Ollama-first). */
+  setMcpServer(server) {
+    this._mcpServer = server;
+  }
+
+  /** Start the in-process scheduler (called once, by the server). */
+  async startScheduler() {
+    if (this._mcpServer && !this.scheduler.samplingClient) {
+      try {
+        const { SamplingClient } = await import('../../../core/SamplingClient.js');
+        this.scheduler.samplingClient = new SamplingClient({ mcpServer: this._mcpServer });
+      } catch {
+        /* goal-judge will degrade to threshold mode */
+      }
+    }
+    await this.scheduler.start();
+  }
+
+  /** Fire every due monitor once and exit (the external-cron one-shot path). */
+  async runDueOnce() {
+    if (this._mcpServer && !this.scheduler.samplingClient) {
+      try {
+        const { SamplingClient } = await import('../../../core/SamplingClient.js');
+        this.scheduler.samplingClient = new SamplingClient({ mcpServer: this._mcpServer });
+      } catch { /* degrade */ }
+    }
+    return this.scheduler.runDueOnce();
   }
 
   async initialize() {
@@ -103,6 +140,7 @@ export class TrackChangesTool extends EventEmitter {
         case 'get_stats':               return await this.getStatistics(validated);
         case 'create_scheduled_monitor':return await this.createScheduledMonitor(validated);
         case 'stop_scheduled_monitor':  return await this.stopScheduledMonitor(validated);
+        case 'list_scheduled_monitors': return await this.listScheduledMonitors(validated);
         case 'get_dashboard':           return await this.getMonitoringDashboard(validated);
         case 'export_history':          return await this.exportHistoricalData(validated);
         case 'create_alert_rule':       return await this.createAlertRule(validated);
@@ -281,32 +319,37 @@ export class TrackChangesTool extends EventEmitter {
   }
 
   async createScheduledMonitor(params) {
-    const { url, scheduledMonitorOptions, trackingOptions, notificationOptions } = params;
-    const schedule = scheduledMonitorOptions?.schedule || '0 */1 * * *';
-    const templateId = scheduledMonitorOptions?.templateId;
-    let monitorOptions = { ...trackingOptions };
-    if (templateId && this.changeTracker.monitoringTemplates.has(templateId)) {
-      monitorOptions = { ...this.changeTracker.monitoringTemplates.get(templateId).options, ...monitorOptions };
-    }
-    const result = await this.changeTracker.createScheduledMonitor(url, schedule, {
-      ...monitorOptions,
-      alertRules: { threshold: 'moderate', methods: ['webhook'], throttle: 600000, ...notificationOptions }
+    const { url, scheduledMonitorOptions, monitoringOptions, trackingOptions, notificationOptions } = params;
+    if (!url) throw new Error('create_scheduled_monitor requires a url');
+    const opts = scheduledMonitorOptions || {};
+    const monitor = await this.scheduler.createMonitor({
+      url,
+      interval: opts.interval ?? monitoringOptions?.interval,
+      schedule: opts.schedule,
+      goal: opts.goal,
+      notificationThreshold: opts.notificationThreshold || monitoringOptions?.notificationThreshold || 'moderate',
+      trackingOptions,
+      notificationOptions
     });
-    return { success: true, operation: 'create_scheduled_monitor', url, monitor: result, template: templateId ? this.changeTracker.monitoringTemplates.get(templateId)?.name : null, timestamp: Date.now() };
+    return { success: true, operation: 'create_scheduled_monitor', url, monitor, firingGuarantee: monitor.firingGuarantee, timestamp: Date.now() };
   }
 
   async stopScheduledMonitor(params) {
-    const { url } = params;
-    let stoppedMonitors = 0;
-    for (const [id, monitor] of this.changeTracker.scheduledMonitors.entries()) {
-      if (monitor.url === url) {
-        monitor.cronJob?.destroy();
-        monitor.status = 'stopped';
-        this.changeTracker.scheduledMonitors.delete(id);
-        stoppedMonitors++;
-      }
+    const { url, scheduledMonitorOptions } = params;
+    const monitorId = scheduledMonitorOptions?.monitorId;
+    if (monitorId) {
+      const result = await this.scheduler.stopMonitor(monitorId);
+      return { success: true, operation: 'stop_scheduled_monitor', monitorId, stopped: result.stopped, timestamp: Date.now() };
     }
-    return { success: true, operation: 'stop_scheduled_monitor', url, stoppedMonitors, timestamp: Date.now() };
+    if (!url) throw new Error('stop_scheduled_monitor requires a url or scheduledMonitorOptions.monitorId');
+    const result = await this.scheduler.stopByUrl(url);
+    return { success: true, operation: 'stop_scheduled_monitor', url, stoppedMonitors: result.stopped, timestamp: Date.now() };
+  }
+
+  async listScheduledMonitors() {
+    if (!this.monitorStore._loaded) await this.monitorStore.load();
+    const monitors = this.scheduler.list();
+    return { success: true, operation: 'list_scheduled_monitors', monitors, count: monitors.length, timestamp: Date.now() };
   }
 
   async getMonitoringDashboard(params) {
@@ -379,9 +422,19 @@ export class TrackChangesTool extends EventEmitter {
 
   async shutdown() {
     this.stopAllMonitoring();
+    this.scheduler?.stopAll();
     await this.snapshotManager.shutdown();
     await this.changeTracker.cleanup();
     this.emit('shutdown');
+  }
+
+  /**
+   * Alias so the server's graceful-shutdown sweep (which filters tools by a
+   * `destroy`/`cleanup` method) actually tears this tool down — including the
+   * scheduler timers. Without this, scheduled-monitor intervals would leak.
+   */
+  async cleanup() {
+    return this.shutdown();
   }
 
   // ── Private helpers ────────────────────────────────────────────────────────────

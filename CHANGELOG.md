@@ -3,6 +3,30 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.8.0] - 2026-06-28
+
+Minor release: real auto-activating Claude Agent Skills, two additive `scrape` formats, a genuinely-enforced security posture (two advertised-but-broken safety controls fixed), and working built-in change scheduling. All changes are additive — no existing tool schema, output shape, or credit cost changes for current callers.
+
+### Security (fixes for controls that were silently non-functional)
+
+- **SSRF is now actually enforced on the live scraping path.** The robust `src/utils/ssrfProtection.js` existed but was never wired into the tools — every scrape used raw `fetch()` with no IP/host validation. A new `src/utils/ssrfGuard.js` injects an undici dispatcher whose connect-time `lookup` validates **every** connection (initial request + each redirect hop) and pins to the validated IP, closing the DNS-rebinding TOCTOU window. Stage 1 (default) blocks loopback, link-local / cloud-metadata (169.254.169.254), and 0.0.0.0 — targets no legitimate public scrape needs. `SSRF_STRICT=true` adds full RFC1918/ULA enforcement. Kill switch `SSRF_PROTECTION_ENABLED=false`; `ALLOWED_DOMAINS` bypass for trusted hosts. Routed through `_fetch.js`, `_fetchAndParse.js`, `batchScrape/worker.js`, `mapSite.js`, `BFSCrawler.js`, `extractContent.js`, `processDocument.js`, `ScrapeTemplateTool.js`, `_sessionContext.js`, `ResearchOrchestrator.js`, `LLMsTxtAnalyzer.js`, `robotsChecker.js`, `sitemapParser.js`, and `trackChanges/differ.js`.
+- **MCP Elicitation now actually fires.** `ElicitationHelper` called `server.elicit()` (no such method) instead of `server.elicitInput()` and never checked the client capability, so every cost/safety confirmation (deep_research >50 URLs, batch_scrape, crawl_deep, agent pro, low-credit) silently fail-opened. Fixed to use `elicitInput`, gate on the client's `elicitation` capability, and parse the `action` field (accept/decline/cancel). Still fail-open for clients that don't support it. **Behavior change:** elicitation-capable clients will now see these confirmations.
+- **Per-host outbound rate limiting** (`src/utils/hostRateLimiter.js`) added to the basic fetch path and batch_scrape (default 10 req/s per host, gated by `RATE_LIMIT_PER_DOMAIN`); no global cap, so broad multi-host crawls are unaffected.
+- **`executeJavaScript` hardening** (still OFF by default): max script length (`JS_MAX_SCRIPT_LENGTH`), explicit execution timeout (`JS_EXECUTION_TIMEOUT_MS`), and a structured stderr audit log (script sha256 + length + url).
+- Repaired a pre-existing parse error (corrupted JSDoc) in `ssrfProtection.js` that prevented the module from loading.
+
+### Added
+
+- **Real Claude Agent Skills.** Skills are now proper `~/.claude/skills/<name>/SKILL.md` folders with YAML frontmatter and trigger-rich descriptions (they auto-activate), replacing the old bare reference-markdown files that Claude Code never loaded. Seven skills cover all 26 tools: `crawlforge-web-scraping`, `crawlforge-deep-research`, `crawlforge-stealth-browsing`, `crawlforge-structured-extraction`, `crawlforge-change-tracking`, `crawlforge-batch-automation`, `crawlforge-getting-started`. Source of truth: `src/skills/agent-skills/`. Installer rewritten (signatures preserved); cursor/vscode concatenated outputs unchanged. Upgrades self-heal by removing the legacy bare files (unrelated skills untouched). New `npm run skills:gen` regenerates the root `SKILL.md`.
+- **Opt-in forced-eval hook** (`install-skills --with-hook`, `init --with-hook`, `uninstall-skills --remove-hook`): an idempotent `UserPromptSubmit` reminder that raises skill auto-activation. Off by default.
+- **`scrape` format `"branding"`** — static design-token extraction (color palette, fonts/typography, logo/favicons, border-radius/shadow/spacing tokens) from HTML + CSS, no browser required. SSRF-guarded, count/size-capped linked-CSS fetches.
+- **`scrape` format `"screenshot"` now works** (was a no-op): lazily renders via the shared browser pool and returns `crawlforge://screenshot/{id}` resources. Browser launches only when `screenshot` is requested; failures degrade to a warning (partial success preserved). `scrape` cost unchanged (2).
+- **Built-in scheduled change monitoring.** `track_changes` operations `create_scheduled_monitor` / `stop_scheduled_monitor` (previously dead code that threw) now drive a real persisted scheduler (`src/core/MonitorScheduler.js` + `MonitorStore.js`), plus a new `list_scheduled_monitors`. Optional plain-English `goal` is LLM-judged (Ollama-first) and degrades gracefully to threshold significance with no LLM. Baselines rehydrate from snapshots on restart. CLI: `monitor:create`, `monitor:list`, `monitor:stop`, and `monitor:run-due` (one-shot for system cron — guaranteed firing). Honest firing model documented (stdio server isn't a daemon).
+
+### Fixed
+
+- `track_changes` is now torn down on graceful shutdown (added a `cleanup()` alias; previously its scheduler/snapshot resources leaked because the shutdown sweep only matched `destroy`/`cleanup`).
+
 ## [4.7.2] - 2026-06-28
 
 Patch release: a second full live audit of all 26 MCP tools (each invoked through the real `mcp__crawlforge__*` interface and judged on actual output, not just "no exception"). 24 tools passed outright; `extract_structured` and `scrape_with_actions` were genuinely broken, which root-caused to **6 distinct defects** — all fixed and verified end-to-end through a freshly-spawned `server.js` (real browser + JSON-RPC round-trip).

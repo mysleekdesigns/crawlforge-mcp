@@ -7,7 +7,7 @@
 import { z } from 'zod';
 
 export const TrackChangesSchema = z.object({
-  url: z.string().url(),
+  url: z.string().url().optional(),
   operation: z.enum([
     'create_baseline',
     'compare',
@@ -16,6 +16,7 @@ export const TrackChangesSchema = z.object({
     'get_stats',
     'create_scheduled_monitor',
     'stop_scheduled_monitor',
+    'list_scheduled_monitors',
     'get_dashboard',
     'export_history',
     'create_alert_rule',
@@ -100,7 +101,11 @@ export const TrackChangesSchema = z.object({
   scheduledMonitorOptions: z.object({
     schedule: z.string().optional(),
     templateId: z.string().optional(),
-    enabled: z.boolean().default(true)
+    enabled: z.boolean().default(true),
+    interval: z.number().min(60000).optional(),
+    goal: z.string().optional(),
+    monitorId: z.string().optional(),
+    notificationThreshold: z.enum(['minor', 'moderate', 'major', 'critical']).optional()
   }).optional(),
 
   alertRuleOptions: z.object({

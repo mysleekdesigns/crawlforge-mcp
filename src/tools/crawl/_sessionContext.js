@@ -15,6 +15,8 @@
  *   - Keeping zero new runtime deps satisfies the project constraint.
  */
 
+import { safeFetch } from '../../utils/ssrfGuard.js';
+
 /**
  * Parse a single Set-Cookie header value into a cookie object.
  * Returns null if the header is empty or unparseable.
@@ -220,7 +222,7 @@ export class SessionContext {
       fetchOpts.body = body;
     }
 
-    const response = await fetch(url, fetchOpts);
+    const response = await safeFetch(url, fetchOpts);
     this.recordCookies(response, url);
 
     const text = await response.text().catch(() => '');

@@ -10,6 +10,21 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 ---
 
+## v4.8.0 — Real Agent Skills, Security Enforcement, Branding/Screenshot, Change Scheduling
+
+Delivered 2026-06-28. Additive minor; no breaking changes to tool schemas, outputs, or credit costs.
+
+**Why:** A competitive review (dogfooded via CrawlForge's own `deep_research`/`scrape`) against Firecrawl found CrawlForge already ahead on agent/research/tracking/local-LLM, but four real gaps — two of which were latent bugs where advertised controls did nothing.
+
+1. **Skills overhaul (Workstream A).** Converted the inert bare-markdown "skills" into 7 real auto-activating Claude Agent Skills (`src/skills/agent-skills/<name>/SKILL.md`, frontmatter + trigger-rich descriptions, progressive-disclosure `references/`). Installer rewritten with preserved signatures + self-healing migration of legacy files; opt-in forced-eval hook; `npm run skills:gen`.
+2. **Additive `scrape` capabilities (Workstream B).** New `branding` format (static design tokens: colors/fonts/logo/spacing) and a working `screenshot` format (was a no-op) returning `crawlforge://screenshot/{id}` resources via the shared browser pool. Both opt-in; default scrape stays a single cheap fetch.
+3. **Security hardening (Workstream C).** Wired SSRF protection into the live fetch path for the first time (undici connect-time `lookup`, redirect- and rebinding-safe, staged default/strict); fixed MCP elicitation (`elicit`→`elicitInput`, capability gate, action parsing) so cost/safety confirmations actually fire; per-host rate limiting; `executeJavaScript` length/timeout/audit hardening.
+4. **Built-in change scheduling (Workstream D).** Replaced dead `create_scheduled_monitor`/`stop_scheduled_monitor` ops with a real persisted scheduler (`MonitorScheduler` + `MonitorStore`), added `list_scheduled_monitors`, plain-English LLM-judged alert `goal` (degrades gracefully), baseline rehydration, and `monitor:create/list/stop/run-due` CLI (cron escape hatch).
+
+**Verification:** 448/448 unit tests pass (+42 new); MCP protocol compliance boots clean (0 errors); all 26 tools still register.
+
+---
+
 ## Release History
 
 ### v4.7.2 — fix scrape_with_actions + extract_structured (full live tool audit, 2026-06-28)
