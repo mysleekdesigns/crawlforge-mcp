@@ -272,6 +272,10 @@ export class DeepResearchTool {
       maxUrls: params.maxUrls,
       timeLimit: params.timeLimit,
       concurrency: params.concurrency,
+      // Minimum credibility a source must clear in verifySourceCredibility.
+      // Must be on the orchestrator *constructor* config (not the
+      // conductResearch options) — that is the only place it is now read.
+      credibilityThreshold: params.credibilityThreshold,
       // The orchestrator tunes its query expansion to the approach (commercial
       // vs academic vs current-events); without this it always used academic
       // variations, which poisoned commercial/comparative searches.
@@ -356,7 +360,6 @@ export class DeepResearchTool {
   buildResearchOptions(params) {
     return {
       sourceTypes: params.sourceTypes,
-      credibilityThreshold: params.credibilityThreshold,
       includeRecentOnly: params.includeRecentOnly,
       queryExpansion: params.queryExpansion,
       enableConflictDetection: params.enableConflictDetection,

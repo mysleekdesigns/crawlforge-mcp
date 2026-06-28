@@ -723,3 +723,87 @@ describe('D4.2 server.js banner reports 26 tools', () => {
     assert.ok(src.includes('Tools available (26)'), 'banner must say "Tools available (26)"');
   });
 });
+
+// ---------------------------------------------------------------------------
+// D5  ResearchOrchestrator credibilityThreshold is wired through
+// (regression: param was schema-validated but never read — verifySource-
+//  Credibility hardcoded >= 0.3, so the knob was a silent no-op)
+// ---------------------------------------------------------------------------
+
+describe('D5.1 ResearchOrchestrator reads credibilityThreshold from constructor', async () => {
+  test('this.credibilityThreshold reflects the option (default 0.3, clamped 0..1)', async () => {
+    const { ResearchOrchestrator } = await import('../../src/core/ResearchOrchestrator.js');
+
+    assert.equal(new ResearchOrchestrator({}).credibilityThreshold, 0.3, 'default must be 0.3');
+    assert.equal(new ResearchOrchestrator({ credibilityThreshold: 0.7 }).credibilityThreshold, 0.7);
+    assert.equal(new ResearchOrchestrator({ credibilityThreshold: 5 }).credibilityThreshold, 1, 'clamp high');
+    assert.equal(new ResearchOrchestrator({ credibilityThreshold: -1 }).credibilityThreshold, 0, 'clamp low');
+  });
+
+  test('all source-inclusion credibility gates use this.credibilityThreshold, not a hardcoded 0.3', () => {
+    const src = readSrc('src/core/ResearchOrchestrator.js');
+    // verifySourceCredibility (line ~864) + compileSupportingEvidence (raw-evidence
+    // path) + generateKeyFindings (LLM path) must all reference the knob.
+    assert.ok(
+      src.includes('overallCredibility >= this.credibilityThreshold'),
+      'verifySourceCredibility must reference this.credibilityThreshold'
+    );
+    assert.ok(
+      src.includes('source.overallCredibility >= this.credibilityThreshold'),
+      'compileSupportingEvidence must reference this.credibilityThreshold'
+    );
+    assert.ok(
+      src.includes('group.avgCredibility >= this.credibilityThreshold'),
+      'generateKeyFindings must reference this.credibilityThreshold'
+    );
+    // No source/group credibility inclusion-gate may hardcode 0.3 anymore.
+    // (The 0.6 consensus bar in detectConsensus is a separate concept and is allowed.)
+    assert.ok(
+      !/(overallCredibility|avgCredibility) >= 0\.3/.test(src),
+      'no credibility inclusion-gate may hardcode 0.3'
+    );
+  });
+});
+
+describe('D5.2 ResearchOrchestrator credibilityThreshold changes kept-source count', async () => {
+  // Topic + bodies chosen so on-topic sources score ~0.55-0.77 and the
+  // off-topic one scores ~0.24 (below default 0.3). No network: we call the
+  // pure scoring path directly via verifySourceCredibility.
+  const topic = 'impact of remote work on employee productivity';
+  const onTopic = ('Remote work has reshaped employee productivity. '
+    + 'Studies on remote work show productivity gains for many employees. '
+    + 'The impact of remote work on productivity depends on management. ').repeat(20);
+  const offTopic = ('Volcanic basalt formations along the coastline attract geologists. '
+    + 'Mineral composition varies with cooling rates and pressure gradients. ').repeat(40);
+
+  async function keptCount(threshold) {
+    const { ResearchOrchestrator } = await import('../../src/core/ResearchOrchestrator.js');
+    const orch = new ResearchOrchestrator(
+      threshold === undefined ? {} : { credibilityThreshold: threshold });
+    orch.researchState.topic = topic;
+    const mk = (link, body, extra = {}) => ({
+      link, title: 'Untitled', extractedContent: body,
+      wordCount: body.split(' ').length, metadata: {}, structuredData: {},
+      relevanceScore: orch.calculateTraditionalRelevance(body, topic), ...extra
+    });
+    const sources = [
+      mk('https://example.com/remote', onTopic),
+      mk('https://news.example.com/blog', onTopic, { title: 'news blog post' }),
+      mk('https://example.com/basalt', offTopic),
+      mk('https://university.edu/study', onTopic, { title: 'a research study' })
+    ];
+    return (await orch.verifySourceCredibility(sources)).length;
+  }
+
+  test('default threshold keeps on-topic sources and drops the off-topic one', async () => {
+    assert.equal(await keptCount(undefined), 3, 'default 0.3 keeps 3/4 (drops off-topic)');
+  });
+
+  test('threshold 0 keeps every extracted source', async () => {
+    assert.equal(await keptCount(0), 4, 'threshold 0 keeps all 4');
+  });
+
+  test('high threshold drops more sources (knob is live)', async () => {
+    assert.equal(await keptCount(0.7), 1, 'threshold 0.7 keeps only the high-credibility .edu study');
+  });
+});

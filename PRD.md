@@ -6,11 +6,15 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — all three shipped in v4.1.0 — without breaking any existing MCP tools or the current setup flow.
 
-**Last Updated:** 2026-06-27
+**Last Updated:** 2026-06-28
 
 ---
 
 ## Release History
+
+### Fix: deep_research credibilityThreshold was a dead no-op (2026-06-28, no version bump)
+
+`deep_research`'s `credibilityThreshold` param (schema-validated `z.number().min(0).max(1).default(0.3)`) was silently ignored — setting it had zero effect. Two faults: (1) `deepResearch.js` routed it into `buildResearchOptions()` (the `conductResearch` options bag) instead of `buildOrchestratorConfig()`, so the `ResearchOrchestrator` constructor never saw it; and (2) the constructor never destructured `credibilityThreshold` anyway, and `verifySourceCredibility()` hardcoded `overallCredibility >= 0.3` — ignoring options entirely. **Reviewed the original bug report's impact claim ("drops every extracted source in creator/raw-evidence mode") and refuted it empirically:** with `enableLLMFeatures:false`, on-topic sources score ~0.55–0.77 (base credibility ≥~0.49 × relevance multiplier ~1.0) and clear the 0.3 floor; only near-zero-overlap sources drop. Verified kept-source counts: default→3/4, `0.0`→4/4, `0.7`→1/4. Because the hardcode equalled the schema default, default-config callers were already correct — the bug only bit anyone who set a non-default value. Fix: constructor now reads `credibilityThreshold = 0.3` and stores `this.credibilityThreshold` clamped to `[0,1]`; `verifySourceCredibility()` uses it. Also wired **two further hardcoded `0.3` inclusion gates** the report didn't mention — `compileSupportingEvidence()` (raw-evidence path) and `generateKeyFindings()` (LLM path) — to the same knob, so `credibilityThreshold:0.0` no longer silently re-drops sub-0.3 sources downstream; left the separate `0.6` *consensus* bar (`detectConsensus`) alone. `deepResearch.js` now passes the param via `scopeConfig` (reaches all 5 research approaches) and the dead `buildResearchOptions` line is removed. At the default 0.3 every changed gate is behavior-identical → no regression. New regression tests `tests/unit/phaseD-regressions.test.js` `D5.1`/`D5.2` (constructor wiring + clamp + kept-count behavior at thresholds 0/0.3/0.7). Unit **406/406** sandbox-off (the 13 `searchWebSearxng`/`streamableHttp` cases are the pre-existing `listen EPERM 127.0.0.1` sandbox artifacts only). **Not version-bumped or published** — takes effect for live MCP clients only after an npm publish. Files: `src/core/ResearchOrchestrator.js`, `src/tools/research/deepResearch.js`, `tests/unit/phaseD-regressions.test.js`, `PRD.md`.
 
 ### v4.7.0 — Reverted open-core free tier (all tools paid + API key required) (2026-06-27)
 

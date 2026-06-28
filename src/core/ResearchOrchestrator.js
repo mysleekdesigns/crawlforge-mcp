@@ -32,6 +32,7 @@ export class ResearchOrchestrator extends EventEmitter {
       concurrency = 5,
       enableSourceVerification = true,
       enableConflictDetection = true,
+      credibilityThreshold = 0.3,
       cacheEnabled = true,
       cacheTTL = 1800000, // 30 minutes
       researchApproach = 'broad',
@@ -61,6 +62,7 @@ export class ResearchOrchestrator extends EventEmitter {
     this.concurrency = Math.min(Math.max(1, concurrency), 20);
     this.enableSourceVerification = enableSourceVerification;
     this.enableConflictDetection = enableConflictDetection;
+    this.credibilityThreshold = Math.min(Math.max(0, credibilityThreshold), 1);
 
     // Stealth fallback config + lazy state (browser launched only on first block)
     this.enableStealthFallback = enableStealthFallback;
@@ -859,7 +861,7 @@ export class ResearchOrchestrator extends EventEmitter {
         }
 
         // Only include sources that meet minimum credibility threshold
-        if (overallCredibility >= 0.3) {
+        if (overallCredibility >= this.credibilityThreshold) {
           verifiedSources.push({
             ...source,
             credibilityFactors,
@@ -1360,7 +1362,7 @@ export class ResearchOrchestrator extends EventEmitter {
 
   generateKeyFindings(claimGroups, sources) {
     return claimGroups
-      .filter(group => group.avgCredibility >= 0.3)
+      .filter(group => group.avgCredibility >= this.credibilityThreshold)
       .sort((a, b) => b.consensusStrength - a.consensusStrength)
       .slice(0, 10)
       .map(group => ({
@@ -1373,7 +1375,7 @@ export class ResearchOrchestrator extends EventEmitter {
 
   compileSupportingEvidence(sources) {
     return sources
-      .filter(source => source.overallCredibility >= 0.3)
+      .filter(source => source.overallCredibility >= this.credibilityThreshold)
       .map(source => ({
         title: source.title,
         url: source.link,
