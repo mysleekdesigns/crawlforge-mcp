@@ -5,6 +5,7 @@
 
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { DeepResearchTool } from '../../../../src/tools/research/deepResearch.js';
 
 // ---------------------------------------------------------------------------
 // Stub ResearchOrchestrator
@@ -142,5 +143,54 @@ describe('deepResearch tool', () => {
     const errOrch = { conductResearch: async () => { throw new Error('research engine down'); }, cleanup: async () => {} };
     const errTool = new DeepResearchStub({ orchestrator: errOrch });
     await assert.rejects(() => errTool.execute({ topic: 'Valid topic' }), /research engine down/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression: formatResults must always surface a top-level `sources` list.
+// Previously, in LLM-synthesis mode only `citations_only` returned `sources`;
+// `comprehensive`/`summary` exposed it under other keys and `conflicts_focus`
+// dropped it entirely. The raw_evidence branch always returned `sources`.
+// ---------------------------------------------------------------------------
+
+describe('deepResearch formatResults — source list parity (regression)', () => {
+  const realTool = new DeepResearchTool();
+
+  const llmResults = {
+    researchSummary: {},
+    metadata: {},
+    findings: [{ finding: 'f', credibility: 0.8, sources: ['https://a.example/1'] }],
+    supportingEvidence: [
+      { title: 'A', url: 'https://a.example/1', credibility: 0.8 },
+      { title: 'B', url: 'https://b.example/2', credibility: 0.6 }
+    ],
+    consensus: [],
+    conflicts: [{ type: 'contradiction', severity: 0.8 }],
+    researchGaps: [],
+    recommendations: [{ type: 'validation', description: 'validate' }],
+    credibilityAssessment: { averageCredibility: 0.7, highCredibilitySources: 1 },
+    performance: {},
+    activityLog: []
+  };
+
+  for (const outputFormat of ['comprehensive', 'summary', 'citations_only', 'conflicts_focus']) {
+    test(`LLM mode returns top-level sources[] for outputFormat=${outputFormat}`, () => {
+      const out = realTool.formatResults(llmResults, { outputFormat });
+      assert.ok(Array.isArray(out.sources), `expected sources[] in ${outputFormat}`);
+      assert.equal(out.sources.length, 2);
+      assert.equal(out.sources[0].url, 'https://a.example/1');
+    });
+  }
+
+  test('raw_evidence mode still returns sources[]', () => {
+    const rawResults = {
+      synthesisMode: 'raw_evidence',
+      sources: [{ title: 'A', url: 'https://a.example/1', credibility: 0.8 }],
+      findings: [],
+      researchSummary: {}, metadata: {}, performance: {}, activityLog: []
+    };
+    const out = realTool.formatResults(rawResults, { outputFormat: 'comprehensive' });
+    assert.ok(Array.isArray(out.sources));
+    assert.equal(out.sources.length, 1);
   });
 });

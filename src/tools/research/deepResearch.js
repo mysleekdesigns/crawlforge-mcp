@@ -467,7 +467,17 @@ export class DeepResearchTool {
 
     const formatted = {
       researchSummary: results.researchSummary,
-      metadata: results.metadata
+      metadata: results.metadata,
+      // Always surface a top-level source/citation list so every output format
+      // returns it (parity with raw_evidence mode, which already does). Before,
+      // only citations_only exposed `sources` in LLM mode, so comprehensive /
+      // summary / conflicts_focus silently dropped the source list.
+      sources: (results.supportingEvidence || []).map(source => ({
+        title: source.title,
+        url: source.url,
+        credibility: source.credibility,
+        relevance: source.relevance
+      }))
     };
 
     switch (params.outputFormat) {
