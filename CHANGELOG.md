@@ -3,6 +3,18 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.8.1] - 2026-06-28
+
+Patch release: `deep_research` now always returns a top-level `sources[]` list in LLM-synthesis mode, plus a version-sync of files the 4.8.0 release left behind. Additive — no schema or credit-cost changes.
+
+### Fixed
+
+- **`deep_research` dropped its top-level `sources` list whenever an LLM key was active.** `DeepResearchTool.formatResults()` only emitted a top-level `sources` key for `outputFormat:'citations_only'` in LLM-synthesis mode; the default `comprehensive` returned the list under `supportingEvidence`, `summary` under `topSources`, and `conflicts_focus` dropped it entirely. The `raw_evidence` branch (no LLM key) always returned `sources`, so the field silently vanished the moment a caller supplied an LLM key (server env `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` **or** `llmConfig.{openai,anthropic}.apiKey` in the tool params). Fix lifts a single canonical `sources[]` (`{title,url,credibility,relevance}` from `supportingEvidence`) into the shared base object so every output format and both synthesis modes return it; `citations_only` (identical shape) and the `raw_evidence` branch are unchanged. Added regression tests driving the real `formatResults()` (the existing suite was fully stubbed). `src/tools/research/deepResearch.js`
+
+### Changed
+
+- **Version sync.** `server.json` (×2), `server.js` (`McpServer` version), and `package-lock.json` were still pinned at `4.7.2` (the 4.8.0 release bumped only `package.json`); all are now realigned to `4.8.1`.
+
 ## [4.8.0] - 2026-06-28
 
 Minor release: real auto-activating Claude Agent Skills, two additive `scrape` formats, a genuinely-enforced security posture (two advertised-but-broken safety controls fixed), and working built-in change scheduling. All changes are additive — no existing tool schema, output shape, or credit cost changes for current callers.
