@@ -3,6 +3,24 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [4.9.0] - 2026-07-01
+
+Minor release: adds the **27th** MCP tool, `serp_rank`, and hardens credit billing on the error/zero-cost paths. Additive — no breaking changes to existing tool schemas or costs.
+
+### Added
+
+- **`serp_rank` — real Google organic rank via DataForSEO.** Reports where a target domain ranks in Google's real organic SERP for a keyword (the position `search_web`/Custom Search can't give). Backed by the DataForSEO Google Organic **Live Advanced** API (`POST /v3/serp/google/organic/live/advanced`, HTTP Basic auth). Returns the target's best organic position, the ranking URL, and every position it holds; never fabricates a rank — returns `{ configured:false }` when DataForSEO isn't set up. Credentials via `DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD` (see `.env.example`), billed to the user's own DataForSEO account (~US$0.002–0.004/call), separate from CrawlForge credits. **Cost: 5** credits when configured, **0** when unconfigured. New: `src/tools/search/serpRank.js`, `src/tools/search/adapters/dataforseoSearch.js` (30s timeout, 401/402/429 mapping, `status_code:20000` checks), `tests/unit/serpRank.test.js`, `scripts/smoke-serp-rank.mjs`. Verified live against the real API (`github.com` → position 1).
+
+### Changed
+
+- **Billing hardening (`withAuth`, all tools).** A zero-cost call now emits **no** usage event (so a free no-op can't be re-priced by the backend, and the `Math.max(1,…)` error floor can't bill a free call). A tool that returns `{ isError:true }` (the shared self-catching pattern) is now treated as an **error outcome** billed at the **half** rate instead of full — honoring the documented "half credits on error" contract for every tool.
+- **`serp_rank` depth capped at 200** (DataForSEO's real max; an earlier draft wrongly allowed 700).
+- Tool count 26 → 27 across all current-facing docs (`CLAUDE.md`, `README.md`, `SKILL.md`, skills, `package.json`, `server.json`, `docs/`). Backend credit table (`crawlforge-website`) synced with `serp_rank: 5`.
+
+### Verification
+
+`npm run test:unit` **477/477**; MCP compliance **100% COMPLIANT / 0 errors**; cost-parity **27 tools / 0 mismatches**.
+
 ## [4.8.1] - 2026-06-28
 
 Patch release: `deep_research` now always returns a top-level `sources[]` list in LLM-synthesis mode, plus a version-sync of files the 4.8.0 release left behind. Additive — no schema or credit-cost changes.
