@@ -4,9 +4,17 @@
  *
  * Usage: node scripts/verify-cost-parity.mjs [path-to-crawlforge-website]
  */
-import AuthManager from '../src/core/AuthManager.js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+// serp_rank's client cost is conditional: 0 when DataForSEO is unconfigured, 5
+// when configured. The backend table records the *charged* cost (5), so compare
+// against the configured branch by ensuring the env looks configured. Set this
+// BEFORE importing AuthManager (getToolCost reads process.env at call time).
+process.env.DATAFORSEO_LOGIN = process.env.DATAFORSEO_LOGIN || 'parity-check';
+process.env.DATAFORSEO_PASSWORD = process.env.DATAFORSEO_PASSWORD || 'parity-check';
+
+const { default: AuthManager } = await import('../src/core/AuthManager.js');
 
 const websiteRepo = process.argv[2] ?? resolve(import.meta.dirname, '../../crawlforge-website');
 const ts = readFileSync(resolve(websiteRepo, 'src/lib/credits.ts'), 'utf8');
@@ -19,7 +27,7 @@ const tools = [
   'scrape_template', 'extract_content', 'scrape', 'summarize_content', 'analyze_content',
   'extract_with_llm', 'extract_structured', 'process_document', 'list_ollama_models',
   'get_batch_results', 'map_site', 'track_changes', 'generate_llms_txt', 'search_web',
-  'crawl_deep', 'batch_scrape', 'scrape_with_actions', 'localization', 'agent',
+  'serp_rank', 'crawl_deep', 'batch_scrape', 'scrape_with_actions', 'localization', 'agent',
   'deep_research', 'stealth_mode'
 ];
 
