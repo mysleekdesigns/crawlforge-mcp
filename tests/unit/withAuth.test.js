@@ -168,6 +168,39 @@ test('withAuth: metered tool error path reports a half-credit charge', async () 
   assert.equal(logger.calls[0].context.outcome, 'error');
 });
 
+test('withAuth: a returned { isError:true } is an error outcome billed at half, without throwing', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 4 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const handler = withAuth('serp_rank', async () => ({
+    content: [{ type: 'text', text: 'SERP rank check failed: boom' }],
+    isError: true
+  }));
+  const result = await handler({ keyword: 'k', target: 't' });
+
+  assert.equal(result.isError, true, 'the graceful isError result is returned, not thrown');
+  assert.equal(auth.reportCalls.length, 1, 'usage reported once');
+  assert.equal(auth.reportCalls[0][1], 2, 'charged half of 4 on an isError result');
+  assert.equal(auth.reportCalls[0][3], 500, 'reported with a 500 responseStatus');
+  assert.equal(logger.calls[0].context.outcome, 'error', 'logged as an error outcome');
+});
+
+test('withAuth: a zero-cost call emits no usage event and surfaces _cost.actual=0', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 0 }); // e.g. serp_rank unconfigured no-op
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const handler = withAuth('serp_rank', async () => ({
+    content: [{ type: 'text', text: JSON.stringify({ configured: false }) }]
+  }));
+  const result = await handler({ keyword: 'k', target: 't' });
+
+  assert.equal(auth.reportCalls.length, 0, 'no usage event for a free (0-cost) call');
+  const parsed = JSON.parse(result.content[0].text);
+  assert.equal(parsed._cost.actual, 0, '_cost.actual is 0 for the free no-op');
+});
+
 test('withAuth: resolves cost with params (scrape screenshot surcharge)', async () => {
   const logger = makeFakeLogger();
   const auth = makeFakeAuth({ creditsOk: true, toolCost: 2 });

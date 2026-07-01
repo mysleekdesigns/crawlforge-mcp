@@ -274,3 +274,22 @@ test('getToolCost: fully-paid Scheme B table (no free tier, key required for all
   // Unknown tools fall back to 1
   assert.equal(authManager.getToolCost('unknown_tool'), 1);
 });
+
+test('getToolCost: serp_rank costs 5 configured, 0 when DataForSEO is unconfigured (no-op)', () => {
+  const savedLogin = process.env.DATAFORSEO_LOGIN;
+  const savedPw = process.env.DATAFORSEO_PASSWORD;
+  try {
+    // Unconfigured → the tool short-circuits to { configured:false }; never charge.
+    delete process.env.DATAFORSEO_LOGIN;
+    delete process.env.DATAFORSEO_PASSWORD;
+    assert.equal(authManager.getToolCost('serp_rank'), 0);
+
+    // Configured → billed at the search tier (5).
+    process.env.DATAFORSEO_LOGIN = 'x';
+    process.env.DATAFORSEO_PASSWORD = 'y';
+    assert.equal(authManager.getToolCost('serp_rank'), 5);
+  } finally {
+    if (savedLogin === undefined) delete process.env.DATAFORSEO_LOGIN; else process.env.DATAFORSEO_LOGIN = savedLogin;
+    if (savedPw === undefined) delete process.env.DATAFORSEO_PASSWORD; else process.env.DATAFORSEO_PASSWORD = savedPw;
+  }
+});

@@ -542,6 +542,7 @@ class AuthManager {
       scrape_with_actions: 5,
       batch_scrape: 5,
       search_web: 5,
+      serp_rank: 5,
       generate_llms_txt: 5,
 
       // 8 credits
@@ -550,6 +551,17 @@ class AuthManager {
       // 10 credits
       deep_research: 10
     };
+
+    // serp_rank calls DataForSEO, billed to the user's OWN DataForSEO account
+    // (separate from CrawlForge credits). When DataForSEO isn't configured the
+    // tool short-circuits to a no-op { configured:false } result — never charge
+    // CrawlForge credits for that. (Backend note: crawlforge-website's
+    // TOOL_CREDIT_COSTS must also carry serp_rank:5; if the backend re-derives
+    // cost server-side it cannot see this install's DATAFORSEO_* env, so the
+    // free-when-unconfigured guarantee is enforced client-side here.)
+    if (tool === 'serp_rank' && !(process.env.DATAFORSEO_LOGIN && process.env.DATAFORSEO_PASSWORD)) {
+      return 0;
+    }
 
     return costs[tool] ?? 1;
   }
@@ -594,6 +606,11 @@ class AuthManager {
       }
       case 'extract_with_llm':
         note = 'External LLM API call billed by your LLM provider, separate from the credit cost.';
+        break;
+      case 'serp_rank':
+        note = projected === 0
+          ? 'DataForSEO not configured — no-op, no credits charged. Set DATAFORSEO_LOGIN/PASSWORD to enable.'
+          : 'DataForSEO SERP API (~US$0.002/call) billed to your own DataForSEO account, separate from the credit cost.';
         break;
       case 'scrape': {
         projected = base;

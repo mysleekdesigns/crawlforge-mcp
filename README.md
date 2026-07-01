@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <b>26 web scraping, crawling, deep-research &amp; autonomous-extraction tools for Claude, Cursor &amp; any MCP client.</b><br>
+  <b>27 web scraping, crawling, deep-research &amp; autonomous-extraction tools for Claude, Cursor &amp; any MCP client.</b><br>
   Clean Markdown &amp; structured JSON from any site. Get started with <b>1,000 free credits</b> — no credit card required.
 </p>
 
@@ -35,7 +35,7 @@
 
 ## 🎯 Why CrawlForge?
 
-- **26 MCP-native tools** — scraping, crawling, search, deep research, an autonomous `agent`, a unified multi-format `scrape`, document processing, stealth browsing, and more, callable directly from your AI assistant.
+- **27 MCP-native tools** — scraping, crawling, search, real Google SERP rank tracking, deep research, an autonomous `agent`, a unified multi-format `scrape`, document processing, stealth browsing, and more, callable directly from your AI assistant.
 - **Generous free tier** — 1,000 credits to start instantly, no credit card. Credits never expire and roll over month-to-month.
 - **Local-LLM by default** — `extract_with_llm` runs against a local **Ollama** model out of the box: no LLM API key, no per-token cost, and your data never leaves your machine. Cloud (OpenAI/Anthropic) is opt-in.
 - **LLM-ready output** — clean Markdown, structured JSON (schema-driven), screenshots, links, and metadata from a single fetch.
@@ -47,7 +47,7 @@
 
 | | **CrawlForge MCP** | Firecrawl | Raw scraping API |
 |---|:---:|:---:|:---:|
-| Native MCP server | ✅ 26 tools | ✅ | ❌ |
+| Native MCP server | ✅ 27 tools | ✅ | ❌ |
 | Free tier | ✅ 1,000 credits, rollover | Limited | Varies |
 | Self-hosted / local LLM extraction (Ollama) | ✅ default, $0/token | ❌ | ❌ |
 | Autonomous agent (no URLs needed) | ✅ `agent` | ✅ | ❌ |
@@ -176,6 +176,7 @@ CrawlForge requires a CrawlForge API key — **every tool is metered and consume
 | `summarize_content` | 4 | Generate intelligent summaries |
 | `crawl_deep` | 4 | Deep crawl entire websites |
 | `search_web` | 5 | Search the web using Google Search API |
+| `serp_rank` | 5 | Check where a domain ranks in Google's **real organic SERP** for a keyword (the position `search_web` can't give). Powered by DataForSEO (`DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD`, billed to your own DataForSEO account). Returns `{ configured:false }` and charges **0** credits until configured |
 | `batch_scrape` | 5 | Process multiple URLs simultaneously |
 | `scrape_with_actions` | 5 | Browser automation chains |
 | `generate_llms_txt` | 5 | Generate AI interaction guidelines |
@@ -199,7 +200,7 @@ For the full canonical capabilities reference (all tools, CLI commands, stealth 
 | **Business** ($399) | 250,000 | Large scale operations |
 
 **All plans include:**
-- Access to all 26 tools
+- Access to all 27 tools
 - Credits never expire and roll over month-to-month
 - API access and webhook notifications
 

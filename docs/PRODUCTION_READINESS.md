@@ -10,7 +10,7 @@
 |----------|--------|
 | CrawlForge.dev Integration | ✅ Complete |
 | Security | ✅ 9.7/10 |
-| All 26 Tools | ✅ Working |
+| All 27 Tools | ✅ Working |
 | MCP Compliance | ✅ Harness exits 0 (0 errors) |
 | Functional Tests | ✅ `test-tools.js` 15/15 + 5 network-skipped (100%) |
 | Unit Tests | ✅ Green sandbox-off (`npm run test:unit`); incl. `phaseD-regressions.test.js` 34/34 |

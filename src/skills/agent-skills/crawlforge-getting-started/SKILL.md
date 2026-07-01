@@ -1,6 +1,6 @@
 ---
 name: crawlforge-getting-started
-description: "Orientation and tool-selection guide for the CrawlForge MCP server's 26 web tools. Use when the user is getting started with CrawlForge, asks which CrawlForge tool to use, how to set up the API key, how skills or the CLI work, what a tool costs in credits, or when one tool fails and a fallback is needed. Routes requests to the right specialized skill (web scraping, deep research, stealth, structured extraction, change tracking, batch automation), and explains MCP-tools-vs-CLI, the Ollama-first LLM fallback chain, and per-tool credit costs."
+description: "Orientation and tool-selection guide for the CrawlForge MCP server's 27 web tools. Use when the user is getting started with CrawlForge, asks which CrawlForge tool to use, how to set up the API key, how skills or the CLI work, what a tool costs in credits, or when one tool fails and a fallback is needed. Routes requests to the right specialized skill (web scraping, deep research, stealth, structured extraction, change tracking, batch automation), and explains MCP-tools-vs-CLI, the Ollama-first LLM fallback chain, and per-tool credit costs."
 metadata:
   version: 4.8.0
   source: crawlforge-mcp-server
@@ -8,7 +8,7 @@ metadata:
 
 # CrawlForge: Getting Started
 
-CrawlForge is an MCP server with **26 tools** for web scraping, crawling,
+CrawlForge is an MCP server with **27 tools** for web scraping, crawling,
 extraction, research, change tracking, and AI-compliance. This skill orients you
 and routes each request to the right specialized skill.
 
@@ -36,11 +36,11 @@ stored at `~/.crawlforge/config.json`.
 | Watch a page for changes / monitor pricing | **crawlforge-change-tracking** |
 | Scrape many URLs, run browser actions, generate llms.txt | **crawlforge-batch-automation** |
 
-## The 26 tools at a glance
+## The 27 tools at a glance
 
 - **Basic (5):** fetch_url, extract_text, extract_links, extract_metadata, scrape_structured
 - **Unified (1):** scrape (multi-format single fetch)
-- **Search & research (3):** search_web, deep_research, agent
+- **Search & research (4):** search_web, serp_rank, deep_research, agent
 - **Crawl (2):** crawl_deep, map_site
 - **Extract & analyze (7):** extract_content, process_document, summarize_content, analyze_content, extract_structured, extract_with_llm, list_ollama_models
 - **Batch & automation (4):** batch_scrape, get_batch_results, scrape_with_actions, generate_llms_txt

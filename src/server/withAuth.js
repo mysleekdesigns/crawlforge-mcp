@@ -59,7 +59,16 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
         }
 
         const result = await handler(params);
-        outcome = 'success';
+
+        // Tools catch their own failures and return { isError:true } rather than
+        // throwing (the shared pattern in server.js). That is still an ERROR
+        // outcome: bill it the half-credit error rate — not full — and log/metric
+        // it as an error, honoring CLAUDE.md's "half credits on error" contract.
+        const isErrorResult = result?.isError === true;
+        outcome = isErrorResult ? 'error' : 'success';
+        const charge = creditCost === 0
+          ? 0
+          : (isErrorResult ? Math.max(1, Math.floor(creditCost * 0.5)) : creditCost);
 
         // D3.5: Surface cost transparency in all tool responses
         try {
@@ -67,7 +76,7 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
           const remainingCredits = creatorMode ? Infinity : (authManager.creditCache ? [...authManager.creditCache.values()][0] ?? null : null);
           const costMeta = {
             projected: creditCost,
-            actual: creditCost,
+            actual: creatorMode ? 0 : charge,
             remaining_credits: remainingCredits,
             projection_note: projection.note
           };
@@ -86,15 +95,21 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
           // Cost injection must never break the request path
         }
 
-        if (!creatorMode) {
-          await authManager.reportUsage(toolName, creditCost, params, 200, Date.now() - startTime);
+        // creditCost === 0 means a genuinely free call (e.g. serp_rank when
+        // DataForSEO is unconfigured — a no-op). Emit NO usage event at all so
+        // the backend has nothing to (re-)price; reporting 0 would still create
+        // a serp_rank record the backend could recompute to full cost.
+        if (!creatorMode && creditCost > 0) {
+          await authManager.reportUsage(toolName, charge, params, isErrorResult ? 500 : 200, Date.now() - startTime);
         }
 
         return result;
       } catch (error) {
         outcome = 'error';
         thrown = error;
-        if (!creatorMode) {
+        // Half-charge on error — but never charge a free (0-cost) call, and
+        // never let Math.max(1, …) floor a 0 up to 1 credit.
+        if (!creatorMode && creditCost > 0) {
           await authManager.reportUsage(
             toolName,
             Math.max(1, Math.floor(creditCost * 0.5)),

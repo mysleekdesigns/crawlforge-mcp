@@ -54,7 +54,7 @@ Fork → edit `README.md` → add the line below under the correct category (lik
 Check the README's current emoji legend and adjust the emojis to match it.
 
 ```
-- [mysleekdesigns/crawlforge-mcp](https://github.com/mysleekdesigns/crawlforge-mcp) 📇 ☁️ 🏠 - 26-tool web scraping, crawling, deep-research & autonomous extraction; clean Markdown/JSON, local-Ollama LLM, stealth browsing, 1,000 free credits.
+- [mysleekdesigns/crawlforge-mcp](https://github.com/mysleekdesigns/crawlforge-mcp) 📇 ☁️ 🏠 - 27-tool web scraping, crawling, deep-research & autonomous extraction; clean Markdown/JSON, local-Ollama LLM, stealth browsing, 1,000 free credits.
 ```
 
 Legend reference (verify against the live README): 📇 TypeScript/JS · 🐍 Python · ☁️ Cloud
@@ -82,6 +82,6 @@ GitHub profile → **Customize your pins** → select `crawlforge-mcp`.
 
 ## Suggested description (reuse everywhere)
 
-> 26-tool MCP server for web scraping, crawling, deep research & autonomous extraction —
+> 27-tool MCP server for web scraping, crawling, deep research & autonomous extraction —
 > clean Markdown & structured JSON for Claude, Cursor & any MCP client. 1,000 free credits,
 > local-Ollama LLM support.

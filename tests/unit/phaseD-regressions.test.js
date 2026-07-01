@@ -25,7 +25,7 @@
  *
  * D4  server.js registration checks
  *     D4.1  "scrape" and "agent" tools are registered
- *     D4.2  Tool count banner says 26
+ *     D4.2  Tool count banner says 27
  */
 
 import { test, describe, afterEach, beforeEach } from 'node:test';
@@ -742,10 +742,10 @@ describe('D4.1 server.js registers scrape and agent tools', () => {
   });
 });
 
-describe('D4.2 server.js banner reports 26 tools', () => {
-  test('Tools available banner says 26', () => {
+describe('D4.2 server.js banner reports 27 tools', () => {
+  test('Tools available banner says 27', () => {
     const src = readSrc('server.js');
-    assert.ok(src.includes('Tools available (26)'), 'banner must say "Tools available (26)"');
+    assert.ok(src.includes('Tools available (27)'), 'banner must say "Tools available (27)"');
   });
 });
 

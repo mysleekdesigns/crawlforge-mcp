@@ -9,6 +9,7 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import { z } from "zod";
 import { logger } from "./src/utils/Logger.js";
 import { SearchWebTool } from "./src/tools/search/searchWeb.js";
+import { SerpRankTool } from "./src/tools/search/serpRank.js";
 import { CrawlDeepTool } from "./src/tools/crawl/crawlDeep.js";
 import { MapSiteTool } from "./src/tools/crawl/mapSite.js";
 import { ExtractContentTool } from "./src/tools/extract/extractContent.js";
@@ -90,7 +91,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 const server = new McpServer({
   name: "crawlforge",
   version: "4.8.1",
-  description: "Production-ready MCP server with 26 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
+  description: "Production-ready MCP server with 27 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, real Google SERP rank tracking, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png"
 });
@@ -104,11 +105,12 @@ server.prompt("getting-started", {
       role: "user",
       content: {
         type: "text",
-        text: "You have access to CrawlForge MCP with 26 web scraping tools. Key tools:\n\n" +
+        text: "You have access to CrawlForge MCP with 27 web scraping tools. Key tools:\n\n" +
           "- fetch_url: Fetch raw HTML/content from any URL\n" +
           "- extract_text: Extract clean text from a webpage\n" +
           "- extract_content: Smart content extraction with readability\n" +
           "- search_web: Search the web and get structured results\n" +
+          "- serp_rank: Check where a domain ranks in Google's real organic SERP for a keyword\n" +
           "- crawl_deep: Crawl a website following links to a specified depth\n" +
           "- map_site: Discover all pages on a website\n" +
           "- batch_scrape: Scrape multiple URLs in parallel\n" +
@@ -139,6 +141,10 @@ const withAuth = makeWithAuth({ authManager: AuthManager, logger, metrics });
 
 // Initialize tools
 const searchWebTool = new SearchWebTool(getToolConfig("search_web"));
+// serp_rank uses DataForSEO credentials (DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD),
+// separate from CrawlForge billing — no getToolConfig needed. Degrades gracefully
+// when unconfigured (returns { configured: false } instead of throwing).
+const serpRankTool = new SerpRankTool();
 const crawlDeepTool = new CrawlDeepTool(getToolConfig('crawl_deep'));
 const mapSiteTool = new MapSiteTool(getToolConfig('map_site'));
 const extractContentTool = new ExtractContentTool();
@@ -360,6 +366,31 @@ server.registerTool("search_web", {
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
     return { content: [{ type: "text", text: `Search failed: ${error.message}` }], isError: true };
+  }
+}));
+
+// Tool: serp_rank — REAL Google organic rank for a target domain (via DataForSEO)
+server.registerTool("serp_rank", {
+  description: "Use this to check where a domain ranks in Google's ORGANIC results for a keyword — real SERP position, not Custom Search order. Returns the target's organic rank, the ranking URL, and every position it holds. Example: serp_rank({keyword: \"managed wordpress hosting\", target: \"dashboardhosting.com\", location_name: \"United States\"})",
+  annotations: { title: "SERP Rank Check", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  inputSchema: {
+    keyword: z.string().describe("The search query to check ranking for"),
+    target: z.string().describe("Domain or URL to locate in the results (e.g. 'example.com')"),
+    location_name: z.string().optional().describe("Location, e.g. 'United States' or 'London,England,United Kingdom'"),
+    location_code: z.number().optional().describe("Numeric DataForSEO location code (overrides location_name)"),
+    language_code: z.string().optional().describe("Language code (e.g. 'en')"),
+    device: z.enum(["desktop", "mobile"]).optional().describe("Device to emulate"),
+    depth: z.number().min(10).max(200).optional().describe("How many results to scan, 10-200 (100 = 1 page of cost)")
+  }
+}, withAuth("serp_rank", async ({ keyword, target, location_name, location_code, language_code, device, depth }) => {
+  try {
+    if (!keyword || !target) {
+      return { content: [{ type: "text", text: "Both 'keyword' and 'target' are required" }], isError: true };
+    }
+    const result = await serpRankTool.execute({ keyword, target, location_name, location_code, language_code, device, depth });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { content: [{ type: "text", text: `SERP rank check failed: ${error.message}` }], isError: true };
   }
 }));
 
@@ -1309,7 +1340,7 @@ async function runServer() {
 
   const allTools = [
     "fetch_url", "extract_text", "extract_links", "extract_metadata", "scrape_structured",
-    "search_web", "crawl_deep", "map_site",
+    "search_web", "serp_rank", "crawl_deep", "map_site",
     "extract_content", "process_document", "summarize_content", "analyze_content",
     "batch_scrape", "get_batch_results", "scrape_with_actions",
     "deep_research", "track_changes", "generate_llms_txt",
@@ -1317,7 +1348,7 @@ async function runServer() {
     "list_ollama_models", "scrape_template", // D3.3
     "scrape", "agent"  // D4
   ];
-  console.error(`Tools available (26): ${allTools.join(", ")}`);
+  console.error(`Tools available (27): ${allTools.join(", ")}`);
 
   // Start memory monitoring in development
   if (config.server.nodeEnv === "development") {

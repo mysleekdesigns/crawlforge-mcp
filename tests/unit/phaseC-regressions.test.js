@@ -306,8 +306,8 @@ describe('C3.5 batch_scrape getBatchResults', () => {
   test('server registers the get_batch_results tool', () => {
     const src = readSrc('server.js');
     assert.ok(src.includes('registerTool("get_batch_results"'));
-    // Banner count updated to 26 in Phase D (scrape + agent tools added)
-    assert.ok(src.includes('Tools available (26)'));
+    // Banner count: 26 in Phase D (scrape + agent); 27 after serp_rank added
+    assert.ok(src.includes('Tools available (27)'));
   });
 });
 
