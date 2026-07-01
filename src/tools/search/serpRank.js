@@ -12,6 +12,11 @@
 import { z } from 'zod';
 import { DataForSEOSearchAdapter } from './adapters/dataforseoSearch.js';
 
+/** How many top organic results to return as the SERP listing (`results`).
+ * The first Google page is ~10; bounding it keeps the tool payload small while
+ * still surfacing the competitors that matter. */
+const RESULTS_LIMIT = 10;
+
 const SerpRankSchema = z.object({
   keyword: z.string().min(1),
   target: z.string().min(1), // domain or URL to locate in the SERP
@@ -94,6 +99,23 @@ export class SerpRankTool {
 
     const best = matches[0] || null;
 
+    // The SERP listing itself — the top organic competitors as Google actually
+    // ranks them, not just the target. Bounded to the first page so the payload
+    // stays small; each item already carries { position, rankAbsolute, domain,
+    // url, title, snippet } from the adapter. This is what "SERP results" means.
+    const results = items
+      .slice()
+      .sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity))
+      .slice(0, RESULTS_LIMIT)
+      .map((it) => ({
+        position: it.position,
+        rankAbsolute: it.rankAbsolute,
+        domain: it.domain,
+        url: it.url,
+        title: it.title,
+        snippet: it.snippet,
+      }));
+
     return {
       configured: true,
       keyword: validated.keyword,
@@ -104,6 +126,7 @@ export class SerpRankTool {
       url: best ? best.url : null,
       title: best ? best.title : null,
       allPositions: matches, // every place the domain ranks on this SERP
+      results, // the top organic results (the SERP listing), best-first, capped
       location: meta.location,
       device: meta.device,
       depthScanned: meta.depth,

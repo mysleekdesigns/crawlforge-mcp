@@ -243,6 +243,54 @@ describe('SerpRankTool', () => {
     assert.ok(res.checkedAt);
   });
 
+  test('configured — returns the SERP listing (results[]) of top organic competitors, best-first', async () => {
+    stubFetch(() => okResponse(envelope(SAMPLE_ITEMS)));
+    const tool = new SerpRankTool({ login: 'l', password: 'p' });
+    const res = await tool.execute({ keyword: 'managed hosting', target: 'target.com' });
+
+    // All three ORGANIC items (the featured_snippet + people_also_ask are dropped),
+    // in rank order — the full first-page listing, not just the target.
+    assert.equal(res.results.length, 3);
+    assert.deepEqual(res.results.map((r) => r.domain), ['competitor.com', 'target.com', 'blog.target.com']);
+    assert.deepEqual(res.results.map((r) => r.position), [1, 2, 3]);
+    // Each result carries the display shape the dashboard needs.
+    assert.deepEqual(res.results[0], {
+      position: 1,
+      rankAbsolute: 1,
+      domain: 'competitor.com',
+      url: 'https://competitor.com/',
+      title: 'Competitor',
+      snippet: 'c',
+    });
+  });
+
+  test('configured — results[] is bounded to the top 10 organic hits', async () => {
+    const many = Array.from({ length: 15 }, (_, i) => ({
+      type: 'organic',
+      rank_group: i + 1,
+      rank_absolute: i + 1,
+      domain: `site${i + 1}.com`,
+      url: `https://site${i + 1}.com/`,
+      title: `Site ${i + 1}`,
+      description: `d${i + 1}`,
+    }));
+    stubFetch(() => okResponse(envelope(many)));
+    const tool = new SerpRankTool({ login: 'l', password: 'p' });
+    const res = await tool.execute({ keyword: 'kw', target: 'absent.com', depth: 100 });
+    assert.equal(res.results.length, 10, 'caps at the first page');
+    assert.deepEqual(res.results.map((r) => r.position), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    assert.equal(res.organicResults, 15, 'organicResults still reflects the full count');
+  });
+
+  test('configured — target absent still returns the competitor listing', async () => {
+    stubFetch(() => okResponse(envelope(SAMPLE_ITEMS)));
+    const tool = new SerpRankTool({ login: 'l', password: 'p' });
+    const res = await tool.execute({ keyword: 'kw', target: 'absent.com' });
+    assert.equal(res.found, false);
+    assert.deepEqual(res.allPositions, []);
+    assert.equal(res.results.length, 3, 'the SERP listing is independent of the target');
+  });
+
   test('configured — allPositions is sorted best-first even when the SERP returns hits out of order', async () => {
     // target hits arrive DESCENDING (rank 5 before rank 2): a passing assertion
     // here requires serpRank.js's .sort() to actually run — not a pre-sorted fixture.
