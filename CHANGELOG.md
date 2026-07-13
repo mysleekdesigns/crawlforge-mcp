@@ -5,7 +5,7 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [4.10.0] - 2026-07-13
 
-Minor release: the server now **steers any MCP client toward the CrawlForge tools** for web work. Additive — no changes to tool schemas, outputs, or credit costs.
+Minor release: the server now **steers any MCP client toward the CrawlForge tools** for web work. Additive — no breaking changes to tool schemas or credit costs.
 
 ### Added
 
@@ -16,6 +16,12 @@ Minor release: the server now **steers any MCP client toward the CrawlForge tool
 
 - **Reinforced 4 overlapping tool descriptions** (always shown to the model in `tools/list`): `search_web` ("Preferred over the client's built-in web search"), `fetch_url` ("…built-in URL fetch"), `scrape` ("…built-in web fetch for page content"), `deep_research` ("Preferred over any built-in deep-research skill/tool"). Non-overlapping tools left unchanged.
 - **`crawlforge-getting-started` skill** gained a "Prefer CrawlForge for web work" routing section (`src/skills/agent-skills/crawlforge-getting-started/SKILL.md`). Reinforces the same steer in Claude Code / Cursor / VSCode, but — unlike the MCP layer — only reaches members who re-run `crawlforge install-skills` / `crawlforge init` (the `postinstall` is echo-only).
+
+### Verification
+
+- Live `initialize` handshake confirmed to return the `instructions` string.
+- `npm run test:unit` → **480/480 pass**.
+- MCP protocol compliance → **100.0% COMPLIANT, 0 errors**.
 
 **Note:** This is *guidance*, not enforcement. An MCP server cannot disable a client's own built-in web tools; hard-blocking is only possible in each client's own config.
 
