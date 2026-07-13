@@ -35,6 +35,8 @@ Delivered 2026-06-28. Additive minor; no breaking changes to tool schemas, outpu
 
 **Secondary (skill).** `src/skills/agent-skills/crawlforge-getting-started/SKILL.md` gained a "Prefer CrawlForge for web work" section — reinforces the same routing for Claude Code / Cursor / VSCode, but only reaches members who re-run `crawlforge install-skills` / `crawlforge init` (echo-only `postinstall`), so it complements rather than replaces the MCP-layer change.
 
+**Also shipped.** `serp_rank` now returns the full top-10 organic SERP listing alongside the target domain's rank positions (commit `f0a9f63`, made ~74 min after v4.9.0 was published to npm at 16:56 UTC 2026-07-01, so it first reached npm in this 4.10.0 publish — not in 4.9.0).
+
 **Honest limitation:** guidance, not enforcement — an MCP server cannot disable a client's own `WebSearch`/`WebFetch`; hard-blocking is only possible in each client's own config (Claude Code hooks/permissions) and cannot be pushed via the package. Deliberately out of scope.
 
 **Verification:** live `initialize` handshake confirmed the response now carries the `instructions` string (spawned `server.js`, sent an `initialize` request, asserted `result.instructions` contains the steer); server boots clean. Version bumped `4.9.0 → 4.10.0` across `package.json`, `package-lock.json`, `server.json` (×2), `server.js` (`McpServer` version), `CLAUDE.md`, `CHANGELOG.md`. Files: `server.js`, `src/skills/agent-skills/crawlforge-getting-started/SKILL.md`, `CHANGELOG.md`, `CLAUDE.md`, `package.json`, `package-lock.json`, `server.json`, `PRD.md`. **Left open (maintainer step):** commit/push and `npm publish` — members receive the steer only after the new version is published and their client relaunches `crawlforge@latest`.

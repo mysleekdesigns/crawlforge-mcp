@@ -10,6 +10,7 @@ Minor release: the server now **steers any MCP client toward the CrawlForge tool
 ### Added
 
 - **Server-level MCP `instructions`.** The `new McpServer(...)` call in `server.js` now passes a second `ServerOptions` argument with an `instructions` string (returned in the `initialize` result; per the MCP spec, clients MAY inject it into the model's context as a usage hint). It tells the model to **prefer** CrawlForge tools over the client's built-in web capabilities for web search, page fetch/scrape, site crawl, and multi-source research — falling back to built-ins only when a CrawlForge tool is unavailable or unsuitable. Because it ships in the server binary, every MCP client (Claude Code, Cursor, Claude Desktop, other LLMs) receives it automatically on the next `crawlforge@latest` launch after upgrade — no re-`init` required.
+- **`serp_rank` now returns the full top-10 organic SERP listing** alongside the target domain's rank positions. (Committed just after v4.9.0 was published to npm, so it first ships to members in this release.)
 
 ### Changed
 
