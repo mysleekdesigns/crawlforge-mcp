@@ -201,8 +201,17 @@ export class BrowserProcessor {
         });
 
       } finally {
-        // Always close the page
+        // Always close the page. Also close the owning context for
+        // non-stealth pages — createPage() gives each call its own
+        // dedicated BrowserContext that is never tracked/closed elsewhere,
+        // so leaving it open here leaks it until server shutdown. Stealth
+        // contexts are pooled/reused (see StealthBrowserManager /
+        // activeContexts) and must not be closed here.
+        const ctx = !processingOptions.stealthMode?.enabled ? page.context() : null;
         await page.close();
+        if (ctx) {
+          await ctx.close();
+        }
       }
 
       return result;
@@ -863,6 +872,15 @@ export class BrowserProcessor {
     if (this.humanBehaviorSimulator) {
       this.humanBehaviorSimulator.resetStats();
       this.humanBehaviorSimulator = null;
+    }
+
+    // Tear down the LocalizationManager this processor created — its
+    // health-check setInterval timers would otherwise keep firing for the
+    // process lifetime after this processor is discarded. The instance is
+    // kept (not nulled): it's constructor-created with no lazy re-init, and
+    // localizeBrowserContext() must keep working if the processor is reused.
+    if (this.localizationManager) {
+      await this.localizationManager.cleanup();
     }
   }
 

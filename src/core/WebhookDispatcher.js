@@ -400,7 +400,9 @@ export class WebhookDispatcher extends EventEmitter {
         method: 'POST',
         headers,
         body,
-        timeout: config.timeout
+        // fetch/undici has no `timeout` RequestInit option — it was silently
+        // ignored, so a hung endpoint stalled the whole delivery queue.
+        signal: AbortSignal.timeout(config.timeout)
       });
 
       if (!response.ok) {
@@ -545,7 +547,7 @@ export class WebhookDispatcher extends EventEmitter {
       const startTime = Date.now();
       const response = await safeFetch(url, {
         method: 'HEAD',
-        timeout: config.timeout / 2, // Use half timeout for health checks
+        signal: AbortSignal.timeout(config.timeout / 2), // Use half timeout for health checks
         headers: {
           'User-Agent': 'WebhookDispatcher-HealthCheck/1.0'
         }

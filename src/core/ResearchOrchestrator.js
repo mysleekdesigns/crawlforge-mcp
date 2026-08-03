@@ -245,7 +245,11 @@ export class ResearchOrchestrator extends EventEmitter {
       // D2.3 token budget tracking
       tokenBudgetChars: TOKEN_BUDGET_CHARS,
       tokenBudgetUsed: 0,
-      tokenBudgetExceeded: false
+      tokenBudgetExceeded: false,
+      // Single wall-clock deadline shared by every processWithTimeLimit()
+      // call in this session, so a `timeLimit` budget is spent once across
+      // all stages instead of being handed out fresh per stage.
+      deadline: startTime + this.timeLimit
     };
 
     // Reset metrics
@@ -637,8 +641,9 @@ export class ResearchOrchestrator extends EventEmitter {
     const batchSize = Math.min(this.concurrency, 10);
     const { topic } = this.researchState;
     
-    await this.processWithTimeLimit(async () => {
+    await this.processWithTimeLimit(async (signal) => {
       for (let i = 0; i < sources.length; i += batchSize) {
+        if (signal?.aborted) break; // budget exhausted — stop starting new batches
         const batch = sources.slice(i, i + batchSize);
         
         const batchPromises = batch.map(async (source) => {
@@ -1436,18 +1441,38 @@ export class ResearchOrchestrator extends EventEmitter {
    * Utility methods for research workflow
    */
   async processWithTimeLimit(asyncFunction) {
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Research time limit exceeded')), this.timeLimit);
+    // Budget is the remaining time against the session's shared deadline
+    // (set once in initializeResearchSession), not a fresh this.timeLimit
+    // per stage — otherwise gatherInitialSources and exploreSourcesInDepth
+    // could each legally run the full budget, doubling the advertised limit.
+    const deadline = this.researchState?.deadline ?? (Date.now() + this.timeLimit);
+    const remaining = Math.max(0, deadline - Date.now());
+
+    const controller = new AbortController();
+    let timeoutId;
+    let timedOut = false;
+    const timeoutPromise = new Promise((resolve) => {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+        resolve();
+      }, remaining);
     });
 
+    const workPromise = asyncFunction(controller.signal);
+
     try {
-      await Promise.race([asyncFunction(), timeoutPromise]);
-    } catch (error) {
-      if (error.message === 'Research time limit exceeded') {
+      await Promise.race([workPromise, timeoutPromise]);
+      if (timedOut) {
         this.logger.warn('Research time limit reached, returning partial results');
-      } else {
-        throw error;
+        // Let the aborted work actually unwind (batch loops check the signal
+        // between iterations) before returning, so callers don't proceed
+        // — e.g. sorting detailedFindings or closing the stealth browser —
+        // while the abandoned stage is still pushing into shared state.
+        await workPromise.catch(() => {});
       }
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

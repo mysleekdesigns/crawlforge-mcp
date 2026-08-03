@@ -8,6 +8,7 @@ import { z } from 'zod';
 import fs from 'fs/promises';
 import path from 'path';
 import { safeFetch } from '../../utils/ssrfGuard.js';
+import { config } from '../../constants/config.js';
 
 const PDFProcessorSchema = z.object({
   source: z.string().min(1),
@@ -209,11 +210,14 @@ export class PDFProcessor {
    */
   async downloadPDFFromURL(url) {
     try {
+      // `timeout` is not a fetch init option — undici/Node fetch silently
+      // ignores unknown properties, so only `signal` actually enforces a
+      // deadline here.
       const response = await safeFetch(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (compatible; MCP-WebScraper/2.0; PDF-Processor)'
         },
-        timeout: 30000
+        signal: AbortSignal.timeout(30000)
       });
 
       if (!response.ok) {
@@ -225,12 +229,59 @@ export class PDFProcessor {
         console.warn(`Warning: Content-Type is ${contentType}, expected PDF`);
       }
 
-      const arrayBuffer = await response.arrayBuffer();
-      return Buffer.from(arrayBuffer);
+      return await this.readBodyWithSizeCap(response);
 
     } catch (error) {
+      // AbortSignal.timeout() aborts with a TimeoutError-named DOMException
+      // (not AbortError — that name is only used for a plain controller.abort()).
+      if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+        throw new Error('Failed to download PDF from URL: request timeout after 30000ms');
+      }
       throw new Error(`Failed to download PDF from URL: ${error.message}`);
     }
+  }
+
+  /**
+   * Read a response body into a Buffer while enforcing config.fetch.maxBodySize
+   * (Content-Length pre-check, then a streaming byte-count backstop for
+   * servers that omit or lie about it), so a stalling or multi-GB response
+   * can't hang the request indefinitely or OOM the process before pdf-parse's
+   * own maxPages cap ever applies.
+   * @param {Response} response
+   * @returns {Promise<Buffer>}
+   */
+  async readBodyWithSizeCap(response) {
+    const maxBodySize = config.fetch.maxBodySize;
+
+    const contentLengthHeader = response.headers?.get?.('content-length') ?? null;
+    if (contentLengthHeader !== null) {
+      const declared = parseInt(contentLengthHeader, 10);
+      if (!isNaN(declared) && declared > maxBodySize) {
+        throw new Error(`PDF too large: Content-Length ${declared} exceeds limit of ${maxBodySize} bytes`);
+      }
+    }
+
+    if (!response.body || typeof response.body.getReader !== 'function') {
+      const arrayBuffer = await response.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    }
+
+    const reader = response.body.getReader();
+    const chunks = [];
+    let totalBytes = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBodySize) {
+        reader.cancel();
+        throw new Error(`PDF too large: exceeded limit of ${maxBodySize} bytes`);
+      }
+      chunks.push(value);
+    }
+
+    return Buffer.concat(chunks, totalBytes);
   }
 
   /**

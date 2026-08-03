@@ -5,6 +5,51 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Fixed — Remediation Phase 3: resource leaks, timeouts & robustness (2026-08-03)
+
+Closes all 24 Phase 3 findings from the [2026-08 codebase audit](./docs/CODEBASE_AUDIT_2026-08.md) — the "safe to run for days" class: timers, browser contexts, and caches that accumulated for the process lifetime, and body reads with no deadline. Fourth phase of the [remediation plan](./plan/README.md).
+
+**Browser lifecycle**
+- `ActionExecutor.initializePage` closes the already-created page and its context when navigation or stealth setup throws — every failed `page.goto` (DNS error, timeout, blocked URL) previously orphaned a live page + context.
+- Non-stealth `BrowserContext`s are closed alongside their page in `ActionExecutor`'s per-chain `finally` and `BrowserProcessor.processURL` — closing a Playwright page does not close its context, so every `scrape_with_actions` / browser-rendered `extract_content` call leaked one context until shutdown.
+- `executionHistory` entries strip `finalHtml`, the `screenshots` array, `capturedStates` (full intermediate-page HTML), and each screenshot action's base64 payload inside `results` — counts/byte sizes retained; `getExecutionHistory()` only ever read scalars.
+- `ActionExecutor.destroy()` guards each `page.close()` so one crashed/disconnected page can no longer abort cleanup before the browser itself is shut down.
+- `BrowserProcessor.cleanup()` tears down the `LocalizationManager` it constructs (its health-check intervals kept firing for the process lifetime); those intervals are also `unref()`d now, so idle processes (tests, CLI one-shots) exit naturally.
+- `extractContentTool` and `processDocumentTool` added to `gracefulShutdown`'s `toolsToCleanup` — both hold lazily-launched Chromium instances.
+
+**Research time budget**
+- `ResearchOrchestrator.processWithTimeLimit` now derives every stage's budget from one shared wall-clock deadline (stages no longer each get the full `timeLimit`, which legally doubled it), passes an `AbortSignal` that the stage batch loops check between batches, clears the racer timer in a `finally` (previously a live timer of up to 5 minutes per stage), and lets a timed-out stage unwind before result compilation — no more sorting/verifying `detailedFindings` while the abandoned loop is still pushing into it, and no more stealth-browser teardown under in-flight fetches.
+
+**Bounded caches**
+- `crawl_deep` destroys its per-crawl `CacheManager` in a `finally` via the new `BFSCrawler.destroy()` — previously N crawls permanently leaked N caches (≤1000 full HTML documents each), every one re-running a JSON.stringify memory scan every 60 s forever. Dropped instances are now GC-verified (WeakRef + `--expose-gc` regression test).
+- `batch_scrape` `batchResults`: LRU cap (20 batches), expired entries evicted on read, and an unref'd periodic TTL sweep — full HTML bodies for up to 50 URLs per batch no longer accumulate for the life of the server.
+- `SnapshotManager`: `.meta` files no longer embed the full page `content` / `delta.deltaData` (they live only in the `.snap` file — disk usage no longer doubled, gzip no longer defeated); legacy fat `.meta` files are defensively stripped on load; `metadataCache` is size-bounded.
+- `ChangeTracker`: change history is trimmed to `maxHistoryLength`, and the schema's `maxHistoryEntries` / `retainHistory` options are finally honored (previously declared but read by nothing).
+
+**Deadlines and size caps on every body read**
+- `_fetch.js` (all 5 basic tools): the abort timer stays armed through the body stream — the advertised `timeout` parameter finally covers a server that returns headers then trickles/stalls the body; chunk reassembly is single-pass (was O(n²) — ~1.5 s of synchronous event-loop block on a 25 MB body).
+- `batchScrape/worker.js`: body reads are covered by the per-URL timeout and capped at `config.fetch.maxBodySize` — a slow-loris upstream can no longer hold a sync batch's semaphore slot indefinitely or buffer a multi-GB body.
+- `_fetchAndParse.js` (`scrape`, `extract_structured`, `extract_with_llm`, `process_document` HTML path): enforces the same 25 MB streaming size cap `_fetch.js` already had.
+- `PDFProcessor.downloadPDFFromURL`: real 30 s `AbortSignal.timeout` (the old `timeout:` fetch-init option was silently ignored by undici) plus Content-Length/streamed-byte size cap.
+- SearXNG provider: 15 s `AbortSignal.timeout` with a clear timeout message (was undici's ~5-minute default).
+- `WebhookDispatcher`: delivery and health-check fetches use `AbortSignal.timeout(config.timeout)` — one hung endpoint stalled the entire serialized delivery queue for minutes.
+- `scrape` `branding` format: linked stylesheets are fetched concurrently (pool of 4) under a single overall deadline (≤10 s) — was up to ~160 s of sequential fetches against slow CSS hosts, unbounded by the tool's `timeoutMs`.
+- `BFSCrawler`: the per-domain replacement abort timer is assigned back to `timeoutId` so the existing `clearTimeout` calls actually cancel it (previously one leaked pending timer per fetched page whenever a domain rule overrode the timeout).
+
+**Initialization & module lifecycle**
+- `SnapshotManager` / `TrackChangesTool`: fire-and-forget constructor `initialize()` (which surfaced real failures as opaque `'Unhandled error.'` rejections) replaced by an awaited, memoized `ensureInitialized()` called from every public entry point; snapshot storage now defaults to `~/.crawlforge/snapshots` instead of `process.cwd()` — MCP clients like Claude Desktop launch the server with cwd `/`, where every snapshot write silently failed.
+- The module-level `trackChangesTool` eager singleton is replaced by a lazy Proxy with the same export surface — importing the module no longer constructs a duplicate ChangeTracker/SnapshotManager/cache stack, creates `cache/` + `snapshots/` directories in the caller's cwd, or keeps the process alive on a non-unref'd timer.
+- `StealthBrowserManager.launchStealthBrowser`: single-flight in-flight-promise guard — two interleaved stealth calls could both launch Chromium and orphan the first `--no-sandbox` process.
+
+**Tests**
+- Two new suites (+23 tests, 802 → 825 total): `tests/unit/phase3-leaks.test.js` (WeakRef + `--expose-gc` GC assertions for the crawl cache, batch LRU/TTL, snapshot `.meta`/cache bounds, history stripping, import-side-effect and cleanup-teardown checks via spawned child processes) and `tests/unit/phase3-timeouts.test.js` (local trickle-body HTTP servers proving `_fetch`/batch-worker/`_fetchAndParse`/SearXNG/webhook abort at their configured deadlines; research racer-timer/abort-signal assertions; PDF oversize fast-reject).
+
+### Verification (Phase 3)
+
+- `npm run test:unit`: 825 tests — 824 pass, 0 fail, 1 deliberately skipped; run exits on its own.
+- `npm test` (MCP protocol compliance): 100.0% COMPLIANT, 0 errors.
+- Standalone `node --test` children that construct real tools now exit promptly without `--test-force-exit` (LocalizationManager health-check timers unref'd).
+
 ### Fixed — Remediation Phase 2: tool-breaking correctness bugs (2026-08-03)
 
 Closes all 52 Phase 2 findings from the [2026-08 codebase audit](./docs/CODEBASE_AUDIT_2026-08.md) — the "silently wrong output" class: tools that passed smoke tests while returning misleading, truncated, or cross-contaminated results. Third phase of the [remediation plan](./plan/README.md).

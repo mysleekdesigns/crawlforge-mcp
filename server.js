@@ -1392,6 +1392,7 @@ async function gracefulShutdown(signal) {
       batchScrapeTool, scrapeWithActionsTool, deepResearchTool,
       trackChangesTool, generateLLMsTxtTool, stealthBrowserManager,
       localizationManager, extractStructuredTool,
+      extractContentTool, processDocumentTool, // each owns a lazily-launched BrowserProcessor
       agentTool // D4 D2: may hold ResearchOrchestrator
     ].filter(tool => tool && (typeof tool.destroy === 'function' || typeof tool.cleanup === 'function'));
 

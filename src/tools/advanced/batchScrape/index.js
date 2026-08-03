@@ -34,7 +34,8 @@ export class BatchScrapeTool extends EventEmitter {
       defaultTimeout = 15000,
       maxBatchSize = 50,
       enableResultCaching = true,
-      enableLogging = true
+      enableLogging = true,
+      maxCachedBatches = 20
     } = options;
 
     this.jobManager = jobManager || new JobManager({
@@ -54,8 +55,19 @@ export class BatchScrapeTool extends EventEmitter {
 
     this.activeBatches = new Map();
     this.batchResults = new Map();
+    this.maxCachedBatches = maxCachedBatches;
+    this.resultCacheTtl = 3600000; // 1 hour — matches the ttl stored per cache entry
     // D1.4: Elicitation helper (set mcpServer after instantiation if desired)
     this._elicitation = new ElicitationHelper({});
+
+    // Bound batchResults' lifetime: sweep expired entries periodically (in
+    // addition to the on-read eviction in getBatchResults) so cached results —
+    // including full HTML bodies when formats includes 'html' — don't
+    // accumulate in memory for the life of the process.
+    // .unref() so this timer never blocks process exit on its own — matches
+    // SnapshotManager's cleanupTimer.
+    this._resultsSweepTimer = setInterval(() => this._sweepBatchResults(), 10 * 60 * 1000);
+    if (typeof this._resultsSweepTimer.unref === 'function') this._resultsSweepTimer.unref();
 
     this.stats = {
       totalBatches: 0,
@@ -163,7 +175,7 @@ export class BatchScrapeTool extends EventEmitter {
       };
 
       if (this.enableResultCaching) {
-        this.batchResults.set(batchId, { results: processedResults, timestamp: Date.now(), ttl: 3600000 });
+        this._cacheBatchResult(batchId, processedResults);
       }
 
       this.stats.completedBatches++;
@@ -221,14 +233,19 @@ export class BatchScrapeTool extends EventEmitter {
 
   async getBatchResults(batchId, page = 1, pageSize = 25) {
     const cached = this.batchResults.get(batchId);
-    if (cached && Date.now() - cached.timestamp < cached.ttl) {
-      const offset = (page - 1) * pageSize;
-      return {
-        batchId, success: true,
-        results: paginateResults(cached.results, offset, pageSize),
-        pagination: { page, pageSize, totalResults: cached.results.length, totalPages: Math.ceil(cached.results.length / pageSize) },
-        cached: true, timestamp: cached.timestamp
-      };
+    if (cached) {
+      if (Date.now() - cached.timestamp < cached.ttl) {
+        const offset = (page - 1) * pageSize;
+        return {
+          batchId, success: true,
+          results: paginateResults(cached.results, offset, pageSize),
+          pagination: { page, pageSize, totalResults: cached.results.length, totalPages: Math.ceil(cached.results.length / pageSize) },
+          cached: true, timestamp: cached.timestamp
+        };
+      }
+      // Expired — evict now instead of waiting for the periodic sweep, and
+      // fall through to the activeBatches/jobManager lookups below.
+      this.batchResults.delete(batchId);
     }
 
     const active = this.activeBatches.get(batchId);
@@ -313,6 +330,7 @@ export class BatchScrapeTool extends EventEmitter {
     }
     this.activeBatches.clear();
     this.batchResults.clear();
+    if (this._resultsSweepTimer) clearInterval(this._resultsSweepTimer);
     this.jobManager?.destroy();
     this.webhookDispatcher?.destroy();
     this.removeAllListeners();
@@ -342,6 +360,25 @@ export class BatchScrapeTool extends EventEmitter {
   _registerWebhook(webhookConfig, batchId) {
     const config = { ...webhookConfig, metadata: { batchId, registeredAt: Date.now() } };
     return this.webhookDispatcher.registerWebhook(webhookConfig.url, config);
+  }
+
+  /**
+   * Cache a batch's results, capped to maxCachedBatches. Map preserves
+   * insertion order, so the oldest entry is evicted first (LRU by write time).
+   */
+  _cacheBatchResult(batchId, results) {
+    this.batchResults.set(batchId, { results, timestamp: Date.now(), ttl: this.resultCacheTtl });
+    while (this.batchResults.size > this.maxCachedBatches) {
+      const oldestKey = this.batchResults.keys().next().value;
+      this.batchResults.delete(oldestKey);
+    }
+  }
+
+  _sweepBatchResults() {
+    const now = Date.now();
+    for (const [id, entry] of this.batchResults) {
+      if (now - entry.timestamp >= entry.ttl) this.batchResults.delete(id);
+    }
   }
 
   _updateAverageBatchTime(batchTime) {
@@ -393,7 +430,7 @@ export class BatchScrapeTool extends EventEmitter {
         };
 
         if (this.enableResultCaching) {
-          this.batchResults.set(batchId, { results: processedResults, timestamp: Date.now(), ttl: 3600000 });
+          this._cacheBatchResult(batchId, processedResults);
         }
 
         this.stats.totalUrls += results.length;

@@ -12,9 +12,65 @@
 
 import { load } from 'cheerio';
 import { safeFetch } from '../../utils/ssrfGuard.js';
+import { config } from '../../constants/config.js';
 
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (compatible; CrawlForge-MCP/3.0)';
 const DEFAULT_TIMEOUT_MS = 15000;
+
+/**
+ * Read a response body as text while enforcing config.fetch.maxBodySize —
+ * the same cap _fetch.js applies to basic tools, so a large/hostile response
+ * (multi-hundred-MB file, endpoint streaming zeros) can't be buffered whole
+ * into a JS string and handed to cheerio/JSDOM/Turndown downstream.
+ * Content-Length is checked up front; actual bytes read are counted as a
+ * backstop for servers that omit or lie about it.
+ * @param {Response} response
+ * @returns {Promise<string>}
+ */
+async function readTextWithSizeCap(response) {
+  const maxBodySize = config.fetch.maxBodySize;
+
+  const contentLengthHeader = response.headers?.get?.('content-length') ?? null;
+  if (contentLengthHeader !== null) {
+    const declared = parseInt(contentLengthHeader, 10);
+    if (!isNaN(declared) && declared > maxBodySize) {
+      throw new Error(
+        `Response body too large: Content-Length ${declared} exceeds limit of ${maxBodySize} bytes`
+      );
+    }
+  }
+
+  // Responses without a ReadableStream body (test mocks, already-buffered
+  // responses) fall back to the native .text() with no additional guard.
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    return response.text();
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBodySize) {
+      reader.cancel();
+      throw new Error(
+        `Response body too large: exceeded limit of ${maxBodySize} bytes`
+      );
+    }
+    chunks.push(value);
+  }
+
+  const mergedBytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    mergedBytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(mergedBytes);
+}
 
 /**
  * Classify a Content-Type header for the purposes of HTML parsing.
@@ -78,7 +134,7 @@ export async function fetchAndParse(url, options = {}) {
     );
   }
 
-  const html = await response.text();
+  const html = await readTextWithSizeCap(response);
 
   // text/plain and application/json aren't markup: running them through the
   // HTML parser risks misinterpreting substrings (e.g. a "<script>" value

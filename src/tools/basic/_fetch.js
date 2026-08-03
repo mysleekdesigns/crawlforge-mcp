@@ -68,92 +68,109 @@ export async function fetchWithTimeout(url, options = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-  let response;
+  // The timeout must stay armed for the entire body read, not just until
+  // headers arrive — a stalled/trickling body (slowloris, hung proxy) would
+  // otherwise hang the awaiting reader.read() forever. clearTimeout runs in
+  // this finally, after the body has been fully consumed (or an error has
+  // already ended the request), and any abort() during that window rejects
+  // the in-flight reader.read() with an AbortError, which we map below.
   try {
-    response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': CRAWLFORGE_UA,
-        ...headers
-      },
-      ...guard
+    let response;
+    try {
+      response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': CRAWLFORGE_UA,
+          ...headers
+        },
+        ...guard
+      });
+    } catch (error) {
+      if (isSsrfError(error)) {
+        throw new Error(error.cause?.message || error.message);
+      }
+      if (error.name === 'AbortError') {
+        throw new Error(`Request timeout after ${timeout}ms`);
+      }
+      throw error;
+    }
+
+    // --- Body-size cap ---
+
+    // Early rejection via Content-Length (servers may omit or lie — guard below
+    // handles that case). Optional-chained so non-standard responses (e.g. test
+    // mocks) without a Headers object don't throw.
+    const contentLengthHeader = response.headers?.get?.('content-length') ?? null;
+    if (contentLengthHeader !== null) {
+      const declared = parseInt(contentLengthHeader, 10);
+      if (!isNaN(declared) && declared > maxBodySize) {
+        throw new Error(
+          `Response body too large: Content-Length ${declared} exceeds limit of ${maxBodySize} bytes`
+        );
+      }
+    }
+
+    // Only the streaming byte-count guard requires a readable body. Responses
+    // without a ReadableStream body (already-buffered responses, test mocks)
+    // are returned unchanged so callers' native .text()/.json() still work.
+    if (!response.body || typeof response.body.getReader !== 'function') {
+      return response;
+    }
+
+    // Stream the body and abort if accumulated bytes exceed the cap.
+    const reader = response.body.getReader();
+    const chunks = [];
+    let totalBytes = 0;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        totalBytes += value.byteLength;
+        if (totalBytes > maxBodySize) {
+          reader.cancel();
+          throw new Error(
+            `Response body too large: exceeded limit of ${maxBodySize} bytes`
+          );
+        }
+        chunks.push(value);
+      }
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error(`Request timeout after ${timeout}ms`);
+      }
+      throw error;
+    }
+
+    // Reassemble the raw bytes in a single pass (totalBytes is already known,
+    // so this is one allocation + one copy per chunk, not the O(n^2) cost of
+    // reallocating/copying the whole buffer on every chunk), then decode using
+    // the response's actual charset (Content-Type header, falling back to a
+    // <meta charset> sniff) instead of always assuming UTF-8.
+    const mergedBytes = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      mergedBytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    const charset = detectCharset(response, mergedBytes);
+    let bodyText;
+    try {
+      bodyText = new TextDecoder(charset).decode(mergedBytes);
+    } catch {
+      // Unrecognized charset label — fall back to UTF-8 rather than throwing.
+      bodyText = new TextDecoder().decode(mergedBytes);
+    }
+
+    // Attach the pre-read text so callers can call .text() on the result.
+    // We wrap it in a minimal compatible object.
+    return Object.assign(response, {
+      text: () => Promise.resolve(bodyText),
+      json: () => Promise.resolve(JSON.parse(bodyText)),
+      _body: bodyText
     });
+  } finally {
     clearTimeout(timeoutId);
-  } catch (error) {
-    clearTimeout(timeoutId);
-    if (isSsrfError(error)) {
-      throw new Error(error.cause?.message || error.message);
-    }
-    if (error.name === 'AbortError') {
-      throw new Error(`Request timeout after ${timeout}ms`);
-    }
-    throw error;
   }
-
-  // --- Body-size cap ---
-
-  // Early rejection via Content-Length (servers may omit or lie — guard below
-  // handles that case). Optional-chained so non-standard responses (e.g. test
-  // mocks) without a Headers object don't throw.
-  const contentLengthHeader = response.headers?.get?.('content-length') ?? null;
-  if (contentLengthHeader !== null) {
-    const declared = parseInt(contentLengthHeader, 10);
-    if (!isNaN(declared) && declared > maxBodySize) {
-      throw new Error(
-        `Response body too large: Content-Length ${declared} exceeds limit of ${maxBodySize} bytes`
-      );
-    }
-  }
-
-  // Only the streaming byte-count guard requires a readable body. Responses
-  // without a ReadableStream body (already-buffered responses, test mocks)
-  // are returned unchanged so callers' native .text()/.json() still work.
-  if (!response.body || typeof response.body.getReader !== 'function') {
-    return response;
-  }
-
-  // Stream the body and abort if accumulated bytes exceed the cap.
-  const reader = response.body.getReader();
-  const chunks = [];
-  let totalBytes = 0;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    totalBytes += value.byteLength;
-    if (totalBytes > maxBodySize) {
-      reader.cancel();
-      throw new Error(
-        `Response body too large: exceeded limit of ${maxBodySize} bytes`
-      );
-    }
-    chunks.push(value);
-  }
-
-  // Reassemble the raw bytes, then decode using the response's actual charset
-  // (Content-Type header, falling back to a <meta charset> sniff) instead of
-  // always assuming UTF-8.
-  const mergedBytes = chunks.reduce((acc, chunk) => {
-    const merged = new Uint8Array(acc.byteLength + chunk.byteLength);
-    merged.set(acc, 0);
-    merged.set(chunk, acc.byteLength);
-    return merged;
-  }, new Uint8Array(0));
-
-  const charset = detectCharset(response, mergedBytes);
-  let bodyText;
-  try {
-    bodyText = new TextDecoder(charset).decode(mergedBytes);
-  } catch {
-    // Unrecognized charset label — fall back to UTF-8 rather than throwing.
-    bodyText = new TextDecoder().decode(mergedBytes);
-  }
-
-  // Attach the pre-read text so callers can call .text() on the result.
-  // We wrap it in a minimal compatible object.
-  return Object.assign(response, {
-    text: () => Promise.resolve(bodyText),
-    json: () => Promise.resolve(JSON.parse(bodyText)),
-    _body: bodyText
-  });
 }

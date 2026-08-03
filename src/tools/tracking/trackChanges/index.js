@@ -14,6 +14,8 @@
  */
 
 import { EventEmitter } from 'events';
+import os from 'os';
+import path from 'path';
 import ChangeTracker from '../../../core/ChangeTracker.js';
 import SnapshotManager from '../../../core/SnapshotManager.js';
 import CacheManager from '../../../core/cache/CacheManager.js';
@@ -31,7 +33,12 @@ export class TrackChangesTool extends EventEmitter {
     this.options = {
       cacheEnabled: true,
       cacheTTL: 3600000,
-      snapshotStorageDir: './snapshots',
+      // Rooted in a stable, non-cwd-dependent base (~/.crawlforge — same
+      // convention as ~/.crawlforge/config.json) rather than process.cwd(),
+      // since MCP clients (e.g. Claude Desktop) may launch the server with a
+      // cwd the process cannot write to (e.g. '/'), which previously made
+      // every snapshot write fail silently.
+      snapshotStorageDir: path.join(os.homedir(), '.crawlforge', 'snapshots'),
       enableRealTimeMonitoring: true,
       maxConcurrentMonitors: 50,
       defaultPollingInterval: 300000,
@@ -64,9 +71,15 @@ export class TrackChangesTool extends EventEmitter {
     this.monitorStore = new MonitorStore({ storageDir: this.options.monitorStorageDir || './monitors' });
     this.scheduler = new MonitorScheduler({ tool: this, store: this.monitorStore });
 
-    // Tracked (not awaited here) so shutdown() can wait for it before tearing
-    // things down — see shutdown().
-    this._initPromise = this.initialize();
+    // Wired synchronously (no I/O) so no 'error' event emitted by
+    // changeTracker/snapshotManager during the lazy initialize() below (see
+    // ensureInitialized()) can ever be emitted before a listener exists.
+    this._setupEventHandlers();
+
+    // Not started here — construction stays synchronous and side-effect
+    // free. ensureInitialized() lazily creates and memoizes this on first
+    // real use (called from execute()/startScheduler()/runDueOnce()).
+    this._initPromise = null;
   }
 
   /** Wire the MCP server so the goal-judge can use SamplingClient (Ollama-first). */
@@ -76,6 +89,7 @@ export class TrackChangesTool extends EventEmitter {
 
   /** Start the in-process scheduler (called once, by the server). */
   async startScheduler() {
+    await this.ensureInitialized();
     if (this._mcpServer && !this.scheduler.samplingClient) {
       try {
         const { SamplingClient } = await import('../../../core/SamplingClient.js');
@@ -89,6 +103,7 @@ export class TrackChangesTool extends EventEmitter {
 
   /** Fire every due monitor once and exit (the external-cron one-shot path). */
   async runDueOnce() {
+    await this.ensureInitialized();
     if (this._mcpServer && !this.scheduler.samplingClient) {
       try {
         const { SamplingClient } = await import('../../../core/SamplingClient.js');
@@ -98,15 +113,19 @@ export class TrackChangesTool extends EventEmitter {
     return this.scheduler.runDueOnce();
   }
 
-  async initialize() {
-    try {
-      await this.snapshotManager.initialize();
-      this._setupEventHandlers();
-      this.emit('initialized');
-    } catch (error) {
-      this.emit('error', { operation: 'initialize', error: error.message });
-      throw error;
+  /**
+   * Lazily runs (and memoizes) storage initialization, awaited by execute()
+   * and the other top-level entry points below. Replaces the old pattern of
+   * firing initialize() unawaited from the constructor, which could turn a
+   * snapshot-directory failure into an opaque unhandled rejection.
+   */
+  async ensureInitialized() {
+    if (!this._initPromise) {
+      this._initPromise = this.snapshotManager.ensureInitialized().then(() => {
+        this.emit('initialized');
+      });
     }
+    return this._initPromise;
   }
 
   _setupEventHandlers() {
@@ -131,6 +150,8 @@ export class TrackChangesTool extends EventEmitter {
 
   async execute(params) {
     try {
+      await this.ensureInitialized();
+
       const validated = TrackChangesSchema.parse(params);
       const { operation } = validated;
 
@@ -171,7 +192,7 @@ export class TrackChangesTool extends EventEmitter {
     const baseline = await this.changeTracker.createBaseline(url, sourceContent, trackingOptions);
     let snapshotInfo = null;
     if (enableSnapshots) {
-      snapshotInfo = await this.snapshotManager.storeSnapshot(url, sourceContent, { ...fetchMeta, baseline: true, trackingOptions });
+      snapshotInfo = await this.snapshotManager.storeSnapshot(url, sourceContent, { ...fetchMeta, baseline: true, trackingOptions }, { enableCompression: storageOptions.compressionEnabled });
     }
 
     return {
@@ -201,13 +222,13 @@ export class TrackChangesTool extends EventEmitter {
     }
     if (!currentContent || typeof currentContent !== 'string') throw new Error('Invalid content');
 
-    const comparisonResult = await this.changeTracker.compareWithBaseline(url, currentContent, trackingOptions);
+    const comparisonResult = await this.changeTracker.compareWithBaseline(url, currentContent, trackingOptions, storageOptions);
 
     let snapshotInfo = null;
     if (comparisonResult.hasChanges && enableSnapshots) {
       snapshotInfo = await this.snapshotManager.storeSnapshot(url, currentContent, {
         ...fetchMeta, changes: comparisonResult.summary, significance: comparisonResult.significance
-      });
+      }, { enableCompression: storageOptions.compressionEnabled });
     }
 
     if (comparisonResult.hasChanges && notificationOptions) {
@@ -423,13 +444,14 @@ export class TrackChangesTool extends EventEmitter {
   }
 
   async shutdown() {
-    // initialize() runs unawaited from the constructor and itself awaits
-    // this.snapshotManager.initialize() a second time (independent of
-    // SnapshotManager's own constructor-triggered self-init). A shutdown()
-    // called shortly after construction could race ahead of either chain,
-    // leaving a live cleanup timer started after snapshotManager.shutdown()
-    // already tried to stop it — which then keeps the process alive
-    // indefinitely. Wait for it (ignoring failure) first.
+    // ensureInitialized() is lazy (see above) and awaits
+    // this.snapshotManager.ensureInitialized(), which is itself lazy. If a
+    // caller triggered initialization and then immediately calls shutdown(),
+    // we must wait for that in-flight init to finish first — otherwise its
+    // cleanup timer could start after snapshotManager.shutdown() already
+    // tried to stop it, leaking a live timer. If nothing ever triggered
+    // initialization, _initPromise is still null and there's nothing to
+    // wait for.
     if (this._initPromise) {
       await this._initPromise.catch(() => {});
     }
@@ -481,17 +503,44 @@ export class TrackChangesTool extends EventEmitter {
 
 export default TrackChangesTool;
 
-// Singleton instance — kept for backward-compat with any code that imports it directly
-export const trackChangesTool = new TrackChangesTool();
-trackChangesTool.name = 'track_changes';
-trackChangesTool.validateParameters = (params) => TrackChangesSchema.parse(params);
-trackChangesTool.description = 'Track and analyze content changes with baseline capture, comparison, and monitoring capabilities';
-trackChangesTool.inputSchema = {
-  type: 'object',
-  properties: {
-    url: { type: 'string', description: 'URL to track for changes' },
-    operation: { type: 'string', description: 'Operation to perform: create_baseline, compare, monitor, get_history, get_stats' },
-    content: { type: 'string', description: 'Content to analyze or compare' }
+// Singleton instance — kept for backward-compat with any code that imports it
+// directly. Built lazily, on first property access, rather than eagerly at
+// module-import time: the server (server.js) constructs and owns its own
+// TrackChangesTool instance, so an eager `new TrackChangesTool()` here spun
+// up a second, never-shut-down ChangeTracker/SnapshotManager/CacheManager/
+// MonitorStore/MonitorScheduler (and touched the filesystem) merely by
+// importing this module. Nothing in this codebase currently imports this
+// named export directly, but it's preserved for backward-compat.
+let _singleton = null;
+function _getTrackChangesToolSingleton() {
+  if (!_singleton) {
+    _singleton = new TrackChangesTool();
+    _singleton.name = 'track_changes';
+    _singleton.validateParameters = (params) => TrackChangesSchema.parse(params);
+    _singleton.description = 'Track and analyze content changes with baseline capture, comparison, and monitoring capabilities';
+    _singleton.inputSchema = {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'URL to track for changes' },
+        operation: { type: 'string', description: 'Operation to perform: create_baseline, compare, monitor, get_history, get_stats' },
+        content: { type: 'string', description: 'Content to analyze or compare' }
+      },
+      required: ['url']
+    };
+  }
+  return _singleton;
+}
+
+export const trackChangesTool = new Proxy({}, {
+  get(_target, prop) {
+    const instance = _getTrackChangesToolSingleton();
+    const value = Reflect.get(instance, prop, instance);
+    return typeof value === 'function' ? value.bind(instance) : value;
   },
-  required: ['url']
-};
+  set(_target, prop, value) {
+    return Reflect.set(_getTrackChangesToolSingleton(), prop, value);
+  },
+  has(_target, prop) {
+    return Reflect.has(_getTrackChangesToolSingleton(), prop);
+  }
+});

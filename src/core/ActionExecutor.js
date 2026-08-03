@@ -261,11 +261,20 @@ export class ActionExecutor extends EventEmitter {
 
         throw error;
       } finally {
-        // D2.4: always close page to prevent leaks
+        // D2.4: always close page to prevent leaks. Also close the owning
+        // context for non-stealth pages — createPage() gives each call its
+        // own dedicated BrowserContext that is never tracked/closed
+        // elsewhere, so leaving it open here leaks it until server shutdown.
+        // Stealth contexts are pooled/reused (see StealthBrowserManager) and
+        // must not be closed here.
         if (page) {
+          const ctx = !browserOptions.stealthMode?.enabled ? page.context() : null;
           try { await page.close(); } catch (_) { /* ignore close errors */ }
+          if (ctx) {
+            try { await ctx.close(); } catch (_) { /* ignore close errors */ }
+          }
         }
-        
+
         // Update execution time
         const executionTime = Date.now() - startTime;
         executionContext.executionTime = executionTime;
@@ -274,10 +283,25 @@ export class ActionExecutor extends EventEmitter {
         // Remove from active chains
         this.activeChains.delete(chainId);
         
-        // Add to execution history
+        // Add to execution history. Strip finalHtml (full post-action page
+        // HTML, often 100KB-2MB), screenshots (base64 PNGs), capturedStates
+        // (full intermediate-page HTML), and each screenshot action's base64
+        // payload inside results — getExecutionHistory() only reads scalar
+        // fields and results[].success, so retaining the heavy payloads just
+        // pins them in memory for the life of the 100-entry history.
         this.executionHistory.push({
           ...executionContext,
-          page: undefined // Don't store page in history
+          page: undefined, // Don't store page in history
+          finalHtml: undefined,
+          screenshots: undefined,
+          screenshotCount: executionContext.screenshots.length,
+          capturedStates: undefined,
+          capturedStateCount: (executionContext.capturedStates || []).length,
+          results: executionContext.results.map(r => (
+            r?.result?.data !== undefined
+              ? { ...r, result: { ...r.result, data: undefined, dataBytes: typeof r.result.data === 'string' ? r.result.data.length : undefined } }
+              : r
+          ))
         });
         
         // Keep only last 100 executions in history
@@ -853,45 +877,54 @@ export class ActionExecutor extends EventEmitter {
     // hostname-based checks alone would miss DNS-rebinding/private-IP targets.
     await assertUrlAllowed(url, { resolveDns: true });
 
+    const isStealth = !!browserOptions.stealthMode?.enabled;
+
     // Use the enhanced BrowserProcessor initialization that supports stealth mode
     const page = await this.browserProcessor.initializePage(browserOptions);
 
-    // Apply CloudFlare and reCAPTCHA detection if stealth mode is enabled
-    if (browserOptions.stealthMode?.enabled && this.browserProcessor.stealthManager) {
-      // Initialize human behavior simulator for the page
-      await this.browserProcessor.stealthManager.initializeHumanBehaviorSimulator();
-    }
+    try {
+      // Apply CloudFlare and reCAPTCHA detection if stealth mode is enabled
+      if (isStealth && this.browserProcessor.stealthManager) {
+        // Initialize human behavior simulator for the page
+        await this.browserProcessor.stealthManager.initializeHumanBehaviorSimulator();
+      }
 
-    // Navigate to URL
-    await page.goto(url, {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000
-    });
+      // Navigate to URL
+      await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000
+      });
 
-    // Re-validate the landed URL: a redirect during navigation could have
-    // taken us into a blocked range even though the original URL was safe.
-    const landedUrl = page.url();
-    if (/^https?:\/\//i.test(landedUrl)) {
-      try {
+      // Re-validate the landed URL: a redirect during navigation could have
+      // taken us into a blocked range even though the original URL was safe.
+      const landedUrl = page.url();
+      if (/^https?:\/\//i.test(landedUrl)) {
         await assertUrlAllowed(landedUrl, { resolveDns: true });
-      } catch (ssrfError) {
-        await page.close().catch(() => {});
-        throw ssrfError;
       }
-    }
 
-    // Handle CloudFlare challenges and reCAPTCHA if stealth mode is enabled
-    if (browserOptions.stealthMode?.enabled && this.browserProcessor.stealthManager) {
-      await this.browserProcessor.stealthManager.bypassCloudflareChallenge(page);
-      await this.browserProcessor.stealthManager.handleRecaptcha(page);
-      
-      // Simulate initial human behavior on page load
-      if (browserOptions.humanBehavior?.enabled) {
-        await this.simulateInitialPageInteraction(page);
+      // Handle CloudFlare challenges and reCAPTCHA if stealth mode is enabled
+      if (isStealth && this.browserProcessor.stealthManager) {
+        await this.browserProcessor.stealthManager.bypassCloudflareChallenge(page);
+        await this.browserProcessor.stealthManager.handleRecaptcha(page);
+
+        // Simulate initial human behavior on page load
+        if (browserOptions.humanBehavior?.enabled) {
+          await this.simulateInitialPageInteraction(page);
+        }
       }
-    }
 
-    return page;
+      return page;
+    } catch (error) {
+      // Any failure between page creation and return (navigation, SSRF
+      // re-check, stealth challenge handling) must not leak the page it
+      // already created — close it, and its dedicated context for
+      // non-stealth pages (stealth contexts are pooled/reused elsewhere),
+      // before rethrowing.
+      const ctx = !isStealth ? page.context() : null;
+      await page.close().catch(() => {});
+      if (ctx) await ctx.close().catch(() => {});
+      throw error;
+    }
   }
   
   /**
@@ -1193,7 +1226,7 @@ export class ActionExecutor extends EventEmitter {
     // Cancel active chains
     for (const context of this.activeChains.values()) {
       if (context.page) {
-        await context.page.close();
+        try { await context.page.close(); } catch (_) { /* ignore close errors */ }
       }
     }
 

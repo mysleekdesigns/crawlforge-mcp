@@ -170,9 +170,13 @@ export class ChangeTracker extends EventEmitter {
    * @param {string} url - URL to compare
    * @param {string} currentContent - Current content
    * @param {Object} options - Comparison options
+   * @param {Object} storageOptions - History retention overrides for this
+   *   call: retainHistory (boolean) and maxHistoryEntries (number), as
+   *   forwarded from TrackChangesSchema.storageOptions. Both optional —
+   *   falls back to this.options.maxHistoryLength when omitted.
    * @returns {Object} - Change analysis results
    */
-  async compareWithBaseline(url, currentContent, options = {}) {
+  async compareWithBaseline(url, currentContent, options = {}, storageOptions = {}) {
     const startTime = Date.now();
 
     // Expected no-baseline case: return a clean error WITHOUT emitting an
@@ -227,10 +231,19 @@ export class ChangeTracker extends EventEmitter {
       
       changeRecord.processingTime = Date.now() - startTime;
       
-      // Store change record
-      const changeHistory = this.changeHistory.get(url);
-      changeHistory.push(changeRecord);
-      
+      // Store change record, trimmed to maxHistoryEntries/maxHistoryLength so
+      // a long-running monitor doesn't accumulate a full diff record
+      // (word/line-level diff arrays included) per check for the life of the
+      // process. retainHistory:false skips storage entirely.
+      if (storageOptions.retainHistory !== false) {
+        const changeHistory = this.changeHistory.get(url);
+        changeHistory.push(changeRecord);
+        const maxHistoryLength = storageOptions.maxHistoryEntries ?? this.options.maxHistoryLength;
+        if (maxHistoryLength && changeHistory.length > maxHistoryLength) {
+          changeHistory.splice(0, changeHistory.length - maxHistoryLength);
+        }
+      }
+
       // Update statistics
       this.updateStats(changeRecord);
       

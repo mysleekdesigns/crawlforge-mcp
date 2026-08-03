@@ -266,7 +266,7 @@ export class BFSCrawler {
 
   async fetchPage(url) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    let timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
       // Get domain-specific headers and timeout
@@ -294,7 +294,7 @@ export class BFSCrawler {
       // Update timeout if different
       if (effectiveTimeout !== this.timeout) {
         clearTimeout(timeoutId);
-        setTimeout(() => controller.abort(), effectiveTimeout);
+        timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
       }
 
       const response = await safeFetch(url, {
@@ -455,6 +455,18 @@ export class BFSCrawler {
   stop() {
     this.queue.clear();
     this.queue.pause();
+  }
+
+  /**
+   * Release resources held by this crawler instance (cache cleanup/monitoring
+   * timers). Must be called by the owner once crawling is complete — unref()
+   * on the timers keeps the process from hanging, but the instance itself
+   * stays reachable (and its cached pages retained) until destroy() runs.
+   */
+  destroy() {
+    if (this.cache && typeof this.cache.destroy === 'function') {
+      this.cache.destroy();
+    }
   }
 
   /**

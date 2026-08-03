@@ -6,6 +6,7 @@
 
 import { promises as fs } from 'fs';
 import path from 'path';
+import os from 'os';
 import { createHash } from 'crypto';
 import { gzip, gunzip } from 'zlib';
 import { promisify } from 'util';
@@ -77,10 +78,16 @@ export class SnapshotManager extends EventEmitter {
   constructor(options = {}) {
     super();
     
+    // Default storage location is rooted in a stable, non-cwd-dependent base
+    // (~/.crawlforge — same convention as ~/.crawlforge/config.json) rather
+    // than process.cwd(), since MCP clients (e.g. Claude Desktop) may launch
+    // the server with a cwd the process cannot write to (e.g. '/').
+    const defaultBaseDir = path.join(os.homedir(), '.crawlforge', 'snapshots');
+
     this.options = {
-      storageDir: options.storageDir || './snapshots',
-      metadataDir: options.metadataDir || './snapshots/metadata',
-      tempDir: options.tempDir || './snapshots/temp',
+      storageDir: options.storageDir || defaultBaseDir,
+      metadataDir: options.metadataDir || path.join(defaultBaseDir, 'metadata'),
+      tempDir: options.tempDir || path.join(defaultBaseDir, 'temp'),
       enableCompression: options.enableCompression !== false,
       enableDeltaStorage: options.enableDeltaStorage !== false,
       enableEncryption: options.enableEncryption || false,
@@ -88,6 +95,12 @@ export class SnapshotManager extends EventEmitter {
       maxConcurrentOperations: options.maxConcurrentOperations || 10,
       cacheEnabled: options.cacheEnabled !== false,
       cacheSize: options.cacheSize || 100,
+      // metadataCache holds one (now content-stripped) entry per stored
+      // snapshot and doubles as the in-memory index querySnapshots/
+      // cleanupSnapshots scan — so it can't be capped as tightly as
+      // snapshotCache without breaking query/retention correctness. This is
+      // a safety ceiling against truly unbounded growth, not a hot-cache size.
+      metadataCacheSize: options.metadataCacheSize || 10000,
       ...options
     };
     
@@ -124,37 +137,47 @@ export class SnapshotManager extends EventEmitter {
     // Cleanup timer
     this.cleanupTimer = null;
 
-    // Tracked (not awaited here) so shutdown() can wait for it — see shutdown().
-    this._initPromise = this.initialize();
+    // Not started here — construction must stay synchronous and side-effect
+    // free (no directories touched, nothing to leave unhandled-rejected).
+    // ensureInitialized() lazily creates and memoizes this on first real use.
+    this._initPromise = null;
   }
-  
-  async initialize() {
-    try {
-      // Create storage directories
-      await this.createDirectories();
-      
-      // Load existing snapshot metadata
-      await this.loadMetadata();
-      
-      // Start cleanup timer if enabled
-      if (this.retentionPolicy.autoCleanup) {
-        this.startCleanupTimer();
-      }
-      
-      // Initialize cache
-      if (this.options.cacheEnabled) {
-        await this.initializeCache();
-      }
-      
-      this.emit('initialized', {
-        totalSnapshots: this.stats.totalSnapshots,
-        storageSize: this.stats.totalStorageSize
-      });
-      
-    } catch (error) {
-      this.emit('error', { operation: 'initialize', error: error.message });
-      throw error;
+
+  /**
+   * Lazily runs (and memoizes) initialize(), awaited by every public
+   * storage-touching method below. Replaces the old pattern of firing
+   * initialize() unawaited from the constructor, which could turn a
+   * directory-creation failure into an opaque unhandled rejection (emit()ing
+   * 'error' before any caller has had a chance to attach a listener).
+   */
+  async ensureInitialized() {
+    if (!this._initPromise) {
+      this._initPromise = this.initialize();
     }
+    return this._initPromise;
+  }
+
+  async initialize() {
+    // Create storage directories
+    await this.createDirectories();
+
+    // Load existing snapshot metadata
+    await this.loadMetadata();
+
+    // Start cleanup timer if enabled
+    if (this.retentionPolicy.autoCleanup) {
+      this.startCleanupTimer();
+    }
+
+    // Initialize cache
+    if (this.options.cacheEnabled) {
+      await this.initializeCache();
+    }
+
+    this.emit('initialized', {
+      totalSnapshots: this.stats.totalSnapshots,
+      storageSize: this.stats.totalStorageSize
+    });
   }
   
   /**
@@ -169,6 +192,8 @@ export class SnapshotManager extends EventEmitter {
     const operationId = this.generateOperationId();
 
     try {
+      await this.ensureInitialized();
+
       // Validate content is not null/undefined
       if (content === null || content === undefined) {
         throw new Error('Content cannot be null or undefined');
@@ -217,8 +242,11 @@ export class SnapshotManager extends EventEmitter {
       // Every snapshot is now persisted in full (optionally gzip-compressed below).
       const isDelta = false;
 
-      // Apply compression if enabled and above threshold
-      if (this.options.enableCompression && 
+      // Apply compression if enabled (per-call `options.enableCompression`
+      // overrides the instance default when explicitly provided) and above
+      // threshold.
+      const compressionEnabled = options.enableCompression ?? this.options.enableCompression;
+      if (compressionEnabled &&
           finalContent.length > this.retentionPolicy.compressionThreshold) {
         
         const compressed = await gzipAsync(finalContent);
@@ -296,12 +324,14 @@ export class SnapshotManager extends EventEmitter {
    */
   async retrieveSnapshot(snapshotId, options = {}) {
     const operationId = this.generateOperationId();
-    
+
     try {
-      this.activeOperations.set(operationId, { 
-        type: 'retrieve', 
-        snapshotId, 
-        startTime: Date.now() 
+      await this.ensureInitialized();
+
+      this.activeOperations.set(operationId, {
+        type: 'retrieve',
+        snapshotId,
+        startTime: Date.now()
       });
       
       // Check cache first
@@ -374,6 +404,8 @@ export class SnapshotManager extends EventEmitter {
    */
   async querySnapshots(query = {}) {
     try {
+      await this.ensureInitialized();
+
       const validated = QuerySchema.parse(query);
       
       // Load all metadata that matches URL filter
@@ -511,6 +543,8 @@ export class SnapshotManager extends EventEmitter {
     };
     
     try {
+      await this.ensureInitialized();
+
       for (const snapshotId of ids) {
         try {
           const metadata = await this.loadSnapshotMetadata(snapshotId);
@@ -559,8 +593,10 @@ export class SnapshotManager extends EventEmitter {
    */
   async cleanupSnapshots() {
     const startTime = Date.now();
-    
+
     try {
+      await this.ensureInitialized();
+
       const cleanupResults = {
         deletedCount: 0,
         freedSpace: 0,
@@ -678,29 +714,60 @@ export class SnapshotManager extends EventEmitter {
     await fs.unlink(filePath);
   }
   
-  async storeMetadata(snapshotId, metadata) {
-    const filePath = path.join(this.options.metadataDir, `${snapshotId}.meta`);
-    await fs.writeFile(filePath, JSON.stringify(metadata, null, 2), 'utf8');
-    
-    // Update in-memory cache
+  /**
+   * Strips the full page `content` (and any legacy `delta.deltaData`) from a
+   * snapshot before it is persisted to a .meta file or cached in
+   * metadataCache — content lives only in the .snap file. Idempotent: safe
+   * to call on an object that's already stripped.
+   */
+  _stripHeavyFields(snapshot) {
+    const { content, ...rest } = snapshot;
+    if (rest.delta && rest.delta.deltaData !== undefined) {
+      const { deltaData, ...deltaRest } = rest.delta;
+      rest.delta = deltaRest;
+    }
+    return rest;
+  }
+
+  /**
+   * Bounded insert into metadataCache (same LRU-eviction shape as
+   * updateCache()/snapshotCache, sized separately via metadataCacheSize —
+   * see the constructor comment for why the two caches need different sizes).
+   */
+  _cacheMetadata(snapshotId, metadata) {
+    if (!this.metadataCache.has(snapshotId) && this.metadataCache.size >= this.options.metadataCacheSize) {
+      const oldestKey = this.metadataCache.keys().next().value;
+      this.metadataCache.delete(oldestKey);
+    }
     this.metadataCache.set(snapshotId, metadata);
   }
-  
+
+  async storeMetadata(snapshotId, snapshot) {
+    const filePath = path.join(this.options.metadataDir, `${snapshotId}.meta`);
+    const metadata = this._stripHeavyFields(snapshot);
+    await fs.writeFile(filePath, JSON.stringify(metadata, null, 2), 'utf8');
+
+    // Update in-memory cache
+    this._cacheMetadata(snapshotId, metadata);
+  }
+
   async loadSnapshotMetadata(snapshotId) {
     // Check cache first
     if (this.metadataCache.has(snapshotId)) {
       return this.metadataCache.get(snapshotId);
     }
-    
+
     // Load from disk
     try {
       const filePath = path.join(this.options.metadataDir, `${snapshotId}.meta`);
-      const content = await fs.readFile(filePath, 'utf8');
-      const metadata = JSON.parse(content);
-      
+      const raw = await fs.readFile(filePath, 'utf8');
+      // Defensive strip: .meta files written before this fix may still embed
+      // full page content — never let a legacy fat file re-pin it in memory.
+      const metadata = this._stripHeavyFields(JSON.parse(raw));
+
       // Cache it
-      this.metadataCache.set(snapshotId, metadata);
-      
+      this._cacheMetadata(snapshotId, metadata);
+
       return metadata;
     } catch (error) {
       return null;
@@ -819,16 +886,17 @@ export class SnapshotManager extends EventEmitter {
   }
   
   async initializeCache() {
-    // Pre-load recent snapshots into cache
-    const recentSnapshots = await this.querySnapshots({
-      limit: Math.min(this.options.cacheSize, 50),
-      sortBy: 'timestamp',
-      sortOrder: 'desc',
-      includeContent: false
-    });
-    
-    for (const snapshot of recentSnapshots.snapshots) {
-      this.metadataCache.set(snapshot.id, snapshot);
+    // Reads metadataCache directly (already fully populated by loadMetadata(),
+    // which runs earlier in initialize()) rather than going through
+    // querySnapshots() — querySnapshots() now awaits ensureInitialized(),
+    // which would deadlock against the in-flight initialize() call this
+    // method is itself called from.
+    const recent = Array.from(this.metadataCache.values())
+      .sort((a, b) => b.metadata.timestamp - a.metadata.timestamp)
+      .slice(0, Math.min(this.options.cacheSize, 50));
+
+    for (const snapshot of recent) {
+      this._cacheMetadata(snapshot.id, snapshot);
     }
   }
   
@@ -945,12 +1013,14 @@ export class SnapshotManager extends EventEmitter {
   }
   
   async shutdown() {
-    // initialize() runs unawaited from the constructor and only starts the
+    // initialize() is lazy (see ensureInitialized()) and only starts the
     // cleanup timer partway through (after the async createDirectories/
-    // loadMetadata steps). A shutdown() called shortly after construction
-    // could otherwise race ahead of that, leaving a live (non-unref'd) timer
-    // started AFTER stopCleanupTimer() already ran — which then keeps the
-    // process alive indefinitely. Wait for it (ignoring failure) first.
+    // loadMetadata steps). If a caller triggered initialization (via any
+    // public method) and then immediately calls shutdown(), we must wait for
+    // that in-flight init to finish before stopping the timer — otherwise it
+    // could start AFTER stopCleanupTimer() already ran, leaking a live timer.
+    // If nothing ever triggered initialization, _initPromise is still null
+    // and there's nothing to wait for (no directories/timer were created).
     if (this._initPromise) {
       await this._initPromise.catch(() => {});
     }

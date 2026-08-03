@@ -92,9 +92,13 @@ export async function searchViaSearxng(opts = {}) {
   let response;
   try {
     response = await fetch(url.toString(), {
-      headers: { Accept: 'application/json' }
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(15000)
     });
   } catch (err) {
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+      throw new Error('SearXNG request failed: timed out after 15000ms');
+    }
     throw new Error(`SearXNG request failed: ${err.message}`);
   }
 

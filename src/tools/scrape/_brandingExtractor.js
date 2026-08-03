@@ -140,19 +140,57 @@ async function collectCssSources($, pageUrl, opts) {
       if (href) hrefs.push(resolveUrl(href, pageUrl));
     });
     const max = clamp(opts.maxStylesheets ?? 10, 0, 20);
-    for (const href of hrefs.slice(0, max)) {
-      try {
-        const res = await safeFetch(href, { signal: AbortSignal.timeout(opts.perFileTimeoutMs ?? 8000) });
-        if (!res.ok) { warnings.push(`branding: stylesheet ${res.status} ${href}`); continue; }
-        let text = await res.text();
-        if (text.length > 512 * 1024) text = text.slice(0, 512 * 1024); // size cap
-        cssText += '\n' + text;
-        fetchedUrls.push(href);
-      } catch (err) {
-        warnings.push(`branding: could not fetch stylesheet ${href} — ${err.message}`);
+    const targets = hrefs.slice(0, max);
+    const perFileTimeoutMs = opts.perFileTimeoutMs ?? 8000;
+    // Single wall-clock budget for ALL stylesheets combined, not just each
+    // one individually — otherwise maxStylesheets slow/unresponsive hosts in
+    // series can still block for maxStylesheets * perFileTimeoutMs (up to
+    // ~160s at the schema max of 20). Capped to whatever the caller's overall
+    // timeoutMs allows, defaulting to 10s.
+    const overallTimeoutMs = opts.timeoutMs != null
+      ? Math.min(opts.timeoutMs, 10000)
+      : (opts.overallTimeoutMs ?? 10000);
+    const deadline = Date.now() + overallTimeoutMs;
+
+    // Small worker pool fetches stylesheets concurrently instead of one at a
+    // time; results are written back by index so cssText concatenation order
+    // stays deterministic regardless of completion order.
+    const concurrency = clamp(opts.stylesheetConcurrency ?? 4, 1, Math.max(targets.length, 1));
+    const results = new Array(targets.length);
+    let cursor = 0;
+
+    async function worker() {
+      while (true) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) return; // overall deadline hit — leave rest unfetched
+        const i = cursor++;
+        if (i >= targets.length) return;
+        const href = targets[i];
+        try {
+          const res = await safeFetch(href, { signal: AbortSignal.timeout(Math.min(perFileTimeoutMs, remaining)) });
+          if (!res.ok) { results[i] = { warning: `branding: stylesheet ${res.status} ${href}` }; continue; }
+          let text = await res.text();
+          if (text.length > 512 * 1024) text = text.slice(0, 512 * 1024); // size cap
+          results[i] = { text, href };
+        } catch (err) {
+          results[i] = { warning: `branding: could not fetch stylesheet ${href} — ${err.message}` };
+        }
       }
     }
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+
+    let skippedByDeadline = 0;
+    for (let i = 0; i < targets.length; i++) {
+      const r = results[i];
+      if (!r) { skippedByDeadline++; continue; }
+      if (r.warning) { warnings.push(r.warning); continue; }
+      cssText += '\n' + r.text;
+      fetchedUrls.push(r.href);
+    }
+
     if (hrefs.length > max) warnings.push(`branding: ${hrefs.length - max} stylesheet(s) skipped (maxStylesheets=${max})`);
+    if (skippedByDeadline > 0) warnings.push(`branding: ${skippedByDeadline} stylesheet(s) skipped — overall CSS fetch deadline (${overallTimeoutMs}ms) exceeded`);
   }
 
   return { cssText, fetchedUrls, styleBlocks, inlineStyleEls, warnings };
@@ -327,7 +365,7 @@ function extractTokens(cssText, cssVariables) {
  * Extract the full branding object from a loaded cheerio $.
  * @param {import('cheerio').CheerioAPI} $
  * @param {string} pageUrl
- * @param {{ fetchLinkedCss?: boolean, maxStylesheets?: number, perFileTimeoutMs?: number }} [opts]
+ * @param {{ fetchLinkedCss?: boolean, maxStylesheets?: number, perFileTimeoutMs?: number, timeoutMs?: number, overallTimeoutMs?: number, stylesheetConcurrency?: number }} [opts]
  * @returns {Promise<object>}
  */
 export async function extractBranding($, pageUrl, opts = {}) {

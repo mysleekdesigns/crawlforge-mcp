@@ -230,47 +230,53 @@ export class CrawlDeepTool {
       });
 
       // Start crawling
-      const startTime = Date.now();
-      const results = await crawler.crawl(validated.url, {
-        includePatterns: validated.include_patterns,
-        excludePatterns: validated.exclude_patterns,
-        extractContent: validated.extract_content
-      });
-      const duration = Date.now() - startTime;
-
-      // Process and format results
-      const response = {
-        url: validated.url,
-        crawl_depth: effectiveMaxDepth,
-        pages_crawled: results.urls.length,
-        pages_found: results.results.length,
-        error_count: results.errors.length,
-        duration_ms: duration,
-        pages_per_second: results.urls.length / (duration / 1000),
-        results: this.formatResults(results.results, validated.extract_content, validated.content_max_length),
-        errors: results.errors,
-        stats: results.stats,
-        site_structure: this.analyzeSiteStructure(results.urls),
-        domain_filter_config: domainFilter ? domainFilter.exportConfig() : null,
-        link_analysis: results.linkAnalysis,
-        session: sessionContext
-          ? { enabled: true, cookies_captured: sessionContext.cookieCount }
-          : { enabled: false }
-      };
-      
-      // Store in cache before returning
-      if (this.cache) {
-        const cacheKey = this._buildCacheKey(validated, {
-          maxDepth: effectiveMaxDepth,
-          maxPages: effectiveMaxPages,
-          respectRobots: effectiveRespectRobots,
-          followExternal: effectiveFollowExternal,
-          concurrency: effectiveConcurrency
+      try {
+        const startTime = Date.now();
+        const results = await crawler.crawl(validated.url, {
+          includePatterns: validated.include_patterns,
+          excludePatterns: validated.exclude_patterns,
+          extractContent: validated.extract_content
         });
-        await this.cache.set(cacheKey, response);
-      }
+        const duration = Date.now() - startTime;
 
-      return response;
+        // Process and format results
+        const response = {
+          url: validated.url,
+          crawl_depth: effectiveMaxDepth,
+          pages_crawled: results.urls.length,
+          pages_found: results.results.length,
+          error_count: results.errors.length,
+          duration_ms: duration,
+          pages_per_second: results.urls.length / (duration / 1000),
+          results: this.formatResults(results.results, validated.extract_content, validated.content_max_length),
+          errors: results.errors,
+          stats: results.stats,
+          site_structure: this.analyzeSiteStructure(results.urls),
+          domain_filter_config: domainFilter ? domainFilter.exportConfig() : null,
+          link_analysis: results.linkAnalysis,
+          session: sessionContext
+            ? { enabled: true, cookies_captured: sessionContext.cookieCount }
+            : { enabled: false }
+        };
+
+        // Store in cache before returning
+        if (this.cache) {
+          const cacheKey = this._buildCacheKey(validated, {
+            maxDepth: effectiveMaxDepth,
+            maxPages: effectiveMaxPages,
+            respectRobots: effectiveRespectRobots,
+            followExternal: effectiveFollowExternal,
+            concurrency: effectiveConcurrency
+          });
+          await this.cache.set(cacheKey, response);
+        }
+
+        return response;
+      } finally {
+        // Release the per-crawl CacheManager's timers so the crawler
+        // instance (and its cached page bodies) can be garbage collected.
+        crawler.destroy();
+      }
     } catch (error) {
       throw new Error(`Crawl failed: ${error.message}`);
     }

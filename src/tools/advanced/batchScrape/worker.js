@@ -5,6 +5,7 @@
  */
 
 import { load } from 'cheerio';
+import { config as appConfig } from '../../../constants/config.js';
 import { ssrfGuard, isSsrfError } from '../../../utils/ssrfGuard.js';
 import { throttleHost } from '../../../utils/hostRateLimiter.js';
 
@@ -12,9 +13,14 @@ const USER_AGENT = 'MCP-WebScraper-BatchTool/1.0.0';
 
 /**
  * Fetch a URL with AbortController timeout (SSRF-guarded + per-host throttled).
+ * The timeout stays live through the body read (not just until headers
+ * arrive), and the body is size-capped, so a server that sends headers then
+ * drips the body can't hold a semaphore slot indefinitely or exhaust memory.
+ * Returns { response, html } rather than the raw Response.
  */
 export async function fetchUrl(url, options = {}) {
   const { timeout = 15000, headers = {} } = options;
+  const maxBodySize = appConfig.fetch.maxBodySize;
   const guard = ssrfGuard(url); // SSRF pre-flight (throws before connecting)
   await throttleHost(url);
   const controller = new AbortController();
@@ -25,14 +31,59 @@ export async function fetchUrl(url, options = {}) {
       headers: { 'User-Agent': USER_AGENT, ...headers },
       ...guard
     });
-    clearTimeout(timeoutId);
-    return response;
+    const html = await readBodyCapped(response, maxBodySize);
+    return { response, html };
   } catch (error) {
-    clearTimeout(timeoutId);
     if (isSsrfError(error)) throw new Error(error.cause?.message || error.message);
     if (error.name === 'AbortError') throw new Error(`Request timeout after ${timeout}ms`);
     throw error;
+  } finally {
+    // Cleared only after the body read finishes (or the fetch itself fails),
+    // so the abort timer keeps protecting against a trickling body, not just
+    // the initial headers.
+    clearTimeout(timeoutId);
   }
+}
+
+/**
+ * Read a Response body as text, enforcing maxBodySize (Content-Length
+ * pre-check, then a running byte count while streaming). Falls back to plain
+ * .text() for responses without a streamable body (e.g. test mocks).
+ */
+async function readBodyCapped(response, maxBodySize) {
+  const contentLengthHeader = response.headers?.get?.('content-length') ?? null;
+  if (contentLengthHeader !== null) {
+    const declared = parseInt(contentLengthHeader, 10);
+    if (!isNaN(declared) && declared > maxBodySize) {
+      throw new Error(`Response body too large: Content-Length ${declared} exceeds limit of ${maxBodySize} bytes`);
+    }
+  }
+
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    return response.text();
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBodySize) {
+      reader.cancel();
+      throw new Error(`Response body too large: exceeded limit of ${maxBodySize} bytes`);
+    }
+    chunks.push(value);
+  }
+
+  const merged = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(merged);
 }
 
 /**
@@ -41,14 +92,13 @@ export async function fetchUrl(url, options = {}) {
 export async function scrapeUrl(config, options, defaultTimeout) {
   const startTime = Date.now();
   try {
-    const response = await fetchUrl(config.url, {
+    const { response, html } = await fetchUrl(config.url, {
       headers: config.headers,
       timeout: config.timeout || defaultTimeout
     });
 
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 
-    const html = await response.text();
     const $ = load(html);
 
     const result = {

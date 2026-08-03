@@ -251,6 +251,26 @@ export class StealthBrowserManager {
       return this.browser;
     }
 
+    // Guard against concurrent callers both seeing this.browser === null and
+    // both launching a Chromium/Camoufox process — the second assignment to
+    // this.browser would overwrite the first, orphaning it. Callers that
+    // arrive while a launch is already in flight await the same promise.
+    if (this._launchPromise) {
+      return this._launchPromise;
+    }
+    this._launchPromise = this._doLaunchStealthBrowser(validatedConfig);
+    try {
+      return await this._launchPromise;
+    } finally {
+      this._launchPromise = null;
+    }
+  }
+
+  /**
+   * Actual browser launch, guarded by launchStealthBrowser's in-flight
+   * promise so only one launch can be in progress at a time.
+   */
+  async _doLaunchStealthBrowser(validatedConfig) {
     // C2: delegate to CamoufoxAdapter when engine === 'camoufox'
     if (validatedConfig.engine === 'camoufox') {
       const adapter = new CamoufoxAdapter();

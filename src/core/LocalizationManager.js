@@ -1002,6 +1002,13 @@ export class LocalizationManager extends EventEmitter {
     }, 600000);
 
     this.healthCheckIntervals = [proxyInterval, translationInterval];
+
+    // Background health checks must never be the only thing keeping the
+    // process alive — unref() so an otherwise-idle process (tests, CLI
+    // one-shots that construct a tool without calling cleanup()) can exit.
+    for (const interval of this.healthCheckIntervals) {
+      if (typeof interval.unref === 'function') interval.unref();
+    }
   }
 
   /**
