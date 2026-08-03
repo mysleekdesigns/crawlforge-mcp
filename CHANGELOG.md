@@ -3,6 +3,25 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [Unreleased]
+
+### Security — Remediation Phase 0: dependency currency & audit cleanup (2026-08-03)
+
+Zero code change — `npm update` inside existing caret ranges plus one new `overrides` entry. Takes `npm audit` from **16 vulnerabilities (8 high, 6 moderate, 2 low)** to **4 moderate (0 high, 0 critical)**. First phase of the [remediation plan](./plan/README.md) from the [2026-08 codebase audit](./docs/CODEBASE_AUDIT_2026-08.md).
+
+- **`undici` 7.25 → 7.29.0** — clears 2 HIGH: SOCKS5 ProxyAgent TLS-cert-validation bypass (GHSA-vmh5-mc38-953g) and Set-Cookie percent-decode header injection (GHSA-p88m-4jfj-68fv).
+- **`adm-zip` override `^0.6.0`** (new) — clears the HIGH crafted-ZIP 4GB-allocation advisory reached only via `camoufox` → `generative-bayesian-network` (optional, install-time-only); camoufox resolution verified intact.
+- **`isomorphic-dompurify` 3.9 → 3.19.0** — bundles DOMPurify ≥3.4.12, clearing the DOMPurify moderate advisories, while deliberately staying on jsdom 29.x (verified 29.1.1) to preserve the Node ≥18 engines floor.
+- **`@modelcontextprotocol/sdk` 1.29 → 1.30.0** — stdio message-buffer limit, Streamable-HTTP SSE keep-alive fixes, Content-Type validation. *Note:* the moderate `@hono/node-server` advisory (GHSA-frvp-7c67-39w9) does **not** clear — the pre-existing overrides pin holds it on 1.x for Node ≥18 compatibility (fix only in 2.0.5+, Node ≥20); revisit with the Phase 5 Node-floor decision.
+- Routine caret minors: `lru-cache` 11.5.2, `jsdom` 29.1.1, `cheerio` 1.2.0, `compromise` 14.16.0, plus `winston`/`dotenv`/`playwright`/`franc`/`turndown`/`robots-parser`.
+- **Remaining (deferred to Phase 5):** the pinned `@hono/node-server` chain above, and `node-cron` → `uuid` (GHSA-w5hq-g745-h8pq — fix requires the breaking `node-cron@4` major; `npm audit fix --force` deliberately not run).
+
+### Verification
+
+- `npm audit` → 4 moderate, 0 high/critical.
+- `npm run test:unit` → **480/480 pass**.
+- `npm test` → **100.0% COMPLIANT, 0 errors**.
+
 ## [4.10.0] - 2026-07-13
 
 Minor release: the server now **steers any MCP client toward the CrawlForge tools** for web work. Additive — no breaking changes to tool schemas or credit costs.

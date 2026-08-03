@@ -21,6 +21,14 @@
 
 ---
 
+## Remediation Phase 0 — Dependency Currency & Audit Cleanup (Complete)
+
+**Completed:** 2026-08-03 | **Version:** 4.10.0 tree (no version bump — zero code change) | **Plan:** [`plan/phase-0-dependency-currency.md`](../plan/phase-0-dependency-currency.md) (audit: [`CODEBASE_AUDIT_2026-08.md`](./CODEBASE_AUDIT_2026-08.md))
+
+First phase of the 2026-08 remediation plan. `npm update` within existing caret ranges + a new `"adm-zip": "^0.6.0"` overrides entry took `npm audit` from **16 vulnerabilities (8 high, 6 moderate, 2 low)** to **4 moderate (0 high/critical)**. Cleared: 2 undici HIGHs (GHSA-vmh5-mc38-953g, GHSA-p88m-4jfj-68fv), the adm-zip HIGH (camoufox install-time chain), the DOMPurify moderates (isomorphic-dompurify 3.19.0, held on jsdom 29.x for the Node ≥18 floor). Key bumps: `@modelcontextprotocol/sdk` 1.30.0, `undici` 7.29.0. Remaining 4 moderates deferred to Phase 5's Node-floor decision: `@hono/node-server` chain (GHSA-frvp-7c67-39w9, pinned to 1.x for Node ≥18) and `node-cron`→`uuid` (GHSA-w5hq-g745-h8pq, breaking major). **Gate:** `npm run test:unit` 480/480; `npm test` 100.0% COMPLIANT / 0 errors. Details in [`security-audit-report.md`](./security-audit-report.md) and `CHANGELOG.md` ([Unreleased]).
+
+---
+
 ## IMPROVEMENT_PLAN Phase D — Firecrawl-Competitive: Agent + Unified Scrape + Onboarding (Complete)
 
 **Completed:** 2026-06-07 | **Version:** 4.6.0 | **Regression tests:** `tests/unit/phaseD-regressions.test.js` (34/34 pass)
