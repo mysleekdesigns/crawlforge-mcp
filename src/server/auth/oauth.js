@@ -188,6 +188,22 @@ async function handleAuthorize(req, res, store, apiKey) {
     return sendJson(res, 400, { error: 'invalid_request', error_description: 'only S256 PKCE is supported' });
   }
 
+  // Proof-of-possession required: the caller must present the operator's
+  // CrawlForge API key — via `Authorization: Bearer <key>` header or an
+  // `api_key` query parameter — before a code is issued. Dynamic client
+  // registration (/oauth/register) is open and unauthenticated by design,
+  // so client_id/PKCE alone must never be sufficient to mint a code; the
+  // key proof is the actual authorization check.
+  //
+  // For a multi-tenant deployment, replace this with a real consent page that
+  // resolves to a CrawlForge user → API key mapping.
+  if (!verifyApiKeyProof(req, params, apiKey)) {
+    return sendJson(res, 401, {
+      error: 'invalid_client',
+      error_description: 'proof of API key possession required (Authorization: Bearer <key> header or api_key query parameter)'
+    });
+  }
+
   const client = await store.getClient(params.client_id);
   if (!client) {
     return sendJson(res, 400, { error: 'invalid_client' });
@@ -196,13 +212,6 @@ async function handleAuthorize(req, res, store, apiKey) {
     return sendJson(res, 400, { error: 'invalid_redirect_uri' });
   }
 
-  // Auto-approve: this server is a personal MCP endpoint backed by a single
-  // CrawlForge API key the operator has already authenticated. No consent UI
-  // is needed — possession of the operator's `apiKey` IS the authorization.
-  // (Same trust model as the static-key transport.)
-  //
-  // For a multi-tenant deployment, replace this with a real consent page that
-  // resolves to a CrawlForge user → API key mapping.
   const code = randomBytes(24).toString('base64url');
   await store.setCode(code, {
     clientId: params.client_id,
@@ -311,6 +320,27 @@ async function issueTokens(store, { clientId, mappedApiKey, scopes, accessTtlMs,
     refresh_token: refreshToken,
     scope: scopes.join(' ')
   };
+}
+
+/**
+ * Verify the caller has proven possession of the operator's CrawlForge API key.
+ * Accepted forms: `Authorization: Bearer <key>` header, or `api_key` query param.
+ * Comparison is constant-time over fixed-length SHA-256 digests (never compares
+ * the raw secrets directly, and never leaks timing based on input length).
+ */
+function verifyApiKeyProof(req, params, apiKey) {
+  const authHeader = req.headers?.authorization || req.headers?.Authorization;
+  let provided = null;
+  if (typeof authHeader === 'string' && /^Bearer\s+/i.test(authHeader)) {
+    provided = authHeader.replace(/^Bearer\s+/i, '').trim();
+  } else if (typeof params.api_key === 'string' && params.api_key.length > 0) {
+    provided = params.api_key;
+  }
+  if (!provided) return false;
+
+  const providedHash = createHash('sha256').update(provided).digest();
+  const expectedHash = createHash('sha256').update(apiKey).digest();
+  return timingSafeEqual(providedHash, expectedHash);
 }
 
 function verifyPkce(verifier, expectedChallenge) {

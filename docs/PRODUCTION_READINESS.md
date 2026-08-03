@@ -21,6 +21,14 @@
 
 ---
 
+## Remediation Phase 1 — Critical Security Holes: SSRF · OAuth · Secrets · Billing (Complete)
+
+**Completed:** 2026-08-03 | **Version:** 4.10.0 tree (unreleased) | **Plan:** [`plan/phase-1-critical-security.md`](../plan/phase-1-critical-security.md) (audit: [`CODEBASE_AUDIT_2026-08.md`](./CODEBASE_AUDIT_2026-08.md))
+
+All 14 Phase 1 findings closed by six parallel sub-agents (SSRF core, fetch-path wiring, browser navigation, OAuth, billing/secrets, regression tests), integrated and gate-verified by the PM. **SSRF:** IP-literal bypass fixed (pre-flight `ipBlocked()` + per-connect IP-literal validation on redirect hops), IPv4-mapped IPv6 normalized, `BLOCKED_DOMAINS` enforced, and every previously raw fetch path wired to the guard — `scrape_with_actions` Playwright navigation (pre-`goto` + post-navigation re-check), `map_site` page/metadata fetches, `process_document` PDF downloads, webhook delivery/health checks, `deep_research` webhook notifications. **OAuth:** `/oauth/authorize` now demands proof of the operator API key (constant-time comparison) — anonymous token mint closed. **Secrets:** usage telemetry masked via `maskSecrets()`; `deep_research` no longer logs `llmConfig` keys. **Billing:** zero charge when the credit check itself refuses the call; 401/403 reported as invalid/revoked key (not "insufficient credits"); usage-report rejections queued, not silently dropped. **Gate:** all 7 verification-gate items pass — literal-IP/mapped-IPv6/redirect-hop/kill-switch SSRF tests, per-path blocked-target tests (`phase1-ssrf-paths.test.js`), OAuth anonymous-rejection tests (`phase1-oauth.test.js`), telemetry-masking + zero-bill tests (`phase1-billing.test.js`); `npm run test:unit` **513/513**; `npm test` **100.0% COMPLIANT / 0 errors**. Details in `CHANGELOG.md` ([Unreleased]) and `PRD.md`.
+
+---
+
 ## Remediation Phase 0 — Dependency Currency & Audit Cleanup (Complete)
 
 **Completed:** 2026-08-03 | **Version:** 4.10.0 tree (no version bump — zero code change) | **Plan:** [`plan/phase-0-dependency-currency.md`](../plan/phase-0-dependency-currency.md) (audit: [`CODEBASE_AUDIT_2026-08.md`](./CODEBASE_AUDIT_2026-08.md))

@@ -4,6 +4,7 @@ import { ElicitationHelper } from '../../core/ElicitationHelper.js';
 import { ResearchOrchestrator } from '../../core/ResearchOrchestrator.js';
 import { getToolConfig } from '../../constants/config.js';
 import { Logger } from '../../utils/Logger.js';
+import { safeFetch } from '../../utils/ssrfGuard.js';
 
 /**
  * DeepResearchTool - MCP tool for conducting comprehensive multi-stage research
@@ -713,14 +714,15 @@ export class DeepResearchTool {
         data
       };
 
-      const response = await fetch(webhook.url, {
+      const response = await safeFetch(webhook.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'User-Agent': 'MCP-WebScraper-DeepResearch/1.0',
           ...webhook.headers
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10000)
       });
 
       if (!response.ok) {
@@ -747,10 +749,15 @@ export class DeepResearchTool {
   }
 
   sanitizeConfigForLogging(config) {
-    const { webhook, ...safeConfig } = config;
+    const { webhook, llmConfig, ...safeConfig } = config;
     return {
       ...safeConfig,
-      webhook: webhook ? { url: webhook.url, events: webhook.events } : undefined
+      webhook: webhook ? { url: webhook.url, events: webhook.events } : undefined,
+      llmConfig: llmConfig ? {
+        ...llmConfig,
+        openai: llmConfig.openai ? { ...llmConfig.openai, apiKey: llmConfig.openai.apiKey ? '[redacted]' : undefined } : undefined,
+        anthropic: llmConfig.anthropic ? { ...llmConfig.anthropic, apiKey: llmConfig.anthropic.apiKey ? '[redacted]' : undefined } : undefined
+      } : undefined
     };
   }
 

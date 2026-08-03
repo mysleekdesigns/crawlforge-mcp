@@ -8,6 +8,7 @@ import { EventEmitter } from 'events';
 import { promises as fs } from 'fs';
 import path from 'path';
 import RetryManager from '../utils/RetryManager.js';
+import { safeFetch } from '../utils/ssrfGuard.js';
 
 export class WebhookDispatcher extends EventEmitter {
   constructor(options = {}) {
@@ -395,7 +396,7 @@ export class WebhookDispatcher extends EventEmitter {
 
     // Execute with retry logic
     const result = await this.retryManager.execute(async () => {
-      const response = await fetch(event.url, {
+      const response = await safeFetch(event.url, {
         method: 'POST',
         headers,
         body,
@@ -542,7 +543,7 @@ export class WebhookDispatcher extends EventEmitter {
 
     try {
       const startTime = Date.now();
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         method: 'HEAD',
         timeout: config.timeout / 2, // Use half timeout for health checks
         headers: {

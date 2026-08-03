@@ -141,9 +141,9 @@ test('full PKCE authorization_code flow: end-to-end', async () => {
   });
   const { client_id } = JSON.parse(regRes.body);
 
-  // 2. Authorize with PKCE
+  // 2. Authorize with PKCE (must present proof of the operator API key — Phase 1)
   const { verifier, challenge } = pkcePair();
-  const authUrl = `/oauth/authorize?response_type=code&client_id=${client_id}&redirect_uri=${encodeURIComponent('http://localhost:9999/cb')}&code_challenge=${challenge}&code_challenge_method=S256&state=xyz`;
+  const authUrl = `/oauth/authorize?response_type=code&client_id=${client_id}&redirect_uri=${encodeURIComponent('http://localhost:9999/cb')}&code_challenge=${challenge}&code_challenge_method=S256&state=xyz&api_key=${API_KEY}`;
   const authRes = await runHandle(p, { url: authUrl, method: 'GET' });
   assert.equal(authRes.statusCode, 302);
   const location = new URL(authRes.headers.Location);
@@ -204,7 +204,7 @@ test('PKCE: wrong verifier is rejected', async () => {
   const { client_id } = JSON.parse(regRes.body);
 
   const { challenge } = pkcePair();
-  const authUrl = `/oauth/authorize?response_type=code&client_id=${client_id}&redirect_uri=${encodeURIComponent('http://localhost:9999/cb')}&code_challenge=${challenge}&code_challenge_method=S256`;
+  const authUrl = `/oauth/authorize?response_type=code&client_id=${client_id}&redirect_uri=${encodeURIComponent('http://localhost:9999/cb')}&code_challenge=${challenge}&code_challenge_method=S256&api_key=${API_KEY}`;
   const authRes = await runHandle(p, { url: authUrl, method: 'GET' });
   const code = new URL(authRes.headers.Location).searchParams.get('code');
 
@@ -255,7 +255,7 @@ test('revoke: token no longer validates after revocation', async () => {
   const { client_id } = JSON.parse(reg.body);
   const { verifier, challenge } = pkcePair();
   const authRes = await runHandle(p, {
-    url: `/oauth/authorize?response_type=code&client_id=${client_id}&redirect_uri=${encodeURIComponent('http://localhost:9999/cb')}&code_challenge=${challenge}&code_challenge_method=S256`,
+    url: `/oauth/authorize?response_type=code&client_id=${client_id}&redirect_uri=${encodeURIComponent('http://localhost:9999/cb')}&code_challenge=${challenge}&code_challenge_method=S256&api_key=${API_KEY}`,
     method: 'GET'
   });
   const code = new URL(authRes.headers.Location).searchParams.get('code');

@@ -5,6 +5,7 @@ import { normalizeUrl, getBaseUrl } from '../../utils/urlNormalizer.js';
 import { CacheManager } from '../../core/cache/CacheManager.js';
 import { SitemapParser } from '../../utils/sitemapParser.js';
 import { ResultRanker } from '../search/ranking/ResultRanker.js';
+import { safeFetch } from '../../utils/ssrfGuard.js';
 
 // Lazy singleton — avoids creating a CacheManager timer per request
 let _ranker = null;
@@ -261,7 +262,7 @@ export class MapSiteTool {
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         signal: controller.signal,
         headers: {
           'User-Agent': this.userAgent

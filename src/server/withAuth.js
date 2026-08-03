@@ -39,6 +39,10 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
       const creditCost = creatorMode ? 0 : authManager.getToolCost(toolName, params);
       let outcome = 'pending';
       let thrown = null;
+      // Only bill the error-path half-charge once the handler has actually run.
+      // A throw from the credit check itself (backend down, key rejected, etc.)
+      // means the tool never executed and must cost nothing.
+      let handlerStarted = false;
 
       try {
         if (!creatorMode) {
@@ -58,6 +62,7 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
           }
         }
 
+        handlerStarted = true;
         const result = await handler(params);
 
         // Tools catch their own failures and return { isError:true } rather than
@@ -107,9 +112,10 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
       } catch (error) {
         outcome = 'error';
         thrown = error;
-        // Half-charge on error — but never charge a free (0-cost) call, and
-        // never let Math.max(1, …) floor a 0 up to 1 credit.
-        if (!creatorMode && creditCost > 0) {
+        // Half-charge on error — but never charge a free (0-cost) call, never
+        // let Math.max(1, …) floor a 0 up to 1 credit, and never bill at all
+        // if the handler never ran (e.g. the credit check itself threw).
+        if (!creatorMode && creditCost > 0 && handlerStarted) {
           await authManager.reportUsage(
             toolName,
             Math.max(1, Math.floor(creditCost * 0.5)),

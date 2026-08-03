@@ -9,7 +9,7 @@ The audit found **109 defects** (5 critical, 28 high, 47 medium, 29 low) off the
 | # | File | Focus | Findings | Needs a decision? |
 |---|---|---|---|---|
 | 0 | [phase-0-dependency-currency.md](./phase-0-dependency-currency.md) | `npm update` — clear the already-fixed advisories | — (deps) | No ✅ **Done 2026-08-03** |
-| 1 | [phase-1-critical-security.md](./phase-1-critical-security.md) | SSRF bypasses · OAuth token mint · secret leakage · wrong billing | 14 | No |
+| 1 | [phase-1-critical-security.md](./phase-1-critical-security.md) | SSRF bypasses · OAuth token mint · secret leakage · wrong billing | 14 | No ✅ **Done 2026-08-03** |
 | 2 | [phase-2-correctness.md](./phase-2-correctness.md) | Tool-breaking bugs — make every tool do what it promises | 52 | No |
 | 3 | [phase-3-leaks-robustness.md](./phase-3-leaks-robustness.md) | Timer/browser/cache leaks · missing timeouts · shutdown | 24 | No |
 | 4 | [phase-4-transport-cleanup.md](./phase-4-transport-cleanup.md) | HTTP transport · protocol hygiene · medium/low cleanup | 19 | No |

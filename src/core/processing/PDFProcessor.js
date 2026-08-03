@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import fs from 'fs/promises';
 import path from 'path';
+import { safeFetch } from '../../utils/ssrfGuard.js';
 
 const PDFProcessorSchema = z.object({
   source: z.string().min(1),
@@ -205,7 +206,7 @@ export class PDFProcessor {
    */
   async downloadPDFFromURL(url) {
     try {
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (compatible; MCP-WebScraper/2.0; PDF-Processor)'
         },

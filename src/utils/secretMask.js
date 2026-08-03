@@ -6,7 +6,7 @@
  *   logger.error('fetch failed', maskSecrets({ apiKey, url, error }));
  */
 
-const SECRET_KEYS_RE = /api[_-]?key|apikey|x-api-key|password|passwd|secret|token|authorization|auth|credential|private[_-]?key|access[_-]?key|proxy_url|proxyurl/i;
+const SECRET_KEYS_RE = /api[_-]?key|apikey|x-api-key|password|passwd|secret|token|authorization|auth|credential|private[_-]?key|access[_-]?key|proxy_url|proxyurl|cookie/i;
 
 const MASK = '[REDACTED]';
 const PARTIAL_MASK_LEN = 4; // show last N chars of long secrets

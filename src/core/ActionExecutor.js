@@ -7,6 +7,7 @@ import { z } from 'zod';
 import BrowserProcessor from './processing/BrowserProcessor.js';
 import { EventEmitter } from 'events';
 import { createHash } from 'node:crypto';
+import { assertUrlAllowed } from '../utils/ssrfGuard.js';
 
 // executeJavaScript hardening limits (only relevant when the deploy-time flag
 // ALLOW_JAVASCRIPT_EXECUTION=true is set; JS execution stays off by default).
@@ -814,21 +815,38 @@ export class ActionExecutor extends EventEmitter {
    * @returns {Promise<Page>} Playwright page
    */
   async initializePage(url, browserOptions) {
+    // SSRF guard: validate before any page/context creation or navigation.
+    // resolveDns:true because Playwright does its own DNS resolution, so
+    // hostname-based checks alone would miss DNS-rebinding/private-IP targets.
+    await assertUrlAllowed(url, { resolveDns: true });
+
     // Use the enhanced BrowserProcessor initialization that supports stealth mode
     const page = await this.browserProcessor.initializePage(browserOptions);
-    
+
     // Apply CloudFlare and reCAPTCHA detection if stealth mode is enabled
     if (browserOptions.stealthMode?.enabled && this.browserProcessor.stealthManager) {
       // Initialize human behavior simulator for the page
       await this.browserProcessor.stealthManager.initializeHumanBehaviorSimulator();
     }
-    
+
     // Navigate to URL
     await page.goto(url, {
       waitUntil: 'domcontentloaded',
       timeout: 30000
     });
-    
+
+    // Re-validate the landed URL: a redirect during navigation could have
+    // taken us into a blocked range even though the original URL was safe.
+    const landedUrl = page.url();
+    if (/^https?:\/\//i.test(landedUrl)) {
+      try {
+        await assertUrlAllowed(landedUrl, { resolveDns: true });
+      } catch (ssrfError) {
+        await page.close().catch(() => {});
+        throw ssrfError;
+      }
+    }
+
     // Handle CloudFlare challenges and reCAPTCHA if stealth mode is enabled
     if (browserOptions.stealthMode?.enabled && this.browserProcessor.stealthManager) {
       await this.browserProcessor.stealthManager.bypassCloudflareChallenge(page);

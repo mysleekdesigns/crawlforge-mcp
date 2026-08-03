@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import { isCreatorModeVerified } from './creatorMode.js';
 import { resolveApiEndpoint } from './endpointGuard.js';
 import { logger } from '../utils/Logger.js';
+import { maskSecrets } from '../utils/secretMask.js';
 // D1.4: Elicitation for low-credit warnings (lazy import to avoid circular dep)
 let _ElicitationHelper = null;
 function getElicitationHelper() {
@@ -286,7 +287,31 @@ class AuthManager {
 
         return data.creditsRemaining >= estimatedCredits;
       }
+
+      // Non-OK response: distinguish an invalid/revoked key from a transient
+      // backend problem so callers don't tell a locked-out user to buy credits.
+      if (response.status === 401 || response.status === 403) {
+        let message = 'API key is invalid or has been revoked.';
+        try {
+          const errBody = await response.json();
+          if (errBody?.message) message = errBody.message;
+        } catch {
+          // body not JSON / unreadable — keep default message
+        }
+        const invalidKeyError = new Error(
+          `CrawlForge API key rejected (${response.status}): ${message} Run \`npm run setup\` with a current key.`
+        );
+        invalidKeyError.code = 'CRAWLFORGE_KEY_INVALID';
+        throw invalidKeyError;
+      }
+
+      // Other non-OK statuses (5xx etc.) — treat like a network failure below.
+      throw new Error(`CrawlForge backend returned ${response.status} while checking credits.`);
     } catch (error) {
+      if (error?.code === 'CRAWLFORGE_KEY_INVALID') {
+        throw error;
+      }
+
       console.error('Failed to check credits:', error.message);
 
       const lastOk = this.lastSuccessfulCreditCheck.get(this.config.userId) ?? 0;
@@ -335,7 +360,9 @@ class AuthManager {
     const payload = {
       tool,
       creditsUsed,
-      requestData,
+      // Never send raw tool params to the backend — they can carry third-party
+      // API keys, auth headers, or webhook secrets. Mask before it leaves the process.
+      requestData: maskSecrets(requestData),
       responseStatus,
       processingTime,
       timestamp: new Date().toISOString(),
@@ -345,7 +372,7 @@ class AuthManager {
     };
 
     try {
-      await fetch(`${this.apiEndpoint}/api/v1/usage`, {
+      const response = await fetch(`${this.apiEndpoint}/api/v1/usage`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -355,6 +382,10 @@ class AuthManager {
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(5000)
       });
+
+      if (!response.ok) {
+        throw new Error(`Usage report rejected by backend: HTTP ${response.status}`);
+      }
 
       await this._flushPendingUsage();
     } catch (error) {
@@ -449,7 +480,7 @@ class AuthManager {
     for (const entry of entries) {
       try {
         const idempotencyKey = entry.idempotencyKey || randomUUID();
-        await fetch(`${this.apiEndpoint}/api/v1/usage`, {
+        const response = await fetch(`${this.apiEndpoint}/api/v1/usage`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -466,6 +497,9 @@ class AuthManager {
           }),
           signal: AbortSignal.timeout(5000)
         });
+        if (!response.ok) {
+          throw new Error(`Usage report rejected by backend: HTTP ${response.status}`);
+        }
         flushedIds.push(entry.requestId);
       } catch (err) {
         failedIds.push(entry.requestId);

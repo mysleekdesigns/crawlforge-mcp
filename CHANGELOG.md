@@ -5,6 +5,45 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Security — Remediation Phase 1: critical security holes (SSRF · OAuth · secrets · billing) (2026-08-03)
+
+Closes all 14 Phase 1 findings from the [2026-08 codebase audit](./docs/CODEBASE_AUDIT_2026-08.md) — every path by which the server could be induced to reach internal/cloud-metadata addresses, mint operator-billed tokens, leak user secrets, or bill for calls that never ran. Second phase of the [remediation plan](./plan/README.md).
+
+**SSRF guard core (`src/utils/ssrfGuard.js`)**
+- **Fixed the IP-literal bypass** (critical): pre-flight now runs `ipBlocked()` on IP-literal hostnames (dotted-quad, decimal `2130706433`, hex `0x7f000001` — WHATWG URL normalizes them — plus bracketed IPv6), and the undici dispatcher wraps `buildConnector` with a per-connect IP-literal check, so redirect hops straight to `http://127.0.0.1/` etc. are blocked too (Node never routes IP literals through `lookup`).
+- **Fixed IPv4-mapped/compatible IPv6 recognition**: `::ffff:127.0.0.1`, `::ffff:169.254.169.254`, and fully-expanded forms are normalized to their embedded IPv4 before range checks — in both Stage 1 and `SSRF_STRICT` modes. Kills the DNS-controlled AAAA-record bypass.
+- **`BLOCKED_DOMAINS` is no longer dead config**: `config.security.ssrfProtection.blockedDomains` is enforced at pre-flight.
+- Allowlist is now evaluated per-hop (an allowlisted first hop no longer unguards subsequent redirect hops); new shared `assertUrlAllowed(url, {resolveDns})` pre-flight exported for non-fetch subsystems.
+
+**SSRF wiring on previously unguarded paths**
+- `scrape_with_actions` (`src/core/ActionExecutor.js`): `assertUrlAllowed` with DNS resolution before `page.goto`, plus a post-navigation `page.url()` re-check that closes the page on a redirect into a blocked range — the Playwright internal-network read primitive is closed.
+- `map_site` (`src/tools/crawl/mapSite.js`): page/metadata fetches (`fetchWithTimeout`) now use `safeFetch`.
+- `process_document` PDF downloads (`src/core/processing/PDFProcessor.js`): `safeFetch`.
+- Webhook delivery + health checks (`src/core/WebhookDispatcher.js`): `safeFetch`.
+- `deep_research` webhook notifications (`src/tools/research/deepResearch.js`): `safeFetch` + 10s timeout (was raw fetch, no timeout).
+
+**OAuth (`src/server/auth/oauth.js`)**
+- `/oauth/authorize` now **requires proof of the operator's API key** (`Authorization: Bearer <key>` or `api_key` query param, constant-time SHA-256 digest comparison) before issuing a code. The anonymous register → authorize → token flow that minted operator-billed bearer tokens is closed.
+
+**Secret leakage**
+- Usage telemetry (`src/core/AuthManager.js`): tool params are passed through `maskSecrets()` before the `POST /api/v1/usage` payload — third-party API keys, auth headers, and webhook signing secrets no longer leave the process in plaintext. `cookie` added to the secret-key patterns (`src/utils/secretMask.js`).
+- `deep_research` no longer logs `llmConfig` API keys to Winston file logs (`sanitizeConfigForLogging` redacts them).
+
+**Billing correctness (`src/server/withAuth.js`, `src/core/AuthManager.js`)**
+- The error-path half-charge now applies **only after the handler actually started** — a throw from the credit check itself (backend down past the grace window, key rejected) bills zero.
+- `checkCredits` handles non-OK responses explicitly: 401/403 throws a descriptive invalid/revoked-key error (no more misreporting as "Insufficient credits"); 5xx falls into the grace-window path.
+- Usage reporting checks `response.ok` in both `_reportUsageOnce` and `_flushPendingUsage`: backend rejections are queued/retained instead of silently dropped as "billed".
+
+**Tests**
+- `tests/unit/ssrfGuard.test.js`: literal-IP block assertions (dotted/decimal/hex/userinfo-obfuscated/bracketed IPv6), IPv4-mapped IPv6 cases, `BLOCKED_DOMAINS`, a real kill-switch test (fresh subprocess, asserts `ssrfGuard` returns `{}`), and an end-to-end redirect-hop test (allowlisted hostname 302s to an IP literal — blocked, `/secret` never reached).
+- New: `tests/unit/phase1-ssrf-paths.test.js` (blocked-target test per fetch path: `_fetch`, `_fetchAndParse`, `map_site`, PDF download, `scrape_with_actions` navigation, webhook delivery), `tests/unit/phase1-oauth.test.js` (anonymous/wrong-key authorize rejected; correct key via header or query param works end-to-end), `tests/unit/phase1-billing.test.js` (telemetry masking, zero-bill on credit-check refusal, 401/403/5xx handling, non-2xx usage queueing).
+- `tests/unit/oauth.test.js` legacy flows updated to present the now-required key proof.
+
+### Verification (Phase 1)
+
+- `npm run test:unit` → **513/513 pass** (+33 new).
+- `npm test` → **100.0% COMPLIANT, 0 errors**.
+
 ### Security — Remediation Phase 0: dependency currency & audit cleanup (2026-08-03)
 
 Zero code change — `npm update` inside existing caret ranges plus one new `overrides` entry. Takes `npm audit` from **16 vulnerabilities (8 high, 6 moderate, 2 low)** to **4 moderate (0 high, 0 critical)**. First phase of the [remediation plan](./plan/README.md) from the [2026-08 codebase audit](./docs/CODEBASE_AUDIT_2026-08.md).
