@@ -5,6 +5,53 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Fixed — Remediation Phase 2: tool-breaking correctness bugs (2026-08-03)
+
+Closes all 52 Phase 2 findings from the [2026-08 codebase audit](./docs/CODEBASE_AUDIT_2026-08.md) — the "silently wrong output" class: tools that passed smoke tests while returning misleading, truncated, or cross-contaminated results. Third phase of the [remediation plan](./plan/README.md).
+
+**Crawling & site mapping**
+- **`crawl_deep` is usable for real crawls again** (the critical): BFS child pages are no longer awaited from inside an occupied queue slot, so the per-task queue timeout now bounds one page instead of the entire recursive crawl, and low concurrency (incl. `concurrency: 1`) no longer deadlocks — previously any crawl outliving `CRAWL_TIMEOUT` (30 s) threw away every fetched page with `Promise timed out`.
+- `crawl_deep`: result-cache key now covers `extract_content`, `content_max_length`, include/exclude patterns, `follow_external`, `respect_robots`, `concurrency`, domain filter and session — a cached call can no longer contradict the request for the 1 h TTL. Server config (`MAX_PAGES_PER_CRAWL`, `MAX_CRAWL_DEPTH`, `RESPECT_ROBOTS_TXT`, `FOLLOW_EXTERNAL_LINKS`, `QUEUE_CONCURRENCY`) is finally honored as ceiling/defaults. The scalar failure count (`error_count`) is no longer shadowed by the `errors` array.
+- `map_site`: cache key includes `search`, domain filter, `include_metadata`, `group_by_path` — the v4.6.0 `search` ranking is no longer silently dropped (or leaked) on cache hits. Sitemap ingestion accumulates across **all** declared sitemaps up to `max_urls` instead of stopping at the first productive one.
+- `sitemapParser`: gzip handling sniffs the 0x1f 0x8b magic bytes, so sitemaps served with `Content-Encoding: gzip` (already decompressed by undici) parse instead of silently returning 0 URLs; parse failures are surfaced.
+- `normalizeUrl`: repeated query params (`?tag=a&tag=b`) survive normalization instead of being rewritten to fabricated URLs.
+
+**Silently ignored options**
+- `server.js`: `options` schemas for `extract_content`, `summarize_content`, `analyze_content` now `.passthrough()` (matching `process_document`) — previously every documented option key was stripped before reaching the handler.
+- `summarize_content`: the extractive summarizer actually runs (`SummarizerManager` constructed per call, `getSummaryByRank()`); `summaryLength` changes output instead of always returning the 2-sentence fallback mislabeled 'extractive'.
+- `search_web`: partial `ranking_weights` / `deduplication_thresholds` deep-merge over defaults instead of replacing them wholesale (no more NaN `finalScore` / silently disabled duplicate checks); all-short-token queries ("C#") score 0 instead of NaN; the zero-result expansion retry loop is capped (original + 1 fallback) with attempts surfaced in the response instead of up to 5 billed backend searches.
+- `deep_research`: `maxUrls > 500` no longer fails every internal search (per-query limit clamped to the schema cap of 100); LLM-enabled runs no longer crash result compilation (4 dropped state maps restored in `initializeResearchSession`); advertised flags (`enableSourceVerification`, `enableConflictDetection`, `sourceTypes`, `includeRecentOnly`, `queryExpansion`) actually propagate to the orchestrator; approach-specific ranking/dedup tuning uses the `SearchWebTool` constructor's real contract (`rankingOptions`/`deduplicationOptions`); success log records a real duration.
+
+**Wrong output on the scrape path**
+- `extract_links`: relative hrefs resolve against the final page URL (not the origin), `<base href>` is honored, and protocol-relative links are classified external — same fixes applied to `scrape`'s link extractor, so the two agree.
+- `scrape`: `formats` no longer mutate the shared cheerio document (output is independent of `formats[]` order); responses are checked for content-type (binary → explicit unsupported-content error steering to `process_document`, plain text/JSON passed through raw).
+- Basic fetch path: response bodies decode with the declared charset (`Content-Type` / `<meta charset>` sniff) instead of always UTF-8 — no more U+FFFD-corrupted text from ISO-8859-1/Shift_JIS sites.
+- `scrape_structured`: elements missing the requested attribute yield explicit `null` placeholders (parallel field arrays stay index-aligned with `elements_found`); selectors containing `@` (e.g. `a[href*="@"]`) parse correctly.
+- `extract_structured`: schema keys that aren't valid CSS identifiers no longer abort the whole CSS-fallback extraction; LLM failures are recorded in `extractionNotes` instead of being silently swallowed.
+- `extract_with_llm`: the Ollama branch receives the same `buildInputSchema()`-normalized JSON Schema as Anthropic (flat hint maps no longer rejected by Ollama's structured-output `format`).
+- `process_document`: `sourceType: 'file'` reads local non-PDF files instead of failing with `Failed to parse URL`; PDF `pageRange` past the document end returns an explicit error instead of empty success; the never-functional PDF `password` option is removed from the schemas; URL fragments (`#anchor`) and paths like `/apple` no longer force headless-browser rendering (same fix in `extract_content`).
+- `analyze_content`: language-detection alternative confidences report the franc score directly instead of `1 - score` (no longer inverted).
+
+**Tracking, snapshots & core**
+- `track_changes`: `get_history` and `monitor` no longer TypeError on the documented default call (`queryOptions`/`monitoringOptions` default to `{}`); content similarity is token-Jaccard over content (was Hamming distance between sha256 hex digests — every trivial edit scored ~0% similar and fired 'moderate' alerts).
+- `SnapshotManager`: the stub delta-storage path (which silently discarded new content and returned the previous version on retrieval) is removed — snapshots always persist full compressed content; delta round-trip covered by tests.
+- `generate_llms_txt`: fresh analyzer per call — concurrent/sequential runs no longer cross-contaminate domains or accumulate prior runs' errors; server schema mirrors the tool (`checkSecurity` opt-in default **false** — no more surprise /admin//login probing; `probeRateLimit` and `outputOptions.robotsStyle` reachable).
+- `scrape_with_actions`: chain failure returns the per-action results and the promised error screenshot instead of empty arrays; `captureIntermediateStates` captures natively (no in-page JS) so it works with `ALLOW_JAVASCRIPT_EXECUTION` unset and injected actions no longer pollute failure counts.
+- `batch_scrape`: `get_batch_results` reports status/progress for in-progress async batches (was `Batch not found`); `cancelBatch` threads an AbortController so cancellation actually stops the work; sync progress counts update; `statusCheckUrl` references the real `get_batch_results` tool.
+- `agent`: `maxSteps` and `maxUrls` are decoupled counters (maxUrls was unreachable beyond maxSteps); the three orchestrator-enforced hard stops are unchanged.
+- `CircuitBreaker.execute()` works (constructor callback options no longer shadow the prototype methods); `youtube-video` template no longer crashes `scrape_template` on relative/protocol-relative canonical hrefs.
+
+**Tests**
+- The six stub-based `tests/unit/tools/extract/*` suites now import the **real** tool classes; template tests are table-driven across all 10 extractors (incl. the youtube relative-canonical case); localization tests exercise the real `LocalizationManager` (cleanup stops its timers).
+- New suites: `bfsCrawler`, `sitemapParser`, `urlNormalizer`, `circuitBreaker`, `llmsTxtAnalyzer`, `researchOrchestrator-limits`, `resultRanker`, `resultDeduplicator`, `server-schema-regressions`; snapshot delta round-trip, cache-key sensitivity (`crawl_deep`/`map_site`), ChangeTracker similarity, and a reproduction test for every 🟠 HIGH finding.
+- `test:unit` glob widened to `tests/unit/**/*.test.js` — the ~20 `tests/unit/tools/**` suites now run under the standard command (closing the coverage gap flagged in the v4.7.0 notes).
+
+### Verification (Phase 2)
+
+- `npm run test:unit` → **802/802 pass** (+289 vs Phase 1's 513).
+- `npm test` → **100.0% COMPLIANT, 0 errors**.
+- Live re-smoke against the real tool classes: `crawl_deep` completes a multi-page crawl with `concurrency: 1`; `summarize_content` short ≠ long (extractive); `extract_links` on `/docs/page.html` resolves `about.html` → `/docs/about.html`; partial `ranking_weights` yields finite scores; `crawl_deep`/`map_site` cache keys differ when options differ. (MCP clients on the project `.mcp.json` pick the fixes up on `/mcp` reconnect.)
+
 ### Security — Remediation Phase 1: critical security holes (SSRF · OAuth · secrets · billing) (2026-08-03)
 
 Closes all 14 Phase 1 findings from the [2026-08 codebase audit](./docs/CODEBASE_AUDIT_2026-08.md) — every path by which the server could be induced to reach internal/cloud-metadata addresses, mint operator-billed tokens, leak user secrets, or bill for calls that never ran. Second phase of the [remediation plan](./plan/README.md).

@@ -186,6 +186,54 @@ test('ChangeTracker: calculateSignificanceScore handles array format (legacy)', 
   assert.ok(score >= 0 && score <= 1);
 });
 
+// ── compareWithBaseline: content-similarity fix (production path) ────────────
+//
+// Reproduction test for the Phase 2 fix: detectChanges() used to compute
+// changes.similarity as a Hamming distance between two sha256 hex digests
+// (calculateSimilarity(hash1, hash2)), which is ~0.0 for any content change
+// no matter how trivial, since a single-character edit changes ~every hex
+// digit of the hash. That pushed even a one-word typo fix to a `moderate`+
+// classification via calculateChangeSignificance's `(1 - similarity) * 0.3`
+// term. The fix computes changes.similarity from the actual content (a
+// token-Jaccard similarity), keeping hash equality only as the fast
+// identical/changed short-circuit. This exercises the real production path
+// (createBaseline -> compareWithBaseline -> detectChanges), not the
+// hash-based calculateSimilarity(hash1,hash2) helper tested below (which is
+// unchanged and still hash-only by design).
+
+const NATO_BASELINE = 'Alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu';
+const NATO_ONE_WORD_EDIT = NATO_BASELINE.replace('hotel', 'hotell'); // single-character edit to one of 26 words
+
+test('ChangeTracker: compareWithBaseline scores a one-word edit as highly similar (> 0.9), not ~0', async () => {
+  const ct = new ChangeTracker();
+  await ct.createBaseline(VALID_URL, NATO_BASELINE);
+  const result = await ct.compareWithBaseline(VALID_URL, NATO_ONE_WORD_EDIT);
+
+  assert.ok(
+    result.metrics.contentSimilarity > 0.9,
+    `expected contentSimilarity > 0.9 for a 1-word edit out of 26, got ${result.metrics.contentSimilarity}`
+  );
+});
+
+test('ChangeTracker: compareWithBaseline does NOT classify a trivial one-word edit as moderate+ significance', async () => {
+  const ct = new ChangeTracker();
+  await ct.createBaseline(VALID_URL, NATO_BASELINE);
+  const result = await ct.compareWithBaseline(VALID_URL, NATO_ONE_WORD_EDIT);
+
+  assert.ok(
+    ['none', 'minor'].includes(result.significance),
+    `expected 'none' or 'minor' significance for a trivial edit, got '${result.significance}'`
+  );
+});
+
+test('ChangeTracker: compareWithBaseline scores completely different content as low similarity', async () => {
+  const ct = new ChangeTracker();
+  await ct.createBaseline(VALID_URL, NATO_BASELINE);
+  const result = await ct.compareWithBaseline(VALID_URL, 'Something entirely unrelated with zero shared vocabulary whatsoever here today.');
+
+  assert.ok(result.metrics.contentSimilarity < 0.3, `expected low similarity for unrelated content, got ${result.metrics.contentSimilarity}`);
+});
+
 // ── createBaseline ───────────────────────────────────────────────────────────
 
 test('ChangeTracker: createBaseline returns success result for valid URL+content', async () => {

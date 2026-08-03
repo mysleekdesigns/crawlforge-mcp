@@ -191,12 +191,15 @@ export class DeepResearchTool {
         // Format results according to output preference
         const formattedResults = this.formatResults(researchResults, validated);
 
-        // Clean up session
+        // Capture startTime before deleting the session — looking it up
+        // afterward always returned undefined, so duration was always logged
+        // as 0 (Date.now() - undefined = NaN, then `NaN || 0` = 0).
+        const startTime = this.activeSessions.get(sessionId)?.startTime;
         this.activeSessions.delete(sessionId);
 
-        this.logger.info('Research completed successfully', { 
+        this.logger.info('Research completed successfully', {
           sessionId,
-          duration: Date.now() - this.activeSessions.get(sessionId)?.startTime || 0,
+          duration: startTime ? Date.now() - startTime : 0,
           findingsCount: researchResults.findings?.length || 0
         });
 
@@ -265,7 +268,12 @@ export class DeepResearchTool {
     if (params.llmConfig) {
       baseConfig.llmConfig = params.llmConfig;
     }
-    
+
+    // params.cacheResults was previously dropped entirely — only the
+    // DeepResearchTool-level default (cacheEnabled) ever reached the
+    // orchestrator, so a caller's per-request cacheResults:false was a no-op.
+    baseConfig.cacheEnabled = params.cacheResults;
+
     // Every approach must propagate the user's scope params (maxUrls,
     // timeLimit, concurrency) — only `broad` did before, so non-broad
     // approaches silently fell back to orchestrator defaults.
@@ -280,29 +288,37 @@ export class DeepResearchTool {
       // The orchestrator tunes its query expansion to the approach (commercial
       // vs academic vs current-events); without this it always used academic
       // variations, which poisoned commercial/comparative searches.
-      researchApproach: params.researchApproach
+      researchApproach: params.researchApproach,
+      // The user's explicit choice here was previously dropped entirely —
+      // only per-approach hardcoded values (or the orchestrator's own
+      // default) ever reached the constructor, so e.g.
+      // enableSourceVerification:false still ran verification.
+      enableSourceVerification: params.enableSourceVerification,
+      enableConflictDetection: params.enableConflictDetection
     };
 
     switch (params.researchApproach) {
-      case 'academic':
+      case 'academic': {
+        // Higher weight for academic sources. `rankingWeights` is kept for
+        // back-compat; `rankingOptions.weights` is the key SearchWebTool's
+        // constructor actually reads (searchWeb.js `rankingOptions`).
+        const weights = { authority: 0.4, semantic: 0.3, bm25: 0.2, freshness: 0.1 };
         return {
           ...baseConfig,
           ...scopeConfig,
           maxDepth: Math.min(params.maxDepth, 8),
-          enableSourceVerification: true,
           searchConfig: {
             ...baseConfig.searchConfig,
             enableRanking: true,
-            rankingWeights: {
-              authority: 0.4, // Higher weight for academic sources
-              semantic: 0.3,
-              bm25: 0.2,
-              freshness: 0.1
-            }
+            rankingWeights: weights,
+            rankingOptions: { weights }
           }
         };
+      }
 
-      case 'current_events':
+      case 'current_events': {
+        // Prioritize recent content.
+        const weights = { freshness: 0.4, semantic: 0.3, bm25: 0.2, authority: 0.1 };
         return {
           ...baseConfig,
           ...scopeConfig,
@@ -310,14 +326,11 @@ export class DeepResearchTool {
           searchConfig: {
             ...baseConfig.searchConfig,
             enableRanking: true,
-            rankingWeights: {
-              freshness: 0.4, // Prioritize recent content
-              semantic: 0.3,
-              bm25: 0.2,
-              authority: 0.1
-            }
+            rankingWeights: weights,
+            rankingOptions: { weights }
           }
         };
+      }
 
       case 'focused':
         return {
@@ -328,22 +341,22 @@ export class DeepResearchTool {
           concurrency: Math.min(params.concurrency, 3)
         };
 
-      case 'comparative':
+      case 'comparative': {
+        // `deduplicationThresholds` is kept for back-compat; `deduplicationOptions.thresholds`
+        // is the key SearchWebTool's constructor actually reads.
+        const thresholds = { url: 0.9, title: 0.8, content: 0.7 };
         return {
           ...baseConfig,
           ...scopeConfig,
-          enableConflictDetection: true,
           maxDepth: params.maxDepth,
           searchConfig: {
             ...baseConfig.searchConfig,
             enableDeduplication: true,
-            deduplicationThresholds: {
-              url: 0.9,
-              title: 0.8,
-              content: 0.7
-            }
+            deduplicationThresholds: thresholds,
+            deduplicationOptions: { thresholds }
           }
         };
+      }
 
       case 'broad':
       default:

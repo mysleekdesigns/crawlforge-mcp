@@ -52,29 +52,26 @@ export const UnifiedScrapeSchema = z.object({
 
 /**
  * Extract links from a loaded cheerio $ and the page URL.
+ * @param {import('cheerio').CheerioAPI} $
+ * @param {string} pageUrl - final URL of the fetched page (used for origin comparison)
+ * @param {string} [docBaseUrl] - resolution base for relative hrefs; defaults to pageUrl.
+ *   Pass the resolved <base href> here when the document declares one.
  */
-function extractLinksFromDom($, pageUrl) {
+function extractLinksFromDom($, pageUrl, docBaseUrl) {
   const links = [];
   const seen = new Set();
   let pageOrigin = '';
   try { pageOrigin = new URL(pageUrl).origin; } catch { /* ignore */ }
+  const resolveBase = docBaseUrl || pageUrl;
 
   $('a[href]').each((_, el) => {
     const href = $(el).attr('href');
     const text = $(el).text().trim();
     if (!href) return;
+    if (href.startsWith('#') || href.startsWith('javascript:')) return;
     try {
-      let absoluteUrl;
-      let isExternal = false;
-      if (href.startsWith('http://') || href.startsWith('https://')) {
-        absoluteUrl = href;
-        isExternal = new URL(href).origin !== pageOrigin;
-      } else if (href.startsWith('#') || href.startsWith('javascript:')) {
-        return;
-      } else {
-        absoluteUrl = new URL(href, pageUrl).toString();
-        isExternal = false;
-      }
+      const absoluteUrl = new URL(href, resolveBase).toString();
+      const isExternal = new URL(absoluteUrl).origin !== pageOrigin;
       if (!seen.has(absoluteUrl)) {
         seen.add(absoluteUrl);
         links.push({ href: absoluteUrl, text, is_external: isExternal, original_href: href });
@@ -208,6 +205,14 @@ export class UnifiedScrapeTool {
       throw new Error(`scrape: fetch failed for ${url}: ${err.message}`);
     }
 
+    // Resolve <base href> once per document (if present) so link resolution
+    // matches how a browser would navigate, instead of always using finalUrl.
+    let docBaseUrl = finalUrl;
+    try {
+      const baseHref = $('base[href]').first().attr('href');
+      if (baseHref) docBaseUrl = new URL(baseHref, finalUrl).toString();
+    } catch { /* ignore invalid <base href>, fall back to finalUrl */ }
+
     // For onlyMainContent: extract main-content html via Readability once
     let mainHtml = null;
     function getMainHtml() {
@@ -279,15 +284,18 @@ export class UnifiedScrapeTool {
 
         case 'text':
           try {
+            const { load } = await import('cheerio');
             if (onlyMainContent) {
               // Plain text from Readability main content via cheerio
-              const { load } = await import('cheerio');
               const $main = load(getMainHtml());
               $main('script, style').remove();
               content.text = extractBlockText($main);
             } else {
-              $('script, style').remove();
-              content.text = extractBlockText($);
+              // Strip script/style on a clone, not the shared $, so other
+              // formats reading $ later aren't affected by format ordering.
+              const $clone = load($.html());
+              $clone('script, style').remove();
+              content.text = extractBlockText($clone);
             }
           } catch (err) {
             content.text = '';
@@ -297,7 +305,7 @@ export class UnifiedScrapeTool {
 
         case 'links':
           try {
-            content.links = extractLinksFromDom($, finalUrl);
+            content.links = extractLinksFromDom($, finalUrl, docBaseUrl);
           } catch (err) {
             content.links = { links: [], total_count: 0, internal_count: 0, external_count: 0 };
             warnings.push(`links: ${err.message}`);

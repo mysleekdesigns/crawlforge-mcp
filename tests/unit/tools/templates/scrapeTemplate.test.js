@@ -1,145 +1,330 @@
 /**
- * D5.2 — Unit tests: scrapeTemplate tool
+ * Unit tests: scrape_template (real modules — src/tools/templates/TemplateRegistry.js
+ * and src/tools/templates/ScrapeTemplateTool.js)
  * Run: node --test tests/unit/tools/templates/scrapeTemplate.test.js
+ *
+ * TemplateRegistry.run(id, html, url) takes raw HTML directly (no network),
+ * so the table-driven suite below exercises all 10 real template extractors
+ * against representative fixture HTML with no stubbing. ScrapeTemplateTool
+ * wraps the registry with a safeFetch (SSRF-guarded) network call, tested
+ * separately against a local HTTP server allowlisted via ALLOWED_DOMAINS.
  */
 
-import { test, describe, beforeEach } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
+import { TemplateRegistry } from '../../../../src/tools/templates/TemplateRegistry.js';
 
 // ---------------------------------------------------------------------------
-// Stubs — TemplateRegistry with injectable fetch
+// Table-driven fixtures — one entry per registered template, each with
+// representative real-world-shaped HTML and an assertion over the result.
 // ---------------------------------------------------------------------------
 
-const TEMPLATES = {
-  'github-repo': {
-    id: 'github-repo',
-    name: 'GitHub Repository',
-    description: 'Extracts repo metadata, stars, description, language',
-    extract: (html) => ({
-      name: 'my-repo',
-      description: 'A cool repository',
-      stars: 1234,
-      language: 'JavaScript',
-      topics: ['mcp', 'scraping']
-    })
+const CASES = [
+  {
+    id: 'amazon-product',
+    url: 'https://amazon.com/dp/B000000000',
+    html: `<html><body>
+      <span id="productTitle">Wireless Mouse</span>
+      <span class="a-price"><span class="a-offscreen">$19.99</span></span>
+      <meta itemprop="priceCurrency" content="USD">
+      <span id="acrPopover"><span class="a-size-base">4.5 out of 5 stars</span></span>
+      <span id="acrCustomerReviewText">1,234 ratings</span>
+      <input id="ASIN" name="ASIN" value="B000000000">
+      <div id="bylineInfo">Visit the Acme Store</div>
+      <div id="feature-bullets">Ergonomic wireless mouse with USB receiver.</div>
+      <div id="altImages"><img class="a-thumbnail-image" src="https://img.example.com/1.jpg"></div>
+      <div id="availability"><span>In Stock</span></div>
+      <div id="wayfinding-breadcrumbs_feature_div"><a href="#">Electronics</a><a href="#">Accessories</a></div>
+    </body></html>`,
+    assert: (data) => {
+      assert.equal(data.title, 'Wireless Mouse');
+      assert.equal(data.price, '$19.99');
+      assert.equal(data.currency, 'USD');
+      assert.equal(data.asin, 'B000000000');
+      assert.ok(data.images.includes('https://img.example.com/1.jpg'));
+      assert.deepEqual(data.category_breadcrumb, ['Electronics', 'Accessories']);
+    }
   },
-  'npm-package': {
+
+  {
+    id: 'linkedin-profile',
+    url: 'https://linkedin.com/in/jane-doe',
+    html: `<html><body>
+      <h1>Jane Doe</h1>
+      <h2>Senior Engineer at Acme</h2>
+      <div class="profile-info-subheader">San Francisco, CA</div>
+      <div class="summary"><p>Builds distributed systems.</p></div>
+    </body></html>`,
+    assert: (data) => {
+      assert.equal(data.name, 'Jane Doe');
+      assert.equal(data.headline, 'Senior Engineer at Acme');
+      assert.equal(data.location, 'San Francisco, CA');
+      assert.ok(data.note.includes('authentication'));
+    }
+  },
+
+  {
+    id: 'github-repo',
+    url: 'https://github.com/acme/widget',
+    html: `<html><head><meta property="og:description" content="A widget factory."></head><body>
+      <strong itemprop="name"><a href="/acme/widget">widget</a></strong>
+      <span itemprop="programmingLanguage">TypeScript</span>
+      <a class="topic-tag" href="#">cli</a><a class="topic-tag" href="#">tooling</a>
+      <relative-time datetime="2024-05-01T00:00:00Z"></relative-time>
+    </body></html>`,
+    assert: (data) => {
+      assert.equal(data.name, 'widget');
+      assert.equal(data.description, 'A widget factory.');
+      assert.equal(data.language, 'TypeScript');
+      assert.deepEqual(data.topics, ['cli', 'tooling']);
+      assert.equal(data.last_updated, '2024-05-01T00:00:00Z');
+    }
+  },
+
+  {
+    id: 'youtube-video',
+    url: 'https://youtube.com/watch?v=abc123',
+    html: `<html><head>
+      <meta name="title" content="How CrawlForge Works">
+      <link itemprop="name" content="CrawlForge Channel">
+      <meta itemprop="interactionCount" content="98765">
+      <meta itemprop="uploadDate" content="2024-02-02">
+      <meta property="og:description" content="A walkthrough video.">
+      <meta property="og:image" content="https://img.example.com/thumb.jpg">
+      <meta itemprop="duration" content="PT8M30S">
+      <link rel="canonical" href="/watch?v=abc123">
+    </head><body></body></html>`,
+    // Reproduction case for the youtube-video crash fix: `link[rel="canonical"]`
+    // is a *relative* URL here (as real YouTube pages sometimes serve it),
+    // which used to throw uncaught inside `new URL(...)` and abort the whole
+    // extraction. It's now wrapped in try/catch and degrades to video_id:null.
+    assert: (data) => {
+      assert.equal(data.title, 'How CrawlForge Works');
+      assert.equal(data.channel, 'CrawlForge Channel');
+      assert.equal(data.views, '98765');
+      assert.equal(data.duration, 'PT8M30S');
+      assert.equal(data.video_id, null, 'relative canonical URL degrades to null, not a crash');
+    }
+  },
+
+  {
+    id: 'tweet',
+    url: 'https://x.com/acme/status/1234567890',
+    html: `<html><head>
+      <meta property="og:description" content="Shipping v5 today!">
+      <meta property="og:title" content="Acme (@acme)">
+      <meta property="og:url" content="https://x.com/acme/status/1234567890">
+      <meta property="og:image" content="https://img.example.com/tweet.jpg">
+    </head><body></body></html>`,
+    assert: (data) => {
+      assert.equal(data.text, 'Shipping v5 today!');
+      assert.equal(data.author, 'Acme (@acme)');
+      assert.equal(data.url, 'https://x.com/acme/status/1234567890');
+    }
+  },
+
+  {
+    id: 'reddit-thread',
+    url: 'https://reddit.com/r/programming/comments/abc/title/',
+    html: `<html><head><title>My Post Title • r/programming</title>
+      <meta property="og:title" content="My Post Title">
+      <meta property="og:url" content="https://reddit.com/r/programming/comments/abc/title/">
+    </head><body>
+      <a href="/user/alice" class="author">alice</a>
+      <time datetime="2024-03-03T00:00:00Z"></time>
+      <div data-click-id="text"><p>Post body text here.</p></div>
+    </body></html>`,
+    assert: (data) => {
+      assert.equal(data.title, 'My Post Title');
+      assert.equal(data.subreddit, 'programming');
+      assert.equal(data.posted, '2024-03-03T00:00:00Z');
+      assert.equal(data.body, 'Post body text here.');
+    }
+  },
+
+  {
+    id: 'hacker-news-front-page',
+    url: 'https://news.ycombinator.com/',
+    html: `<html><body><table>
+      <tr class="athing" id="111">
+        <td class="title"><span class="titleline"><a href="https://example.com/story-one">Story One</a></span></td>
+      </tr>
+      <tr><td class="subtext">
+        <span class="score">120 points</span> by <a class="hnuser" href="user?id=alice">alice</a>
+        <span class="age"><a href="item?id=111">3 hours ago</a></span> |
+        <a href="item?id=111">42&nbsp;comments</a>
+      </td></tr>
+    </table></body></html>`,
+    assert: (data) => {
+      assert.equal(data.stories.length, 1);
+      const story = data.stories[0];
+      assert.equal(story.id, '111');
+      assert.equal(story.title, 'Story One');
+      assert.equal(story.url, 'https://example.com/story-one');
+      assert.equal(story.score, '120');
+      assert.equal(story.author, 'alice');
+    }
+  },
+
+  {
+    id: 'producthunt-launch',
+    url: 'https://producthunt.com/posts/acme-widget',
+    html: `<html><head>
+      <meta property="og:title" content="Acme Widget">
+      <meta property="og:description" content="The best widget yet.">
+      <meta property="og:image" content="https://img.example.com/ph.jpg">
+      <meta property="og:url" content="https://producthunt.com/posts/acme-widget">
+    </head><body>
+      <a href="/topics/productivity">Productivity</a>
+      <a data-test="product-link" href="https://acme.example.com">Visit</a>
+    </body></html>`,
+    assert: (data) => {
+      assert.equal(data.name, 'Acme Widget');
+      assert.equal(data.tagline, 'The best widget yet.');
+      assert.deepEqual(data.topics, ['Productivity']);
+      assert.equal(data.website, 'https://acme.example.com');
+    }
+  },
+
+  {
+    id: 'stackoverflow-question',
+    url: 'https://stackoverflow.com/questions/123/how-do-i',
+    html: `<html><body>
+      <div id="question-header"><h1>How do I center a div?</h1></div>
+      <div class="question">
+        <div class="s-prose">Use flexbox with justify-content: center.</div>
+        <span class="js-vote-count">15</span>
+        <div class="user-details"><a href="/users/1/alice">alice</a></div>
+        <time datetime="2024-04-04T00:00:00Z"></time>
+      </div>
+      <span class="post-tag">css</span><span class="post-tag">flexbox</span>
+      <div class="answer accepted-answer">
+        <div class="js-vote-count">30</div>
+        <div class="s-prose">Here's the accepted answer body.</div>
+      </div>
+    </body></html>`,
+    assert: (data) => {
+      assert.equal(data.title, 'How do I center a div?');
+      assert.equal(data.votes, '15');
+      assert.deepEqual(data.tags, ['css', 'flexbox']);
+      assert.equal(data.answered, true);
+      assert.equal(data.answers.length, 1);
+      assert.equal(data.answers[0].accepted, true);
+    }
+  },
+
+  {
     id: 'npm-package',
-    name: 'npm Package',
-    description: 'Extracts package name, version, description, weekly downloads',
-    extract: (html) => ({
-      name: 'crawlforge-mcp-server',
-      version: '4.1.0',
-      description: 'MCP server for web scraping',
-      weeklyDownloads: 5000
-    })
-  }
-};
-
-class TemplateRegistryStub {
-  list() { return Object.values(TEMPLATES).map(({ id, name, description }) => ({ id, name, description })); }
-  get(id) { return TEMPLATES[id] || null; }
-}
-
-class ScrapeTemplateStub {
-  constructor({ registry, fetchFn } = {}) {
-    this.registry = registry || new TemplateRegistryStub();
-    this._fetch = fetchFn || null;
-  }
-
-  async execute({ template, url, timeout = 15000 } = {}) {
-    // List mode
-    if (template === 'list' || !url) {
-      const templates = this.registry.list();
-      return { templates, count: templates.length };
+    url: 'https://npmjs.com/package/crawlforge-mcp-server',
+    html: `<html><head><meta name="description" content="MCP server for web scraping."></head><body>
+      <h1>crawlforge-mcp-server</h1>
+      <h3 data-testid="package-version-number">4.10.0</h3>
+      <span class="license-badge">MIT</span>
+      <a href="/~someuser">someuser</a>
+      <a href="https://github.com/acme/crawlforge-mcp-server">Repository</a>
+    </body></html>`,
+    assert: (data) => {
+      assert.equal(data.name, 'crawlforge-mcp-server');
+      assert.equal(data.version, '4.10.0');
+      assert.equal(data.description, 'MCP server for web scraping.');
+      assert.equal(data.install_command, 'npm install crawlforge-mcp-server');
+      assert.equal(data.repository, 'https://github.com/acme/crawlforge-mcp-server');
+      assert.deepEqual(data.maintainers, ['someuser']);
     }
-
-    const tpl = this.registry.get(template);
-    if (!tpl) {
-      const available = this.registry.list().map(t => t.id).join(', ');
-      throw new Error(`Unknown template "${template}". Available templates: ${available}`);
-    }
-
-    try { new URL(url); } catch { throw new Error('Invalid URL'); }
-
-    // Fetch page
-    let html;
-    try {
-      const resp = await this._fetch(url);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
-      html = await resp.text();
-    } catch (err) {
-      if (err.message.startsWith('HTTP')) throw err;
-      if (err.name === 'AbortError') throw new Error(`Request timeout after ${timeout}ms`);
-      throw err;
-    }
-
-    const data = tpl.extract(html);
-    return { template, url, data };
   }
-}
+];
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+describe('TemplateRegistry.run (real extractors, table-driven)', () => {
+  const registry = new TemplateRegistry();
 
-function makeFetch(status = 200, html = '<html/>', throwWith = null) {
-  return async (url) => {
-    if (throwWith) { const e = new Error(throwWith); e.name = throwWith === 'AbortError' ? 'AbortError' : 'Error'; throw e; }
-    return { ok: status >= 200 && status < 300, status, statusText: status === 200 ? 'OK' : 'Error', text: async () => html };
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-describe('scrapeTemplate tool', () => {
-  let tool;
-
-  beforeEach(() => {
-    tool = new ScrapeTemplateStub({ fetchFn: makeFetch(200, '<html><h1>Test</h1></html>') });
+  test('registry lists exactly the 10 templates covered by this fixture table', () => {
+    const ids = registry.list().map((t) => t.id).sort();
+    assert.deepEqual(ids, CASES.map((c) => c.id).sort());
   });
 
-  test('constructor stores registry', () => {
-    assert.ok(tool.registry instanceof TemplateRegistryStub);
+  for (const testCase of CASES) {
+    test(`${testCase.id} — extracts expected fields from fixture HTML without throwing`, async () => {
+      const result = await registry.run(testCase.id, testCase.html, testCase.url);
+      assert.equal(result.template, testCase.id);
+      assert.equal(result.url, testCase.url);
+      assert.ok(result.data, 'data object should be returned');
+      testCase.assert(result.data);
+    });
+  }
+
+  test('unknown template id throws with the available-templates list', async () => {
+    await assert.rejects(() => registry.run('not-a-real-template', '<html></html>', 'https://example.com'), /Unknown template/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ScrapeTemplateTool — network path (local fixture server, SSRF-allowlisted)
+// ---------------------------------------------------------------------------
+
+process.env.ALLOWED_DOMAINS = 'localhost';
+const { ScrapeTemplateTool } = await import('../../../../src/tools/templates/ScrapeTemplateTool.js');
+
+describe('ScrapeTemplateTool (real module, real fetch against a local server)', () => {
+  let server;
+  let baseUrl;
+
+  before(async () => {
+    server = http.createServer((req, res) => {
+      if (req.url === '/acme/widget') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end('<html><body><strong itemprop="name"><a href="/acme/widget">widget</a></strong></body></html>');
+        return;
+      }
+      res.writeHead(404);
+      res.end('not found');
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    baseUrl = `http://localhost:${server.address().port}`;
   });
 
-  test('list mode — returns all available templates', async () => {
+  after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  test('constructor creates a real TemplateRegistry', () => {
+    const tool = new ScrapeTemplateTool();
+    assert.ok(tool.registry instanceof TemplateRegistry);
+  });
+
+  test('list mode — returns all 10 available templates, no network call', async () => {
+    const tool = new ScrapeTemplateTool();
     const result = await tool.execute({ template: 'list' });
-    assert.ok(Array.isArray(result.templates));
-    assert.equal(result.count, 2);
-    assert.ok(result.templates.some(t => t.id === 'github-repo'));
-  });
-
-  test('happy path github-repo — extracts stars, language', async () => {
-    const result = await tool.execute({ template: 'github-repo', url: 'https://github.com/user/repo' });
-    assert.equal(result.template, 'github-repo');
-    assert.equal(result.url, 'https://github.com/user/repo');
-    assert.ok(typeof result.data.stars === 'number');
-    assert.ok(result.data.language);
-  });
-
-  test('unknown template throws with available list', async () => {
-    await assert.rejects(() => tool.execute({ template: 'fakebook', url: 'https://fb.com' }), /Unknown template/);
-  });
-
-  test('invalid URL throws', async () => {
-    await assert.rejects(() => tool.execute({ template: 'github-repo', url: 'not-valid' }), /Invalid URL/);
-  });
-
-  test('HTTP 404 propagates as error', async () => {
-    const notFoundTool = new ScrapeTemplateStub({ fetchFn: makeFetch(404, '') });
-    await assert.rejects(() => notFoundTool.execute({ template: 'github-repo', url: 'https://github.com/missing' }), /HTTP 404/);
+    assert.equal(result.count, 10);
+    assert.ok(result.templates.some((t) => t.id === 'github-repo'));
   });
 
   test('missing url triggers list mode', async () => {
+    const tool = new ScrapeTemplateTool();
     const result = await tool.execute({ template: 'github-repo' });
-    assert.ok(result.templates, 'should return template list when url is missing');
+    assert.ok(Array.isArray(result.templates));
   });
 
-  test('network error propagates', async () => {
-    const failTool = new ScrapeTemplateStub({ fetchFn: makeFetch(0, '', 'ECONNREFUSED') });
-    await assert.rejects(() => failTool.execute({ template: 'github-repo', url: 'https://github.com/repo' }), /ECONNREFUSED/);
+  test('unknown template throws before any network call', async () => {
+    const tool = new ScrapeTemplateTool();
+    await assert.rejects(
+      () => tool.execute({ template: 'fakebook', url: 'https://fb.example.com' }),
+      /Unknown template "fakebook"/
+    );
+  });
+
+  test('happy path — fetches a real page through safeFetch and runs the github-repo extractor', async () => {
+    const tool = new ScrapeTemplateTool();
+    const result = await tool.execute({ template: 'github-repo', url: `${baseUrl}/acme/widget` });
+    assert.equal(result.template, 'github-repo');
+    assert.equal(result.data.name, 'widget');
+  });
+
+  test('HTTP 404 propagates as an error', async () => {
+    const tool = new ScrapeTemplateTool();
+    await assert.rejects(
+      () => tool.execute({ template: 'github-repo', url: `${baseUrl}/missing` }),
+      /HTTP 404/
+    );
   });
 });

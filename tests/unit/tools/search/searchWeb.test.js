@@ -1,10 +1,14 @@
 /**
  * D5.2 — Unit tests: searchWeb tool
- * Run: node --test tests/unit/tools/search/searchWeb.test.js
+ * Run: node --test --test-force-exit tests/unit/tools/search/searchWeb.test.js
+ * (force-exit: constructing the real SearchWebTool builds a LocalizationManager,
+ *  which starts two unref'd-looking but real setInterval health-check timers;
+ *  only the bottom "real module" describe block below is affected.)
  */
 
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { SearchWebTool } from '../../../../src/tools/search/searchWeb.js';
 
 // ---------------------------------------------------------------------------
 // Stubs
@@ -121,5 +125,37 @@ describe('searchWeb tool', () => {
     const noExpandTool = new SearchWebStub({ expander: trackingExpander });
     await noExpandTool.execute({ query: 'test', expand_query: false });
     assert.equal(expandCalled, false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression (real module): retry-loop attempt bound.
+//
+// Bug: execute() retried a failed/empty search once per expanded query
+// (searchQueries.length, which can be up to maxExpansions). Since every
+// backend search is billed, one search_web call could silently fan out into
+// many backend requests. Fixed with MAX_SEARCH_ATTEMPTS=2 capping
+// queriesToTry, and the actual attempt count is now surfaced in the
+// response as processing.query_expansion.search_attempts.
+// ---------------------------------------------------------------------------
+
+describe('searchWeb tool — real module regression (retry-loop bound)', () => {
+  test('a stub adapter returning zero items is retried at most MAX_SEARCH_ATTEMPTS times, not once per expanded query', async () => {
+    const tool = new SearchWebTool({ apiKey: 'test-key', cacheEnabled: false });
+
+    // Force 4 expanded query variants so an unbounded retry loop would call
+    // the adapter 4 times; the fix caps it at 2.
+    tool.queryExpander.expandQuery = async () => ['q one', 'q two', 'q three', 'q four'];
+
+    let callCount = 0;
+    tool.searchAdapter.search = async () => {
+      callCount++;
+      return { items: [] };
+    };
+
+    const result = await tool.execute({ query: 'q one', expand_query: true });
+
+    assert.equal(callCount, 2, 'adapter.search must be called at most MAX_SEARCH_ATTEMPTS(2) times');
+    assert.equal(result.processing.query_expansion.search_attempts, 2, 'the actual attempt count must be surfaced in the response');
   });
 });

@@ -209,18 +209,24 @@ export class AgentOrchestrator {
     }
 
     // ── ACT loop ──────────────────────────────────────────────────────────────
+    // urlsFetched (capUrls) and step (capSteps) are deliberately decoupled:
+    // urlsFetched counts every fetch attempt (gates how many URLs we try),
+    // while step counts only attempts that yielded usable evidence (gates
+    // genuine progress). Coupling them 1:1 made capSteps the always-binding
+    // cap whenever it was smaller than capUrls, leaving maxUrls unreachable
+    // at its default. Both caps remain fully enforced (neither is weakened).
     const evidence = [];
     let urlsFetched = 0;
     let step = 0;
 
     for (const url of urlQueue) {
-      if (step >= capSteps || urlsFetched >= capUrls || deadline()) break;
-      step++;
+      if (urlsFetched >= capUrls || step >= capSteps || deadline()) break;
       urlsFetched++;
 
       try {
         const { textContent, finalUrl } = await fetchAndParse(url, { timeoutMs: 10000 });
         if (!isRelevant(textContent, prompt)) continue;
+        step++;
         evidence.push({
           url: finalUrl,
           text: truncate(textContent),

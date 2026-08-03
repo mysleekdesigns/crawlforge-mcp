@@ -123,8 +123,9 @@ export class SnapshotManager extends EventEmitter {
     
     // Cleanup timer
     this.cleanupTimer = null;
-    
-    this.initialize();
+
+    // Tracked (not awaited here) so shutdown() can wait for it — see shutdown().
+    this._initPromise = this.initialize();
   }
   
   async initialize() {
@@ -182,13 +183,7 @@ export class SnapshotManager extends EventEmitter {
 
       const snapshotId = this.generateSnapshotId(url, metadata.timestamp || Date.now());
       const contentHash = this.hashContent(content);
-      
-      // Check for similar existing snapshots for delta storage
-      let deltaInfo = null;
-      if (this.retentionPolicy.enableDeltaStorage) {
-        deltaInfo = await this.findSimilarSnapshot(url, contentHash, content);
-      }
-      
+
       // Prepare snapshot data
       const snapshot = {
         id: snapshotId,
@@ -217,26 +212,11 @@ export class SnapshotManager extends EventEmitter {
       
       let finalContent = content;
       let isCompressed = false;
-      let isDelta = false;
-      
-      // Apply delta storage if similar snapshot found (skip if base content is null, e.g. exact hash match)
-      if (deltaInfo && deltaInfo.content && deltaInfo.similarity > this.retentionPolicy.deltaThreshold) {
-        const deltaData = this.createDelta(deltaInfo.content, content);
-        if (deltaData.length < content.length * 0.7) { // Only use delta if it's significantly smaller
-          finalContent = deltaData;
-          isDelta = true;
-          
-          snapshot.delta = {
-            enabled: true,
-            baseSnapshotId: deltaInfo.snapshotId,
-            deltaData: deltaData,
-            deltaSize: deltaData.length
-          };
-          
-          this.stats.deltaSnapshots++;
-        }
-      }
-      
+      // Delta storage is intentionally disabled: createDelta() never stored real
+      // diff data, so retrieval silently returned the wrong (base) content.
+      // Every snapshot is now persisted in full (optionally gzip-compressed below).
+      const isDelta = false;
+
       // Apply compression if enabled and above threshold
       if (this.options.enableCompression && 
           finalContent.length > this.retentionPolicy.compressionThreshold) {
@@ -780,85 +760,16 @@ export class SnapshotManager extends EventEmitter {
     return hash.digest('hex');
   }
   
-  async findSimilarSnapshot(url, contentHash, content) {
-    // Find recent snapshots for the same URL
-    const recentSnapshots = await this.querySnapshots({
-      url,
-      limit: 10,
-      sortBy: 'timestamp',
-      sortOrder: 'desc',
-      includeContent: false
-    });
-    
-    for (const snapshot of recentSnapshots.snapshots) {
-      if (snapshot.metadata.contentHash === contentHash) {
-        // Exact match
-        return {
-          snapshotId: snapshot.id,
-          similarity: 1.0,
-          content: null
-        };
-      }
-      
-      // Load content for similarity comparison
-      const fullSnapshot = await this.retrieveSnapshot(snapshot.id, { includeContent: true });
-      const similarity = this.calculateContentSimilarity(content, fullSnapshot.content);
-      
-      if (similarity > this.retentionPolicy.deltaThreshold) {
-        return {
-          snapshotId: snapshot.id,
-          similarity,
-          content: fullSnapshot.content
-        };
-      }
-    }
-    
-    return null;
-  }
-  
-  calculateContentSimilarity(content1, content2) {
-    // Simple similarity calculation based on content length difference
-    // In production, you might want to use more sophisticated algorithms
-    const len1 = content1.length;
-    const len2 = content2.length;
-    
-    if (len1 === 0 && len2 === 0) return 1.0;
-    if (len1 === 0 || len2 === 0) return 0.0;
-    
-    const lengthSimilarity = 1 - Math.abs(len1 - len2) / Math.max(len1, len2);
-    
-    // Additional similarity checks can be added here
-    // For example, using diff algorithms or content hashing
-    
-    return lengthSimilarity;
-  }
-  
-  createDelta(baseContent, currentContent) {
-    // Simple delta implementation - in production, consider using proper diff libraries
-    // This is a placeholder that would create a compressed diff
-    const deltaObject = {
-      type: 'diff',
-      base: baseContent.length,
-      current: currentContent.length,
-      // In a real implementation, you'd store the actual diff data
-      operations: [] // diff operations would go here
-    };
-    
-    return JSON.stringify(deltaObject);
-  }
-  
+  /**
+   * Legacy delta snapshots (written before delta storage was disabled — see
+   * storeSnapshot) stored only a byte-count stub with no real diff data, so
+   * their original content is unrecoverable. Fail loudly instead of silently
+   * returning the base snapshot's (wrong) content.
+   */
   applyDelta(baseContent, deltaData) {
-    try {
-      const delta = JSON.parse(deltaData);
-      
-      // In a real implementation, you'd apply the diff operations
-      // For now, return the base content as a fallback
-      return baseContent;
-    } catch (error) {
-      throw new Error(`Failed to apply delta: ${error.message}`);
-    }
+    throw new Error('Cannot reconstruct legacy delta snapshot: no diff data was stored for it. Re-fetch or re-create this snapshot from the source.');
   }
-  
+
   async calculateChangeMetrics(previousSnapshot, currentSnapshot) {
     // Calculate various change metrics between snapshots
     const metrics = {
@@ -976,6 +887,12 @@ export class SnapshotManager extends EventEmitter {
       clearInterval(this.cleanupTimer);
     }
     
+    // .unref() so this timer never blocks process exit on its own — matches
+    // CacheManager's cleanupTimer/monitoringTimer. Without it, any process
+    // that merely imports a module holding a live SnapshotManager (e.g. the
+    // trackChangesTool singleton exported by trackChanges/index.js, which is
+    // never explicitly shut down) hangs forever, since a real server always
+    // has other things keeping it alive regardless.
     this.cleanupTimer = setInterval(async () => {
       try {
         await this.cleanupSnapshots();
@@ -983,8 +900,9 @@ export class SnapshotManager extends EventEmitter {
         this.emit('error', { operation: 'scheduledCleanup', error: error.message });
       }
     }, this.retentionPolicy.cleanupInterval);
+    if (typeof this.cleanupTimer.unref === 'function') this.cleanupTimer.unref();
   }
-  
+
   stopCleanupTimer() {
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
@@ -1027,8 +945,17 @@ export class SnapshotManager extends EventEmitter {
   }
   
   async shutdown() {
+    // initialize() runs unawaited from the constructor and only starts the
+    // cleanup timer partway through (after the async createDirectories/
+    // loadMetadata steps). A shutdown() called shortly after construction
+    // could otherwise race ahead of that, leaving a live (non-unref'd) timer
+    // started AFTER stopCleanupTimer() already ran — which then keeps the
+    // process alive indefinitely. Wait for it (ignoring failure) first.
+    if (this._initPromise) {
+      await this._initPromise.catch(() => {});
+    }
     this.stopCleanupTimer();
-    
+
     // Wait for active operations to complete
     const maxWaitTime = 30000; // 30 seconds
     const startTime = Date.now();

@@ -8,18 +8,32 @@
 import { load } from 'cheerio';
 import { fetchWithTimeout } from './_fetch.js';
 
+// Matches a trailing "@attr" suffix (e.g. "@href", "@data-id") — the attribute
+// name must look like a real attribute, not the "@" of a CSS attribute-value
+// selector such as a[href*="@"].
+const ATTR_SUFFIX_RE = /@[A-Za-z_:][\w:.-]*$/;
+
 /**
  * Parse a selector string that may include an attribute suffix: "css@attr"
  * e.g. "a.link@href" -> { selector: "a.link", attribute: "href" }
  *      "img@src"      -> { selector: "img",    attribute: "src" }
  *      "h1"           -> { selector: "h1",      attribute: null }
+ *      'a[href*="@"]'  -> { selector: 'a[href*="@"]', attribute: null }
  * @param {string} raw
  * @returns {{ selector: string, attribute: string|null }}
  */
 function parseSelectorSpec(raw) {
-  const atIdx = raw.lastIndexOf('@');
-  if (atIdx > 0) {
-    return { selector: raw.slice(0, atIdx), attribute: raw.slice(atIdx + 1) };
+  const match = ATTR_SUFFIX_RE.exec(raw);
+  // Only treat it as an attribute suffix if it isn't inside brackets/quotes,
+  // i.e. the selector portion before it has balanced [ ] and quotes.
+  if (match && match.index > 0) {
+    const selectorPart = raw.slice(0, match.index);
+    const openBrackets = (selectorPart.match(/\[/g) || []).length;
+    const closeBrackets = (selectorPart.match(/\]/g) || []).length;
+    const quoteCount = (selectorPart.match(/["']/g) || []).length;
+    if (openBrackets === closeBrackets && quoteCount % 2 === 0) {
+      return { selector: selectorPart, attribute: raw.slice(match.index + 1) };
+    }
   }
   return { selector: raw, attribute: null };
 }
@@ -64,7 +78,10 @@ export async function scrapeStructuredHandler({ url, selectors, max_results }) {
           if (elements.length === 1) {
             results[fieldName] = extract(elements.get(0));
           } else {
-            results[fieldName] = elements.map((_, el) => extract(el)).get();
+            // cheerio's .map().get() drops null/undefined results, which would
+            // desynchronize this array from elements_found and from parallel
+            // fields. Build it from toArray() instead so length always matches.
+            results[fieldName] = elements.toArray().map(extract);
           }
         }
       } catch (selectorError) {

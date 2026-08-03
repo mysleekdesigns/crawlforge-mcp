@@ -73,8 +73,19 @@ export class ResultRanker {
       return [];
     }
 
-    const rankingOptions = { ...this.options, ...options };
-    
+    // Deep-merge nested option objects instead of replacing them wholesale —
+    // a caller passing a partial weights object (e.g. {bm25: 0.7}) previously
+    // wiped out the other three weights, leaving them `undefined` and making
+    // computeFinalScore return NaN for every result.
+    const rankingOptions = {
+      ...this.options,
+      ...options,
+      weights: { ...this.options.weights, ...(options.weights || {}) },
+      bm25: { ...this.options.bm25, ...(options.bm25 || {}) },
+      authority: { ...this.options.authority, ...(options.authority || {}) },
+      freshness: { ...this.options.freshness, ...(options.freshness || {}) }
+    };
+
     // Generate cache key for ranking computation
     const cacheKey = this.cache ? this.cache.generateKey('ranking', {
       query,
@@ -179,6 +190,10 @@ export class ResultRanker {
 
     // Tokenize query and content
     const queryTerms = this.tokenize(query.toLowerCase());
+    // Queries whose tokens are all <=1 char after tokenization (e.g. "C#")
+    // tokenize to []; without this guard `score / queryTerms.length` below
+    // is 0/0 = NaN, which then poisons finalScore for every result.
+    if (queryTerms.length === 0) return 0;
     const contentTerms = this.tokenize(content);
     const contentLength = contentTerms.length;
 

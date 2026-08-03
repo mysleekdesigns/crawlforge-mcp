@@ -53,7 +53,7 @@ export class MapSiteTool {
 
       // Cache dedup: skip re-mapping the same site within the TTL window
       if (this.cache) {
-        const cacheKey = this.cache.generateKey('map_site', { url: validated.url, maxUrls: validated.max_urls });
+        const cacheKey = this._buildCacheKey(validated);
         const cached = await this.cache.get(cacheKey);
         if (cached) return cached;
       }
@@ -94,7 +94,7 @@ export class MapSiteTool {
 
       // Try to fetch sitemap first
       if (validated.include_sitemap) {
-        const sitemapUrls = await this.fetchSitemapUrls(baseUrl, domainFilter);
+        const sitemapUrls = await this.fetchSitemapUrls(baseUrl, domainFilter, validated.max_urls);
         sitemapUrls.forEach(url => urls.add(normalizeUrl(url)));
       }
 
@@ -151,7 +151,7 @@ export class MapSiteTool {
 
       // Store in cache before returning
       if (this.cache) {
-        const cacheKey = this.cache.generateKey('map_site', { url: validated.url, maxUrls: validated.max_urls });
+        const cacheKey = this._buildCacheKey(validated);
         await this.cache.set(cacheKey, result);
       }
 
@@ -161,7 +161,22 @@ export class MapSiteTool {
     }
   }
 
-  async fetchSitemapUrls(baseUrl, domainFilter = null) {
+  // Cache key must reflect every validated field that changes the response,
+  // otherwise a hit under one set of options silently returns another's
+  // result (e.g. search ranking or domain filtering getting dropped/leaked).
+  _buildCacheKey(validated) {
+    return this.cache.generateKey('map_site', {
+      url: validated.url,
+      maxUrls: validated.max_urls,
+      search: validated.search ?? null,
+      domainFilter: validated.domain_filter ?? null,
+      importFilterConfig: validated.import_filter_config ?? null,
+      includeMetadata: validated.include_metadata,
+      groupByPath: validated.group_by_path
+    });
+  }
+
+  async fetchSitemapUrls(baseUrl, domainFilter = null, maxUrls = Infinity) {
     // Discover sitemaps via robots.txt and common paths, then parse with full
     // SitemapParser support (sitemap-index recursion, gzip, CDATA/entities).
     const discovered = await this.sitemapParser.discoverSitemaps(baseUrl, {
@@ -183,9 +198,12 @@ export class MapSiteTool {
             if (!domainFilter || domainFilter.isAllowed(url).allowed) {
               urls.add(url);
             }
+            if (urls.size >= maxUrls) break;
           }
         }
-        if (urls.size > 0) break;
+        // Keep accumulating across every discovered sitemap (a site can
+        // declare several) instead of stopping at the first productive one.
+        if (urls.size >= maxUrls) break;
       } catch {
         // Continue to next discovered sitemap
       }

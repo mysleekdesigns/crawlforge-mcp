@@ -178,6 +178,39 @@ test('JobManager: executeJob runs the registered executor and marks job complete
   jm.destroy();
 });
 
+// Reproduction test for the cancel-clobber fix: cancelJob() can only flip
+// job.status while the executor's own `await executor(job)` is still in
+// flight (it has no way to interrupt that call directly). executeJob() used
+// to unconditionally call updateJobStatus(..., COMPLETED) once the executor
+// resolved, silently overwriting the 'cancelled' status a concurrent
+// cancelJob() call had already set. It now checks job.status first and
+// leaves a CANCELLED job alone.
+test('JobManager: cancelJob during an in-flight executor is not clobbered back to completed', async () => {
+  const jm = makeTempJobManager();
+  let releaseExecutor;
+  jm.registerExecutor('slow', () => new Promise((resolve) => {
+    releaseExecutor = () => resolve({ done: true });
+  }));
+
+  const job = await jm.createJob('slow', {});
+  const executePromise = jm.executeJob(job.id);
+
+  // Wait for the executor to actually start (status flips PENDING -> RUNNING
+  // synchronously before the executor is invoked).
+  while (jm.getJob(job.id).status !== 'running') {
+    await new Promise((r) => setTimeout(r, 1));
+  }
+
+  await jm.cancelJob(job.id);
+  assert.equal(jm.getJob(job.id).status, 'cancelled', 'cancelJob sets status immediately');
+
+  releaseExecutor();
+  await executePromise;
+
+  assert.equal(jm.getJob(job.id).status, 'cancelled', 'status must remain cancelled after the executor resolves, not be overwritten to completed');
+  jm.destroy();
+});
+
 test('JobManager: executeJob throws when no executor is registered', async () => {
   const jm = makeTempJobManager();
   const job = await jm.createJob('unknown-type', {});

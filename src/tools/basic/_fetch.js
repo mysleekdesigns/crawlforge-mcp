@@ -14,6 +14,35 @@ const _pkg = _require('../../../package.json');
 const CRAWLFORGE_UA = `CrawlForge/${_pkg.version} (+https://crawlforge.dev)`;
 
 /**
+ * Determine the charset to decode a response body with: Content-Type header
+ * first, then a <meta charset> sniff of the first bytes, defaulting to utf-8.
+ * @param {Response} response
+ * @param {Uint8Array} bytes
+ * @returns {string}
+ */
+function detectCharset(response, bytes) {
+  const contentType = response.headers?.get?.('content-type') || '';
+  const headerMatch = /charset=["']?([\w-]+)/i.exec(contentType);
+  if (headerMatch) {
+    return headerMatch[1].trim().toLowerCase();
+  }
+
+  // <meta charset> tags must appear within the first 1024 bytes per the
+  // HTML5 spec's prescan algorithm; ASCII-range bytes decode identically
+  // under latin1 regardless of the document's real encoding.
+  const sniffLength = Math.min(bytes.byteLength, 1024);
+  const sniffText = new TextDecoder('latin1').decode(bytes.subarray(0, sniffLength));
+  const metaMatch =
+    /<meta[^>]+charset=["']?([\w-]+)/i.exec(sniffText) ||
+    /<meta[^>]+http-equiv=["']?content-type["']?[^>]*content=["'][^"']*charset=([\w-]+)/i.exec(sniffText);
+  if (metaMatch) {
+    return metaMatch[1].trim().toLowerCase();
+  }
+
+  return 'utf-8';
+}
+
+/**
  * Fetch a URL with a configurable timeout and body-size cap.
  *
  * Content-Length is checked before the body is read; if absent or lying, the
@@ -101,15 +130,24 @@ export async function fetchWithTimeout(url, options = {}) {
     chunks.push(value);
   }
 
-  // Reassemble and expose as a response-like object that callers can use.
-  const bodyText = new TextDecoder().decode(
-    chunks.reduce((acc, chunk) => {
-      const merged = new Uint8Array(acc.byteLength + chunk.byteLength);
-      merged.set(acc, 0);
-      merged.set(chunk, acc.byteLength);
-      return merged;
-    }, new Uint8Array(0))
-  );
+  // Reassemble the raw bytes, then decode using the response's actual charset
+  // (Content-Type header, falling back to a <meta charset> sniff) instead of
+  // always assuming UTF-8.
+  const mergedBytes = chunks.reduce((acc, chunk) => {
+    const merged = new Uint8Array(acc.byteLength + chunk.byteLength);
+    merged.set(acc, 0);
+    merged.set(chunk, acc.byteLength);
+    return merged;
+  }, new Uint8Array(0));
+
+  const charset = detectCharset(response, mergedBytes);
+  let bodyText;
+  try {
+    bodyText = new TextDecoder(charset).decode(mergedBytes);
+  } catch {
+    // Unrecognized charset label — fall back to UTF-8 rather than throwing.
+    bodyText = new TextDecoder().decode(mergedBytes);
+  }
 
   // Attach the pre-read text so callers can call .text() on the result.
   // We wrap it in a minimal compatible object.

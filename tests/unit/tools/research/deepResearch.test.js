@@ -194,3 +194,61 @@ describe('deepResearch formatResults — source list parity (regression)', () =>
     assert.equal(out.sources.length, 1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression: buildOrchestratorConfig() config contract — the keys
+// SearchWebTool's constructor and ResearchOrchestrator actually read.
+//
+// Bug 1: academic/current_events set rankingWeights and comparative set
+// deduplicationThresholds — back-compat-only keys that SearchWebTool's
+// constructor never reads (it reads searchConfig.rankingOptions.weights /
+// deduplicationOptions.thresholds). The approach-specific tuning never
+// actually reached ranking/deduplication.
+// Bug 2: enableSourceVerification/enableConflictDetection (params the tool's
+// own schema advertises) and cacheResults were dropped before reaching the
+// orchestrator config for every approach.
+// ---------------------------------------------------------------------------
+
+describe('deepResearch buildOrchestratorConfig — searchConfig.rankingOptions/deduplicationOptions + flag propagation (regression)', () => {
+  const configTool = new DeepResearchTool();
+  const baseParams = { maxDepth: 5, maxUrls: 50, timeLimit: 60000, concurrency: 5, credibilityThreshold: 0.3 };
+
+  test('academic approach emits searchConfig.rankingOptions.weights (constructor-compatible key)', () => {
+    const cfg = configTool.buildOrchestratorConfig({ ...baseParams, researchApproach: 'academic' });
+    assert.deepEqual(cfg.searchConfig.rankingOptions, {
+      weights: { authority: 0.4, semantic: 0.3, bm25: 0.2, freshness: 0.1 }
+    });
+    // Back-compat key stays in sync with the new one.
+    assert.deepEqual(cfg.searchConfig.rankingWeights, cfg.searchConfig.rankingOptions.weights);
+  });
+
+  test('current_events approach emits searchConfig.rankingOptions.weights', () => {
+    const cfg = configTool.buildOrchestratorConfig({ ...baseParams, researchApproach: 'current_events' });
+    assert.deepEqual(cfg.searchConfig.rankingOptions, {
+      weights: { freshness: 0.4, semantic: 0.3, bm25: 0.2, authority: 0.1 }
+    });
+  });
+
+  test('comparative approach emits searchConfig.deduplicationOptions.thresholds', () => {
+    const cfg = configTool.buildOrchestratorConfig({ ...baseParams, researchApproach: 'comparative' });
+    assert.deepEqual(cfg.searchConfig.deduplicationOptions, {
+      thresholds: { url: 0.9, title: 0.8, content: 0.7 }
+    });
+    assert.deepEqual(cfg.searchConfig.deduplicationThresholds, cfg.searchConfig.deduplicationOptions.thresholds);
+  });
+
+  for (const approach of ['broad', 'focused', 'academic', 'current_events', 'comparative']) {
+    test(`${approach} approach propagates enableSourceVerification/enableConflictDetection/cacheResults to the orchestrator config`, () => {
+      const cfg = configTool.buildOrchestratorConfig({
+        ...baseParams,
+        researchApproach: approach,
+        enableSourceVerification: false,
+        enableConflictDetection: false,
+        cacheResults: false
+      });
+      assert.equal(cfg.enableSourceVerification, false, `${approach}: enableSourceVerification must reach the orchestrator config`);
+      assert.equal(cfg.enableConflictDetection, false, `${approach}: enableConflictDetection must reach the orchestrator config`);
+      assert.equal(cfg.cacheEnabled, false, `${approach}: cacheResults:false must reach cacheEnabled`);
+    });
+  }
+});

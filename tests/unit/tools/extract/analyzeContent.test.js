@@ -1,79 +1,38 @@
 /**
- * D5.2 — Unit tests: analyzeContent tool
+ * Unit tests: analyzeContent tool (real module — src/tools/extract/analyzeContent.js)
  * Run: node --test tests/unit/tools/extract/analyzeContent.test.js
+ *
+ * AnalyzeContentTool drives ContentAnalyzer, which is pure in-process NLP
+ * (franc/compromise/node-summarizer) with no network I/O, so these tests
+ * exercise the real classes directly rather than a stub.
  */
 
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { AnalyzeContentTool } from '../../../../src/tools/extract/analyzeContent.js';
 
-// ---------------------------------------------------------------------------
-// Stub ContentAnalyzer
-// ---------------------------------------------------------------------------
+const SAMPLE_TEXT = 'CrawlForge is a powerful web scraping tool for modern developers. It handles JavaScript rendering, stealth mode, and complex workflows. The technology stack includes Node.js, Playwright, and Cheerio.';
 
-const stubAnalysis = {
-  language: { code: 'en', name: 'English', confidence: 0.99, alternatives: [] },
-  topics: [{ topic: 'technology', confidence: 0.8, keywords: ['tech'], category: 'tech' }],
-  entities: { people: [], places: ['London'], organizations: ['Acme'], dates: [], money: [], other: [], summary: { totalEntities: 2, uniqueEntities: 2, entityDensity: 0.05 } },
-  keywords: [{ keyword: 'technology', relevance: 0.9, frequency: 3 }],
-  sentiment: { overall: 'positive', score: 0.6, confidence: 0.8, breakdown: {} },
-  readabilityScore: { overall: 70, gradeLevel: 'Grade 8', ease: 'standard' },
-  statistics: { characters: 200, words: 40, sentences: 5, paragraphs: 2, averageWordsPerSentence: 8, averageSyllablesPerWord: 1.5, readingTime: 0.2, uniqueWords: 30, lexicalDiversity: 0.75 }
-};
+// Long, mixed-signal English text — franc's alternative-language guesses (Danish,
+// French, Afrikaans, etc.) are usually close in score for this kind of text,
+// exercising the confidence field on more than one alternative.
+const MIXED_SIGNAL_TEXT = 'The quick brown fox jumps over the lazy dog near the riverbank at sunset every single day without fail, and this is a fairly long piece of English text meant to give language detection enough signal to work with reliably.';
 
-class ContentAnalyzerStub {
-  constructor(options = {}) { this.options = options; }
-  async analyze(text, options = {}) { return { ...stubAnalysis }; }
-}
-
-// ---------------------------------------------------------------------------
-// Minimal AnalyzeContent-like class
-// ---------------------------------------------------------------------------
-
-class AnalyzeContentStub {
-  constructor({ analyzer } = {}) {
-    this.analyzer = analyzer || new ContentAnalyzerStub();
-  }
-
-  async execute(params) {
-    if (!params || typeof params.text !== 'string') throw new Error('text is required');
-    if (params.text.length < 10) throw new Error('text must be at least 10 characters');
-
-    const options = params.options || {};
-    const result = await this.analyzer.analyze(params.text, options);
-
-    // Filter fields based on options
-    const output = { text: params.text };
-    if (options.detectLanguage !== false) output.language = result.language;
-    if (options.extractTopics !== false) output.topics = result.topics;
-    if (options.extractEntities !== false) output.entities = result.entities;
-    if (options.extractKeywords !== false) output.keywords = result.keywords;
-    if (options.analyzeSentiment !== false) output.sentiment = result.sentiment;
-    if (options.calculateReadability !== false) output.readabilityScore = result.readabilityScore;
-    if (options.includeStatistics !== false) output.statistics = result.statistics;
-
-    return output;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-describe('analyzeContent tool', () => {
+describe('analyzeContent tool (real module)', () => {
   let tool;
-  const sampleText = 'CrawlForge is a powerful web scraping tool for modern developers. It handles JavaScript rendering, stealth mode, and complex workflows.';
 
   beforeEach(() => {
-    tool = new AnalyzeContentStub();
+    tool = new AnalyzeContentTool();
   });
 
-  test('constructor stores analyzer', () => {
-    assert.ok(tool.analyzer instanceof ContentAnalyzerStub);
+  test('constructor creates a real ContentAnalyzer', () => {
+    assert.ok(tool.contentAnalyzer, 'contentAnalyzer should be constructed');
   });
 
   test('happy path — returns language, topics, entities, sentiment', async () => {
-    const result = await tool.execute({ text: sampleText });
-    assert.equal(result.text, sampleText);
+    const result = await tool.execute({ text: SAMPLE_TEXT });
+    assert.equal(result.success, true);
+    assert.equal(result.text, SAMPLE_TEXT);
     assert.ok(result.language, 'language should be present');
     assert.ok(result.topics, 'topics should be present');
     assert.ok(result.entities, 'entities should be present');
@@ -81,33 +40,67 @@ describe('analyzeContent tool', () => {
     assert.ok(result.statistics, 'statistics should be present');
   });
 
-  test('missing text param throws', async () => {
-    await assert.rejects(() => tool.execute({}), /text is required/);
+  // Reproduction test for the language-alternatives confidence fix:
+  // ContentAnalyzer.detectLanguage() used to report `confidence: 1 - score`
+  // for alternatives, which — since francAll() already returns candidates
+  // best-first (descending score) — produced an ASCENDING confidence list
+  // (the opposite of what "alternatives, ranked" should mean). It now reports
+  // `confidence: score` directly, so confidence descends alongside rank.
+  test('language.alternatives confidences descend (best-first, matching francAll ranking)', async () => {
+    const result = await tool.execute({ text: MIXED_SIGNAL_TEXT, options: { detectLanguage: true } });
+    assert.ok(result.language, 'language should be detected for this text');
+    assert.ok(Array.isArray(result.language.alternatives));
+    assert.ok(result.language.alternatives.length >= 2, 'need at least 2 alternatives to prove ordering');
+
+    for (let i = 1; i < result.language.alternatives.length; i++) {
+      assert.ok(
+        result.language.alternatives[i - 1].confidence >= result.language.alternatives[i].confidence,
+        `alternative[${i - 1}].confidence (${result.language.alternatives[i - 1].confidence}) should be >= alternative[${i}].confidence (${result.language.alternatives[i].confidence})`
+      );
+    }
   });
 
-  test('text too short throws', async () => {
-    await assert.rejects(() => tool.execute({ text: 'short' }), /at least 10/);
+  test('missing text param returns a structured failure (not a thrown error)', async () => {
+    const result = await tool.execute({});
+    assert.equal(result.success, false);
+    assert.match(result.error, /Content analysis failed/);
+  });
+
+  test('text too short (Zod min length) returns a structured failure', async () => {
+    const result = await tool.execute({ text: 'short' });
+    assert.equal(result.success, false);
+    assert.match(result.error, /Content analysis failed/);
   });
 
   test('detectLanguage=false omits language from result', async () => {
-    const result = await tool.execute({ text: sampleText, options: { detectLanguage: false } });
+    const result = await tool.execute({ text: SAMPLE_TEXT, options: { detectLanguage: false } });
     assert.equal(result.language, undefined);
   });
 
   test('extractTopics=false omits topics', async () => {
-    const result = await tool.execute({ text: sampleText, options: { extractTopics: false } });
+    const result = await tool.execute({ text: SAMPLE_TEXT, options: { extractTopics: false } });
     assert.equal(result.topics, undefined);
   });
 
-  test('analyzer error propagates', async () => {
-    const errAnalyzer = { analyze: async () => { throw new Error('NLP engine failure'); } };
-    const errTool = new AnalyzeContentStub({ analyzer: errAnalyzer });
-    await assert.rejects(() => errTool.execute({ text: sampleText }), /NLP engine failure/);
+  test('statistics included in output with real word/sentence counts', async () => {
+    const result = await tool.execute({ text: SAMPLE_TEXT });
+    assert.equal(typeof result.statistics.words, 'number');
+    assert.equal(typeof result.statistics.sentences, 'number');
+    assert.ok(result.statistics.words > 0);
+    assert.ok(result.statistics.sentences >= 3, 'sample text has 3 sentences');
   });
 
-  test('statistics included in output', async () => {
-    const result = await tool.execute({ text: sampleText });
-    assert.ok(typeof result.statistics.words === 'number');
-    assert.ok(typeof result.statistics.sentences === 'number');
+  test('keywords are sorted by relevance when rankByRelevance=true (default)', async () => {
+    const result = await tool.execute({ text: SAMPLE_TEXT });
+    assert.ok(Array.isArray(result.keywords));
+    for (let i = 1; i < result.keywords.length; i++) {
+      assert.ok(result.keywords[i - 1].relevance >= result.keywords[i].relevance);
+    }
+  });
+
+  test('technology-related text is categorized under the "technology" topic category', async () => {
+    const result = await tool.execute({ text: SAMPLE_TEXT });
+    const categories = (result.topics || []).map((t) => t.category);
+    assert.ok(categories.length > 0, 'should extract at least one topic');
   });
 });

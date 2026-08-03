@@ -20,7 +20,11 @@ const BaseActionSchema = z.object({
   timeout: z.number().optional(),
   description: z.string().optional(),
   continueOnError: z.boolean().default(false),
-  retries: z.number().min(0).max(5).default(0)
+  retries: z.number().min(0).max(5).default(0),
+  // When true, capture page state (page.content()/page.url()) natively right
+  // after this action executes. Does not use in-page JS execution, so it
+  // works regardless of the ALLOW_JAVASCRIPT_EXECUTION flag.
+  captureAfter: z.boolean().default(false)
 });
 
 const WaitActionSchema = BaseActionSchema.extend({
@@ -163,7 +167,10 @@ export class ActionExecutor extends EventEmitter {
   async executeActionChain(url, chainConfig, browserOptions = {}) {
     const startTime = Date.now();
     const chainId = this.generateChainId();
-    
+    // Declared here (not inside the try block below) so the outer catch can
+    // still report partial results/screenshots/capturedStates on failure.
+    let executionContext = null;
+
     try {
       // Handle simplified signature: executeActionChain(url, actionsArray)
       let actualChainConfig;
@@ -187,7 +194,7 @@ export class ActionExecutor extends EventEmitter {
       this.stats.totalChains++;
       
       // Create execution context
-      const executionContext = {
+      executionContext = {
         id: chainId,
         url,
         chain: validatedChain,
@@ -290,6 +297,7 @@ export class ActionExecutor extends EventEmitter {
         executionTime: Date.now() - startTime,
         results: executionContext.results,
         screenshots: executionContext.screenshots,
+        capturedStates: executionContext.capturedStates || [],
         metadata: executionContext.metadata,
         stats: {
           totalActions: executionContext.results.length,
@@ -306,8 +314,12 @@ export class ActionExecutor extends EventEmitter {
         url,
         executionTime: Date.now() - startTime,
         error: error.message,
-        results: [],
-        screenshots: []
+        // Preserve whatever was captured before the failure (per-action
+        // results, the error screenshot, and any intermediate-state
+        // captures) instead of discarding them.
+        results: executionContext?.results || [],
+        screenshots: executionContext?.screenshots || [],
+        capturedStates: executionContext?.capturedStates || []
       };
     }
   }
@@ -326,6 +338,7 @@ export class ActionExecutor extends EventEmitter {
         if (attempt > 0) {
           this.log('info', 'Retrying chain execution, attempt ' + (attempt + 1));
           executionContext.results = []; // Clear previous results on retry
+          executionContext.capturedStates = []; // Clear previous captures on retry
         }
 
         // Execute actions in sequence
@@ -356,6 +369,26 @@ export class ActionExecutor extends EventEmitter {
             // Handle action failure
             if (!action.continueOnError && !chain.continueOnError) {
               throw new Error('Action failed: ' + actionResult.error);
+            }
+          }
+
+          // Native intermediate-state capture: page.content()/page.url()
+          // directly (no in-page JS execution), so it works regardless of
+          // the ALLOW_JAVASCRIPT_EXECUTION flag and doesn't add phantom
+          // actions to the chain's failure/success counts.
+          if (action.captureAfter) {
+            try {
+              const capturedHtml = await page.content();
+              executionContext.capturedStates = executionContext.capturedStates || [];
+              executionContext.capturedStates.push({
+                afterActionIndex: i,
+                afterActionId: actionResult.id,
+                url: page.url(),
+                html: capturedHtml,
+                timestamp: Date.now()
+              });
+            } catch (captureErr) {
+              this.log('warn', 'Failed to capture intermediate state: ' + captureErr.message);
             }
           }
 

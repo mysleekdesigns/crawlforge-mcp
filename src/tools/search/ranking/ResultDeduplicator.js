@@ -88,7 +88,15 @@ export class ResultDeduplicator {
       return results;
     }
 
-    const dedupeOptions = { ...this.options, ...options };
+    // Deep-merge thresholds instead of replacing wholesale — a caller
+    // passing a partial thresholds object (e.g. {url: 0.8}) previously wiped
+    // out the other thresholds, leaving them `undefined` and silently
+    // disabling title/content/combined duplicate detection.
+    const dedupeOptions = {
+      ...this.options,
+      ...options,
+      thresholds: { ...this.options.thresholds, ...(options.thresholds || {}) }
+    };
     this.stats.totalProcessed += results.length;
     
     // Generate cache key for deduplication computation

@@ -409,7 +409,14 @@ describe('ExtractWithLlm', () => {
         provider: 'ollama'
       });
       assert.ok(result.success, `should succeed, got: ${JSON.stringify(result)}`);
-      assert.deepEqual(capturedBody.format, schema, 'schema should be passed as format object');
+      // Phase 2: the Ollama branch now normalizes via buildInputSchema (same
+      // as the Anthropic branch), which spreads the schema over
+      // { additionalProperties: true } and pins type: 'object'.
+      assert.deepEqual(
+        capturedBody.format,
+        { additionalProperties: true, ...schema, type: 'object' },
+        'schema should be passed as normalized JSON Schema format object'
+      );
     });
   });
 

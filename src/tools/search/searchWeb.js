@@ -186,12 +186,18 @@ export class SearchWebTool {
         }
       }
       
-      // Try searches with expanded queries, starting with the best one
+      // Try searches with expanded queries, starting with the best one.
+      // Each retry (triggered when the previous query returned zero items) is
+      // a separate billed backend search — cap attempts so one search_web
+      // call can't silently fan out into up to maxExpansions backend requests.
+      const MAX_SEARCH_ATTEMPTS = 2;
+      const queriesToTry = searchQueries.slice(0, MAX_SEARCH_ATTEMPTS);
       let bestResults = null;
       let usedQuery = validated.query;
       let searchError = null;
-      
-      for (let i = 0; i < searchQueries.length; i++) {
+      let searchAttempts = 0;
+
+      for (let i = 0; i < queriesToTry.length; i++) {
         try {
           // Build search query with modifiers
           let searchQuery = searchQueries[i];
@@ -219,32 +225,34 @@ export class SearchWebTool {
           };
           
           const results = await this.searchAdapter.search(searchParams);
-          
+          searchAttempts++;
+
           // Check if we got good results
           if (results.items && results.items.length > 0) {
             bestResults = results;
-            usedQuery = searchQueries[i];
+            usedQuery = queriesToTry[i];
             break;
           } else if (i === 0) {
             // Save results from first query even if no items (might be the original query)
             bestResults = results;
-            usedQuery = searchQueries[i];
+            usedQuery = queriesToTry[i];
           }
         } catch (error) {
           searchError = error;
-          console.warn(`Search failed for query "${searchQueries[i]}":`, error.message);
-          
+          searchAttempts++;
+          console.warn(`Search failed for query "${queriesToTry[i]}":`, error.message);
+
           // If this is the last query and we haven't found results, throw the error
-          if (i === searchQueries.length - 1 && !bestResults) {
+          if (i === queriesToTry.length - 1 && !bestResults) {
             throw error;
           }
         }
       }
-      
+
       if (!bestResults) {
         throw searchError || new Error('All search queries failed');
       }
-      
+
       // Process and enrich results
       let processedResults = await this.processResults(bestResults);
       
@@ -282,7 +290,10 @@ export class SearchWebTool {
         
         rankingInfo = {
           algorithmsUsed: ['bm25', 'semantic', 'authority', 'freshness'],
-          weightsApplied: this.resultRanker.options.weights,
+          // rankingDetails.weights carries the actually-applied (merged) weights
+          // for this call; this.resultRanker.options.weights is only the
+          // constructor default and previously misreported partial overrides.
+          weightsApplied: processedResults[0]?.rankingDetails?.weights || this.resultRanker.options.weights,
           totalResults: processedResults.length
         };
       }
@@ -341,7 +352,11 @@ export class SearchWebTool {
           query_expansion: localizedParams.expand_query && expandedQueries.length > 1 ? {
             original_query: validated.query,
             expanded_count: expandedQueries.length,
-            used_query: usedQuery
+            used_query: usedQuery,
+            // Backend searches actually issued for this call (capped at
+            // MAX_SEARCH_ATTEMPTS) — surfaces the retry/billing cost that was
+            // previously invisible.
+            search_attempts: searchAttempts
           } : null,
           localization_applied: !!validated.localization
         }
@@ -411,7 +426,9 @@ export class SearchWebTool {
       );
       rankingInfo = {
         algorithmsUsed: ['bm25', 'semantic', 'authority', 'freshness'],
-        weightsApplied: this.resultRanker.options.weights,
+        // See execute()'s equivalent block: rankingDetails.weights carries the
+        // actually-applied (merged) weights for this call.
+        weightsApplied: processedResults[0]?.rankingDetails?.weights || this.resultRanker.options.weights,
         totalResults: processedResults.length
       };
     }

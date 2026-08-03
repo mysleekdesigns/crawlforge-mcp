@@ -340,7 +340,9 @@ async function callOllama({ model, systemMessage, userMessage, maxTokens, schema
     ],
     stream: false,
     options: { num_predict: maxTokens, temperature: 0 },
-    format: (schema && Object.keys(schema).length > 0) ? schema : 'json'
+    // Normalize the same way the Anthropic branch does — Ollama's `format`
+    // needs a valid JSON Schema, not a raw flat field->type-hint map.
+    format: (schema && Object.keys(schema).length > 0) ? buildInputSchema(schema) : 'json'
   };
 
   let response;

@@ -26,9 +26,11 @@ export class CircuitBreaker {
     this.monitoringWindow = monitoringWindow;
     this.errorThresholdPercentage = errorThresholdPercentage;
     this.minimumThroughput = minimumThroughput;
-    this.onStateChange = onStateChange;
-    this.onFailure = onFailure;
-    this.onSuccess = onSuccess;
+    // Stored under distinct names so they don't shadow the onStateChange/
+    // onFailure/onSuccess prototype methods below (execute() calls those).
+    this.onStateChangeCallback = onStateChange;
+    this.onFailureCallback = onFailure;
+    this.onSuccessCallback = onSuccess;
     this.name = name;
 
     // Circuit state per service endpoint
@@ -138,8 +140,8 @@ export class CircuitBreaker {
     }
 
     // Call success callback
-    if (this.onSuccess) {
-      this.onSuccess(serviceId, duration);
+    if (this.onSuccessCallback) {
+      this.onSuccessCallback(serviceId, duration);
     }
   }
 
@@ -166,8 +168,8 @@ export class CircuitBreaker {
     }
 
     // Call failure callback
-    if (this.onFailure) {
-      this.onFailure(serviceId, error, duration);
+    if (this.onFailureCallback) {
+      this.onFailureCallback(serviceId, error, duration);
     }
   }
 
@@ -221,8 +223,8 @@ export class CircuitBreaker {
     }
 
     // Call state change callback
-    if (this.onStateChange) {
-      this.onStateChange(serviceId, oldState, newState, circuit);
+    if (this.onStateChangeCallback) {
+      this.onStateChangeCallback(serviceId, oldState, newState, circuit);
     }
 
     // Start health monitoring for open circuits

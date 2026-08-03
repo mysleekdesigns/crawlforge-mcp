@@ -227,24 +227,66 @@ test('SnapshotManager: hashContent is deterministic SHA-256 hex', () => {
   mgr.stopCleanupTimer();
 });
 
-// ── calculateContentSimilarity ────────────────────────────────────────────────
+// ── delta storage disabled (Phase 2 data-loss fix) ─────────────────────────────
+//
+// Reproduction tests for the fix: createDelta()/findSimilarSnapshot()/
+// calculateContentSimilarity() were removed because createDelta() only ever
+// stored a byte-count stub with no real diff data, so retrieving a
+// delta-stored snapshot silently returned the PREVIOUS version's content.
+// storeSnapshot() now always persists full content (delta.enabled is always
+// false), regardless of enableDeltaStorage or how similar two versions are —
+// this suite previously ran with enableDeltaStorage:false, which is exactly
+// why the defect above shipped undetected (no test ever retrieved a
+// delta-stored snapshot). These tests explicitly opt IN to
+// enableDeltaStorage:true to prove the retrieval path is safe regardless.
 
-test('SnapshotManager: calculateContentSimilarity returns 1.0 for identical content', () => {
-  const mgr = makeManager();
-  assert.equal(mgr.calculateContentSimilarity('abc', 'abc'), 1.0);
+test('SnapshotManager: storeSnapshot never marks a snapshot as delta, even with enableDeltaStorage:true on near-identical content', async () => {
+  const mgr = await waitForInit(makeManager({ enableDeltaStorage: true, enableCompression: false }));
+
+  const v1 = await mgr.storeSnapshot(VALID_URL, 'PRICE: 100 USD — '.repeat(50));
+  const v2 = await mgr.storeSnapshot(VALID_URL, 'PRICE: 999 USD — '.repeat(50));
+
+  assert.equal(v1.delta, false);
+  assert.equal(v2.delta, false);
+
   mgr.stopCleanupTimer();
 });
 
-test('SnapshotManager: calculateContentSimilarity returns 0.0 when one content is empty', () => {
-  const mgr = makeManager();
-  assert.equal(mgr.calculateContentSimilarity('', 'some content'), 0.0);
-  assert.equal(mgr.calculateContentSimilarity('some content', ''), 0.0);
-  mgr.stopCleanupTimer();
+test('SnapshotManager: retrieving v2 after v1 (near-identical, similar-enough content) returns v2\'s real content, not v1\'s', async () => {
+  const base = makeTempDir();
+  const managerOptions = {
+    storageDir: base,
+    metadataDir: path.join(base, 'metadata'),
+    tempDir: path.join(base, 'temp'),
+    enableCompression: false,
+    enableDeltaStorage: true, // opt in explicitly — the defect only manifested when enabled
+    retentionPolicy: { maxSnapshots: 100, autoCleanup: false, cleanupInterval: 24 * 60 * 60 * 1000 }
+  };
+
+  const writer = await waitForInit(new SnapshotManager(managerOptions));
+  const v1Content = 'PRICE: 100 USD — '.repeat(50);
+  const v2Content = 'PRICE: 999 USD — '.repeat(50); // similar length/shape to v1, only the price differs
+  await writer.storeSnapshot(VALID_URL, v1Content);
+  const v2 = await writer.storeSnapshot(VALID_URL, v2Content);
+  writer.stopCleanupTimer();
+
+  // Cold read: a brand-new SnapshotManager instance pointed at the same
+  // storage directory, simulating a process restart with no warm cache.
+  const reader = await waitForInit(new SnapshotManager(managerOptions));
+  const retrieved = await reader.retrieveSnapshot(v2.snapshotId, { includeContent: true });
+  const content = Buffer.isBuffer(retrieved.content) ? retrieved.content.toString() : retrieved.content;
+
+  assert.equal(content, v2Content, 'retrieving v2 must return v2\'s own content, not v1\'s');
+  reader.stopCleanupTimer();
 });
 
-test('SnapshotManager: calculateContentSimilarity returns 1.0 for two empty strings', () => {
+test('SnapshotManager: applyDelta throws a clear, explicit error rather than silently returning the base content', () => {
   const mgr = makeManager();
-  assert.equal(mgr.calculateContentSimilarity('', ''), 1.0);
+  const legacyDeltaStub = JSON.stringify({ type: 'diff', base: 10, current: 20, operations: [] });
+  assert.throws(
+    () => mgr.applyDelta('base content', legacyDeltaStub),
+    /Cannot reconstruct legacy delta snapshot/i
+  );
   mgr.stopCleanupTimer();
 });
 

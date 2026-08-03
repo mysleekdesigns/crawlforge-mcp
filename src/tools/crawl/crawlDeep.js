@@ -82,7 +82,12 @@ export class CrawlDeepTool {
       userAgent = 'MCP-WebScraper/1.0',
       timeout = 30000,
       cacheEnabled = true,
-      cacheTTL = 3600000
+      cacheTTL = 3600000,
+      maxDepth = 5,
+      maxPages = 100,
+      respectRobots = true,
+      followExternal = false,
+      concurrency = 10
     } = options;
 
     this.userAgent = userAgent;
@@ -91,6 +96,13 @@ export class CrawlDeepTool {
     this.cache = cacheEnabled ? new CacheManager({ ttl: cacheTTL }) : null;
     // D1.4: Elicitation helper
     this._elicitation = new ElicitationHelper({});
+    // Server-configured ceilings/defaults (MAX_CRAWL_DEPTH, MAX_PAGES_PER_CRAWL,
+    // RESPECT_ROBOTS_TXT, FOLLOW_EXTERNAL_LINKS, QUEUE_CONCURRENCY)
+    this.configMaxDepth = maxDepth;
+    this.configMaxPages = maxPages;
+    this.configRespectRobots = respectRobots;
+    this.configFollowExternal = followExternal;
+    this.configConcurrency = concurrency;
   }
 
   /** D1.4: Wire MCP server for elicitation. Call from server.js after instantiation. */
@@ -102,21 +114,38 @@ export class CrawlDeepTool {
     try {
       const validated = CrawlDeepSchema.parse(params);
 
+      // Apply server-configured ceilings/defaults: max_depth/max_pages are
+      // clamped to the operator's configured maxima; respect_robots/
+      // follow_external/concurrency fall back to the configured value only
+      // when the caller left them unspecified (raw params, since zod has
+      // already filled in its own schema default by this point).
+      const effectiveMaxDepth = Math.min(validated.max_depth, this.configMaxDepth);
+      const effectiveMaxPages = Math.min(validated.max_pages, this.configMaxPages);
+      const effectiveRespectRobots = params.respect_robots === undefined ? this.configRespectRobots : validated.respect_robots;
+      const effectiveFollowExternal = params.follow_external === undefined ? this.configFollowExternal : validated.follow_external;
+      const effectiveConcurrency = params.concurrency === undefined ? this.configConcurrency : validated.concurrency;
+
       // Cache dedup: skip re-crawling the same root URL within the TTL window
       if (this.cache) {
-        const cacheKey = this.cache.generateKey('crawl_deep', { url: validated.url, depth: validated.max_depth, pages: validated.max_pages });
+        const cacheKey = this._buildCacheKey(validated, {
+          maxDepth: effectiveMaxDepth,
+          maxPages: effectiveMaxPages,
+          respectRobots: effectiveRespectRobots,
+          followExternal: effectiveFollowExternal,
+          concurrency: effectiveConcurrency
+        });
         const cached = await this.cache.get(cacheKey);
         if (cached) return cached;
       }
 
       // D1.4: Elicitation — warn when max_pages is very high
-      if (validated.max_pages > 500) {
+      if (effectiveMaxPages > 500) {
         const proceed = await this._elicitation.confirm(
-          `crawl_deep will crawl up to ${validated.max_pages} pages from ${validated.url}. Large crawls consume many credits.`,
+          `crawl_deep will crawl up to ${effectiveMaxPages} pages from ${validated.url}. Large crawls consume many credits.`,
           {
             url: validated.url,
-            max_pages: validated.max_pages,
-            max_depth: validated.max_depth,
+            max_pages: effectiveMaxPages,
+            max_depth: effectiveMaxDepth,
           }
         );
         if (!proceed) {
@@ -142,8 +171,8 @@ export class CrawlDeepTool {
       } else if (validated.domain_filter) {
         // Create from inline configuration
         domainFilter = new DomainFilter({
-          allowSubdomains: !validated.follow_external,
-          defaultMaxDepth: validated.max_depth,
+          allowSubdomains: !effectiveFollowExternal,
+          defaultMaxDepth: effectiveMaxDepth,
           defaultRateLimit: 10
         });
         
@@ -187,19 +216,19 @@ export class CrawlDeepTool {
 
       // Create crawler instance
       const crawler = new BFSCrawler({
-        maxDepth: validated.max_depth,
-        maxPages: validated.max_pages,
-        followExternal: validated.follow_external,
-        respectRobots: validated.respect_robots,
+        maxDepth: effectiveMaxDepth,
+        maxPages: effectiveMaxPages,
+        followExternal: effectiveFollowExternal,
+        respectRobots: effectiveRespectRobots,
         userAgent: this.userAgent,
         timeout: this.timeout,
-        concurrency: validated.concurrency,
+        concurrency: effectiveConcurrency,
         domainFilter: domainFilter,
         enableLinkAnalysis: validated.enable_link_analysis,
         linkAnalyzerOptions: validated.link_analysis_options,
         sessionContext
       });
-      
+
       // Start crawling
       const startTime = Date.now();
       const results = await crawler.crawl(validated.url, {
@@ -208,14 +237,14 @@ export class CrawlDeepTool {
         extractContent: validated.extract_content
       });
       const duration = Date.now() - startTime;
-      
+
       // Process and format results
       const response = {
         url: validated.url,
-        crawl_depth: validated.max_depth,
+        crawl_depth: effectiveMaxDepth,
         pages_crawled: results.urls.length,
         pages_found: results.results.length,
-        errors: results.errors.length,
+        error_count: results.errors.length,
         duration_ms: duration,
         pages_per_second: results.urls.length / (duration / 1000),
         results: this.formatResults(results.results, validated.extract_content, validated.content_max_length),
@@ -231,7 +260,13 @@ export class CrawlDeepTool {
       
       // Store in cache before returning
       if (this.cache) {
-        const cacheKey = this.cache.generateKey('crawl_deep', { url: validated.url, depth: validated.max_depth, pages: validated.max_pages });
+        const cacheKey = this._buildCacheKey(validated, {
+          maxDepth: effectiveMaxDepth,
+          maxPages: effectiveMaxPages,
+          respectRobots: effectiveRespectRobots,
+          followExternal: effectiveFollowExternal,
+          concurrency: effectiveConcurrency
+        });
         await this.cache.set(cacheKey, response);
       }
 
@@ -239,6 +274,27 @@ export class CrawlDeepTool {
     } catch (error) {
       throw new Error(`Crawl failed: ${error.message}`);
     }
+  }
+
+  // Cache key must reflect every validated/effective field that changes the
+  // response, otherwise a hit under one set of options silently returns a
+  // result produced under different extraction/filtering/session settings.
+  _buildCacheKey(validated, effective) {
+    return this.cache.generateKey('crawl_deep', {
+      url: validated.url,
+      depth: effective.maxDepth,
+      pages: effective.maxPages,
+      extractContent: validated.extract_content,
+      contentMaxLength: validated.content_max_length,
+      includePatterns: validated.include_patterns,
+      excludePatterns: validated.exclude_patterns,
+      followExternal: effective.followExternal,
+      respectRobots: effective.respectRobots,
+      concurrency: effective.concurrency,
+      domainFilter: validated.domain_filter ?? null,
+      importFilterConfig: validated.import_filter_config ?? null,
+      sessionEnabled: validated.session?.enabled ?? false
+    });
   }
 
   formatResults(results, includeContent, contentMaxLength = 500) {

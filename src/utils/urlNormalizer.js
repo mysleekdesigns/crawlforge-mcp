@@ -20,8 +20,8 @@ export function normalizeUrl(url) {
     if (urlObj.search) {
       const params = new URLSearchParams(urlObj.search);
       const sortedParams = new URLSearchParams();
-      [...params.keys()].sort().forEach(key => {
-        sortedParams.append(key, params.get(key));
+      [...params.entries()].sort(([a], [b]) => a.localeCompare(b)).forEach(([key, value]) => {
+        sortedParams.append(key, value);
       });
       urlObj.search = sortedParams.toString();
     }

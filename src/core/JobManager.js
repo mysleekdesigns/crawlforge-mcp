@@ -317,8 +317,16 @@ export class JobManager extends EventEmitter {
 
     try {
       const result = await executor(job);
+
+      // A cancelJob() call can flip status to 'cancelled' while the executor
+      // await above was still in flight (cancelJob can't interrupt it
+      // directly). Don't clobber that terminal state back to 'completed'.
+      if (job.status === this.JOB_STATES.CANCELLED) {
+        return result;
+      }
+
       await this.updateJobStatus(jobId, this.JOB_STATES.COMPLETED, { result });
-      
+
       // Calculate execution time
       const executionTime = job.completedAt - job.startedAt;
       this.updateExecutionTime(executionTime);

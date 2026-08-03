@@ -1,113 +1,160 @@
 /**
- * D5.2 — Unit tests: extractStructured tool
+ * Unit tests: extractStructured tool (real module — src/tools/extract/extractStructured.js)
  * Run: node --test tests/unit/tools/extract/extractStructured.test.js
+ *
+ * ExtractStructuredTool fetches its target through safeFetch (SSRF-guarded),
+ * so these tests spin up a local HTTP server on 127.0.0.1 and allowlist it
+ * via ALLOWED_DOMAINS — set *before* the guarded modules are first imported,
+ * since config.js reads ALLOWED_DOMAINS once at import time. No live network
+ * or LLM calls are made: OPENAI_API_KEY / ANTHROPIC_API_KEY are cleared so
+ * LLMManager.isAvailable() is false and every test exercises the real CSS
+ * selector fallback path.
  */
 
-import { test, describe, beforeEach } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
+
+process.env.ALLOWED_DOMAINS = 'localhost';
+const savedOpenAiKey = process.env.OPENAI_API_KEY;
+const savedAnthropicKey = process.env.ANTHROPIC_API_KEY;
+delete process.env.OPENAI_API_KEY;
+delete process.env.ANTHROPIC_API_KEY;
+
+const { ExtractStructuredTool } = await import('../../../../src/tools/extract/extractStructured.js');
+const { LLMManager } = await import('../../../../src/core/llm/LLMManager.js');
 
 // ---------------------------------------------------------------------------
-// Stubs
+// Local fixture server — serves canned HTML per path, no live network.
 // ---------------------------------------------------------------------------
 
-const stubSchema = { type: 'object', properties: { title: { type: 'string' }, price: { type: 'number' } }, required: ['title'] };
-const stubExtractedData = { title: 'Widget Pro', price: 49.99 };
-const stubHtml = '<html><body><h1>Widget Pro</h1><span class="price">$49.99</span></body></html>';
+const PAGES = {
+  '/product': '<html><head><title>Widget Page</title></head><body><h1>Widget Pro</h1><span class="price">$49.99</span></body></html>',
+  '/no-match': '<html><head><title>Empty</title></head><body><div>nothing matches any selector</div></body></html>'
+};
 
-class LLMManagerStub {
-  constructor(opts = {}) { this.opts = opts; this._available = !!opts.openai || !!opts.anthropic; }
-  async complete(prompt) { return JSON.stringify(stubExtractedData); }
-  isAvailable() { return this._available; }
-}
+let server;
+let baseUrl;
 
-class ElicitationHelperStub {
-  async elicit() { return { confirmed: true }; }
-}
-
-class FetchStub {
-  async fetchAndParse(url) {
-    if (url.includes('bad-url')) throw new Error('Network error');
-    return { html: stubHtml, url };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Minimal ExtractStructured-like stub
-// ---------------------------------------------------------------------------
-
-class ExtractStructuredStub {
-  constructor({ llmManager, elicitation, fetcher } = {}) {
-    this.llmManager = llmManager || new LLMManagerStub();
-    this._elicitation = elicitation || new ElicitationHelperStub();
-    this.fetcher = fetcher || new FetchStub();
-  }
-
-  async execute(params) {
-    if (!params || !params.url) throw new Error('url is required');
-    if (!params.schema) throw new Error('schema is required');
-    try { new URL(params.url); } catch { throw new Error('Invalid URL'); }
-
-    const { html } = await this.fetcher.fetchAndParse(params.url);
-
-    // Try LLM first if available
-    if (this.llmManager.isAvailable()) {
-      const raw = await this.llmManager.complete(`Extract from HTML: ${html.slice(0, 200)}`);
-      let parsed;
-      try { parsed = JSON.parse(raw); } catch { parsed = {}; }
-      return { url: params.url, method: 'llm', data: parsed, schema: params.schema };
+before(async () => {
+  server = http.createServer((req, res) => {
+    const path = req.url.split('?')[0];
+    const html = PAGES[path];
+    if (!html) {
+      res.writeHead(404);
+      res.end('not found');
+      return;
     }
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(html);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  baseUrl = `http://localhost:${server.address().port}`;
+});
 
-    // Fallback: CSS selector stub extraction
-    const data = {};
-    if (params.schema.properties.title) data.title = 'Widget Pro (fallback)';
-    return { url: params.url, method: 'selector', data, schema: params.schema };
-  }
-}
+after(async () => {
+  await new Promise((resolve) => server.close(resolve));
+  if (savedOpenAiKey !== undefined) process.env.OPENAI_API_KEY = savedOpenAiKey;
+  if (savedAnthropicKey !== undefined) process.env.ANTHROPIC_API_KEY = savedAnthropicKey;
+});
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-describe('extractStructured tool', () => {
+describe('extractStructured tool (real module, CSS fallback — no LLM configured)', () => {
   let tool;
 
-  beforeEach(() => {
-    tool = new ExtractStructuredStub({ llmManager: new LLMManagerStub({ openai: { apiKey: 'sk-test' } }) });
-  });
-
-  test('constructor stores llmManager and elicitation helper', () => {
-    assert.ok(tool.llmManager);
+  test('constructor stores llmManager placeholder and a real elicitation helper', () => {
+    tool = new ExtractStructuredTool();
+    assert.equal(tool.llmManager, null);
     assert.ok(tool._elicitation);
   });
 
-  test('happy path with LLM returns extracted data', async () => {
-    const result = await tool.execute({ url: 'https://example.com/product', schema: stubSchema });
-    assert.equal(result.url, 'https://example.com/product');
-    assert.equal(result.method, 'llm');
-    assert.deepEqual(result.data, stubExtractedData);
+  test('happy path — extracts title (semantic h1 fallback) and price (.price class) via CSS fallback', async () => {
+    const schema = { type: 'object', properties: { title: { type: 'string' }, price: { type: 'string' } }, required: ['title'] };
+    const result = await tool.execute({ url: `${baseUrl}/product`, schema });
+    assert.equal(result.extraction_method, 'css_fallback');
+    assert.equal(result.data.title, 'Widget Pro');
+    assert.equal(result.data.price, '$49.99');
+    assert.equal(result.validation.valid, true);
   });
 
-  test('falls back to selector extraction when no LLM available', async () => {
-    const noLlmTool = new ExtractStructuredStub({ llmManager: new LLMManagerStub() });
-    const result = await noLlmTool.execute({ url: 'https://example.com/product', schema: stubSchema });
-    assert.equal(result.method, 'selector');
-    assert.ok(result.data.title);
+  // Reproduction test for the CSS-fallback crash fix: schema keys containing
+  // spaces/parens (which become invalid CSS selector fragments, e.g.
+  // `.price(USD)` -> "Attribute selector didn't terminate") used to throw
+  // inside the single un-guarded loop, aborting extraction for every field
+  // and returning extraction_method: 'none'. Each field is now tried in its
+  // own try/catch, so a bad key only loses that one field.
+  test('a schema key that produces an invalid CSS selector no longer aborts the whole extraction', async () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        'price(USD)': { type: 'string' },
+        'job title': { type: 'string' }
+      },
+      required: ['title']
+    };
+    const result = await tool.execute({ url: `${baseUrl}/product`, schema });
+
+    assert.notEqual(result.extraction_method, 'none', 'a bad key must not abort the whole extraction');
+    assert.equal(result.extraction_method, 'css_fallback');
+    assert.equal(result.data.title, 'Widget Pro', 'the valid "title" key must still extract');
+    assert.ok(!('error' in result), 'no top-level error');
+    assert.equal(result.validation.errors.length, 0, 'no validation errors — invalid-selector keys are skipped, not reported as failures');
   });
 
-  test('missing url throws', async () => {
-    await assert.rejects(() => tool.execute({ schema: stubSchema }), /url is required/);
+  test('falls through to keyword fallback (still extraction_method css_fallback) when no CSS selector matches anything', async () => {
+    const schema = { type: 'object', properties: { headline: { type: 'string' } } };
+    const result = await tool.execute({ url: `${baseUrl}/no-match`, schema });
+    assert.equal(result.extraction_method, 'css_fallback');
+    assert.ok(result.data);
   });
 
-  test('invalid URL throws', async () => {
-    await assert.rejects(() => tool.execute({ url: 'not-a-url', schema: stubSchema }), /Invalid URL/);
+  test('missing required field is reported in validation.errors', async () => {
+    const schema = { type: 'object', properties: { title: { type: 'string' }, isbn: { type: 'string' } }, required: ['title', 'isbn'] };
+    const result = await tool.execute({ url: `${baseUrl}/product`, schema });
+    assert.equal(result.validation.valid, false);
+    assert.ok(result.validation.errors.some((e) => e.includes('isbn')));
   });
 
-  test('missing schema throws', async () => {
-    await assert.rejects(() => tool.execute({ url: 'https://example.com' }), /schema is required/);
+  test('invalid URL returns a structured failure (not a thrown error)', async () => {
+    const schema = { type: 'object', properties: { title: { type: 'string' } } };
+    const result = await tool.execute({ url: 'not-a-url', schema });
+    assert.equal(result.extraction_method, 'none');
+    assert.match(result.error, /Structured extraction failed/);
   });
 
-  test('network error propagates', async () => {
-    const result = tool.execute({ url: 'https://bad-url.example.com', schema: stubSchema });
-    await assert.rejects(() => result, /Network error/);
+  test('404 response returns a structured failure', async () => {
+    const schema = { type: 'object', properties: { title: { type: 'string' } } };
+    const result = await tool.execute({ url: `${baseUrl}/missing`, schema });
+    assert.equal(result.extraction_method, 'none');
+    assert.match(result.error, /404/);
+  });
+
+  test('selectorHints are honored over automatic field-name matching', async () => {
+    const schema = { type: 'object', properties: { headline: { type: 'string' } } };
+    const result = await tool.execute({
+      url: `${baseUrl}/product`,
+      schema,
+      selectorHints: { headline: 'h1' }
+    });
+    assert.equal(result.data.headline, 'Widget Pro');
+  });
+
+  // Reproduction test: an LLM failure (as opposed to "no LLM configured") is
+  // now surfaced in extractionNotes instead of silently disappearing.
+  test('an LLM-path failure is recorded in extractionNotes alongside the CSS fallback result', async () => {
+    const originalIsAvailable = LLMManager.prototype.isAvailable;
+    LLMManager.prototype.isAvailable = () => { throw new Error('LLM boom'); };
+    try {
+      const schema = { type: 'object', properties: { title: { type: 'string' } } };
+      const result = await tool.execute({ url: `${baseUrl}/product`, schema });
+      assert.equal(result.extraction_method, 'css_fallback');
+      assert.equal(result.data.title, 'Widget Pro');
+      assert.ok(
+        result.extractionNotes.some((n) => n.includes('LLM extraction failed: LLM boom')),
+        `expected an LLM-failure note, got: ${JSON.stringify(result.extractionNotes)}`
+      );
+    } finally {
+      LLMManager.prototype.isAvailable = originalIsAvailable;
+    }
   });
 });

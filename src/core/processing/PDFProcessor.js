@@ -15,7 +15,6 @@ const PDFProcessorSchema = z.object({
   options: z.object({
     extractMetadata: z.boolean().default(true),
     extractText: z.boolean().default(true),
-    password: z.string().optional(),
     maxPages: z.number().min(1).max(1000).default(100),
     // C3: true page-range extraction (1-based, inclusive). When set, only the
     // text from pages [start..end] is returned.
@@ -125,10 +124,6 @@ export class PDFProcessor {
         parseOptions.pagerender = (pageData) => this._renderPage(pageData, capturedPages);
       }
 
-      if (processingOptions.password) {
-        parseOptions.password = processingOptions.password;
-      }
-
       let pdfData;
       try {
         // Dynamic import to avoid initialization issues
@@ -144,7 +139,15 @@ export class PDFProcessor {
       if (processingOptions.extractText) {
         if (pageRange) {
           const start = pageRange.start || 1;
-          const end = pageRange.end || capturedPages.length;
+          // C3: a start past the last rendered page means the requested range
+          // doesn't exist in this PDF — report that explicitly instead of
+          // silently returning success:true with empty text.
+          if (start > capturedPages.length) {
+            result.error = `Requested page range starts at page ${start}, but the PDF only has ${pdfData.numpages || capturedPages.length} page(s).`;
+            result.processingTime = Date.now() - startTime;
+            return result;
+          }
+          const end = Math.min(pageRange.end || capturedPages.length, capturedPages.length);
           const slice = capturedPages.slice(start - 1, end);
           result.text = this.cleanPDFText(slice.join('\n\n'));
           result.extractedPages = { start, end, count: slice.length };

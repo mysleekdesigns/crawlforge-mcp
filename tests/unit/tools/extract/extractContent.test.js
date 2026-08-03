@@ -1,145 +1,106 @@
 /**
- * D5.2 — Unit tests: extractContent tool
+ * Unit tests: extractContent tool (real module — src/tools/extract/extractContent.js)
  * Run: node --test tests/unit/tools/extract/extractContent.test.js
+ *
+ * ExtractContentTool.execute() accepts a pre-rendered `html` param that skips
+ * the network fetch entirely (added so callers like scrape_with_actions can
+ * hand it an already-fetched page). All tests below use that seam to exercise
+ * the real ContentProcessor / HTMLCleaner / ContentQualityAssessor pipeline
+ * with no network I/O and no browser launch.
  */
 
-import { test, describe, mock, beforeEach } from 'node:test';
+import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { ExtractContentTool } from '../../../../src/tools/extract/extractContent.js';
 
-// ---------------------------------------------------------------------------
-// Minimal stubs — avoids loading the full processing chain
-// ---------------------------------------------------------------------------
-
-let mockFetchResult = { html: '<html><body><h1>Hello</h1><p>World content here.</p></body></html>', url: 'https://example.com' };
-let mockContentProcessorResult = {
-  title: 'Hello',
-  content: { text: 'World content here.', html: '<p>World content here.</p>' },
-  metadata: { description: null, language: 'en', author: null },
-  readabilityScore: 80,
-  wordCount: 3,
-  structuredData: []
-};
-let mockQualityResult = { score: 0.85, issues: [], passed: true };
-
-// Stub ContentProcessor
-const ContentProcessor = class {
-  async process(html, url, options = {}) { return { ...mockContentProcessorResult }; }
-};
-
-// Stub BrowserProcessor
-const BrowserProcessor = class {
-  async processWithBrowser(url, options = {}) { return { ...mockContentProcessorResult }; }
-};
-
-// Stub HTMLCleaner / ContentQualityAssessor
-const HTMLCleaner = class {
-  clean(html) { return html; }
-};
-const ContentQualityAssessor = class {
-  assess(content) { return mockQualityResult; }
-};
-
-// ---------------------------------------------------------------------------
-// Inline a minimal extractContent-like class using stubs (constructor injection)
-// ---------------------------------------------------------------------------
-
-class ExtractContentStub {
-  constructor({ contentProcessor, browserProcessor, qualityAssessor } = {}) {
-    this.contentProcessor = contentProcessor || new ContentProcessor();
-    this.browserProcessor = browserProcessor || new BrowserProcessor();
-    this.qualityAssessor = qualityAssessor || new ContentQualityAssessor();
-  }
-
-  async execute(params) {
-    if (!params || !params.url) throw new Error('url is required');
-    try { new URL(params.url); } catch { throw new Error('Invalid URL'); }
-
-    const options = params.options || {};
-    const needsBrowser = options.requiresJavaScript;
-
-    let processed;
-    if (needsBrowser) {
-      processed = await this.browserProcessor.processWithBrowser(params.url, options);
-    } else {
-      processed = await this.contentProcessor.process('<html/>', params.url, options);
-    }
-
-    const quality = options.assessContentQuality !== false
-      ? this.qualityAssessor.assess(processed.content?.text || '')
-      : null;
-
-    const outputFormat = options.outputFormat || 'structured';
-
-    if (outputFormat === 'markdown') {
-      return { url: params.url, title: processed.title, markdown: `# ${processed.title}\n\n${processed.content.text}`, quality };
-    }
-
-    return {
-      url: params.url,
-      title: processed.title,
-      content: processed.content,
-      metadata: processed.metadata,
-      quality,
-      structuredData: processed.structuredData
-    };
-  }
+function articleHtml({ title = 'Test Article', paragraphs = 6 } = {}) {
+  const body = 'This is a long paragraph of article content that should be picked up by Readability as the main content of the page. '.repeat(paragraphs);
+  return `<html><head><title>${title}</title></head><body><article><h1>${title}</h1><p>${body}</p></article><nav>Home About Contact</nav></body></html>`;
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-describe('extractContent tool', () => {
+describe('extractContent tool (real module)', () => {
   let tool;
 
   beforeEach(() => {
-    tool = new ExtractContentStub();
+    tool = new ExtractContentTool();
   });
 
-  test('constructor initialises with default processors', () => {
-    assert.ok(tool.contentProcessor instanceof ContentProcessor);
-    assert.ok(tool.browserProcessor instanceof BrowserProcessor);
-    assert.ok(tool.qualityAssessor instanceof ContentQualityAssessor);
+  test('constructor initialises real ContentProcessor and BrowserProcessor', () => {
+    assert.ok(tool.contentProcessor);
+    assert.ok(tool.browserProcessor);
   });
 
-  test('happy path — returns structured content for valid URL', async () => {
-    const result = await tool.execute({ url: 'https://example.com' });
-    assert.equal(result.url, 'https://example.com');
-    assert.ok(result.title, 'title should be present');
-    assert.ok(result.content, 'content should be present');
-    assert.ok(result.quality, 'quality should be present');
+  test('happy path — providedHtml skips the network fetch and returns structured content', async () => {
+    const result = await tool.execute({ url: 'https://example.com/article', html: articleHtml() });
+    assert.equal(result.success, true);
+    assert.equal(result.url, 'https://example.com/article');
+    assert.equal(result.title, 'Test Article');
+    assert.equal(result.extractionMethod, 'readability');
+    assert.ok(result.content.text.includes('long paragraph of article content'));
+    assert.ok(result.qualityAssessment, 'quality should be present by default');
   });
 
-  test('markdown output format returns markdown field', async () => {
-    const result = await tool.execute({ url: 'https://example.com', options: { outputFormat: 'markdown' } });
-    assert.ok(typeof result.markdown === 'string', 'markdown field should exist');
-    assert.ok(result.markdown.startsWith('#'), 'markdown should start with heading');
+  test('markdown output format returns a markdown field', async () => {
+    const result = await tool.execute({
+      url: 'https://example.com/article',
+      html: articleHtml(),
+      options: { outputFormat: 'markdown' }
+    });
+    assert.equal(typeof result.content.markdown, 'string');
+    assert.ok(result.content.markdown.length > 0);
   });
 
-  test('invalid URL throws error', async () => {
-    await assert.rejects(() => tool.execute({ url: 'not-a-url' }), /Invalid URL/);
+  test('invalid URL fails validation and returns a structured failure (not a thrown error)', async () => {
+    const result = await tool.execute({ url: 'not-a-url' });
+    assert.equal(result.success, false);
+    assert.match(result.error, /Content extraction failed/);
   });
 
-  test('missing url param throws error', async () => {
-    await assert.rejects(() => tool.execute({}), /url is required/);
+  test('missing url param returns a structured failure', async () => {
+    const result = await tool.execute({});
+    assert.equal(result.success, false);
+    assert.match(result.error, /Content extraction failed/);
   });
 
   test('quality assessment skipped when assessContentQuality=false', async () => {
-    const result = await tool.execute({ url: 'https://example.com', options: { assessContentQuality: false } });
-    assert.equal(result.quality, null);
+    const result = await tool.execute({
+      url: 'https://example.com/article',
+      html: articleHtml(),
+      options: { assessContentQuality: false }
+    });
+    assert.equal(result.qualityAssessment, undefined);
   });
 
-  test('browser processor used when requiresJavaScript=true', async () => {
-    let browserCalled = false;
-    const browserProc = { processWithBrowser: async () => { browserCalled = true; return { ...mockContentProcessorResult }; } };
-    const stubTool = new ExtractContentStub({ browserProcessor: browserProc });
-    await stubTool.execute({ url: 'https://example.com', options: { requiresJavaScript: true } });
-    assert.ok(browserCalled, 'browser processor should have been called');
+  test('minimal non-article HTML still succeeds and returns non-empty content', async () => {
+    const html = '<html><head><title>Bare</title></head><body><div>hi</div></body></html>';
+    const result = await tool.execute({ url: 'https://example.com/bare', html });
+    assert.equal(result.success, true);
+    assert.equal(result.content.text, 'hi');
+    assert.ok(['readability', 'fallback_boilerplate_removal', 'raw_body_text'].includes(result.extractionMethod));
   });
 
-  test('processor error propagates as thrown error', async () => {
-    const errorProc = { process: async () => { throw new Error('network failure'); } };
-    const stubTool = new ExtractContentStub({ contentProcessor: errorProc });
-    await assert.rejects(() => stubTool.execute({ url: 'https://example.com' }), /network failure/);
+  test('includeRawHTML=true includes the original html in content.html', async () => {
+    const html = articleHtml();
+    const result = await tool.execute({
+      url: 'https://example.com/article',
+      html,
+      options: { includeRawHTML: true }
+    });
+    assert.equal(result.content.html, html);
+  });
+
+  test('processor error propagates as a structured failure', async () => {
+    const errorProcessor = { processContent: async () => { throw new Error('processing exploded'); } };
+    const errorTool = new ExtractContentTool();
+    errorTool.contentProcessor = errorProcessor;
+    const result = await errorTool.execute({ url: 'https://example.com/article', html: articleHtml() });
+    assert.equal(result.success, false);
+    assert.match(result.error, /processing exploded/);
+  });
+
+  test('shouldUseJavaScript ignores a bare document anchor but matches /app/ path segments', async () => {
+    assert.equal(await tool.shouldUseJavaScript('https://example.com/docs#install'), false);
+    assert.equal(await tool.shouldUseJavaScript('https://example.com/app/dashboard'), true);
+    assert.equal(await tool.shouldUseJavaScript('https://example.com/apple-pie'), false);
   });
 });

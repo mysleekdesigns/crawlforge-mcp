@@ -369,3 +369,84 @@ test('backward compat — existing calls without record/replayRecording still wo
     delete process.env.CRAWLFORGE_HOME_OVERRIDE;
   }
 });
+
+// ── captureIntermediateStates fix (real ScrapeWithActionsTool, fake ActionExecutor) ──
+//
+// Previously, insertCaptureActions() injected a synthetic `executeJavaScript`
+// action after every click/type/press step, which (a) depended on
+// ALLOW_JAVASCRIPT_EXECUTION (off by default, so the synthetic action would
+// throw and count as a failed action, inflating failedActions/actionsExecuted
+// beyond the user's own action list) and (b) required ActionExecutor to
+// support that action type at all. It now marks the *existing* action with
+// captureAfter:true and relies on ActionExecutor's native post-action capture
+// (page.content()/page.url(), returned as chainResult.capturedStates) —
+// no actions are added to the chain.
+
+test('insertCaptureActions marks click/type/press for capture without adding synthetic actions', async () => {
+  const { ScrapeWithActionsTool } = await import(
+    `../../src/tools/advanced/ScrapeWithActionsTool.js?t=${Date.now() + 50}`
+  );
+  const tool = new ScrapeWithActionsTool({ actionExecutor: makeFakeExecutor(), extractContentTool: makeFakeExtract(), enableLogging: false });
+
+  const original = [
+    { type: 'click', selector: '#btn' },
+    { type: 'wait', duration: 100 },
+    { type: 'type', selector: '#input', text: 'hello' }
+  ];
+  const marked = tool.insertCaptureActions(original);
+
+  assert.equal(marked.length, original.length, 'no synthetic actions should be added to the chain');
+  assert.ok(!marked.some((a) => a.type === 'executeJavaScript'), 'no synthetic executeJavaScript action injected');
+  assert.equal(marked[0].captureAfter, true, 'click is marked for capture');
+  assert.ok(!marked[1].captureAfter, 'wait is not a capture-triggering type');
+  assert.equal(marked[2].captureAfter, true, 'type is marked for capture');
+});
+
+test('captureIntermediateStates=true does not inflate actionsExecuted/failedActions beyond the user\'s own actions', async () => {
+  let capturedChainConfig = null;
+  const executor = {
+    executeActionChain: async (_url, chainConfig) => {
+      capturedChainConfig = chainConfig;
+      const actions = chainConfig.actions;
+      const now = Date.now();
+      return {
+        success: true,
+        // One result per user action — proves the chain wasn't padded with
+        // extra synthetic steps that could show up here as spurious failures.
+        results: actions.map((a, i) => ({ id: `action_${i}`, type: a.type, success: true, executionTime: 5, timestamp: now + i })),
+        capturedStates: [
+          { afterActionIndex: 0, url: 'https://example.com', html: '<html><head><title>After Click</title></head><body><p>clicked</p></body></html>', timestamp: now }
+        ],
+        screenshots: [],
+        finalHtml: '<html><head><title>Final</title></head><body><p>done</p></body></html>',
+        finalUrl: 'https://example.com',
+        metadata: { finalUrl: 'https://example.com' }
+      };
+    },
+    getStats: () => ({}),
+    destroy: async () => {}
+  };
+
+  const { ScrapeWithActionsTool } = await import(
+    `../../src/tools/advanced/ScrapeWithActionsTool.js?t=${Date.now() + 51}`
+  );
+  const tool = new ScrapeWithActionsTool({ actionExecutor: executor, extractContentTool: makeFakeExtract(), enableLogging: false });
+
+  const result = await tool.execute({
+    url: 'https://example.com',
+    actions: [{ type: 'click', selector: '#btn', continueOnError: false, retries: 0, captureAfter: false, clickCount: 1, delay: 0, force: false, button: 'left' }],
+    captureIntermediateStates: true,
+    formats: ['json', 'text', 'html']
+  });
+
+  assert.equal(capturedChainConfig.actions.length, 1, 'exactly one action reaches ActionExecutor — no synthetic capture action added');
+  assert.equal(result.totalActions, 1);
+  assert.equal(result.actionsExecuted, 1, 'actionsExecuted must match the user\'s own action count');
+  assert.equal(result.failedActions, 0, 'no phantom failures from an injected capture action');
+  assert.equal(result.successfulActions, 1);
+
+  assert.equal(result.intermediateStates.length, 1);
+  assert.equal(result.intermediateStates[0].capturePoint, 1);
+  assert.equal(result.intermediateStates[0].title, 'After Click');
+  assert.equal(result.intermediateStates[0].content.text, 'clicked');
+});

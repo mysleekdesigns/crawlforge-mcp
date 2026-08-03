@@ -984,19 +984,24 @@ export class LocalizationManager extends EventEmitter {
    * Setup periodic health checks for proxies and services
    */
   setupHealthChecks() {
-    // Proxy health checks every 5 minutes
-    setInterval(async () => {
+    // Proxy health checks every 5 minutes. Handles are recorded so cleanup()
+    // can actually clear them — previously they were never stored, so the
+    // `clearInterval` in cleanup() had nothing to clear and both intervals
+    // kept firing (and kept the process alive) after cleanup().
+    const proxyInterval = setInterval(async () => {
       if (this.proxyManager.activeProxies.size > 0) {
         await this.performProxyHealthChecks();
       }
     }, 300000);
-    
+
     // Translation service health checks every 10 minutes
-    setInterval(async () => {
+    const translationInterval = setInterval(async () => {
       if (this.translationProviders.size > 0) {
         await this.checkTranslationServiceHealth();
       }
     }, 600000);
+
+    this.healthCheckIntervals = [proxyInterval, translationInterval];
   }
 
   /**
@@ -1497,8 +1502,9 @@ export class LocalizationManager extends EventEmitter {
       this.resetStats();
       
       // Clear all health check intervals
-      if (this.healthCheckInterval) {
-        clearInterval(this.healthCheckInterval);
+      if (this.healthCheckIntervals) {
+        this.healthCheckIntervals.forEach(clearInterval);
+        this.healthCheckIntervals = null;
       }
       
       // Reset proxy manager

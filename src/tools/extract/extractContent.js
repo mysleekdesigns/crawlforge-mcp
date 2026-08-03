@@ -298,14 +298,17 @@ export class ExtractContentTool {
    * @returns {Promise<boolean>} - Whether JavaScript is needed
    */
   async shouldUseJavaScript(url) {
-    // Simple heuristics for determining if JavaScript is needed
+    // Simple heuristics for determining if JavaScript is needed. Strip the
+    // fragment first: an ordinary document anchor (e.g. #install) isn't a
+    // signal for client-side routing, and anchoring the path pattern to full
+    // segments avoids false positives like "/apple" or "/spaces".
+    const urlWithoutFragment = url.split('#')[0];
     const jsIndicators = [
-      /\/(app|spa|dashboard|admin)/,
-      /#/,
+      /\/(app|spa|dashboard|admin)(\/|$)/,
       /\.(js|jsx|ts|tsx)$/
     ];
 
-    return jsIndicators.some(pattern => pattern.test(url));
+    return jsIndicators.some(pattern => pattern.test(urlWithoutFragment));
   }
 
   /**

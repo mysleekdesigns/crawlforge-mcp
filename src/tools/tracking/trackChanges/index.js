@@ -64,7 +64,9 @@ export class TrackChangesTool extends EventEmitter {
     this.monitorStore = new MonitorStore({ storageDir: this.options.monitorStorageDir || './monitors' });
     this.scheduler = new MonitorScheduler({ tool: this, store: this.monitorStore });
 
-    this.initialize();
+    // Tracked (not awaited here) so shutdown() can wait for it before tearing
+    // things down — see shutdown().
+    this._initPromise = this.initialize();
   }
 
   /** Wire the MCP server so the goal-judge can use SamplingClient (Ollama-first). */
@@ -421,6 +423,16 @@ export class TrackChangesTool extends EventEmitter {
   }
 
   async shutdown() {
+    // initialize() runs unawaited from the constructor and itself awaits
+    // this.snapshotManager.initialize() a second time (independent of
+    // SnapshotManager's own constructor-triggered self-init). A shutdown()
+    // called shortly after construction could race ahead of either chain,
+    // leaving a live cleanup timer started after snapshotManager.shutdown()
+    // already tried to stop it — which then keeps the process alive
+    // indefinitely. Wait for it (ignoring failure) first.
+    if (this._initPromise) {
+      await this._initPromise.catch(() => {});
+    }
     this.stopAllMonitoring();
     this.scheduler?.stopAll();
     await this.snapshotManager.shutdown();

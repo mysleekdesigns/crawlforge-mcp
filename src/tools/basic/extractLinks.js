@@ -19,8 +19,18 @@ export async function extractLinksHandler({ url, filter_external, base_url }) {
     const html = await response.text();
     const $ = load(html);
 
-    const baseUrl = base_url || new URL(url).origin;
-    const pageUrl = new URL(url);
+    const finalUrl = response.url || url;
+    const pageUrl = new URL(finalUrl);
+
+    // <base href>, if present, overrides the page URL as the resolution base
+    // for relative links (but an explicit base_url override wins over both).
+    let docBase = finalUrl;
+    const baseHref = $('base[href]').first().attr('href');
+    if (baseHref) {
+      try { docBase = new URL(baseHref, finalUrl).toString(); } catch { /* ignore invalid <base href> */ }
+    }
+
+    const baseUrl = base_url || docBase;
     const links = [];
 
     $('a[href]').each((_, element) => {
@@ -29,17 +39,9 @@ export async function extractLinksHandler({ url, filter_external, base_url }) {
 
       if (!href) return;
 
-      let absoluteUrl;
-      let isExternal = false;
-
       try {
-        if (href.startsWith('http://') || href.startsWith('https://')) {
-          absoluteUrl = href;
-          isExternal = new URL(href).origin !== pageUrl.origin;
-        } else {
-          absoluteUrl = new URL(href, baseUrl).toString();
-          isExternal = false;
-        }
+        const absoluteUrl = new URL(href, baseUrl).toString();
+        const isExternal = new URL(absoluteUrl).origin !== pageUrl.origin;
 
         if (filter_external && !isExternal) return;
 

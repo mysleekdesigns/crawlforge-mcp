@@ -151,7 +151,7 @@ export class ResearchOrchestrator extends EventEmitter {
       this.logger.info('Starting deep research', { sessionId, topic, options });
       
       // Stage 1: Initial topic exploration and query expansion
-      const expandedQueries = await this.expandResearchTopic(topic);
+      const expandedQueries = await this.expandResearchTopic(topic, options);
       this.researchState.currentDepth = 1;
       this.logActivity('topic_expansion', { originalTopic: topic, expandedQueries });
 
@@ -172,7 +172,22 @@ export class ResearchOrchestrator extends EventEmitter {
       this.logActivity('source_verification', { verifiedCount: verifiedSources.length });
 
       // Stage 5: Information synthesis and conflict detection
-      const synthesizedResults = await this.synthesizeInformation(verifiedSources, topic);
+      // enableSynthesis:false (deep_research schema) previously reached no code
+      // path at all — honor it the same way the no-LLM case already degrades:
+      // hand back raw evidence for the caller to synthesize instead.
+      const synthesizedResults = options.enableSynthesis === false
+        ? {
+            keyFindings: [],
+            supportingEvidence: this.compileSupportingEvidence(verifiedSources),
+            conflicts: [],
+            consensus: [],
+            gaps: [],
+            recommendations: [],
+            llmSynthesis: null,
+            rawEvidence: this.buildRawEvidence(verifiedSources),
+            synthesisMode: 'raw_evidence'
+          }
+        : await this.synthesizeInformation(verifiedSources, topic);
       this.researchState.currentDepth = 5;
       this.logActivity('information_synthesis', { conflictsFound: synthesizedResults.conflicts.length });
 
@@ -223,6 +238,10 @@ export class ResearchOrchestrator extends EventEmitter {
       credibilityScores: new Map(),
       conflictMap: new Map(),
       activityLog: [],
+      llmAnalysis: new Map(),
+      semanticSimilarities: new Map(),
+      relevanceScores: new Map(),
+      synthesisHistory: [],
       // D2.3 token budget tracking
       tokenBudgetChars: TOKEN_BUDGET_CHARS,
       tokenBudgetUsed: 0,
@@ -241,12 +260,17 @@ export class ResearchOrchestrator extends EventEmitter {
   /**
    * Expand research topic into multiple targeted queries with LLM enhancement
    */
-  async expandResearchTopic(topic) {
+  async expandResearchTopic(topic, options = {}) {
     const startTime = Date.now();
-    
+    // Caller-supplied query-expansion tuning (deep_research's `queryExpansion`
+    // param) — previously ignored entirely; the hardcoded defaults below were
+    // used regardless of what the caller requested.
+    const qe = options.queryExpansion || {};
+    const maxExpansions = qe.maxVariations || 8;
+
     try {
-      const cacheKey = this.cache ? this.cache.generateKey('topic_expansion_v2', { topic, llm: this.enableLLMFeatures }) : null;
-      
+      const cacheKey = this.cache ? this.cache.generateKey('topic_expansion_v2', { topic, llm: this.enableLLMFeatures, qe }) : null;
+
       if (this.cache && cacheKey) {
         const cached = await this.cache.get(cacheKey);
         if (cached) {
@@ -256,15 +280,15 @@ export class ResearchOrchestrator extends EventEmitter {
       }
 
       let expandedQueries = [];
-      
+
       // LLM-powered query expansion (preferred)
       if (this.enableLLMFeatures) {
         try {
           this.logger.info('Using LLM for intelligent query expansion');
           expandedQueries = await this.llmManager.expandQuery(topic, {
-            maxExpansions: 8,
-            includeContextual: true,
-            includeSynonyms: true,
+            maxExpansions,
+            includeContextual: qe.enableContextual !== false,
+            includeSynonyms: qe.enableSynonyms !== false,
             includeRelated: true
           });
           this.metrics.llmAnalysisCalls++;
@@ -272,14 +296,14 @@ export class ResearchOrchestrator extends EventEmitter {
           this.logger.warn('LLM query expansion failed, falling back to traditional methods', { error: llmError.message });
         }
       }
-      
+
       // Fallback to traditional expansion if LLM failed or unavailable
       if (expandedQueries.length === 0) {
         expandedQueries = await this.queryExpander.expandQuery(topic, {
-          enableSynonyms: true,
-          enableSpellCheck: true,
+          enableSynonyms: qe.enableSynonyms !== false,
+          enableSpellCheck: qe.enableSpellCheck !== false,
           enablePhraseDetection: true,
-          maxExpansions: 8
+          maxExpansions
         });
       }
 
@@ -464,21 +488,20 @@ export class ResearchOrchestrator extends EventEmitter {
     const allSources = [];
     const searchErrors = [];
     const attemptedQueries = queries.slice(0, 5);
-    const maxSourcesPerQuery = Math.ceil(this.maxUrls / queries.length);
+    // SearchWebSchema caps `limit` at 100 per call — fan a query out across
+    // multiple paged searches instead of requesting more than that in one
+    // call (previously maxUrls > 500, or > 100 with a single surviving
+    // query, made every internal search throw a zod 'too_big' error).
+    const desiredSourcesPerQuery = Math.ceil(this.maxUrls / queries.length);
 
     await this.processWithTimeLimit(async () => {
       const searchPromises = attemptedQueries.map(async (query) => {
         try {
-          const searchResults = await this.searchTool.execute({
-            query,
-            limit: maxSourcesPerQuery,
-            enable_ranking: true,
-            enable_deduplication: true
-          });
+          const searchResults = await this.searchWithPaging(query, desiredSourcesPerQuery);
           this.metrics.searchQueries++;
 
-          if (searchResults.results && searchResults.results.length > 0) {
-            const processedResults = searchResults.results.map(result => ({
+          if (searchResults.length > 0) {
+            const processedResults = searchResults.map(result => ({
               ...result,
               sourceQuery: query,
               discoveredAt: new Date().toISOString(),
@@ -509,11 +532,101 @@ export class ResearchOrchestrator extends EventEmitter {
       );
     }
 
-    // Deduplicate and rank sources
+    // Deduplicate, apply the caller's source preferences, and rank sources
     const uniqueSources = this.deduplicateSources(allSources);
-    const rankedSources = await this.rankSourcesByResearchValue(uniqueSources);
-    
+    const filteredSources = this.applySourcePreferences(uniqueSources, options);
+    const rankedSources = await this.rankSourcesByResearchValue(filteredSources);
+
     return rankedSources.slice(0, this.maxUrls);
+  }
+
+  /**
+   * Fan a single query out across multiple paged searches when the desired
+   * source count exceeds SearchWebSchema's per-call `limit` cap (100). Stops
+   * early once a page returns fewer items than requested (source exhausted).
+   */
+  async searchWithPaging(query, desiredCount) {
+    const results = [];
+    let offset = 0;
+
+    while (results.length < desiredCount) {
+      const limit = Math.min(100, desiredCount - results.length);
+      const page = await this.searchTool.execute({
+        query,
+        limit,
+        offset,
+        enable_ranking: true,
+        enable_deduplication: true
+      });
+      const items = page.results || [];
+      results.push(...items);
+      if (items.length < limit) break; // no more results available
+      offset += limit;
+    }
+
+    return results;
+  }
+
+  /**
+   * Apply the caller's sourceTypes / includeRecentOnly preferences (part of
+   * conductResearch's options argument — previously read nowhere in the
+   * orchestrator despite being documented deep_research parameters). Lenient
+   * by design: a source whose type or date can't be confidently determined
+   * is kept rather than dropped, so an imprecise classification can't zero
+   * out a research run.
+   */
+  applySourcePreferences(sources, options = {}) {
+    let filtered = sources;
+
+    if (Array.isArray(options.sourceTypes) && options.sourceTypes.length > 0 && !options.sourceTypes.includes('any')) {
+      filtered = filtered.filter(source => {
+        const type = this.classifySourceType(source.link);
+        return type === null || options.sourceTypes.includes(type);
+      });
+    }
+
+    if (options.includeRecentOnly) {
+      filtered = filtered.filter(source => {
+        const ageMonths = this.estimateSourceAgeMonths(source);
+        return ageMonths === null || ageMonths <= 12;
+      });
+    }
+
+    return filtered;
+  }
+
+  /**
+   * Best-effort classification of a source URL into one of the deep_research
+   * sourceTypes categories. Returns null when the domain gives no signal.
+   */
+  classifySourceType(url) {
+    try {
+      const domain = new URL(url).hostname.toLowerCase();
+      if (domain.endsWith('.gov')) return 'government';
+      if (domain.endsWith('.edu') || domain.includes('scholar.')) return 'academic';
+      if (domain.endsWith('wikipedia.org')) return 'wiki';
+      if (['medium.com', 'blogspot.com', 'wordpress.com', 'substack.com'].some(d => domain.endsWith(d))) return 'blog';
+      if (['reuters.com', 'apnews.com', 'bbc.com', 'nytimes.com', 'cnn.com'].some(d => domain.endsWith(d)) || domain.includes('news')) return 'news';
+      if (domain.endsWith('.com') || domain.endsWith('.io') || domain.endsWith('.co')) return 'commercial';
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Approximate a source's age in months from search-result date metadata.
+   * Returns null when no usable date is present.
+   */
+  estimateSourceAgeMonths(source) {
+    const dateString = source.pagemap?.metatags?.publishedTime
+      || source.pagemap?.metatags?.modifiedTime
+      || source.publishedDate
+      || source.pubDate;
+    if (!dateString) return null;
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return null;
+    return (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24 * 30.44);
   }
 
   /**

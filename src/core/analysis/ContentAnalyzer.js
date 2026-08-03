@@ -179,7 +179,6 @@ const LANGUAGE_NAMES = {
 
 export class ContentAnalyzer {
   constructor() {
-    this.summarizer = new SummarizerManager();
     this.defaultOptions = {
       summarize: true,
       detectLanguage: true,
@@ -324,7 +323,7 @@ export class ContentAnalyzer {
       .map(([code, score]) => ({
         code,
         name: LANGUAGE_NAMES[code] || code,
-        confidence: Math.round((1 - score) * 100) / 100
+        confidence: Math.round(score * 100) / 100
       }));
 
       return {
@@ -381,9 +380,17 @@ export class ContentAnalyzer {
       let summarySentences;
       
       if (options.summaryType === 'extractive') {
-        // Use node-summarizer for extractive summarization
-        const summary = await this.summarizer.getSummaryByRanking(text, targetSentences);
-        summarySentences = splitSentences(summary);
+        // Use node-summarizer for extractive summarization. Its API takes the
+        // text and target sentence count in the constructor (one instance per call).
+        const summarizer = new SummarizerManager(text, targetSentences);
+        const summaryResult = await summarizer.getSummaryByRank();
+        if (!summaryResult || summaryResult instanceof Error || typeof summaryResult.summary !== 'string' || !summaryResult.summary) {
+          throw new Error('node-summarizer returned no summary');
+        }
+        // node-summarizer concatenates its selected sentences with no separator
+        // (e.g. "...practice.Typography experts..."); insert a space after
+        // sentence-ending punctuation so splitSentences can recover them individually.
+        summarySentences = splitSentences(summaryResult.summary.replace(/([.!?])(?=\S)/g, '$1 '));
       } else {
         // Simple abstractive approach (for demonstration)
         summarySentences = await this.createAbstractiveSummary(text, targetSentences);

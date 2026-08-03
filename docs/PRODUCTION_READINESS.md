@@ -302,3 +302,17 @@ npx crawlforge-setup  # Auto-configures Claude Code & Cursor
 
 Server capabilities now include: resources.listChanged, prompts.listChanged, tools.listChanged.
 
+## Remediation Plan — 2026-08 Codebase Audit
+
+Execution status of the 7-phase plan in `plan/` (109 code findings from `docs/CODEBASE_AUDIT_2026-08.md`).
+
+| Phase | Status | Details |
+|-------|--------|---------|
+| 0 Dependency currency | COMPLETE 2026-08-03 | `npm update` + adm-zip override; `npm audit` 16 vulns → 4 moderate (0 high/critical) |
+| 1 Critical security (14) | COMPLETE 2026-08-03 | SSRF IP-literal/mapped-IPv6 bypasses, OAuth anonymous token mint, telemetry secret leakage, billing-on-refusal all closed; unit 513/513; MCP 100.0% |
+| 2 Correctness (52) | COMPLETE 2026-08-03 | crawl_deep BFS timeout critical, cache-key lies, stripped `options`, never-running summarizer, snapshot delta data-loss, NaN ranking + 46 more; six stub suites replaced with real-module tests; unit **802/802**; MCP **100.0% / 0 errors**; live re-smokes green |
+| 3 Leaks & robustness (24) | PENDING | Next up |
+| 4 Transport & cleanup (19) | PENDING | |
+| 5 Dependency modernization | PENDING | DECISION phase (Node floor) |
+| 6 MCP-spec & competitive | PENDING | DECISION phase (roadmap) |
+

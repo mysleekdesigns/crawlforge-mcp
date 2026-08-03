@@ -392,19 +392,21 @@ export class SitemapParser {
         return null;
       }
 
-      const contentType = response.headers.get('content-type') || '';
-      const contentEncoding = response.headers.get('content-encoding') || '';
-      
+      // fetch (undici) transparently decompresses a gzip Content-Encoding
+      // while leaving the response header intact, so that header can't be
+      // trusted to decide whether the body still needs gunzipping. Sniff the
+      // actual bytes instead: a real gzip payload starts with the 0x1f 0x8b
+      // magic number regardless of what the headers claim.
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const isGzipped = buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b;
+
       let content;
-      
-      // Handle compressed content
-      if (url.endsWith('.gz') || contentEncoding.includes('gzip')) {
-        const buffer = await response.arrayBuffer();
-        const decompressed = await gunzip(Buffer.from(buffer));
+      if (isGzipped) {
+        const decompressed = await gunzip(buffer);
         content = decompressed.toString('utf8');
         this.stats.compressionSavings += buffer.byteLength - decompressed.length;
       } else {
-        content = await response.text();
+        content = buffer.toString('utf8');
       }
 
       return content;

@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { EventEmitter } from 'events';
 import { load } from 'cheerio';
 import { diffWords, diffLines, diffChars } from 'diff';
+import { calculateSimilarity as calculateContentSimilarity } from '../tools/tracking/trackChanges/differ.js';
 
 const ChangeTrackingSchema = z.object({
   url: z.string().url(),
@@ -345,11 +346,13 @@ export class ChangeTracker extends EventEmitter {
       linkChanges: []
     };
     
-    // Calculate overall content similarity
-    changes.similarity = this.calculateSimilarity(
-      baseline.hashes.page,
-      current.hashes.page
-    );
+    // Calculate overall content similarity. Hash equality is used only as the
+    // fast identical/changed test — the hashes themselves are not comparable
+    // (a single-character edit changes ~every hex digit), so an actual
+    // similarity score is computed against the original content.
+    changes.similarity = baseline.hashes.page === current.hashes.page
+      ? 1
+      : calculateContentSimilarity(baseline.originalContent, current.originalContent);
     
     // Detect structural changes
     if (options.trackStructure) {

@@ -238,7 +238,19 @@ export class BFSCrawler {
           
           const absoluteUrl = this.resolveUrl(link, normalizedUrl);
           if (absoluteUrl && !this.visited.has(absoluteUrl)) {
-            await this.queue.add(() => this.processUrl(absoluteUrl, depth + 1));
+            // Not awaited: this task already holds a queue slot, so awaiting a
+            // child would keep that slot pinned for the rest of the recursive
+            // crawl (starving other tasks when concurrency <= depth, and making
+            // the per-task queue timeout measure the whole crawl instead of one
+            // page). crawl() waits for everything via queue.onIdle() instead.
+            this.queue.add(() => this.processUrl(absoluteUrl, depth + 1)).catch(error => {
+              this.errors.push({
+                url: absoluteUrl,
+                depth: depth + 1,
+                error: error.message,
+                timestamp: new Date().toISOString()
+              });
+            });
           }
         }
       }

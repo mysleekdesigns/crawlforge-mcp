@@ -1,123 +1,143 @@
 /**
- * D5.2 — Unit tests: localization tool
+ * Unit tests: LocalizationManager (src/core/LocalizationManager.js)
+ *
+ * The `localization` MCP tool has no dedicated tool class — server.js wires
+ * a singleton LocalizationManager directly (see server.js "Tool: localization").
+ * These tests exercise the real manager instead of a fictional tool wrapper.
+ *
  * Run: node --test tests/unit/tools/localization/localization.test.js
  */
 
-import { test, describe, beforeEach } from 'node:test';
+import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { LocalizationManager } from '../../../../src/core/LocalizationManager.js';
 
-// ---------------------------------------------------------------------------
-// Stubs
-// ---------------------------------------------------------------------------
+// Managers created per-test are cleaned up here so their (fixed) health-check
+// intervals don't keep the test process alive.
+const managers = [];
 
-const stubGeoInfo = { countryCode: 'DE', countryName: 'Germany', language: 'de', timezone: 'Europe/Berlin', currency: 'EUR' };
-const stubTranslation = { originalText: 'Hello world', translatedText: 'Hallo Welt', sourceLang: 'en', targetLang: 'de', confidence: 0.97 };
-const stubLocalizedContent = { url: 'https://example.com', title: 'Startseite', content: { text: 'Willkommen' }, locale: 'de-DE' };
-
-class LocalizationManagerStub {
-  constructor(options = {}) { this.options = options; this._geoCache = new Map(); }
-  async getGeoInfo(countryCode) { return { ...stubGeoInfo, countryCode }; }
-  async translate(text, targetLang, sourceLang = 'auto') { return { ...stubTranslation, targetLang }; }
-  async fetchWithLocalization(url, locale, options = {}) {
-    if (url.includes('geo-blocked.example.com')) throw new Error('Content geo-blocked for this region');
-    return { ...stubLocalizedContent, url, locale };
-  }
-  async cleanup() {}
+// The constructor kicks off initialize() (which calls setupHealthChecks())
+// without awaiting it — wait for the 'initialized' event so tests observe
+// the manager in its fully set-up state.
+function makeManager(options) {
+  const m = new LocalizationManager(options);
+  managers.push(m);
+  return new Promise((resolve) => {
+    if (m.healthCheckIntervals) return resolve(m); // already initialized
+    m.once('initialized', () => resolve(m));
+  });
 }
+after(async () => {
+  await Promise.all(managers.map((m) => m.cleanup()));
+});
 
-// ---------------------------------------------------------------------------
-// Minimal Localization-like stub
-// ---------------------------------------------------------------------------
+describe('LocalizationManager.configureCountry', () => {
+  test('returns a full localization config for a supported country', async () => {
+    const manager = await makeManager();
+    const result = await manager.configureCountry('DE');
+    assert.equal(result.countryCode, 'DE');
+    assert.equal(result.language, 'de-DE');
+    assert.equal(result.timezone, 'Europe/Berlin');
+    assert.equal(result.currency, 'EUR');
+    assert.ok(result.browserLocale, 'browserLocale should be generated');
+    assert.equal(result.browserLocale.locale, 'de-DE');
+  });
 
-class LocalizationStub {
-  constructor({ manager } = {}) {
-    this.manager = manager || new LocalizationManagerStub();
-  }
+  test('lower-case country code is normalized to upper-case', async () => {
+    const manager = await makeManager();
+    const result = await manager.configureCountry('de');
+    assert.equal(result.countryCode, 'DE');
+  });
 
-  async execute(params) {
-    if (!params || !params.url) throw new Error('url is required');
-    try { new URL(params.url); } catch { throw new Error('Invalid URL'); }
+  test('custom language/timezone/currency override country defaults', async () => {
+    const manager = await makeManager();
+    const result = await manager.configureCountry('DE', { language: 'en-GB', currency: 'GBP' });
+    assert.equal(result.language, 'en-GB');
+    assert.equal(result.currency, 'GBP');
+    // timezone wasn't overridden, so it still falls back to the country default
+    assert.equal(result.timezone, 'Europe/Berlin');
+  });
 
-    const countryCode = params.countryCode || 'US';
-    const language = params.language || 'en';
-    const locale = `${language}-${countryCode}`;
+  test('unsupported country code throws', async () => {
+    const manager = await makeManager();
+    await assert.rejects(() => manager.configureCountry('ZZ'), /Unsupported country code/);
+  });
 
-    const geoInfo = await this.manager.getGeoInfo(countryCode);
-    const content = await this.manager.fetchWithLocalization(params.url, locale, params.options || {});
+  test('updates currentSettings and increments localizationApplied stat', async () => {
+    const manager = await makeManager();
+    const before = manager.stats.localizationApplied;
+    await manager.configureCountry('FR');
+    assert.equal(manager.currentSettings.countryCode, 'FR');
+    assert.equal(manager.stats.localizationApplied, before + 1);
+  });
+});
 
-    let translation = null;
-    if (params.translate && params.targetLanguage) {
-      translation = await this.manager.translate(content.content?.text || '', params.targetLanguage, language);
-    }
+describe('LocalizationManager.generateTimezoneSpoof', () => {
+  test('injection script embeds the configured country timezone and locale', async () => {
+    const manager = await makeManager();
+    await manager.configureCountry('JP');
+    const script = await manager.generateTimezoneSpoof('JP');
+    assert.equal(typeof script, 'string');
+    assert.ok(script.includes('Asia/Tokyo'), 'script should embed the target timezone');
+    assert.ok(script.includes('ja-JP'), 'script should embed the target locale');
+  });
 
-    return {
-      url: params.url,
-      locale,
-      geoInfo,
-      content,
-      translation
+  test('defaults to currentSettings.countryCode when no country is passed', async () => {
+    const manager = await makeManager();
+    await manager.configureCountry('GB');
+    const script = await manager.generateTimezoneSpoof();
+    assert.ok(script.includes('Europe/London'));
+  });
+});
+
+describe('LocalizationManager health-check interval cleanup (setupHealthChecks leak fix)', () => {
+  test('setupHealthChecks records interval handles', async () => {
+    const manager = await makeManager();
+    assert.ok(Array.isArray(manager.healthCheckIntervals), 'healthCheckIntervals should be recorded');
+    assert.equal(manager.healthCheckIntervals.length, 2, 'proxy + translation health-check intervals');
+  });
+
+  test('cleanup() actually clears the health-check intervals (no leaked timers)', async () => {
+    const originalClearInterval = global.clearInterval;
+    const cleared = [];
+    global.clearInterval = (handle) => {
+      cleared.push(handle);
+      return originalClearInterval(handle);
     };
-  }
 
-  async destroy() { await this.manager.cleanup(); }
-}
+    try {
+      const manager = await new Promise((resolve) => {
+        const m = new LocalizationManager();
+        m.once('initialized', () => resolve(m));
+      });
+      const intervalsBeforeCleanup = manager.healthCheckIntervals;
+      assert.equal(intervalsBeforeCleanup.length, 2);
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+      await manager.cleanup();
 
-describe('localization tool', () => {
-  let tool;
-
-  beforeEach(() => {
-    tool = new LocalizationStub();
+      // Every interval setupHealthChecks() created must have been passed to
+      // clearInterval — before the fix, cleanup() referenced a property
+      // (`this.healthCheckInterval`) that setupHealthChecks() never set, so
+      // clearInterval was never called and both intervals kept firing.
+      for (const handle of intervalsBeforeCleanup) {
+        assert.ok(cleared.includes(handle), 'each health-check interval must be cleared on cleanup()');
+      }
+      assert.equal(manager.healthCheckIntervals, null, 'handles are dropped after cleanup');
+    } finally {
+      global.clearInterval = originalClearInterval;
+    }
   });
+});
 
-  test('constructor stores manager', () => {
-    assert.ok(tool.manager instanceof LocalizationManagerStub);
-  });
+describe('LocalizationManager.cleanup', () => {
+  test('clears caches and resets stats', async () => {
+    const manager = await makeManager();
+    await manager.configureCountry('DE');
+    assert.ok(manager.localeCache.size > 0, 'cache should be populated after configureCountry');
 
-  test('happy path — returns locale, geoInfo, content', async () => {
-    const result = await tool.execute({ url: 'https://example.com', countryCode: 'DE', language: 'de' });
-    assert.equal(result.url, 'https://example.com');
-    assert.equal(result.locale, 'de-DE');
-    assert.ok(result.geoInfo);
-    assert.ok(result.content);
-    assert.equal(result.translation, null, 'no translation requested');
-  });
+    await manager.cleanup();
 
-  test('translation returned when translate=true and targetLanguage set', async () => {
-    const result = await tool.execute({
-      url: 'https://example.com',
-      countryCode: 'DE',
-      language: 'de',
-      translate: true,
-      targetLanguage: 'de'
-    });
-    assert.ok(result.translation, 'translation should be present');
-    assert.equal(result.translation.targetLang, 'de');
-  });
-
-  test('missing url throws', async () => {
-    await assert.rejects(() => tool.execute({}), /url is required/);
-  });
-
-  test('invalid URL throws', async () => {
-    await assert.rejects(() => tool.execute({ url: 'bad-url' }), /Invalid URL/);
-  });
-
-  test('geo-blocked URL propagates error', async () => {
-    await assert.rejects(() => tool.execute({ url: 'https://geo-blocked.example.com' }), /geo-blocked/);
-  });
-
-  test('geoInfo contains countryCode, language, timezone', async () => {
-    const result = await tool.execute({ url: 'https://example.com', countryCode: 'DE' });
-    assert.ok(result.geoInfo.countryCode);
-    assert.ok(result.geoInfo.timezone);
-  });
-
-  test('default locale uses US/en when no params provided', async () => {
-    const result = await tool.execute({ url: 'https://example.com' });
-    assert.equal(result.locale, 'en-US');
+    assert.equal(manager.localeCache.size, 0);
+    assert.equal(manager.stats.localizationApplied, 0);
   });
 });

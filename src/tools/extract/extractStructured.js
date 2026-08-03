@@ -109,6 +109,7 @@ export class ExtractStructuredTool {
       // Step 3: Try LLM extraction first
       let extractionResult = null;
       let extractionMethod = 'llm';
+      let llmErrorMessage = null;
 
       try {
         const llm = this._ensureLLMManager(llmConfig || {});
@@ -120,8 +121,10 @@ export class ExtractStructuredTool {
           extractionMethod = 'llm';
         }
       } catch (llmError) {
-        // LLM failed — will fall through to CSS fallback
+        // LLM failed — will fall through to CSS fallback. Keep the message so
+        // callers can tell "LLM broken" apart from "no LLM configured".
         extractionResult = null;
+        llmErrorMessage = llmError.message;
       }
 
       // Step 4: CSS selector fallback if LLM unavailable or failed
@@ -140,6 +143,11 @@ export class ExtractStructuredTool {
       // Step 6: Calculate confidence
       const confidence = this._calculateConfidence(extractionResult, extractionMethod);
 
+      const extractionNotes = extractionResult.extractionNotes || [];
+      if (llmErrorMessage) {
+        extractionNotes.push(`LLM extraction failed: ${llmErrorMessage}`);
+      }
+
       return {
         url,
         data: extractionResult.data || {},
@@ -151,7 +159,7 @@ export class ExtractStructuredTool {
           valid: extractionResult.valid || false,
           errors: extractionResult.validationErrors || []
         },
-        extractionNotes: extractionResult.extractionNotes || []
+        extractionNotes
       };
 
     } catch (error) {
@@ -178,98 +186,77 @@ export class ExtractStructuredTool {
     let fieldsFound = 0;
 
     for (const [key, fieldSchema] of Object.entries(properties)) {
-      const isArrayField = fieldSchema.type === 'array';
+      // Schema keys become CSS selector fragments below (class/id/data-attr).
+      // A key with spaces/parens/quotes produces an invalid selector that
+      // throws ("Attribute selector didn't terminate") — catch that per-field
+      // so one bad key can't discard extraction results for every other field.
+      try {
+        const isArrayField = fieldSchema.type === 'array';
 
-      // Use explicit selector hint if provided
-      const selector = selectorHints[key];
-      if (selector) {
-        const els = $(selector);
-        if (els.length > 0) {
-          if (isArrayField || els.length > 1) {
-            const values = els.map((_, el) => $(el).text().trim()).get().filter(Boolean);
-            if (values.length > 0) {
-              extracted[key] = values;
-              fieldsFound++;
-              continue;
-            }
-          } else {
-            const rawValue = els.first().text().trim();
-            if (rawValue) {
-              extracted[key] = this._coerceValue(rawValue, fieldSchema);
-              fieldsFound++;
-              continue;
+        // Use explicit selector hint if provided
+        const selector = selectorHints[key];
+        if (selector) {
+          const els = $(selector);
+          if (els.length > 0) {
+            if (isArrayField || els.length > 1) {
+              const values = els.map((_, el) => $(el).text().trim()).get().filter(Boolean);
+              if (values.length > 0) {
+                extracted[key] = values;
+                fieldsFound++;
+                continue;
+              }
+            } else {
+              const rawValue = els.first().text().trim();
+              if (rawValue) {
+                extracted[key] = this._coerceValue(rawValue, fieldSchema);
+                fieldsFound++;
+                continue;
+              }
             }
           }
         }
-      }
 
-      // For array fields: detect ul/ol > li patterns before meta/common selectors
-      if (isArrayField) {
-        const listSelectors = [
-          `ul.${key} > li`, `ol.${key} > li`,
-          `#${key} > li`, `[data-${key}] > li`,
-          `ul[class*="${key}"] > li`, `ol[class*="${key}"] > li`
-        ];
-        let listValues = null;
-        for (const lsel of listSelectors) {
-          const items = $(lsel);
-          if (items.length > 0) {
-            listValues = items.map((_, el) => $(el).text().trim()).get().filter(Boolean);
-            break;
+        // For array fields: detect ul/ol > li patterns before meta/common selectors
+        if (isArrayField) {
+          const listSelectors = [
+            `ul.${key} > li`, `ol.${key} > li`,
+            `#${key} > li`, `[data-${key}] > li`,
+            `ul[class*="${key}"] > li`, `ol[class*="${key}"] > li`
+          ];
+          let listValues = null;
+          for (const lsel of listSelectors) {
+            const items = $(lsel);
+            if (items.length > 0) {
+              listValues = items.map((_, el) => $(el).text().trim()).get().filter(Boolean);
+              break;
+            }
+          }
+          if (listValues && listValues.length > 0) {
+            extracted[key] = listValues;
+            fieldsFound++;
+            continue;
           }
         }
-        if (listValues && listValues.length > 0) {
-          extracted[key] = listValues;
+
+        // Try common patterns: meta tags, headings, semantic elements
+        const metaContent = $(`meta[name="${key}"], meta[property="${key}"], meta[property="og:${key}"]`).attr('content');
+        if (metaContent) {
+          extracted[key] = this._coerceValue(metaContent, fieldSchema);
           fieldsFound++;
           continue;
         }
-      }
 
-      // Try common patterns: meta tags, headings, semantic elements
-      const metaContent = $(`meta[name="${key}"], meta[property="${key}"], meta[property="og:${key}"]`).attr('content');
-      if (metaContent) {
-        extracted[key] = this._coerceValue(metaContent, fieldSchema);
-        fieldsFound++;
-        continue;
-      }
+        // Try matching by common selectors based on field name
+        const commonSelectors = [
+          `[itemprop="${key}"]`,
+          `[data-${key}]`,
+          `.${key}`,
+          `#${key}`
+        ];
 
-      // Try matching by common selectors based on field name
-      const commonSelectors = [
-        `[itemprop="${key}"]`,
-        `[data-${key}]`,
-        `.${key}`,
-        `#${key}`
-      ];
-
-      for (const sel of commonSelectors) {
-        const el = $(sel);
-        if (el.length > 0) {
-          if (isArrayField && el.length > 1) {
-            const values = el.map((_, item) => $(item).text().trim()).get().filter(Boolean);
-            if (values.length > 0) {
-              extracted[key] = values;
-              fieldsFound++;
-              break;
-            }
-          } else {
-            const rawValue = el.first().text().trim();
-            if (rawValue) {
-              extracted[key] = this._coerceValue(rawValue, fieldSchema);
-              fieldsFound++;
-              break;
-            }
-          }
-        }
-      }
-
-      // Last resort: semantic element selectors for well-known field names
-      // (e.g. title -> <h1>/<title>) so common fields resolve without hints.
-      if (!(key in extracted)) {
-        const semanticSelectors = SEMANTIC_FIELD_SELECTORS[key.toLowerCase()];
-        if (semanticSelectors) {
-          for (const sel of semanticSelectors) {
-            const el = $(sel);
-            if (el.length === 0) continue;
+        for (const sel of commonSelectors) {
+          const el = $(sel);
+          if (el.length > 0) {
             if (isArrayField && el.length > 1) {
               const values = el.map((_, item) => $(item).text().trim()).get().filter(Boolean);
               if (values.length > 0) {
@@ -287,6 +274,36 @@ export class ExtractStructuredTool {
             }
           }
         }
+
+        // Last resort: semantic element selectors for well-known field names
+        // (e.g. title -> <h1>/<title>) so common fields resolve without hints.
+        if (!(key in extracted)) {
+          const semanticSelectors = SEMANTIC_FIELD_SELECTORS[key.toLowerCase()];
+          if (semanticSelectors) {
+            for (const sel of semanticSelectors) {
+              const el = $(sel);
+              if (el.length === 0) continue;
+              if (isArrayField && el.length > 1) {
+                const values = el.map((_, item) => $(item).text().trim()).get().filter(Boolean);
+                if (values.length > 0) {
+                  extracted[key] = values;
+                  fieldsFound++;
+                  break;
+                }
+              } else {
+                const rawValue = el.first().text().trim();
+                if (rawValue) {
+                  extracted[key] = this._coerceValue(rawValue, fieldSchema);
+                  fieldsFound++;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      } catch (_fieldError) {
+        // Invalid selector for this key — skip the field, keep going.
+        continue;
       }
     }
 

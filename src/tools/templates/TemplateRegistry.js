@@ -113,7 +113,13 @@ const TEMPLATES = [
         description: attr($, 'meta[property="og:description"]', 'content'),
         thumbnail: attr($, 'meta[property="og:image"]', 'content'),
         duration: attr($, 'meta[itemprop="duration"]', 'content'),
-        video_id: new URL($('link[rel="canonical"]').attr('href') || 'https://youtube.com').searchParams.get('v')
+        video_id: (() => {
+          try {
+            return new URL($('link[rel="canonical"]').attr('href') || 'https://youtube.com').searchParams.get('v');
+          } catch {
+            return null;
+          }
+        })()
       };
     }
   },

@@ -56,7 +56,7 @@ export const TrackChangesSchema = z.object({
     enableWebhook: z.boolean().default(false),
     webhookUrl: z.string().url().optional(),
     webhookSecret: z.string().optional()
-  }).optional(),
+  }).optional().default({}),
 
   storageOptions: z.object({
     enableSnapshots: z.boolean().default(true),
@@ -73,7 +73,7 @@ export const TrackChangesSchema = z.object({
     endTime: z.number().optional(),
     includeContent: z.boolean().default(false),
     significanceFilter: z.enum(['all', 'minor', 'moderate', 'major', 'critical']).optional()
-  }).optional(),
+  }).optional().default({}),
 
   notificationOptions: z.object({
     email: z.object({

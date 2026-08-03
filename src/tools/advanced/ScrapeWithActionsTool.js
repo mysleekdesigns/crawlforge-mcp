@@ -392,7 +392,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
     // Process action results
     const actionResults = this.processActionResults(chainResult.results);
     const intermediateStates = params.captureIntermediateStates ?
-      await this.extractIntermediateStates(actionResults, params) : [];
+      await this.extractIntermediateStates(chainResult.capturedStates || [], params) : [];
 
     // Get final page content after all actions (reads the post-action live page
     // captured by ActionExecutor, falling back to a fresh fetch only if missing).
@@ -523,23 +523,17 @@ export class ScrapeWithActionsTool extends EventEmitter {
   }
 
   insertCaptureActions(actions) {
-    const modifiedActions = [];
-
-    actions.forEach((action, index) => {
-      modifiedActions.push(action);
-
+    // Mark actions for native capture (page.content()/page.url() in
+    // ActionExecutor) instead of injecting synthetic executeJavaScript
+    // actions — avoids depending on ALLOW_JAVASCRIPT_EXECUTION (off by
+    // default) and keeps action/failure counts matching the user's own
+    // actions rather than being inflated by injected steps.
+    return actions.map(action => {
       if (this.shouldCaptureAfterAction(action) || action.captureAfter) {
-        modifiedActions.push({
-          type: 'executeJavaScript',
-          script: `return {url: window.location.href, title: document.title, html: document.documentElement.outerHTML, timestamp: Date.now(), capturePoint: ${index + 1}};`,
-          description: `Capture state after action ${index + 1}`,
-          returnResult: true,
-          continueOnError: true
-        });
+        return { ...action, captureAfter: true };
       }
+      return action;
     });
-
-    return modifiedActions;
   }
 
   shouldCaptureAfterAction(action) {
@@ -563,47 +557,44 @@ export class ScrapeWithActionsTool extends EventEmitter {
     }));
   }
 
-  async extractIntermediateStates(actionResults, params) {
+  async extractIntermediateStates(capturedStates, params) {
     const states = [];
 
-    for (const result of actionResults) {
-      if (result.type === 'executeJavaScript' && result.jsResult && result.jsResult.html) {
-        try {
-          const stateData = result.jsResult;
-          const $ = load(stateData.html);
-          
-          const state = {
-            capturePoint: stateData.capturePoint,
-            url: stateData.url,
-            title: stateData.title,
-            timestamp: stateData.timestamp,
-            content: {}
-          };
+    for (const stateData of capturedStates) {
+      try {
+        const $ = load(stateData.html);
 
-          if (params.formats.includes('text')) {
-            state.content.text = $('body').text().replace(/\s+/g, ' ').trim();
-          }
+        const state = {
+          capturePoint: stateData.afterActionIndex + 1,
+          url: stateData.url,
+          title: $('title').text().trim(),
+          timestamp: stateData.timestamp,
+          content: {}
+        };
 
-          if (params.formats.includes('html')) {
-            state.content.html = stateData.html;
-          }
-
-          if (params.formats.includes('json')) {
-            state.content.json = {
-              title: stateData.title,
-              headings: this.extractHeadings($),
-              links: this.extractLinks($)
-            };
-          }
-
-          if (params.extractionOptions?.selectors) {
-            state.content.extracted = this.extractWithSelectors($, params.extractionOptions.selectors);
-          }
-
-          states.push(state);
-        } catch (error) {
-          this.log('warn', `Failed to process intermediate state: ${error.message}`);
+        if (params.formats.includes('text')) {
+          state.content.text = $('body').text().replace(/\s+/g, ' ').trim();
         }
+
+        if (params.formats.includes('html')) {
+          state.content.html = stateData.html;
+        }
+
+        if (params.formats.includes('json')) {
+          state.content.json = {
+            title: state.title,
+            headings: this.extractHeadings($),
+            links: this.extractLinks($)
+          };
+        }
+
+        if (params.extractionOptions?.selectors) {
+          state.content.extracted = this.extractWithSelectors($, params.extractionOptions.selectors);
+        }
+
+        states.push(state);
+      } catch (error) {
+        this.log('warn', `Failed to process intermediate state: ${error.message}`);
       }
     }
 

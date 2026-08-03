@@ -128,15 +128,27 @@ export class BatchScrapeTool extends EventEmitter {
 
   async _processBatchSync(batchId, urlConfigs, validated, webhookConfig, startTime) {
     try {
-      this.activeBatches.set(batchId, { id: batchId, mode: 'sync', startTime, total: urlConfigs.length, completed: 0 });
+      // Process in maxConcurrency-sized chunks (rather than one call covering
+      // all URLs) so `completed` can be updated for progress polling and so
+      // cancelBatch's `cancelled` flag is actually observed between chunks.
+      const activeEntry = { id: batchId, mode: 'sync', startTime, total: urlConfigs.length, completed: 0, cancelled: false };
+      this.activeBatches.set(batchId, activeEntry);
 
-      const rawResults = await scrapeUrlsBatch(urlConfigs, validated, this.defaultTimeout);
+      const rawResults = [];
+      for (let i = 0; i < urlConfigs.length; i += validated.maxConcurrency) {
+        if (activeEntry.cancelled) break;
+        const chunk = urlConfigs.slice(i, i + validated.maxConcurrency);
+        rawResults.push(...await scrapeUrlsBatch(chunk, validated, this.defaultTimeout));
+        activeEntry.completed = rawResults.length;
+      }
+      const wasCancelled = activeEntry.cancelled;
+
       const processedResults = processResults(rawResults, validated);
       const executionTime = Date.now() - startTime;
       this._updateAverageBatchTime(executionTime);
 
       const batchResult = {
-        batchId, mode: 'sync', success: true, executionTime,
+        batchId, mode: 'sync', success: true, cancelled: wasCancelled || undefined, executionTime,
         totalUrls: urlConfigs.length,
         successfulUrls: processedResults.filter(r => r.success).length,
         failedUrls: processedResults.filter(r => !r.success).length,
@@ -155,16 +167,19 @@ export class BatchScrapeTool extends EventEmitter {
       }
 
       this.stats.completedBatches++;
-      this.stats.totalUrls += urlConfigs.length;
+      this.stats.totalUrls += rawResults.length;
       this.stats.successfulUrls += batchResult.successfulUrls;
       this.stats.failedUrls += batchResult.failedUrls;
       this.stats.lastUpdated = Date.now();
       this.activeBatches.delete(batchId);
 
-      // C3: include webhook delivery status in the result
-      const webhookStatus = await sendWebhookNotification('batch_completed', batchResult, webhookConfig, this.webhookDispatcher, this.enableWebhookNotifications);
-      if (webhookStatus) batchResult.webhookDelivery = webhookStatus;
-      this.emit('batchCompleted', batchResult);
+      // C3: include webhook delivery status in the result (skip when cancelled
+      // early — a 'batch_completed' notification would be misleading).
+      if (!wasCancelled) {
+        const webhookStatus = await sendWebhookNotification('batch_completed', batchResult, webhookConfig, this.webhookDispatcher, this.enableWebhookNotifications);
+        if (webhookStatus) batchResult.webhookDelivery = webhookStatus;
+        this.emit('batchCompleted', batchResult);
+      }
       return batchResult;
     } catch (error) {
       this.stats.failedBatches++;
@@ -195,7 +210,7 @@ export class BatchScrapeTool extends EventEmitter {
         batchId, mode: 'async', jobId: job.id, status: 'queued',
         totalUrls: urlConfigs.length, createdAt: job.createdAt,
         estimatedCompletion: new Date(job.createdAt + (urlConfigs.length * 2000)),
-        statusCheckUrl: `batch_scrape_status?jobId=${job.id}`,
+        statusCheckUrl: `get_batch_results({batchId: "${batchId}"})`,
         webhook: webhookConfig ? { url: webhookConfig.url, events: webhookConfig.events } : null
       };
     } catch (error) {
@@ -225,6 +240,33 @@ export class BatchScrapeTool extends EventEmitter {
       };
     }
 
+    // Async batches are never added to activeBatches; look the underlying job
+    // up by its batchId tag so pending/running (and completed-but-uncached)
+    // batches are still reported instead of a misleading "not found".
+    const jobs = this.jobManager.getJobsByTag(batchId);
+    if (jobs.length > 0) {
+      const job = jobs[0];
+
+      if (job.status === 'completed' && job.result) {
+        const results = job.result.results || [];
+        const offset = (page - 1) * pageSize;
+        return {
+          batchId, success: true, jobId: job.id,
+          results: paginateResults(results, offset, pageSize),
+          pagination: { page, pageSize, totalResults: results.length, totalPages: Math.ceil(results.length / pageSize) },
+          cached: false, timestamp: job.completedAt
+        };
+      }
+
+      return {
+        batchId, jobId: job.id, status: job.status, mode: 'async',
+        progress: { percentage: job.progress, total: job.metadata?.urlCount },
+        startTime: job.startedAt || job.createdAt,
+        runningTime: Date.now() - (job.startedAt || job.createdAt),
+        error: job.error || undefined
+      };
+    }
+
     throw new Error(`Batch ${batchId} not found`);
   }
 
@@ -237,9 +279,14 @@ export class BatchScrapeTool extends EventEmitter {
   }
 
   async cancelBatch(batchId) {
-    if (this.activeBatches.has(batchId)) {
-      this.activeBatches.delete(batchId);
-      return { success: true, message: `Active batch ${batchId} cancelled` };
+    const active = this.activeBatches.get(batchId);
+    if (active) {
+      // Signal the running _processBatchSync loop to stop dispatching further
+      // chunks (the in-flight chunk still finishes — there is no per-request
+      // abort). Deleting the entry outright, as before, only hid the batch
+      // from getBatchResults; the scrape loop kept running to completion.
+      active.cancelled = true;
+      return { success: true, message: `Batch ${batchId} cancellation requested; processing stops after the in-flight chunk completes` };
     }
     const jobs = this.jobManager.getJobsByTag(batchId);
     if (jobs.length > 0) {
@@ -315,8 +362,18 @@ export class BatchScrapeTool extends EventEmitter {
 
         const results = [];
         const total = urlConfigs.length;
+        let wasCancelled = false;
 
         for (let i = 0; i < total; i += validated.maxConcurrency) {
+          // Check job.status between slices so JobManager.cancelJob (which
+          // only flips status — it can't interrupt an in-flight await) is
+          // actually honored instead of the loop running to completion anyway.
+          const currentJob = this.jobManager.getJob(job.id);
+          if (currentJob?.status === 'cancelled') {
+            wasCancelled = true;
+            this._log('info', `Batch job ${job.id} cancelled; stopping after ${i}/${total} URLs`);
+            break;
+          }
           const batch = urlConfigs.slice(i, i + validated.maxConcurrency);
           results.push(...await scrapeUrlsBatch(batch, validated, this.defaultTimeout));
           const progress = Math.round(((i + batch.length) / total) * 100);
@@ -327,7 +384,7 @@ export class BatchScrapeTool extends EventEmitter {
         const executionTime = Date.now() - startTime;
 
         const batchResult = {
-          batchId, mode: 'async', success: true, executionTime,
+          batchId, mode: 'async', success: true, cancelled: wasCancelled || undefined, executionTime,
           totalUrls: urlConfigs.length,
           successfulUrls: processedResults.filter(r => r.success).length,
           failedUrls: processedResults.filter(r => !r.success).length,
@@ -339,13 +396,20 @@ export class BatchScrapeTool extends EventEmitter {
           this.batchResults.set(batchId, { results: processedResults, timestamp: Date.now(), ttl: 3600000 });
         }
 
-        this.stats.completedBatches++;
-        this.stats.totalUrls += urlConfigs.length;
+        this.stats.totalUrls += results.length;
         this.stats.successfulUrls += batchResult.successfulUrls;
         this.stats.failedUrls += batchResult.failedUrls;
-        this._updateAverageBatchTime(executionTime);
         this.stats.lastUpdated = Date.now();
 
+        if (wasCancelled) {
+          // Job status is already 'cancelled' (set by cancelJob); returning
+          // normally here would otherwise let JobManager.executeJob overwrite
+          // it back to 'completed'. See the JobManager.js guard below.
+          return batchResult;
+        }
+
+        this.stats.completedBatches++;
+        this._updateAverageBatchTime(executionTime);
         await sendWebhookNotification('batch_completed', batchResult, webhookConfig, this.webhookDispatcher, this.enableWebhookNotifications);
         this.emit('batchCompleted', batchResult);
         return batchResult;

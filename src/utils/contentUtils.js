@@ -93,61 +93,74 @@ export class HTMLCleaner {
 
     let text = '';
 
-    $('body').find('*').each((_, element) => {
-      const $element = $(element);
-      const tagName = element.tagName.toLowerCase();
+    // Walk direct children recursively (rather than $('body').find('*'),
+    // which flattens every descendant) so a block element's text isn't
+    // captured once via $element.text() (which includes nested content) and
+    // then again when the walker separately visits its nested elements.
+    function walk($el) {
+      $el.contents().each((_, node) => {
+        if (node.type === 'text') {
+          const value = (node.data || '').trim();
+          if (value) text += ' ' + value;
+          return;
+        }
+        if (node.type !== 'tag') return;
 
-      switch (tagName) {
-        case 'p':
-        case 'div':
-          if (extractOptions.preserveParagraphs) {
-            text += '\n\n' + $element.text().trim();
-          } else {
-            text += ' ' + $element.text().trim();
-          }
-          break;
-        case 'br':
-          if (extractOptions.preserveLineBreaks) {
-            text += '\n';
-          }
-          break;
-        case 'h1':
-        case 'h2':
-        case 'h3':
-        case 'h4':
-        case 'h5':
-        case 'h6':
-          text += '\n\n' + $element.text().trim().toUpperCase() + '\n';
-          break;
-        case 'a':
-          if (extractOptions.includeLinks) {
-            const href = $element.attr('href');
-            const linkText = $element.text().trim();
-            text += ` ${linkText}${href ? ` (${href})` : ''}`;
-          } else {
-            text += ' ' + $element.text().trim();
-          }
-          break;
-        case 'img':
-          if (extractOptions.includeImageAlt) {
-            const alt = $element.attr('alt');
-            if (alt) {
-              text += ` [Image: ${alt}]`;
+        const $node = $(node);
+        const tagName = node.tagName.toLowerCase();
+
+        switch (tagName) {
+          case 'p':
+          case 'div':
+            text += extractOptions.preserveParagraphs ? '\n\n' : ' ';
+            walk($node);
+            break;
+          case 'br':
+            if (extractOptions.preserveLineBreaks) {
+              text += '\n';
             }
-          }
-          break;
-        case 'li':
-          text += '\n• ' + $element.text().trim();
-          break;
-        default:
-          // For other elements, just extract text
-          if ($element.children().length === 0) {
-            text += ' ' + $element.text().trim();
-          }
-      }
-    });
+            break;
+          case 'h1':
+          case 'h2':
+          case 'h3':
+          case 'h4':
+          case 'h5':
+          case 'h6':
+            text += '\n\n' + $node.text().trim().toUpperCase() + '\n';
+            break;
+          case 'a':
+            if (extractOptions.includeLinks) {
+              const href = $node.attr('href');
+              const linkText = $node.text().trim();
+              text += ` ${linkText}${href ? ` (${href})` : ''}`;
+            } else {
+              walk($node);
+            }
+            break;
+          case 'img':
+            if (extractOptions.includeImageAlt) {
+              const alt = $node.attr('alt');
+              if (alt) {
+                text += ` [Image: ${alt}]`;
+              }
+            }
+            break;
+          case 'li':
+            text += '\n• ';
+            walk($node);
+            break;
+          default:
+            walk($node);
+        }
+      });
+    }
 
-    return text.replace(/\s+/g, ' ').replace(/\n\s+/g, '\n').trim();
+    walk($('body'));
+
+    // Collapse horizontal whitespace only — collapsing all whitespace
+    // (including newlines) here would erase the line breaks/paragraphs the
+    // options above were just asked to preserve.
+    return text.replace(/[ \t]+/g, ' ').replace(/[ \t]*\n[ \t]*/g, '\n').trim();
   }
 }
 

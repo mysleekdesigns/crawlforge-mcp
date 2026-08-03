@@ -497,7 +497,7 @@ server.registerTool("extract_content", {
   annotations: { title: "Extract Content", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to extract content from"),
-    options: z.object({}).optional().describe("Additional extraction options")
+    options: z.object({}).passthrough().optional().describe("Additional extraction options")
   }
 }, withAuth("extract_content", async ({ url, options }) => {
   try {
@@ -520,7 +520,7 @@ server.registerTool("process_document", {
     sourceType: z.enum(['url', 'pdf_url', 'file', 'pdf_file']).optional().describe("Type of document source"),
     // C3: passthrough so granular options (maxPages, pageRange:{start,end},
     // extractText, outputFormat, etc.) reach the tool instead of being stripped.
-    options: z.object({}).passthrough().optional().describe("Additional processing options (maxPages, pageRange:{start,end}, extractText, extractMetadata, password, outputFormat, ...)")
+    options: z.object({}).passthrough().optional().describe("Additional processing options (maxPages, pageRange:{start,end}, extractText, extractMetadata, outputFormat, ...)")
   }
 }, withAuth("process_document", async ({ source, sourceType, options }) => {
   try {
@@ -540,7 +540,7 @@ server.registerTool("summarize_content", {
   annotations: { title: "Summarize Content", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: {
     text: z.string().describe("The text content to summarize"),
-    options: z.object({}).optional().describe("Summarization options")
+    options: z.object({}).passthrough().optional().describe("Summarization options")
   }
 }, withAuth("summarize_content", async ({ text, options }) => {
   try {
@@ -560,7 +560,7 @@ server.registerTool("analyze_content", {
   annotations: { title: "Analyze Content", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: {
     text: z.string().describe("The text content to analyze"),
-    options: z.object({}).optional().describe("Analysis options")
+    options: z.object({}).passthrough().optional().describe("Analysis options")
   }
 }, withAuth("analyze_content", async ({ text, options }) => {
   try {
@@ -1045,7 +1045,8 @@ server.registerTool("generate_llms_txt", {
       maxPages: z.number().min(10).max(500).optional().default(100),
       detectAPIs: z.boolean().optional().default(true),
       analyzeContent: z.boolean().optional().default(true),
-      checkSecurity: z.boolean().optional().default(true),
+      checkSecurity: z.boolean().optional().default(false),
+      probeRateLimit: z.boolean().optional().default(false),
       respectRobots: z.boolean().optional().default(true)
     }).optional().describe("Website analysis options for depth, scope, and detection"),
     outputOptions: z.object({
@@ -1054,7 +1055,8 @@ server.registerTool("generate_llms_txt", {
       contactEmail: z.string().email().optional(),
       organizationName: z.string().optional(),
       customGuidelines: z.array(z.string()).optional(),
-      customRestrictions: z.array(z.string()).optional()
+      customRestrictions: z.array(z.string()).optional(),
+      robotsStyle: z.boolean().optional().default(false)
     }).optional().describe("Output customization and organization details"),
     complianceLevel: z.enum(['basic', 'standard', 'strict']).optional().default('standard').describe("Compliance level for generated guidelines"),
     format: z.enum(['both', 'llms-txt', 'llms-full-txt']).optional().default('both').describe("Output format: llms.txt, llms-full.txt, or both")

@@ -53,11 +53,6 @@ export class GenerateLLMsTxtTool {
       userAgent: options.userAgent || 'LLMs.txt-Generator/1.0',
       ...options
     };
-
-    this.analyzer = new LLMsTxtAnalyzer({
-      timeout: this.options.timeout,
-      userAgent: this.options.userAgent
-    });
   }
 
   async execute(params) {
@@ -71,8 +66,15 @@ export class GenerateLLMsTxtTool {
       const baseUrl = getBaseUrl(url);
       
       // Step 1: Comprehensive Website Analysis
+      // A fresh analyzer is constructed per call — LLMsTxtAnalyzer keeps mutable
+      // per-analysis state on `this.analysis`, so a shared instance would let
+      // concurrent (or successive) calls cross-contaminate results.
       logger.info(`Analyzing website: ${baseUrl}`);
-      const analysis = await this.analyzer.analyzeWebsite(url, analysisOptions);
+      const analyzer = new LLMsTxtAnalyzer({
+        timeout: this.options.timeout,
+        userAgent: this.options.userAgent
+      });
+      const analysis = await analyzer.analyzeWebsite(url, analysisOptions);
 
       // Step 2: Generate LLMs.txt Content
       const llmsTxtContent = this.generateLLMsTxt(analysis, outputOptions, complianceLevel);

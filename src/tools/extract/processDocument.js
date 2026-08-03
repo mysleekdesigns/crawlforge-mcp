@@ -4,6 +4,8 @@
  */
 
 import { z } from 'zod';
+import fs from 'fs/promises';
+import path from 'path';
 import { PDFProcessor } from '../../core/processing/PDFProcessor.js';
 import { ContentProcessor } from '../../core/processing/ContentProcessor.js';
 import { BrowserProcessor } from '../../core/processing/BrowserProcessor.js';
@@ -18,7 +20,6 @@ const ProcessDocumentSchema = z.object({
     // PDF processing options
     extractText: z.boolean().default(true),
     extractMetadata: z.boolean().default(true),
-    password: z.string().optional(),
     maxPages: z.number().min(1).max(500).default(100),
     // C3: extract a specific 1-based, inclusive page range from a PDF
     pageRange: z.object({
@@ -148,6 +149,9 @@ export class ProcessDocumentTool {
       if (sourceType.includes('pdf')) {
         result.documentType = 'pdf';
         await this.processPDFDocument(result, source, sourceType, options);
+      } else if (sourceType === 'file') {
+        result.documentType = 'file';
+        await this.processLocalFileDocument(result, source, options);
       } else {
         result.documentType = 'web';
         await this.processWebDocument(result, source, options);
@@ -200,7 +204,6 @@ export class ProcessDocumentTool {
       options: {
         extractText: options.extractText,
         extractMetadata: options.extractMetadata,
-        password: options.password,
         maxPages: options.maxPages,
         ...(options.pageRange ? { pageRange: options.pageRange } : {})
       }
@@ -293,10 +296,52 @@ export class ProcessDocumentTool {
 
     result.title = pageTitle;
 
+    await this.processFetchedHtml(result, html, source, options);
+  }
+
+  /**
+   * Process a local non-PDF file (sourceType 'file'): read it from disk and
+   * run it through the same content-processing pipeline used for web pages.
+   * @param {Object} result - Result object to populate
+   * @param {string} source - Local file path
+   * @param {Object} options - Processing options
+   * @returns {Promise<void>}
+   */
+  async processLocalFileDocument(result, source, options) {
+    const resolvedPath = path.resolve(source);
+    let content;
+    try {
+      content = await fs.readFile(resolvedPath, 'utf-8');
+    } catch (error) {
+      throw new Error(`Failed to read local file: ${error.message}`);
+    }
+
+    const isHtml = /\.html?$/i.test(resolvedPath) || /<html[\s>]/i.test(content.slice(0, 1000));
+    const html = isHtml
+      ? content
+      : `<html><body><pre>${content.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))}</pre></body></html>`;
+
+    result.title = isHtml ? this.extractTitleFromHTML(content) : null;
+
+    // No `url` to pass here — ContentProcessor's url field is a validated
+    // absolute URL, and a filesystem path doesn't qualify.
+    await this.processFetchedHtml(result, html, undefined, options);
+  }
+
+  /**
+   * Run the shared content-processing pipeline (Readability/boilerplate
+   * fallback, metadata, structured data) over already-fetched HTML.
+   * @param {Object} result - Result object to populate
+   * @param {string} html - HTML content
+   * @param {string|undefined} url - Source URL (omitted for local files)
+   * @param {Object} options - Processing options
+   * @returns {Promise<void>}
+   */
+  async processFetchedHtml(result, html, url, options) {
     // Step 2: Process content with ContentProcessor
     const processingResult = await this.contentProcessor.processContent({
       html,
-      url: source,
+      url,
       options: {
         extractStructuredData: options.extractStructuredData,
         calculateReadabilityScore: true,
@@ -449,13 +494,16 @@ export class ProcessDocumentTool {
    * @returns {Promise<boolean>} - Whether JavaScript is needed
    */
   async shouldUseJavaScript(url) {
+    // Strip the fragment first: an ordinary document anchor (e.g. #install)
+    // isn't a signal for client-side routing, and anchoring the path pattern
+    // to full segments avoids false positives like "/apple" or "/spaces".
+    const urlWithoutFragment = url.split('#')[0];
     const jsIndicators = [
-      /\/(app|spa|dashboard|admin)/,
-      /#/,
+      /\/(app|spa|dashboard|admin)(\/|$)/,
       /\.(js|jsx|ts|tsx)$/
     ];
 
-    return jsIndicators.some(pattern => pattern.test(url));
+    return jsIndicators.some(pattern => pattern.test(urlWithoutFragment));
   }
 
   /**
