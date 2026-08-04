@@ -167,30 +167,30 @@ class AuthManager {
    * Setup wizard for first-time users
    */
   async runSetup(apiKey) {
-    console.log('🔧 Setting up CrawlForge MCP Server...\n');
-    
+    console.error('🔧 Setting up CrawlForge MCP Server...\n');
+
     if (!apiKey) {
-      console.log('❌ API key is required for setup');
-      console.log('Get your API key from: https://www.crawlforge.dev/dashboard/api-keys');
+      console.error('❌ API key is required for setup');
+      console.error('Get your API key from: https://www.crawlforge.dev/dashboard/api-keys');
       return false;
     }
 
     // Validate API key with backend
     const validation = await this.validateApiKey(apiKey);
-    
+
     if (!validation.valid) {
-      console.log(`❌ Invalid API key: ${validation.error}`);
+      console.error(`❌ Invalid API key: ${validation.error}`);
       return false;
     }
 
     // Save configuration
     await this.saveConfig(apiKey, validation.userId, validation.email);
-    
-    console.log('✅ Setup complete!');
-    console.log(`📧 Account: ${validation.email}`);
-    console.log(`💳 Credits remaining: ${validation.creditsRemaining}`);
-    console.log(`📦 Plan: ${validation.planId}`);
-    
+
+    console.error('✅ Setup complete!');
+    console.error(`📧 Account: ${validation.email}`);
+    console.error(`💳 Credits remaining: ${validation.creditsRemaining}`);
+    console.error(`📦 Plan: ${validation.planId}`);
+
     return true;
   }
 
@@ -633,7 +633,7 @@ class AuthManager {
         break;
       }
       case 'crawl_deep': {
-        const maxPages = params?.maxPages || params?.options?.maxPages || 10;
+        const maxPages = params?.max_pages || params?.maxPages || params?.options?.maxPages || 10;
         projected = Math.max(base, Math.ceil(maxPages / 20) * base);
         note = `Lower-bound estimate. crawl_deep cost grows with page count (${maxPages} max).`;
         break;
@@ -691,7 +691,7 @@ class AuthManager {
       await fs.unlink(this.configPath);
       this.config = null;
       this.creditCache.clear();
-      console.log('Configuration cleared.');
+      console.error('Configuration cleared.');
     } catch (error) {
       console.error('Failed to clear configuration:', error.message);
     }

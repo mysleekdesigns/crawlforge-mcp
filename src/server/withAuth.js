@@ -57,7 +57,8 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
                   message: `This operation requires ${creditCost} credits. Please upgrade your plan at https://www.crawlforge.dev/pricing`,
                   creditsRequired: creditCost
                 }, null, 2)
-              }]
+              }],
+              isError: true
             };
           }
         }

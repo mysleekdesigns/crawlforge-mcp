@@ -25,9 +25,33 @@ function quietLogger() {
   return { info() {}, warn() {}, error() {}, debug() {} };
 }
 
-async function fetchPath(port, path, { method = 'GET', headers = {}, body } = {}) {
+// timeoutMs guards tests that exercise the "second request" failure modes below:
+// against the old single-shared-transport code, some of these requests never
+// resolve (unhandled rejection inside the http server's request callback, no
+// response ever written) rather than erroring, which would otherwise hang the
+// whole suite. 5s is generous for a local stub server.
+async function fetchPath(port, path, { method = 'GET', headers = {}, body, timeoutMs = 5000 } = {}) {
   const url = `http://localhost:${port}${path}`;
-  return fetch(url, { method, headers, body });
+  return fetch(url, { method, headers, body, signal: AbortSignal.timeout(timeoutMs) });
+}
+
+const jsonRpcHeaders = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+
+function initializeBody(id) {
+  return JSON.stringify({
+    jsonrpc: '2.0',
+    id,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'test-client', version: '1.0.0' }
+    }
+  });
+}
+
+function pingBody(id) {
+  return JSON.stringify({ jsonrpc: '2.0', id, method: 'ping' });
 }
 
 async function startServer(opts = {}) {
@@ -50,7 +74,9 @@ async function startServer(opts = {}) {
 
 async function close(env) {
   await new Promise((resolve) => env.httpServer.close(resolve));
-  await env.transport.close?.();
+  // env.transport may no longer be a single shared instance once the target
+  // per-session/per-request transport rewrite lands — stay defensive.
+  await env.transport?.close?.();
   await env.server.close?.();
 }
 
@@ -208,6 +234,106 @@ test('OPTIONS preflight returns 204 + CORS headers', async () => {
     assert.equal(res.status, 204);
     assert.equal(res.headers.get('access-control-allow-origin'), '*');
     assert.match(res.headers.get('access-control-allow-headers') ?? '', /Mcp-Session-Id/);
+  } finally {
+    await close(env);
+  }
+});
+
+// ─── Session lifecycle (stateful mode) ──────────────────────────────────────
+// The SDK's StreamableHTTPServerTransport rejects a second 'initialize' on the
+// SAME transport instance with 400 "Server already initialized". A correct
+// stateful implementation must hand each new session its own transport (a
+// sessionId -> transport map), so concurrent/repeat/reconnect initializes each
+// succeed with their own distinct Mcp-Session-Id. Auth is bypassed (creator
+// mode) so these tests isolate transport/session behavior from the auth gate.
+
+test('stateful mode: two concurrent initialize requests each succeed with distinct sessions', async () => {
+  const env = await startServer({ auth: makeAuth({ creator: true }) });
+  try {
+    const [res1, res2] = await Promise.all([
+      fetchPath(env.port, '/mcp', { method: 'POST', body: initializeBody(1), headers: jsonRpcHeaders }),
+      fetchPath(env.port, '/mcp', { method: 'POST', body: initializeBody(2), headers: jsonRpcHeaders })
+    ]);
+    assert.equal(res1.status, 200, 'first initialize succeeds');
+    assert.equal(res2.status, 200, 'second, concurrent initialize succeeds (not "Server already initialized")');
+    const session1 = res1.headers.get('mcp-session-id');
+    const session2 = res2.headers.get('mcp-session-id');
+    assert.ok(session1, 'first response carries a session id');
+    assert.ok(session2, 'second response carries a session id');
+    assert.notEqual(session1, session2, 'concurrent initializes get distinct sessions');
+  } finally {
+    await close(env);
+  }
+});
+
+test('stateful mode: re-initializing after a prior session (client reconnect) succeeds', async () => {
+  const env = await startServer({ auth: makeAuth({ creator: true }) });
+  try {
+    const res1 = await fetchPath(env.port, '/mcp', { method: 'POST', body: initializeBody(1), headers: jsonRpcHeaders });
+    assert.equal(res1.status, 200);
+    const session1 = res1.headers.get('mcp-session-id');
+    assert.ok(session1);
+
+    // A second, independent client initializing (e.g. after the first dropped
+    // its connection without sending DELETE) must not be rejected by whatever
+    // served the first session.
+    const res2 = await fetchPath(env.port, '/mcp', { method: 'POST', body: initializeBody(2), headers: jsonRpcHeaders });
+    assert.equal(res2.status, 200, 're-initialize after a prior session must still succeed');
+    const session2 = res2.headers.get('mcp-session-id');
+    assert.ok(session2);
+    assert.notEqual(session2, session1, 'reconnect gets a fresh session id');
+  } finally {
+    await close(env);
+  }
+});
+
+test('stateful mode: DELETE terminates a session, then a fresh initialize still succeeds', async () => {
+  const env = await startServer({ auth: makeAuth({ creator: true }) });
+  try {
+    const res1 = await fetchPath(env.port, '/mcp', { method: 'POST', body: initializeBody(1), headers: jsonRpcHeaders });
+    assert.equal(res1.status, 200);
+    const session1 = res1.headers.get('mcp-session-id');
+    assert.ok(session1);
+
+    const delRes = await fetchPath(env.port, '/mcp', {
+      method: 'DELETE',
+      headers: { ...jsonRpcHeaders, 'mcp-session-id': session1 }
+    });
+    assert.notEqual(delRes.status, 401);
+    assert.ok(delRes.status < 500, `DELETE should not 5xx (got ${delRes.status})`);
+
+    const res2 = await fetchPath(env.port, '/mcp', { method: 'POST', body: initializeBody(2), headers: jsonRpcHeaders });
+    assert.equal(res2.status, 200, 'fresh initialize after DELETE must succeed');
+    const session2 = res2.headers.get('mcp-session-id');
+    assert.ok(session2);
+    assert.notEqual(session2, session1, 'the post-DELETE session is a new one, not the terminated one');
+  } finally {
+    await close(env);
+  }
+});
+
+// ─── Legacy stateless mode: multiple requests must not hang ────────────────
+// The SDK throws 'Stateless transport cannot be reused across requests' when
+// the same sessionIdGenerator:undefined transport handles a second request.
+// The old streamableHttp.js code had no try/catch around
+// transport.handleRequest(), so that throw was an unhandled rejection and the
+// second request's response was NEVER written — a hang, not an error. The
+// fix is a fresh transport per request. fetchPath's timeout keeps a hang from
+// blocking the suite; a hang shows up here as a rejected/aborted fetch.
+
+test('legacy mode: a second and third request each get a proper response, no hang', async () => {
+  const env = await startServer({ legacy: true, auth: makeAuth({ creator: true }) });
+  try {
+    const send = (id) => fetchPath(env.port, '/mcp', { method: 'POST', body: pingBody(id), headers: jsonRpcHeaders });
+
+    const res1 = await send(1);
+    assert.equal(res1.status, 200, 'first request succeeds');
+
+    const res2 = await send(2);
+    assert.equal(res2.status, 200, 'second request must get a real response, not hang');
+
+    const res3 = await send(3);
+    assert.equal(res3.status, 200, 'third request must also get a real response');
   } finally {
     await close(env);
   }

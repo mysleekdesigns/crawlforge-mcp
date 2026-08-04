@@ -440,7 +440,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
         formAutoFillApplied: !!params.formAutoFill,
         intermediateStatesCount: intermediateStates.length,
         screenshotsCount: sessionContext.screenshots.length,
-        finalUrl: chainResult.metadata?.finalUrl,
+        finalUrl: chainResult?.finalUrl,
         timestamp: Date.now()
       },
 

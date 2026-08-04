@@ -112,7 +112,7 @@ const server = new McpServer({
 });
 
 // Register getting-started prompt
-server.prompt("getting-started", {
+server.registerPrompt("getting-started", {
   description: "Get started with CrawlForge MCP - learn available tools and best practices",
 }, async () => {
   return {
@@ -155,7 +155,14 @@ const metrics = metricsEnabled ? createMetricsRegistry() : null;
 const withAuth = makeWithAuth({ authManager: AuthManager, logger, metrics });
 
 // Initialize tools
-const searchWebTool = new SearchWebTool(getToolConfig("search_web"));
+// search_web falls back to AuthManager's stored key (~/.crawlforge/config.json)
+// when CRAWLFORGE_API_KEY isn't set as an env var, so it doesn't diverge from
+// the key AuthManager already used to authenticate/bill the call.
+const searchWebToolConfig = getToolConfig("search_web");
+if (!searchWebToolConfig.apiKey) {
+  searchWebToolConfig.apiKey = AuthManager.getConfig()?.apiKey;
+}
+const searchWebTool = new SearchWebTool(searchWebToolConfig);
 // serp_rank uses DataForSEO credentials (DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD),
 // separate from CrawlForge billing — no getToolConfig needed. Degrades gracefully
 // when unconfigured (returns { configured: false } instead of throwing).
@@ -199,6 +206,8 @@ crawlDeepTool.setMcpServer(server);
 extractStructuredTool.setMcpServer(server);
 agentTool.setMcpServer(server); // D4 D2: SamplingClient + Elicitation
 trackChangesTool.setMcpServer(server); // v4.8: SamplingClient for scheduled-monitor goal judging
+extractWithLlmTool.setMcpServer(server); // SamplingClient fallback
+summarizeContentTool.setMcpServer(server); // SamplingClient fallback
 AuthManager.setElicitation(elicitation);
 
 // ─── D1.1 Resource Templates (MCP Resources) ─────────────────────────────────
@@ -889,11 +898,14 @@ server.registerTool("scrape", {
     const result = await unifiedScrapeTool.execute(params);
     // Publish any captured screenshots as crawlforge://screenshot/{actionId}
     // resources and annotate each with its URI (mirrors scrape_with_actions).
+    // The base64 `data` is dropped from the inline result once stored — it's
+    // only retrievable via the resource, so the tool result stays small.
     if (Array.isArray(result?.content?.screenshots)) {
       result.content.screenshots = result.content.screenshots.map((shot) => {
         if (shot?.actionId && shot?.data) {
           resourceRegistry.storeScreenshot(shot.actionId, shot.data);
-          return { ...shot, resourceUri: `crawlforge://screenshot/${shot.actionId}` };
+          const { data, ...rest } = shot;
+          return { ...rest, resourceUri: `crawlforge://screenshot/${shot.actionId}` };
         }
         return shot;
       });

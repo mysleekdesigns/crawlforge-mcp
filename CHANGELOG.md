@@ -5,6 +5,49 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Fixed — Remediation Phase 4: HTTP transport, protocol hygiene & medium/low cleanup (2026-08-04)
+
+Closes all 19 Phase 4 findings from the [2026-08 codebase audit](./docs/CODEBASE_AUDIT_2026-08.md) — the HTTP/remote deployment path (previously degraded to one session and bricked on reconnect/DELETE), the unretrievable `getting-started` prompt, and the remaining medium/low catalog. Fifth phase of the [remediation plan](./plan/README.md).
+
+**Streamable HTTP transport (`npm run start:http`)**
+- Stateful mode now follows the SDK's documented per-session pattern: a `Map<sessionId, {transport, server}>` with a fresh transport + cloned `McpServer` per `initialize`, disposal on DELETE/`onsessionclosed`, and a JSON-RPC 404 for unknown session ids. A second concurrent client, a reconnect-via-re-initialize after a network drop, and DELETE followed by a fresh initialize all work — previously a single shared transport meant only one session ever, and any clean disconnect bricked `/mcp` until process restart.
+- Legacy stateless mode (`--legacy-http`) builds a fresh transport + cloned server per request inside a try/catch that always ends the response with a JSON-RPC 500 on failure — previously the SDK's no-reuse guard made every request after the first die as an unhandled rejection with the client hanging until timeout.
+- Discovery metadata is real: the version is read live from `package.json` (was hard-coded `3.5.1`) and the Smithery server-card tool count is computed from the registered-tools map (27 — was "20 tools"); `/health` and the startup banner report the same.
+
+**Protocol hygiene**
+- `getting-started` prompt registered via the `registerPrompt` config-object API — the plain config object previously hit the SDK's positional `argsSchema` overload, advertising a bogus required argument and failing every `prompts/get` with -32602/-32603, making the prompt unretrievable by any client.
+- `scrape` no longer inlines full base64 screenshot bytes into the JSON tool result: once the image is stored in the resource registry, the returned object keeps only metadata + the `crawlforge://screenshot/{id}` resource URI (previously several MB of base64 shipped into the conversation alongside the URI).
+- Auto-setup status banners (`AuthManager.runSetup`/`clearConfig`) moved from stdout to stderr — first launch with `CRAWLFORGE_API_KEY` set no longer injects non-JSON lines into the stdio JSON-RPC channel; the stdout-hygiene test now scans AuthManager instead of excluding it.
+- Insufficient-credits refusals from `withAuth` carry `isError: true` like every other failure path, so clients branching on the flag see the refusal.
+
+**Key/config correctness**
+- `search_web` falls back to the `~/.crawlforge/config.json` API key when `CRAWLFORGE_API_KEY` is absent — users configured via `npm run setup` (no env var) previously passed the credit check but hit a guaranteed adapter failure half-billed at 2 credits per call.
+- `AuthManager.projectCost` reads `crawl_deep`'s actual snake_case `max_pages` field (with `maxPages` fallback) — `_cost.projected` transparency metadata no longer stuck at the 10-page default.
+
+**Webhooks**
+- HMAC signatures now cover the exact serialized request body that is POSTed (the full `{event,id,timestamp,data,metadata}` envelope) — standard receiver-side raw-body verification finally matches; previously only the `data` sub-object was signed and every verification failed.
+- Thrown HTTP delivery errors carry `.response = { status }`, so the RetryManager's configured `retryableStatusCodes` actually trigger retries instead of being dead config.
+
+**Tool-layer cleanup**
+- `extract_structured` invokes its wired-but-dormant elicitation before the low-fidelity CSS fallback when the schema has >3 required fields and no LLM is configured (fail-open when the client lacks elicitation), matching the documented behavior.
+- MCP-sampling fallback un-deadened: `extract_with_llm` and `summarize_content` gain `setMcpServer()` wiring in `server.js`, so the client-side sampling leg of the advertised Ollama → API → sampling chain can actually run.
+- `scrape` screenshot failures surface the real error (navigation timeout, DNS failure, browser-launch failure) instead of flattening everything to "capture produced no image".
+- `BrowserBaseBackend.connect` failures include the HTTP status + response body (was `throw new Error()` with no message); the stale comment referencing a nonexistent fallback wiring replaced with an accurate "defined but unwired" note.
+- `scrape_with_actions` `metadata.finalUrl` reads the top-level `chainResult.finalUrl` (was always `undefined` after navigation-changing actions).
+- Recordings made with `captureIntermediateStates` preserve the `script` field of `executeJavaScript` entries, so replays no longer fail `ActionChainSchema` validation.
+
+**Tests**
+- Transport: second-concurrent-session, reconnect re-initialize, DELETE-then-initialize, and multi-request legacy-mode coverage against a real listening server in `streamableHttp.test.js` (31 tests).
+- The MCP compliance suite gains prompt coverage: `prompts/list` must advertise `getting-started` with a description and no bogus required argument, and `prompts/get` must succeed for all 6 registered prompts.
+- `withAuth`: checkCredits-throws path asserts no usage is reported (no billing on refusal); refusal shape aligned with `isError: true`.
+- Real-lifecycle coverage: `initializePage` goto-failure asserts page **and context** close; webhook delivery against a local endpoint asserts abort at `config.timeout` and body-string HMAC; `batchResults` TTL eviction.
+
+### Verification (Phase 4)
+
+- `npm run test:unit`: 835 tests — 834 pass, 0 fail, 1 deliberately skipped.
+- `npm test` (MCP protocol compliance): 100.0% COMPLIANT, 0 errors — 11 groups including the new prompt discovery/retrieval checks.
+- Live transport re-smoke (real listening server): second session, reconnect, DELETE + fresh initialize, and repeated legacy-mode requests all succeed; `/health` and the server-card report v4.10.0 / 27 tools.
+
 ### Fixed — Remediation Phase 3: resource leaks, timeouts & robustness (2026-08-03)
 
 Closes all 24 Phase 3 findings from the [2026-08 codebase audit](./docs/CODEBASE_AUDIT_2026-08.md) — the "safe to run for days" class: timers, browser contexts, and caches that accumulated for the process lifetime, and body reads with no deadline. Fourth phase of the [remediation plan](./plan/README.md).

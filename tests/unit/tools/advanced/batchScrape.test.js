@@ -201,3 +201,34 @@ describe('BatchScrapeTool (real module) — async mode: in-progress status + can
     assert.equal(tool.jobManager.getJob(queued.jobId).status, 'cancelled');
   });
 });
+
+describe('BatchScrapeTool (real module) — batchResults cache TTL eviction', () => {
+  // Complements the "expired entries are deleted on read" case already
+  // covered in tests/unit/phase3-leaks.test.js by exercising it against a
+  // real (short) resultCacheTtl instead of a synthetically pre-expired entry
+  // poked directly into the Map, and by also asserting the pre-expiry
+  // cache-hit shape so both sides of the TTL boundary are covered here.
+  test('a cached result is served while fresh, then evicted (falls through to not-found) once its TTL elapses', async () => {
+    const tool = makeTool();
+    try {
+      const batchId = 'ttl_evict_test';
+      tool.resultCacheTtl = 30; // ms — short-lived so the test runs fast
+      tool._cacheBatchResult(batchId, [{ url: `${baseUrl}/plain/x`, success: true }]);
+
+      const fresh = await tool.getBatchResults(batchId);
+      assert.equal(fresh.cached, true, 'a not-yet-expired entry must be served from cache');
+      assert.equal(fresh.results.length, 1);
+
+      await new Promise((r) => setTimeout(r, 60));
+
+      await assert.rejects(() => tool.getBatchResults(batchId), /not found/i);
+      assert.equal(
+        tool.batchResults.has(batchId),
+        false,
+        'an expired batch entry must be evicted from the cache on read, not merely fall through to "not found" while still occupying memory'
+      );
+    } finally {
+      await tool.destroy();
+    }
+  });
+});

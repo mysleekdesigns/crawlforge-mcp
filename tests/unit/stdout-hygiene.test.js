@@ -15,8 +15,8 @@
  * `console.error` (stderr) or the Winston logger.
  *
  * Deliberately NOT scanned (stdout there is intentional / never hit during a
- * one-shot CLI tool run): src/cli/** (prints results), AuthManager interactive
- * setup, src/security/** standalone scripts, and graceful-shutdown logs.
+ * one-shot CLI tool run): src/cli/** (prints results), src/security/**
+ * standalone scripts, and graceful-shutdown logs.
  */
 
 import { test } from 'node:test';
@@ -61,6 +61,7 @@ test('no console.log() in browser/crawl/webhook core execution paths', () => {
     'src/core/crawlers/BFSCrawler.js',
     'src/core/WebhookDispatcher.js',
     'src/core/StealthBrowserManager.js',
+    'src/core/AuthManager.js',
   ]);
   assert.deepEqual(
     found,

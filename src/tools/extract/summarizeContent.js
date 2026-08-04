@@ -76,6 +76,12 @@ const SummarizeContentResult = z.object({
 export class SummarizeContentTool {
   constructor() {
     this.contentAnalyzer = new ContentAnalyzer();
+    this._mcpServer = null;
+  }
+
+  /** D1.3: Wire MCP server so the sampling fallback can reach the client. */
+  setMcpServer(mcpServer) {
+    this._mcpServer = mcpServer;
   }
 
   /**
@@ -211,7 +217,7 @@ export class SummarizeContentTool {
   async _abstractiveSummaryViaSampling(text, extractiveSummary, summaryLength) {
     try {
       const SamplingClient = await getSamplingClient();
-      const client = new SamplingClient();
+      const client = new SamplingClient({ mcpServer: this._mcpServer });
 
       const lengthGuide = {
         short: '1-2 sentences',

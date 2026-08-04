@@ -379,12 +379,6 @@ export class WebhookDispatcher extends EventEmitter {
     headers['X-Webhook-ID'] = event.id;
     headers['X-Webhook-Timestamp'] = event.timestamp.toString();
 
-    // Add HMAC signature if secret provided
-    if (config.signingSecret) {
-      const signature = this.generateSignature(event.payload, config.signingSecret);
-      headers['X-Webhook-Signature'] = signature;
-    }
-
     // Create request body
     const body = JSON.stringify({
       event: event.type,
@@ -393,6 +387,13 @@ export class WebhookDispatcher extends EventEmitter {
       data: event.payload,
       metadata: event.metadata
     });
+
+    // Add HMAC signature if secret provided — sign the exact body being sent
+    // so receivers verifying over the raw request body get a matching digest.
+    if (config.signingSecret) {
+      const signature = this.generateSignature(body, config.signingSecret);
+      headers['X-Webhook-Signature'] = signature;
+    }
 
     // Execute with retry logic
     const result = await this.retryManager.execute(async () => {
@@ -406,7 +407,9 @@ export class WebhookDispatcher extends EventEmitter {
       });
 
       if (!response.ok) {
-        throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+        const httpError = new Error('HTTP ' + response.status + ': ' + response.statusText);
+        httpError.response = { status: response.status };
+        throw httpError;
       }
 
       return response;
@@ -429,12 +432,11 @@ export class WebhookDispatcher extends EventEmitter {
 
   /**
    * Generate HMAC signature for webhook security
-   * @param {Object} payload - Webhook payload
+   * @param {string} body - Serialized request body (exact string being sent)
    * @param {string} secret - Signing secret
    * @returns {string} HMAC signature
    */
-  generateSignature(payload, secret) {
-    const body = JSON.stringify(payload);
+  generateSignature(body, secret) {
     const hmac = crypto.createHmac('sha256', secret);
     hmac.update(body);
     return 'sha256=' + hmac.digest('hex');

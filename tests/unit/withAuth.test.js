@@ -110,11 +110,33 @@ test('withAuth: insufficient credits emits log line with outcome=insufficient_cr
   const result = await handler({ query: 'x' });
 
   assert.equal(handlerCalled, false, 'handler must not run when credits are insufficient');
+  assert.equal(result.isError, true, 'insufficient-credits refusal is a proper MCP error result');
   const text = JSON.parse(result.content[0].text);
   assert.equal(text.error, 'Insufficient credits');
   assert.equal(logger.calls.length, 1, 'one log line per invocation, even on early return');
   assert.equal(logger.calls[0].context.outcome, 'insufficient_credits');
   assert.equal(auth.reportCalls.length, 0, 'no usage report when credits insufficient');
+});
+
+test('withAuth: checkCredits throwing rejects the call and bills nothing (handler never ran)', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 5 });
+  auth.checkCredits = async () => { throw new Error('billing backend unreachable'); };
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  let handlerCalled = false;
+  const handler = withAuth('deep_research', async () => {
+    handlerCalled = true;
+    return { content: [{ type: 'text', text: 'never' }] };
+  });
+
+  await assert.rejects(() => handler({ query: 'x' }), /billing backend unreachable/);
+
+  assert.equal(handlerCalled, false, 'handler must not run when the credit check itself throws');
+  assert.equal(auth.reportCalls.length, 0, 'no usage report when the credit check throws — nothing ran to bill');
+  assert.equal(logger.calls.length, 1, 'still exactly one log line');
+  assert.equal(logger.calls[0].context.outcome, 'error');
+  assert.equal(logger.calls[0].context.toolName, 'deep_research');
 });
 
 test('withAuth: creator mode skips credit checks and reports, but still logs', async () => {

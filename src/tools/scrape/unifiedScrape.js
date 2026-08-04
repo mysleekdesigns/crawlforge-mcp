@@ -356,7 +356,9 @@ export class UnifiedScrapeTool {
               { headless: true, timeout: 30000 }
             );
             content.screenshots = Array.isArray(r?.screenshots) ? r.screenshots : [];
-            if (content.screenshots.length === 0) {
+            if (r?.success === false) {
+              warnings.push(`screenshot: ${r.error || 'capture failed'}`);
+            } else if (content.screenshots.length === 0) {
               warnings.push('screenshot: capture produced no image');
             }
           } catch (err) {

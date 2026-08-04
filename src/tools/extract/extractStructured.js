@@ -110,10 +110,12 @@ export class ExtractStructuredTool {
       let extractionResult = null;
       let extractionMethod = 'llm';
       let llmErrorMessage = null;
+      let llmAvailable = false;
 
       try {
         const llm = this._ensureLLMManager(llmConfig || {});
-        if (llm.isAvailable()) {
+        llmAvailable = llm.isAvailable();
+        if (llmAvailable) {
           extractionResult = await llm.extractStructured(textContent, schema, {
             prompt: prompt || '',
             maxContentLength: 6000
@@ -129,6 +131,28 @@ export class ExtractStructuredTool {
 
       // Step 4: CSS selector fallback if LLM unavailable or failed
       if (!extractionResult && fallbackToSelectors !== false) {
+        // D1.4: no LLM configured and the schema demands more than 3 required
+        // fields — confirm before running the lower-fidelity CSS fallback.
+        const requiredCount = (schema.required || []).length;
+        if (!llmAvailable && requiredCount > 3) {
+          const proceed = await this._elicitation.confirm(
+            `No LLM provider is configured and the requested schema has ${requiredCount} required fields. ` +
+            `extract_structured will fall back to lower-fidelity CSS selector extraction, which may miss required fields.`,
+            { url, required_fields: requiredCount }
+          );
+          if (!proceed) {
+            return {
+              url,
+              data: {},
+              extraction_method: 'none',
+              confidence: 0,
+              schema_used: schema,
+              processingTime: Date.now() - startTime,
+              error: 'Extraction cancelled by user (elicitation declined).',
+              validation: { valid: false, errors: ['Extraction cancelled by user (elicitation declined).'] }
+            };
+          }
+        }
         extractionResult = this._cssExtraction($, schema, selectorHints || {});
         extractionMethod = 'css_fallback';
       }

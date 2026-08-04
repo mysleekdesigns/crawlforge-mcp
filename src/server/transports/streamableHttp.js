@@ -21,14 +21,70 @@
  *   - GET /health returns liveness probe
  *
  * Replaces the legacy stateless http.js. Old /mcp endpoint behavior is
- * preserved when CRAWLFORGE_LEGACY_HTTP=true (one-release deprecation window).
+ * preserved when CRAWLFORGE_LEGACY_HTTP=true (one-release deprecation window);
+ * `http.js`'s connectHttp() forwards straight into this module's legacy mode.
  */
 
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
-const SERVER_VERSION = '3.5.1';
+const pkg = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
+const SERVER_VERSION = pkg.version;
+
+/**
+ * The MCP SDK's Protocol.connect() allows at most one active transport per
+ * Server/McpServer instance (it throws 'Already connected to a transport'
+ * otherwise), and each StreamableHTTPServerTransport instance represents
+ * exactly one session. So genuine multi-session support needs one McpServer
+ * per session, not just one transport per session.
+ *
+ * connectStreamableHttp() only receives a single already-configured McpServer
+ * (all 27 tools/resources/prompts registered by server.js before this runs),
+ * so instead of re-running that registration per session, this clones a
+ * fresh McpServer and copies over the already-registered tool/resource/
+ * prompt tables — plain config + handler-closure references, no per-connection
+ * state — then re-runs the same internal handler-wiring methods McpServer
+ * itself calls from registerTool/registerResource/registerPrompt. This
+ * depends on @modelcontextprotocol/sdk 1.29.0's internal McpServer field
+ * names (`_registered*`, `set*RequestHandlers`); re-check on SDK upgrades.
+ *
+ * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} templateServer
+ */
+function cloneServerForSession(templateServer) {
+  const low = templateServer.server;
+  const sessionServer = new McpServer(low._serverInfo, { instructions: low._instructions });
+
+  sessionServer._registeredTools = templateServer._registeredTools;
+  sessionServer._registeredResources = templateServer._registeredResources;
+  sessionServer._registeredResourceTemplates = templateServer._registeredResourceTemplates;
+  sessionServer._registeredPrompts = templateServer._registeredPrompts;
+
+  if (templateServer._toolHandlersInitialized) sessionServer.setToolRequestHandlers();
+  if (templateServer._resourceHandlersInitialized) sessionServer.setResourceRequestHandlers();
+  if (templateServer._promptHandlersInitialized) sessionServer.setPromptRequestHandlers();
+  if (templateServer._completionHandlerInitialized) sessionServer.setCompletionRequestHandler();
+
+  return sessionServer;
+}
+
+/** Best-effort close — swallows errors so cleanup never throws into a request handler. */
+function safeClose(closable) {
+  if (closable && typeof closable.close === 'function') {
+    Promise.resolve(closable.close()).catch(() => {});
+  }
+}
+
+function sendRpcError(res, status, code, message) {
+  if (res.headersSent) {
+    if (!res.writableEnded) res.end();
+    return;
+  }
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ jsonrpc: '2.0', error: { code, message }, id: null }));
+}
 
 /**
  * Stateful, session-aware Streamable HTTP transport.
@@ -49,13 +105,12 @@ export async function connectStreamableHttp(server, authManager, logger, options
   const oauthProvider = options.oauth ?? null;
   const metrics = options.metrics ?? null;
 
-  // Stateful mode: server generates session ids. Stateless when legacy=true.
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: legacy ? undefined : () => randomUUID()
-  });
-  await server.connect(transport);
-
   const mode = legacy ? 'legacy-stateless' : 'streamable-stateful';
+  const toolCount = Object.keys(server._registeredTools ?? {}).length;
+
+  // sessionId -> { transport, server }. One StreamableHTTPServerTransport (and
+  // therefore one cloned McpServer — see cloneServerForSession) per session.
+  const sessions = new Map();
 
   const httpServer = createServer(async (req, res) => {
     // CORS — Smithery + browser-based MCP clients
@@ -103,7 +158,7 @@ export async function connectStreamableHttp(server, authManager, logger, options
         serverInfo: {
           name: 'crawlforge',
           version: SERVER_VERSION,
-          description: 'Production-ready MCP server with 20 web scraping, crawling, and content processing tools. Features stealth browsing, deep research, structured extraction, and change tracking.',
+          description: `Production-ready MCP server with ${toolCount} web scraping, crawling, and content processing tools. Features stealth browsing, deep research, structured extraction, and change tracking.`,
           homepage: 'https://www.crawlforge.dev',
           icon: 'https://www.crawlforge.dev/icon.png'
         },
@@ -149,7 +204,77 @@ export async function connectStreamableHttp(server, authManager, logger, options
         }
       }
 
-      await transport.handleRequest(req, res);
+      if (legacy) {
+        // Stateless mode: the SDK forbids reusing a transport (or its connected
+        // Server) across requests, so build a fresh pair per request and always
+        // end the response, even on failure.
+        let sessionServer;
+        let reqTransport;
+        try {
+          sessionServer = cloneServerForSession(server);
+          reqTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+          await sessionServer.connect(reqTransport);
+          await reqTransport.handleRequest(req, res);
+        } catch (err) {
+          logger.error('Legacy Streamable HTTP request failed', { error: err?.message });
+          sendRpcError(res, 500, -32603, 'Internal server error');
+        } finally {
+          res.on('close', () => {
+            safeClose(reqTransport);
+            safeClose(sessionServer);
+          });
+        }
+        return;
+      }
+
+      // Stateful mode: route by Mcp-Session-Id. A request without the header
+      // must be a fresh initialize, which gets its own transport + server pair
+      // (independent of any prior session's lifecycle) so reconnects/re-inits
+      // never hit a stuck 'already initialized' transport.
+      const sessionIdHeader = req.headers['mcp-session-id'];
+      const existing = sessionIdHeader ? sessions.get(String(sessionIdHeader)) : undefined;
+
+      if (existing) {
+        await existing.transport.handleRequest(req, res);
+        return;
+      }
+
+      if (sessionIdHeader) {
+        // Unknown/expired session id — nothing to route this to.
+        sendRpcError(res, 404, -32001, 'Session not found');
+        return;
+      }
+
+      if (req.method !== 'POST') {
+        // GET/DELETE always require an existing session's Mcp-Session-Id.
+        sendRpcError(res, 400, -32000, 'Bad Request: Mcp-Session-Id header is required');
+        return;
+      }
+
+      const sessionServer = cloneServerForSession(server);
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (sid) => {
+          sessions.set(sid, { transport, server: sessionServer });
+        },
+        onsessionclosed: (sid) => {
+          sessions.delete(sid);
+        }
+      });
+      transport.onclose = () => {
+        const sid = transport.sessionId;
+        if (sid) sessions.delete(sid);
+      };
+
+      try {
+        await sessionServer.connect(transport);
+        await transport.handleRequest(req, res);
+      } catch (err) {
+        logger.error('Streamable HTTP session initialization failed', { error: err?.message });
+        safeClose(transport);
+        safeClose(sessionServer);
+        sendRpcError(res, 500, -32603, 'Internal server error');
+      }
       return;
     }
 
@@ -169,7 +294,19 @@ export async function connectStreamableHttp(server, authManager, logger, options
     });
   });
 
-  return { transport, httpServer };
+  return {
+    httpServer,
+    sessions,
+    /** Closes every live session's transport + server, then the HTTP server. */
+    async close() {
+      for (const { transport, server: sessionServer } of sessions.values()) {
+        safeClose(transport);
+        safeClose(sessionServer);
+      }
+      sessions.clear();
+      await new Promise((resolve) => httpServer.close(() => resolve()));
+    }
+  };
 }
 
 /**

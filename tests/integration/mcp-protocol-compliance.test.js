@@ -19,10 +19,16 @@ const MCP_TEST_CONFIG = {
   requestTimeout: 5000,
   maxRetries: 3,
   expectedTools: [
-    'fetch_url', 'extract_text', 'extract_links', 'extract_metadata', 
+    'fetch_url', 'extract_text', 'extract_links', 'extract_metadata',
     'scrape_structured', 'crawl_deep', 'map_site', 'extract_content',
     'process_document', 'summarize_content', 'analyze_content'
     // Note: search_web is conditional based on configuration
+  ],
+  // The inline "getting-started" prompt plus the 5 workflow prompts from
+  // src/prompts/PromptRegistry.js — every prompt server.js registers.
+  expectedPrompts: [
+    'getting-started', 'competitive-analysis', 'monitor-changes',
+    'rag-ingest', 'site-audit', 'research-deep-dive'
   ],
   protocolVersion: '2024-11-05'
 };
@@ -143,7 +149,11 @@ class MCPProtocolComplianceTestSuite {
       // Test 10: Transport Layer Validation
       console.log('\n🚀 Test 10: Transport Layer');
       await this.testTransportLayer();
-      
+
+      // Test 11: Prompt Discovery and Retrieval
+      console.log('\n📚 Test 11: Prompt Discovery');
+      await this.testPromptDiscovery();
+
       // Generate final compliance report
       const report = this.generateComplianceReport();
       await this.saveComplianceReport(report);
@@ -985,6 +995,88 @@ class MCPProtocolComplianceTestSuite {
     }
   }
 
+  /**
+   * Test prompt discovery (prompts/list) and retrieval (prompts/get) for
+   * every registered prompt. Catches regressions like the previously-dead
+   * "getting-started" prompt (registered via the wrong SDK overload, which
+   * silently mis-parsed its config object as a bogus required-argument
+   * schema) that this suite never exercised before, letting it report
+   * 100% COMPLIANT despite prompts/get being broken.
+   */
+  async testPromptDiscovery() {
+    try {
+      console.log('   Testing prompt discovery and retrieval...');
+
+      const listRequest = {
+        jsonrpc: '2.0',
+        id: this.getNextRequestId(),
+        method: 'prompts/list'
+      };
+      const listResponse = await this.sendRequest(listRequest);
+
+      const isValidList = listResponse &&
+        listResponse.jsonrpc === '2.0' &&
+        listResponse.result &&
+        Array.isArray(listResponse.result.prompts);
+      const prompts = listResponse?.result?.prompts || [];
+      const promptNames = prompts.map(p => p.name);
+
+      const missingPrompts = MCP_TEST_CONFIG.expectedPrompts.filter(name => !promptNames.includes(name));
+
+      // getting-started must advertise a description and must NOT list any
+      // required argument (the regression this test guards against).
+      const gettingStarted = prompts.find(p => p.name === 'getting-started');
+      const gettingStartedValid = !!gettingStarted &&
+        typeof gettingStarted.description === 'string' &&
+        gettingStarted.description.length > 0 &&
+        (gettingStarted.arguments === undefined ||
+          (Array.isArray(gettingStarted.arguments) && gettingStarted.arguments.every(a => a.required !== true)));
+
+      // prompts/get must succeed for every registered prompt.
+      const getResults = [];
+      for (const name of MCP_TEST_CONFIG.expectedPrompts) {
+        const getRequest = {
+          jsonrpc: '2.0',
+          id: this.getNextRequestId(),
+          method: 'prompts/get',
+          params: { name, arguments: {} }
+        };
+        try {
+          const response = await this.sendRequest(getRequest);
+          const { hasError, message } = this.extractError(response);
+          const hasMessages = Array.isArray(response?.result?.messages) && response.result.messages.length > 0;
+          getResults.push({ name, success: !hasError && hasMessages, error: hasError ? message : undefined });
+        } catch (error) {
+          getResults.push({ name, success: false, error: error.message });
+        }
+      }
+      const allGetsSucceeded = getResults.every(r => r.success);
+      const failedGets = getResults.filter(r => !r.success).map(r => r.name);
+
+      const success = isValidList && missingPrompts.length === 0 && gettingStartedValid && allGetsSucceeded;
+
+      this.results.addTest('promptDiscovery', {
+        success,
+        listValid: isValidList,
+        promptsDiscovered: prompts.length,
+        missingPrompts,
+        gettingStartedValid,
+        failedGets,
+        getResults
+      });
+
+      console.log(`   ${success ? '✅' : '⚠️'} Prompt discovery test ${success ? 'passed' : 'completed with failures'} (${prompts.length} prompts found, ${getResults.length - failedGets.length}/${getResults.length} prompts/get succeeded)`);
+
+    } catch (error) {
+      this.results.addError('promptDiscovery', error);
+      this.results.addTest('promptDiscovery', {
+        success: false,
+        error: error.message
+      });
+      console.log(`   ❌ Prompt discovery test failed: ${error.message}`);
+    }
+  }
+
   // Helper methods for server communication and validation
 
   /**
@@ -1189,7 +1281,7 @@ class MCPProtocolComplianceTestSuite {
     }
     
     // Check critical tests
-    const criticalTests = ['protocolInitialization', 'toolDiscovery', 'requestResponseFormat'];
+    const criticalTests = ['protocolInitialization', 'toolDiscovery', 'requestResponseFormat', 'promptDiscovery'];
     const failedCriticalTests = criticalTests.filter(test => 
       summary.tests[test] && !summary.tests[test].success
     );
@@ -1230,6 +1322,9 @@ class MCPProtocolComplianceTestSuite {
             break;
           case 'transportLayer':
             recommendations.push('Review stdio transport implementation');
+            break;
+          case 'promptDiscovery':
+            recommendations.push('Fix prompt registration/retrieval — check server.js prompt config and src/prompts/PromptRegistry.js');
             break;
         }
       }

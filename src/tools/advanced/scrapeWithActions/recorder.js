@@ -171,6 +171,9 @@ export function buildRecordedEntry(action, timestampMsSinceStart) {
   if (action.direction !== undefined) entry.direction = action.direction;
   if (action.distance !== undefined) entry.distance = action.distance;
   if (action.description !== undefined) entry.description = action.description;
+  // executeJavaScript actions require `script` to replay (ActionExecutor's
+  // ActionChainSchema rejects the entry otherwise) — preserve it.
+  if (action.script !== undefined) entry.script = action.script;
 
   return entry;
 }

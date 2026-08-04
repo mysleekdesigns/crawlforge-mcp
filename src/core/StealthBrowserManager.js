@@ -2035,8 +2035,10 @@ export class CamoufoxAdapter extends BrowserEngine {
 // CRAWLFORGE_BROWSER_BACKEND=local  → LocalPlaywrightBackend (default, current behavior)
 // CRAWLFORGE_BROWSER_BACKEND=browserbase → BrowserBaseBackend via CDP
 //
-// Graceful fallback: if BrowserBaseBackend fails to connect (no API key, network error,
-// quota exceeded), StealthBrowserManager.getBrowserBackend() falls back to local.
+// Graceful fallback: resolveBrowserBackend() below falls back to LocalPlaywrightBackend
+// when CRAWLFORGE_BROWSER_BACKEND=browserbase but BROWSERBASE_API_KEY is unset.
+// NOTE: resolveBrowserBackend() is exported but not currently called anywhere in
+// StealthBrowserManager's own launch path — this backend is defined but unwired.
 
 /**
  * BrowserBackend interface (D3.4).
@@ -2121,7 +2123,7 @@ export class BrowserBaseBackend extends BrowserBackend {
 
     if (!sessionRes.ok) {
       const err = await sessionRes.text().catch(() => '');
-      throw new Error();
+      throw new Error(`BrowserBase session create failed: HTTP ${sessionRes.status} ${err}`);
     }
 
     const session = await sessionRes.json();

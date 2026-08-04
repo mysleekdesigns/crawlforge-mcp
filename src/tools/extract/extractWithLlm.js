@@ -400,6 +400,12 @@ async function callLLM({ provider, apiKey, model, systemMessage, userMessage, ma
 export class ExtractWithLlm {
   constructor(config = {}) {
     this.config = config;
+    this._mcpServer = null;
+  }
+
+  /** D1.3: Wire MCP server so the sampling fallback can reach the client. */
+  setMcpServer(mcpServer) {
+    this._mcpServer = mcpServer;
   }
 
   /**
@@ -481,7 +487,7 @@ export class ExtractWithLlm {
       if (providerParam === 'auto' || providerParam === 'ollama') {
         try {
           const SamplingClient = await getSamplingClient();
-          const samplingClient = new SamplingClient();
+          const samplingClient = new SamplingClient({ mcpServer: this._mcpServer });
           const { text: sampledText } = await samplingClient.complete(
             `${systemMessage}\n\n${userMessage}`,
             { maxTokens }

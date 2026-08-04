@@ -15,7 +15,17 @@
 
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { ScrapeWithActionsTool } from '../../../../src/tools/advanced/ScrapeWithActionsTool.js';
+
+// Local-loopback allowlist so ActionExecutor's real SSRF pre-flight
+// (assertUrlAllowed, exercised by the browser-lifecycle tests below) doesn't
+// need real DNS/network. Must be set before the first (transitive) import of
+// src/constants/config.js — see tests/unit/phase3-leaks.test.js for the same
+// pattern — hence the dynamic imports below instead of static top-of-file ones.
+process.env.ALLOWED_DOMAINS = '127.0.0.1';
+delete process.env.SSRF_PROTECTION_ENABLED;
+
+const { ScrapeWithActionsTool } = await import('../../../../src/tools/advanced/ScrapeWithActionsTool.js');
+const { ActionExecutor } = await import('../../../../src/core/ActionExecutor.js');
 
 function makeFakeChainResult(actions, overrides = {}) {
   const now = Date.now();
@@ -143,5 +153,79 @@ describe('scrapeWithActions tool (real module)', () => {
     assert.equal(mapped[0].type, 'click');
     assert.equal(mapped[0].success, true);
     assert.equal(mapped[0].executionTime, 12);
+  });
+});
+
+/**
+ * All tests above fully stub out ActionExecutor.executeActionChain (via
+ * makeFakeExecutor), which is the intended seam for testing
+ * ScrapeWithActionsTool without a real browser — but it also means a
+ * failure between page creation and page.goto() resolving never exercises
+ * the REAL cleanup code in ActionExecutor.initializePage
+ * (src/core/ActionExecutor.js): a leaked page/context on every failed
+ * navigation would be entirely invisible to this file. The tests below
+ * construct a real ActionExecutor and fake only the one seam Playwright
+ * itself would occupy (browserProcessor.initializePage), so a page.goto()
+ * rejection runs through the tool's actual try/catch/finally cleanup —
+ * matching the pattern used in tests/unit/phase3-leaks.test.js.
+ */
+describe('ActionExecutor browser lifecycle (real module — src/core/ActionExecutor.js)', () => {
+  function makeFakePage({ closeTracker }) {
+    const fakeContext = { close: async () => { closeTracker.contextClosed = true; closeTracker.count++; } };
+    return {
+      goto: async () => { throw new Error('net::ERR_CONNECTION_REFUSED'); },
+      url: () => 'http://127.0.0.1/phase4-fake-page',
+      content: async () => '<html></html>',
+      close: async () => { closeTracker.pageClosed = true; closeTracker.count++; },
+      context: () => fakeContext
+    };
+  }
+
+  test('initializePage closes both the page and its owning context when page.goto() rejects', async () => {
+    const executor = new ActionExecutor({ enableScreenshotOnError: false, defaultTimeout: 500 });
+    const closeTracker = { pageClosed: false, contextClosed: false, count: 0 };
+    executor.browserProcessor.initializePage = async () => makeFakePage({ closeTracker });
+
+    try {
+      await assert.rejects(
+        () => executor.initializePage('http://127.0.0.1/phase4-fake-page', {}),
+        /ERR_CONNECTION_REFUSED/
+      );
+      assert.equal(closeTracker.pageClosed, true, 'page.close() must be awaited when page.goto() rejects');
+      assert.equal(closeTracker.contextClosed, true, 'the owning context.close() must be awaited when page.goto() rejects');
+    } finally {
+      await executor.destroy();
+      // BrowserProcessor's constructor eagerly creates a LocalizationManager
+      // whose health-check timers aren't torn down by executor.destroy() —
+      // see the "bonus finding" describe block in tests/unit/phase3-leaks.test.js.
+      await executor.browserProcessor.localizationManager?.cleanup();
+    }
+  });
+
+  test('executeActionChain (real chain path) reports the goto failure and still closes page+context exactly once each', async () => {
+    const executor = new ActionExecutor({ enableScreenshotOnError: false, defaultTimeout: 500 });
+    const closeTracker = { pageClosed: false, contextClosed: false, count: 0 };
+    executor.browserProcessor.initializePage = async () => makeFakePage({ closeTracker });
+
+    try {
+      // executeActionChain catches errors internally and resolves with
+      // success:false (it never rejects) — see its outer try/catch, which
+      // is why ScrapeWithActionsTool's fakes above return { success: false }
+      // rather than throwing for a failed chain.
+      const result = await executor.executeActionChain(
+        'http://127.0.0.1/phase4-fake-page',
+        { actions: [{ type: 'wait', duration: 10 }] }
+      );
+      assert.equal(result.success, false);
+      assert.match(result.error, /ERR_CONNECTION_REFUSED/);
+      // initializePage's own catch already closed page+context before
+      // rethrowing; executeActionChain's outer finally only closes `page` if
+      // it was assigned (which only happens on success), so this must be
+      // exactly 2 (page once, context once) — not 4 (double-close) or 0 (leak).
+      assert.equal(closeTracker.count, 2, 'page and context must each be closed exactly once, not leaked or double-closed');
+    } finally {
+      await executor.destroy();
+      await executor.browserProcessor.localizationManager?.cleanup();
+    }
   });
 });
