@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Regenerate the canonical root SKILL.md from the Agent Skills in
+ * Regenerate the canonical docs/SKILL.md from the Agent Skills in
  * src/skills/agent-skills/. Maintainer build step — not used at runtime.
  *
  * Usage: npm run skills:gen
@@ -20,6 +20,6 @@ const banner =
   '> This file is the canonical capabilities reference for AI agents using CrawlForge MCP tools.\n\n' +
   '---\n\n';
 
-const out = join(ROOT, 'SKILL.md');
+const out = join(ROOT, 'docs', 'SKILL.md');
 writeFileSync(out, banner + concatenateSkills() + '\n', 'utf8');
 process.stderr.write('Wrote ' + out + '\n');

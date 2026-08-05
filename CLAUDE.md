@@ -260,7 +260,7 @@ Security testing and CI/CD pipeline details are in:
 - `docs/security-audit-report.md` — Full security audit
 - `.github/workflows/ci.yml` — CI pipeline with security checks
 - `.github/workflows/security.yml` — Daily scheduled security scanning
-- `.github/SECURITY.md` — Security policy and procedures
+- `docs/SECURITY.md` — Security policy and procedures
 
 Run `npm audit` locally to check dependencies.
 

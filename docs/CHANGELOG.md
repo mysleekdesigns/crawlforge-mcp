@@ -5,9 +5,13 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Changed — Documentation layout (2026-08-05)
+
+Root markdown files moved into `docs/`: `CHANGELOG.md` (this file), `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `OPEN_CORE_PLAN.md`, `SECURITY.md`, `SKILL.md`. The repo root keeps only `README.md`, `PRD.md`, and `CLAUDE.md` (root-required: Claude Code instruction loading + npm package `files`). Cross-references updated; `npm run skills:gen` now writes `docs/SKILL.md`.
+
 ### Added — Remediation Phase 6: MCP-spec adoption & competitive parity (2026-08-05)
 
-Executes the user-greenlit subset of the [remediation plan](./plan/README.md)'s Phase 6 (DECISION phase): all of Track A, plus Track B's async-task pattern and client-side tool selection. Hosted remote endpoint/OAuth, keyless tier, scheduled monitoring, persistent sessions, redactPII, vertical tool groups (Track B) and the SDK v2 migration (Track C) were deliberately deferred.
+Executes the user-greenlit subset of the [remediation plan](../plan/README.md)'s Phase 6 (DECISION phase): all of Track A, plus Track B's async-task pattern and client-side tool selection. Hosted remote endpoint/OAuth, keyless tier, scheduled monitoring, persistent sessions, redactPII, vertical tool groups (Track B) and the SDK v2 migration (Track C) were deliberately deferred.
 
 **Structured output (MCP 2025-06-18)**
 - `scrape`, `map_site`, `serp_rank`, `search_web`, `extract_structured`, `crawl_deep` now declare `outputSchema` and return `structuredContent` alongside the legacy JSON text (`src/schemas/toolOutputSchemas.js` — permissive-by-design shapes so a legitimate result can never fail SDK output validation).
@@ -40,7 +44,7 @@ Executes the user-greenlit subset of the [remediation plan](./plan/README.md)'s 
 
 ### Changed — Remediation Phase 5: dependency modernization, Node ≥ 20 floor (2026-08-05)
 
-Executes the [remediation plan](./plan/README.md)'s Phase 5 (user-approved DECISION phase): raises the Node floor, retires every abandoned/unmaintained dependency, and takes the security-only-in-a-major upgrades the old floor blocked. `npm audit` goes from 4 moderate to **0 vulnerabilities**.
+Executes the [remediation plan](../plan/README.md)'s Phase 5 (user-approved DECISION phase): raises the Node floor, retires every abandoned/unmaintained dependency, and takes the security-only-in-a-major upgrades the old floor blocked. `npm audit` goes from 4 moderate to **0 vulnerabilities**.
 
 **Node floor (approved decision)**
 - `engines.node` raised `>=18.0.0` → `>=20.16.0` (Node 18 is EOL April 2025; 20.16 is pdf-parse 2.4.5's own floor). Dockerfile (`node:20-alpine`) and CI (Node 22) already satisfy it — no changes needed. Downstream: Node 18 consumers now see an engines warning on install.
@@ -73,7 +77,7 @@ Executes the [remediation plan](./plan/README.md)'s Phase 5 (user-approved DECIS
 
 ### Fixed — Remediation Phase 4: HTTP transport, protocol hygiene & medium/low cleanup (2026-08-04)
 
-Closes all 19 Phase 4 findings from the [2026-08 codebase audit](./docs/CODEBASE_AUDIT_2026-08.md) — the HTTP/remote deployment path (previously degraded to one session and bricked on reconnect/DELETE), the unretrievable `getting-started` prompt, and the remaining medium/low catalog. Fifth phase of the [remediation plan](./plan/README.md).
+Closes all 19 Phase 4 findings from the [2026-08 codebase audit](CODEBASE_AUDIT_2026-08.md) — the HTTP/remote deployment path (previously degraded to one session and bricked on reconnect/DELETE), the unretrievable `getting-started` prompt, and the remaining medium/low catalog. Fifth phase of the [remediation plan](../plan/README.md).
 
 **Streamable HTTP transport (`npm run start:http`)**
 - Stateful mode now follows the SDK's documented per-session pattern: a `Map<sessionId, {transport, server}>` with a fresh transport + cloned `McpServer` per `initialize`, disposal on DELETE/`onsessionclosed`, and a JSON-RPC 404 for unknown session ids. A second concurrent client, a reconnect-via-re-initialize after a network drop, and DELETE followed by a fresh initialize all work — previously a single shared transport meant only one session ever, and any clean disconnect bricked `/mcp` until process restart.
@@ -116,7 +120,7 @@ Closes all 19 Phase 4 findings from the [2026-08 codebase audit](./docs/CODEBASE
 
 ### Fixed — Remediation Phase 3: resource leaks, timeouts & robustness (2026-08-03)
 
-Closes all 24 Phase 3 findings from the [2026-08 codebase audit](./docs/CODEBASE_AUDIT_2026-08.md) — the "safe to run for days" class: timers, browser contexts, and caches that accumulated for the process lifetime, and body reads with no deadline. Fourth phase of the [remediation plan](./plan/README.md).
+Closes all 24 Phase 3 findings from the [2026-08 codebase audit](CODEBASE_AUDIT_2026-08.md) — the "safe to run for days" class: timers, browser contexts, and caches that accumulated for the process lifetime, and body reads with no deadline. Fourth phase of the [remediation plan](../plan/README.md).
 
 **Browser lifecycle**
 - `ActionExecutor.initializePage` closes the already-created page and its context when navigation or stealth setup throws — every failed `page.goto` (DNS error, timeout, blocked URL) previously orphaned a live page + context.
@@ -161,7 +165,7 @@ Closes all 24 Phase 3 findings from the [2026-08 codebase audit](./docs/CODEBASE
 
 ### Fixed — Remediation Phase 2: tool-breaking correctness bugs (2026-08-03)
 
-Closes all 52 Phase 2 findings from the [2026-08 codebase audit](./docs/CODEBASE_AUDIT_2026-08.md) — the "silently wrong output" class: tools that passed smoke tests while returning misleading, truncated, or cross-contaminated results. Third phase of the [remediation plan](./plan/README.md).
+Closes all 52 Phase 2 findings from the [2026-08 codebase audit](CODEBASE_AUDIT_2026-08.md) — the "silently wrong output" class: tools that passed smoke tests while returning misleading, truncated, or cross-contaminated results. Third phase of the [remediation plan](../plan/README.md).
 
 **Crawling & site mapping**
 - **`crawl_deep` is usable for real crawls again** (the critical): BFS child pages are no longer awaited from inside an occupied queue slot, so the per-task queue timeout now bounds one page instead of the entire recursive crawl, and low concurrency (incl. `concurrency: 1`) no longer deadlocks — previously any crawl outliving `CRAWL_TIMEOUT` (30 s) threw away every fetched page with `Promise timed out`.
@@ -208,7 +212,7 @@ Closes all 52 Phase 2 findings from the [2026-08 codebase audit](./docs/CODEBASE
 
 ### Security — Remediation Phase 1: critical security holes (SSRF · OAuth · secrets · billing) (2026-08-03)
 
-Closes all 14 Phase 1 findings from the [2026-08 codebase audit](./docs/CODEBASE_AUDIT_2026-08.md) — every path by which the server could be induced to reach internal/cloud-metadata addresses, mint operator-billed tokens, leak user secrets, or bill for calls that never ran. Second phase of the [remediation plan](./plan/README.md).
+Closes all 14 Phase 1 findings from the [2026-08 codebase audit](CODEBASE_AUDIT_2026-08.md) — every path by which the server could be induced to reach internal/cloud-metadata addresses, mint operator-billed tokens, leak user secrets, or bill for calls that never ran. Second phase of the [remediation plan](../plan/README.md).
 
 **SSRF guard core (`src/utils/ssrfGuard.js`)**
 - **Fixed the IP-literal bypass** (critical): pre-flight now runs `ipBlocked()` on IP-literal hostnames (dotted-quad, decimal `2130706433`, hex `0x7f000001` — WHATWG URL normalizes them — plus bracketed IPv6), and the undici dispatcher wraps `buildConnector` with a per-connect IP-literal check, so redirect hops straight to `http://127.0.0.1/` etc. are blocked too (Node never routes IP literals through `lookup`).
@@ -247,7 +251,7 @@ Closes all 14 Phase 1 findings from the [2026-08 codebase audit](./docs/CODEBASE
 
 ### Security — Remediation Phase 0: dependency currency & audit cleanup (2026-08-03)
 
-Zero code change — `npm update` inside existing caret ranges plus one new `overrides` entry. Takes `npm audit` from **16 vulnerabilities (8 high, 6 moderate, 2 low)** to **4 moderate (0 high, 0 critical)**. First phase of the [remediation plan](./plan/README.md) from the [2026-08 codebase audit](./docs/CODEBASE_AUDIT_2026-08.md).
+Zero code change — `npm update` inside existing caret ranges plus one new `overrides` entry. Takes `npm audit` from **16 vulnerabilities (8 high, 6 moderate, 2 low)** to **4 moderate (0 high, 0 critical)**. First phase of the [remediation plan](../plan/README.md) from the [2026-08 codebase audit](CODEBASE_AUDIT_2026-08.md).
 
 - **`undici` 7.25 → 7.29.0** — clears 2 HIGH: SOCKS5 ProxyAgent TLS-cert-validation bypass (GHSA-vmh5-mc38-953g) and Set-Cookie percent-decode header injection (GHSA-p88m-4jfj-68fv).
 - **`adm-zip` override `^0.6.0`** (new) — clears the HIGH crafted-ZIP 4GB-allocation advisory reached only via `camoufox` → `generative-bayesian-network` (optional, install-time-only); camoufox resolution verified intact.

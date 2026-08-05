@@ -184,7 +184,7 @@ CrawlForge requires a CrawlForge API key — **every tool is metered and consume
 | `agent` | 8 | **Autonomous research/extraction from a natural-language prompt — no URLs required.** Plans, gathers, and shapes an answer under hard safety stops (max steps/URLs/wall-clock enforced by the orchestrator, never the LLM) |
 | `deep_research` | 10 | Multi-stage research with source verification |
 
-For the full canonical capabilities reference (all tools, CLI commands, stealth engines, research workflow), see [SKILL.md](SKILL.md).
+For the full canonical capabilities reference (all tools, CLI commands, stealth engines, research workflow), see [SKILL.md](docs/SKILL.md).
 
 <p align="right"><a href="#table-of-contents">↑ Back to top</a></p>
 
@@ -337,7 +337,7 @@ See [docs/sandboxing-and-approvals.md](docs/sandboxing-and-approvals.md) for the
 
 **v3.0.3 (2025-10-01)**: Removed authentication bypass vulnerability. All users must authenticate with valid API keys.
 
-For the full security policy and how to report a vulnerability, see [SECURITY.md](SECURITY.md).
+For the full security policy and how to report a vulnerability, see [SECURITY.md](docs/SECURITY.md).
 
 <p align="right"><a href="#table-of-contents">↑ Back to top</a></p>
 
@@ -354,7 +354,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) first.
+Contributions are welcome! Please read our [Contributing Guide](docs/CONTRIBUTING.md) first.
 
 ---
 

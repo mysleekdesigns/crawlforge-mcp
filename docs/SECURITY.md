@@ -26,7 +26,7 @@ triage. We will credit reporters in the release notes unless you prefer to remai
 ## Scope & hardening
 
 The server ships with several built-in protections. See
-[docs/sandboxing-and-approvals.md](docs/sandboxing-and-approvals.md) for the full reference:
+[sandboxing-and-approvals.md](sandboxing-and-approvals.md) for the full reference:
 
 - **SSRF protection** — every scraped URL is validated (http/https only; blocks loopback,
   RFC1918, IPv6 private/link-local ranges, cloud metadata endpoints, and dangerous ports;

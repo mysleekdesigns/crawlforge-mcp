@@ -27,6 +27,10 @@ Delivered 2026-06-28. Additive minor; no breaking changes to tool schemas, outpu
 
 ## Release History
 
+### Repo housekeeping — root markdown moved to docs/ (2026-08-05, unreleased)
+
+`CHANGELOG.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `OPEN_CORE_PLAN.md`, `SECURITY.md`, and `SKILL.md` moved from the repo root into `docs/` (git-mv, history preserved); root keeps only `README.md`, `PRD.md`, and `CLAUDE.md` (Claude Code only auto-loads project instructions from root, and it ships in the npm package from that path). All cross-references updated: README links, `docs/CHANGELOG.md`/`docs/SECURITY.md` relative links, `scripts/generate-skill-md.mjs` output path (`npm run skills:gen` now writes `docs/SKILL.md`), and CLAUDE.md's stale `.github/SECURITY.md` pointer. GitHub still recognizes the community-health files in `docs/`.
+
 ### Remediation Phase 6 — MCP-spec adoption & competitive parity (2026-08-05, unreleased)
 
 Executes the greenlit subset of the remediation plan's Phase 6 (DECISION phase; user approved all of Track A plus two Track B items — the rest of Track B and all of Track C were explicitly deferred).
