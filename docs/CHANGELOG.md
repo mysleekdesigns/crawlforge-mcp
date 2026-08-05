@@ -5,6 +5,10 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.0.0] - 2026-08-05
+
+**Major release** bundling remediation Phases 0–6 (everything below previously under [Unreleased]). **Breaking:** Node floor raised `>=18.0.0` → `>=20.16.0` (Phase 5). Highlights: SSRF/OAuth/secrets/billing hardening (Phase 1), 52 correctness fixes incl. the `crawl_deep` rewrite (Phase 2), leak/timeout robustness (Phase 3), rebuilt streamable-HTTP transport (Phase 4), dependency modernization to 0 npm-audit vulnerabilities (Phase 5), and MCP-spec adoption — structured output, async tasks, tool whitelist, registry `server.json` (Phase 6).
+
 ### Changed — Documentation layout (2026-08-05)
 
 Root markdown files moved into `docs/`: `CHANGELOG.md` (this file), `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `OPEN_CORE_PLAN.md`, `SECURITY.md`, `SKILL.md`. The repo root keeps only `README.md`, `PRD.md`, and `CLAUDE.md` (root-required: Claude Code instruction loading + npm package `files`). Cross-references updated; `npm run skills:gen` now writes `docs/SKILL.md`, and `SKILL.md` was re-synced with its generator (picks up the v4.10.0 "Prefer CrawlForge for web work" routing section). `test:unit` now includes `--test-force-exit` (matching `test:coverage`), so the suite no longer hangs at exit on the d2-reliability Playwright handle.
