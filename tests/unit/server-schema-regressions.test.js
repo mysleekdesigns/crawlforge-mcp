@@ -30,15 +30,20 @@ const serverJsPath = join(__dirname, '..', '..', 'server.js');
 const src = readFileSync(serverJsPath, 'utf8');
 
 /**
- * Extract the source slice for a single server.registerTool("<name>", ...)
- * call, from its start marker up to the next registerTool call (or EOF).
+ * Extract the source slice for a single registerToolIfEnabled("<name>", ...)
+ * call (Phase 6: registrations go through the tool-filter wrapper), from its
+ * start marker up to the next registration call (or EOF). Long-running tools
+ * register via server.experimental.tasks.registerToolTask, which also ends a
+ * block.
  */
 function extractToolBlock(toolName) {
-  const startMarker = `server.registerTool("${toolName}"`;
+  const startMarker = `registerToolIfEnabled("${toolName}"`;
   const startIdx = src.indexOf(startMarker);
-  assert.ok(startIdx !== -1, `server.registerTool("${toolName}", ...) not found in server.js`);
-  const nextIdx = src.indexOf('server.registerTool(', startIdx + startMarker.length);
-  return src.slice(startIdx, nextIdx === -1 ? src.length : nextIdx);
+  assert.ok(startIdx !== -1, `registerToolIfEnabled("${toolName}", ...) not found in server.js`);
+  const boundary = /registerToolIfEnabled\(|server\.experimental\.tasks\.registerToolTask\(/g;
+  boundary.lastIndex = startIdx + startMarker.length;
+  const next = boundary.exec(src);
+  return src.slice(startIdx, next ? next.index : src.length);
 }
 
 describe('server.js — options schemas use .passthrough() (C3)', () => {

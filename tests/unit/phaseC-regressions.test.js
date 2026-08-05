@@ -305,9 +305,12 @@ describe('C3.5 batch_scrape getBatchResults', () => {
 
   test('server registers the get_batch_results tool', () => {
     const src = readSrc('server.js');
-    assert.ok(src.includes('registerTool("get_batch_results"'));
-    // Banner count: 26 in Phase D (scrape + agent); 27 after serp_rank added
-    assert.ok(src.includes('Tools available (27)'));
+    // Phase 6: registrations go through the tool-filter wrapper
+    assert.ok(src.includes('registerToolIfEnabled("get_batch_results"'));
+    // Banner count: 26 in Phase D (scrape + agent); 27 after serp_rank added.
+    // Phase 6: the banner derives from the 27-name allTools list filtered by
+    // the CRAWLFORGE_TOOLS / CRAWLFORGE_TOOL_GROUPS whitelist.
+    assert.ok(src.includes('Tools available (${enabledTools.length}/${allTools.length})'));
   });
 });
 

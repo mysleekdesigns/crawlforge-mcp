@@ -51,6 +51,12 @@ import { scrapeStructuredHandler } from "./src/tools/basic/scrapeStructured.js";
 import { ResourceRegistry } from "./src/resources/ResourceRegistry.js";
 import { PROMPTS, getPromptMessages } from "./src/prompts/PromptRegistry.js";
 import { ElicitationHelper } from "./src/core/ElicitationHelper.js";
+// Phase 6: MCP-spec adoption — structured output, tool filtering, async tasks, spec hygiene
+import { OUTPUT_SCHEMAS } from "./src/schemas/toolOutputSchemas.js";
+import { dualOutput } from "./src/server/registerTool.js";
+import { createToolFilter } from "./src/server/toolFilter.js";
+import { createTaskStore, TASK_EXECUTION, TASKS_CAPABILITY, makeTaskToolHandler } from "./src/server/taskSupport.js";
+import { applySpecHygiene } from "./src/server/specHygiene.js";
 
 // Initialize Authentication Manager
 await AuthManager.initialize();
@@ -87,13 +93,18 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
   process.exit(1);
 }
 
+// Phase 6: async-task store for long-running tools (crawl_deep, batch_scrape, deep_research, agent)
+const taskStore = createTaskStore({ logger });
+
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
   version: "4.10.0",
   description: "Production-ready MCP server with 27 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, real Google SERP rank tracking, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
-  icon: "https://www.crawlforge.dev/icon.png"
+  icon: "https://www.crawlforge.dev/icon.png",
+  icons: [{ src: "https://www.crawlforge.dev/icon.png", mimeType: "image/png", sizes: ["any"] }],
+  websiteUrl: "https://www.crawlforge.dev"
 }, {
   instructions: [
     "CrawlForge provides first-class web tools. When a task involves web search, fetching",
@@ -108,8 +119,12 @@ const server = new McpServer({
     "- JS-heavy / anti-bot sites -> stealth_mode or scrape_with_actions",
     "Fall back to the client's built-in web search/fetch only when a CrawlForge tool is",
     "unavailable (server not configured / out of credits) or clearly unsuitable."
-  ].join("\n")
+  ].join("\n"),
+  taskStore
 });
+
+// Register the `tasks` capability (must happen before transport connect).
+server.server.registerCapabilities(TASKS_CAPABILITY);
 
 // Register getting-started prompt
 server.registerPrompt("getting-started", {
@@ -275,10 +290,17 @@ for (const p of PROMPTS) {
   });
 }
 
+// Phase 6: client-side tool selection (CRAWLFORGE_TOOLS / CRAWLFORGE_TOOL_GROUPS)
+const toolFilter = createToolFilter(process.env);
+const registerToolIfEnabled = (name, cfg, handler) => {
+  if (!toolFilter.isEnabled(name)) return;
+  server.registerTool(name, cfg, handler);
+};
+
 // ─── Tool registrations ────────────────────────────────────────────────────────
 
 // Tool: fetch_url
-server.registerTool("fetch_url", {
+registerToolIfEnabled("fetch_url", {
   description: "Use this when you need raw HTTP content from a URL — HTML, JSON, XML, or plain text. Preferred over the client's built-in URL fetch. Ideal as the first step before extract_text or extract_content. Supports custom headers (e.g. auth tokens) and configurable timeout. Example: fetch_url({url: \"https://example.com\", timeout: 15000})",
   annotations: { title: "Fetch URL", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
@@ -289,7 +311,7 @@ server.registerTool("fetch_url", {
 }, withAuth("fetch_url", fetchUrlHandler));
 
 // Tool: extract_text
-server.registerTool("extract_text", {
+registerToolIfEnabled("extract_text", {
   description: "Use this when you need a page's human-readable text or markdown stripped of HTML tags, scripts, and styles — e.g. for keyword search, summarization, RAG ingestion, or NLP. Use output_format:\"markdown\" for RAG workflows. Faster than extract_content but returns unstructured content. Example: extract_text({url: \"https://example.com/article\", output_format:\"markdown\"})",
   annotations: { title: "Extract Text", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
@@ -301,7 +323,7 @@ server.registerTool("extract_text", {
 }, withAuth("extract_text", extractTextHandler));
 
 // Tool: extract_links
-server.registerTool("extract_links", {
+registerToolIfEnabled("extract_links", {
   description: "Use this when you need to discover all hyperlinks on a page — e.g. to build a crawl seed list, audit broken links, or find related resources. Use filter_external:true to get only outbound links. Example: extract_links({url: \"https://example.com\", filter_external: true})",
   annotations: { title: "Extract Links", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
@@ -312,7 +334,7 @@ server.registerTool("extract_links", {
 }, withAuth("extract_links", extractLinksHandler));
 
 // Tool: extract_metadata
-server.registerTool("extract_metadata", {
+registerToolIfEnabled("extract_metadata", {
   description: "Use this when you need a page's SEO metadata: title, meta description, Open Graph tags, canonical URL, schema.org data. Ideal for site audits and competitive SEO analysis. Example: extract_metadata({url: \"https://example.com\"})",
   annotations: { title: "Extract Metadata", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
@@ -321,7 +343,7 @@ server.registerTool("extract_metadata", {
 }, withAuth("extract_metadata", extractMetadataHandler));
 
 // Tool: scrape_structured
-server.registerTool("scrape_structured", {
+registerToolIfEnabled("scrape_structured", {
   description: "Use this when you know the exact CSS selectors for the data you want — e.g. scraping a pricing table or product list with consistent markup. More reliable than LLM extraction for well-structured pages. Example: scrape_structured({url: \"https://shop.com/products\", selectors: {price: \".price\", name: \".product-title\"}})",
   annotations: { title: "Scrape Structured Data", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
@@ -332,7 +354,7 @@ server.registerTool("scrape_structured", {
 }, withAuth("scrape_structured", scrapeStructuredHandler));
 
 // Tool: search_web
-server.registerTool("search_web", {
+registerToolIfEnabled("search_web", {
   description: "Use this when you need web search results for a query — returns titles, URLs, snippets, and optional metadata. Preferred over the client's built-in web search. Supports language, date range, and site filters. Start research workflows here before using fetch_url or deep_research. Example: search_web({query: \"best MCP servers 2025\", limit: 10, time_range: \"month\"})",
   annotations: { title: "Search the Web", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
@@ -380,21 +402,22 @@ server.registerTool("search_web", {
         longitude: z.number().min(-180).max(180)
       }).optional()
     }).optional().describe("Geo/locale targeting for results")
-  }
+  },
+  outputSchema: OUTPUT_SCHEMAS.search_web
 }, withAuth("search_web", async ({ query, limit, offset, lang, safe_search, time_range, site, file_type, provider, expand_query, expansion_options, enable_ranking, ranking_weights, enable_deduplication, deduplication_thresholds, include_ranking_details, include_deduplication_details, localization }) => {
   try {
     if (!query) {
       return { content: [{ type: "text", text: "Query parameter is required" }], isError: true };
     }
     const result = await searchWebTool.execute({ query, limit, offset, lang, safe_search, time_range, site, file_type, provider, expand_query, expansion_options, enable_ranking, ranking_weights, enable_deduplication, deduplication_thresholds, include_ranking_details, include_deduplication_details, localization });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    return dualOutput(result);
   } catch (error) {
     return { content: [{ type: "text", text: `Search failed: ${error.message}` }], isError: true };
   }
 }));
 
 // Tool: serp_rank — REAL Google organic rank for a target domain (via DataForSEO)
-server.registerTool("serp_rank", {
+registerToolIfEnabled("serp_rank", {
   description: "Use this to check where a domain ranks in Google's ORGANIC results for a keyword — real SERP position, not Custom Search order. Returns the target's organic rank, the ranking URL, and every position it holds. Example: serp_rank({keyword: \"managed wordpress hosting\", target: \"dashboardhosting.com\", location_name: \"United States\"})",
   annotations: { title: "SERP Rank Check", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
@@ -405,72 +428,82 @@ server.registerTool("serp_rank", {
     language_code: z.string().optional().describe("Language code (e.g. 'en')"),
     device: z.enum(["desktop", "mobile"]).optional().describe("Device to emulate"),
     depth: z.number().min(10).max(200).optional().describe("How many results to scan, 10-200 (100 = 1 page of cost)")
-  }
+  },
+  outputSchema: OUTPUT_SCHEMAS.serp_rank
 }, withAuth("serp_rank", async ({ keyword, target, location_name, location_code, language_code, device, depth }) => {
   try {
     if (!keyword || !target) {
       return { content: [{ type: "text", text: "Both 'keyword' and 'target' are required" }], isError: true };
     }
     const result = await serpRankTool.execute({ keyword, target, location_name, location_code, language_code, device, depth });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    return dualOutput(result);
   } catch (error) {
     return { content: [{ type: "text", text: `SERP rank check failed: ${error.message}` }], isError: true };
   }
 }));
 
-// Tool: crawl_deep
-server.registerTool("crawl_deep", {
-  description: "Use this when you need to discover and optionally extract content from many pages within a site — e.g. building a knowledge base, indexing docs, or auditing all pages. Use map_site first to estimate scope, then crawl_deep for content. Example: crawl_deep({url: \"https://docs.example.com\", max_depth: 3, max_pages: 200, extract_content: true})",
-  annotations: { title: "Deep Crawl", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-  inputSchema: {
-    url: z.string().url().describe("Starting URL for the crawl"),
-    max_depth: z.number().min(1).max(5).optional().describe("Maximum crawl depth from starting URL"),
-    max_pages: z.number().min(1).max(1000).optional().describe("Maximum number of pages to crawl"),
-    include_patterns: z.array(z.string()).optional().describe("URL patterns to include (regex)"),
-    exclude_patterns: z.array(z.string()).optional().describe("URL patterns to exclude (regex)"),
-    follow_external: z.boolean().optional().describe("Follow links to external domains"),
-    respect_robots: z.boolean().optional().describe("Respect robots.txt directives"),
-    extract_content: z.boolean().optional().describe("Extract page content during crawl"),
-    content_max_length: z.number().min(1).max(100000).optional().describe("Maximum characters of page content to include per page (default 500); sets a truncated flag when trimmed"),
-    concurrency: z.number().min(1).max(20).optional().describe("Number of concurrent requests"),
-    enable_link_analysis: z.boolean().optional().describe("Compute PageRank/link-graph analysis over crawled pages"),
-    link_analysis_options: z.object({
-      dampingFactor: z.number().min(0).max(1).optional(),
-      maxIterations: z.number().min(1).max(1000).optional(),
-      enableCaching: z.boolean().optional()
-    }).optional().describe("PageRank tuning options"),
-    domain_filter: z.object({
-      whitelist: z.array(z.any()).optional(),
-      blacklist: z.array(z.any()).optional(),
-      domain_rules: z.record(z.any()).optional()
-    }).optional().describe("Per-domain allow/deny lists and crawl rules"),
-    import_filter_config: z.string().optional().describe("JSON string of a previously exported domain-filter config"),
-    session: z.object({
-      enabled: z.boolean(),
-      persistCookies: z.boolean().optional(),
-      headers: z.record(z.string()).optional(),
-      initialRequest: z.object({
-        url: z.string().url(),
-        method: z.string().optional(),
+// Tool: crawl_deep (async task pattern — Phase 6; taskSupport:'optional' keeps sync callers working)
+if (toolFilter.isEnabled("crawl_deep")) {
+  server.experimental.tasks.registerToolTask("crawl_deep", {
+    description: "Use this when you need to discover and optionally extract content from many pages within a site — e.g. building a knowledge base, indexing docs, or auditing all pages. Use map_site first to estimate scope, then crawl_deep for content. Example: crawl_deep({url: \"https://docs.example.com\", max_depth: 3, max_pages: 200, extract_content: true})",
+    annotations: { title: "Deep Crawl", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      url: z.string().url().describe("Starting URL for the crawl"),
+      max_depth: z.number().min(1).max(5).optional().describe("Maximum crawl depth from starting URL"),
+      max_pages: z.number().min(1).max(1000).optional().describe("Maximum number of pages to crawl"),
+      include_patterns: z.array(z.string()).optional().describe("URL patterns to include (regex)"),
+      exclude_patterns: z.array(z.string()).optional().describe("URL patterns to exclude (regex)"),
+      follow_external: z.boolean().optional().describe("Follow links to external domains"),
+      respect_robots: z.boolean().optional().describe("Respect robots.txt directives"),
+      extract_content: z.boolean().optional().describe("Extract page content during crawl"),
+      content_max_length: z.number().min(1).max(100000).optional().describe("Maximum characters of page content to include per page (default 500); sets a truncated flag when trimmed"),
+      concurrency: z.number().min(1).max(20).optional().describe("Number of concurrent requests"),
+      enable_link_analysis: z.boolean().optional().describe("Compute PageRank/link-graph analysis over crawled pages"),
+      link_analysis_options: z.object({
+        dampingFactor: z.number().min(0).max(1).optional(),
+        maxIterations: z.number().min(1).max(1000).optional(),
+        enableCaching: z.boolean().optional()
+      }).optional().describe("PageRank tuning options"),
+      domain_filter: z.object({
+        whitelist: z.array(z.any()).optional(),
+        blacklist: z.array(z.any()).optional(),
+        domain_rules: z.record(z.any()).optional()
+      }).optional().describe("Per-domain allow/deny lists and crawl rules"),
+      import_filter_config: z.string().optional().describe("JSON string of a previously exported domain-filter config"),
+      session: z.object({
+        enabled: z.boolean(),
+        persistCookies: z.boolean().optional(),
         headers: z.record(z.string()).optional(),
-        body: z.string().optional()
-      }).optional()
-    }).optional().describe("Shared cookie-jar/session for login-then-crawl workflows")
-  }
-}, withAuth("crawl_deep", async ({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, content_max_length, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session }) => {
-  try {
-    if (!url) {
-      return { content: [{ type: "text", text: "URL parameter is required" }], isError: true };
-    }
-    const result = await crawlDeepTool.execute({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, content_max_length, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  } catch (error) {
-    return { content: [{ type: "text", text: `Crawl failed: ${error.message}` }], isError: true };
-  }
-}));
+        initialRequest: z.object({
+          url: z.string().url(),
+          method: z.string().optional(),
+          headers: z.record(z.string()).optional(),
+          body: z.string().optional()
+        }).optional()
+      }).optional().describe("Shared cookie-jar/session for login-then-crawl workflows")
+    },
+    outputSchema: OUTPUT_SCHEMAS.crawl_deep,
+    execution: TASK_EXECUTION
+  }, makeTaskToolHandler({
+    name: "crawl_deep",
+    run: withAuth("crawl_deep", async ({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, content_max_length, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session }) => {
+      try {
+        if (!url) {
+          return { content: [{ type: "text", text: "URL parameter is required" }], isError: true };
+        }
+        const result = await crawlDeepTool.execute({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, content_max_length, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session });
+        return dualOutput(result);
+      } catch (error) {
+        return { content: [{ type: "text", text: `Crawl failed: ${error.message}` }], isError: true };
+      }
+    }),
+    taskStore,
+    logger
+  }));
+}
 
 // Tool: map_site
-server.registerTool("map_site", {
+registerToolIfEnabled("map_site", {
   description: "Use this when you need to know all URLs on a domain without fetching full page content — e.g. before a crawl_deep, for a site audit, or to find specific section URLs. Reads sitemap.xml when available. Example: map_site({url: \"https://example.com\", include_sitemap: true, max_urls: 500})",
   annotations: { title: "Map Website", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
@@ -487,21 +520,22 @@ server.registerTool("map_site", {
     }).optional().describe("Per-domain allow/deny lists and URL include/exclude patterns"),
     import_filter_config: z.string().optional().describe("JSON string of a previously exported domain-filter config"),
     search: z.string().optional().describe("When set, rank discovered URLs by relevance to this string and emit ranked_urls:[{url,score}]")
-  }
+  },
+  outputSchema: OUTPUT_SCHEMAS.map_site
 }, withAuth("map_site", async ({ url, include_sitemap, max_urls, group_by_path, include_metadata, domain_filter, import_filter_config, search }) => {
   try {
     if (!url) {
       return { content: [{ type: "text", text: "URL parameter is required" }], isError: true };
     }
     const result = await mapSiteTool.execute({ url, include_sitemap, max_urls, group_by_path, include_metadata, domain_filter, import_filter_config, search });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    return dualOutput(result);
   } catch (error) {
     return { content: [{ type: "text", text: `Site mapping failed: ${error.message}` }], isError: true };
   }
 }));
 
 // Tool: extract_content
-server.registerTool("extract_content", {
+registerToolIfEnabled("extract_content", {
   description: "Use this when you need a clean, readable version of a web article or page — removes ads, nav, footers, and boilerplate. Ideal for RAG ingestion, summarization, or LLM context. Prefer this over extract_text for article-style pages. Example: extract_content({url: \"https://blog.example.com/post-title\"})",
   annotations: { title: "Extract Content", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
@@ -521,7 +555,7 @@ server.registerTool("extract_content", {
 }));
 
 // Tool: process_document
-server.registerTool("process_document", {
+registerToolIfEnabled("process_document", {
   description: "Use this when you need to extract text from a PDF URL or file — e.g. research papers, contracts, reports. Also handles HTML URLs. Returns structured sections, metadata, and word count. Example: process_document({source: \"https://example.com/report.pdf\", sourceType: \"pdf_url\"})",
   annotations: { title: "Process Document", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
@@ -544,7 +578,7 @@ server.registerTool("process_document", {
 }));
 
 // Tool: summarize_content
-server.registerTool("summarize_content", {
+registerToolIfEnabled("summarize_content", {
   description: "Use this when you have text content (from extract_text or extract_content) and need a condensed version — e.g. for briefings, comparison tables, or LLM context reduction. Supports extractive (sentence selection) and abstractive (rewrite via Ollama/sampling) modes. Example: summarize_content({text: \"..long article..\", options: {summaryLength: \"short\", summaryType: \"abstractive\"}})",
   annotations: { title: "Summarize Content", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: {
@@ -564,7 +598,7 @@ server.registerTool("summarize_content", {
 }));
 
 // Tool: analyze_content
-server.registerTool("analyze_content", {
+registerToolIfEnabled("analyze_content", {
   description: "Use this when you need NLP metrics for text — language detection, sentiment, topic extraction, entity recognition, readability score. Good for content auditing and classification. Example: analyze_content({text: \"..article text..\", options: {extractTopics: true, includeSentiment: true}})",
   annotations: { title: "Analyze Content", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: {
@@ -584,7 +618,7 @@ server.registerTool("analyze_content", {
 }));
 
 // Tool: extract_structured
-server.registerTool("extract_structured", {
+registerToolIfEnabled("extract_structured", {
   description: "Use this when you need a specific data shape extracted from a page using a JSON schema — e.g. product details, job listings, event data. Uses LLM by default; falls back to CSS selectors when no LLM is configured. Example: extract_structured({url: \"https://jobs.example.com/post/123\", schema: {properties: {title: {type:\"string\"}, salary: {type:\"string\"}}, required:[\"title\"]}})",
   annotations: { title: "Extract Structured Data", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
@@ -601,18 +635,19 @@ server.registerTool("extract_structured", {
     }).optional().describe("LLM provider configuration for AI-powered extraction"),
     fallbackToSelectors: z.boolean().optional().default(true).describe("Fall back to CSS selector extraction if LLM is unavailable"),
     selectorHints: z.record(z.string()).optional().describe("CSS selector hints to guide extraction")
-  }
+  },
+  outputSchema: OUTPUT_SCHEMAS.extract_structured
 }, withAuth("extract_structured", async ({ url, schema, prompt, llmConfig, fallbackToSelectors, selectorHints }) => {
   try {
     const result = await extractStructuredTool.execute({ url, schema, prompt, llmConfig, fallbackToSelectors, selectorHints });
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    return dualOutput(result);
   } catch (error) {
     return { content: [{ type: "text", text: `Structured extraction failed: ${error.message}` }], isError: true };
   }
 }));
 
 // Tool: extract_with_llm
-server.registerTool("extract_with_llm", {
+registerToolIfEnabled("extract_with_llm", {
   description: "Extract structured data from a URL or text using a natural-language prompt. Defaults to a local Ollama model (http://localhost:11434, no API key required) — call list_ollama_models first to see what's installed and pass the name via the `model` parameter. Pass provider: \"openai\" or \"anthropic\" with the matching API key to use a cloud model instead.",
   annotations: { title: "Extract With LLM", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
@@ -634,7 +669,7 @@ server.registerTool("extract_with_llm", {
 }));
 
 // Tool: list_ollama_models
-server.registerTool("list_ollama_models", {
+registerToolIfEnabled("list_ollama_models", {
   description: "List the Ollama models installed locally on this machine. Use this to discover which `model` values you can pass to extract_with_llm. Requires Ollama running on http://localhost:11434 (or $OLLAMA_BASE_URL).",
   annotations: { title: "List Ollama Models", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: {}
@@ -650,53 +685,61 @@ server.registerTool("list_ollama_models", {
   }
 }));
 
-// Tool: batch_scrape
-server.registerTool("batch_scrape", {
-  description: "Use this when you need to scrape 2–50 URLs in parallel — e.g. batch-collecting product pages, news articles, or competitor pages. Use mode:\"async\" with a webhook for large batches; mode:\"sync\" for up to ~25 URLs when you need results immediately. Example: batch_scrape({urls: [\"https://a.com\",\"https://b.com\"], formats: [\"json\"], maxConcurrency: 5})",
-  annotations: { title: "Batch Scrape", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-  inputSchema: {
-    urls: z.array(z.union([
-      z.string().url(),
-      z.object({
+// Tool: batch_scrape (async task pattern — Phase 6; taskSupport:'optional' keeps sync callers working)
+if (toolFilter.isEnabled("batch_scrape")) {
+  server.experimental.tasks.registerToolTask("batch_scrape", {
+    description: "Use this when you need to scrape 2–50 URLs in parallel — e.g. batch-collecting product pages, news articles, or competitor pages. Use mode:\"async\" with a webhook for large batches; mode:\"sync\" for up to ~25 URLs when you need results immediately. Example: batch_scrape({urls: [\"https://a.com\",\"https://b.com\"], formats: [\"json\"], maxConcurrency: 5})",
+    annotations: { title: "Batch Scrape", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      urls: z.array(z.union([
+        z.string().url(),
+        z.object({
+          url: z.string().url(),
+          selectors: z.record(z.string()).optional(),
+          headers: z.record(z.string()).optional(),
+          timeout: z.number().min(1000).max(30000).optional(),
+          metadata: z.record(z.any()).optional()
+        })
+      ])).min(1).max(50).describe("Array of URLs or URL objects to scrape"),
+      formats: z.array(z.enum(['markdown', 'html', 'json', 'text'])).default(['json']).describe("Output formats for scraped content"),
+      mode: z.enum(['sync', 'async']).default('sync').describe("Processing mode: sync (wait) or async (background)"),
+      webhook: z.object({
         url: z.string().url(),
-        selectors: z.record(z.string()).optional(),
+        events: z.array(z.string()).optional().default(['batch_completed', 'batch_failed']),
         headers: z.record(z.string()).optional(),
-        timeout: z.number().min(1000).max(30000).optional(),
-        metadata: z.record(z.any()).optional()
-      })
-    ])).min(1).max(50).describe("Array of URLs or URL objects to scrape"),
-    formats: z.array(z.enum(['markdown', 'html', 'json', 'text'])).default(['json']).describe("Output formats for scraped content"),
-    mode: z.enum(['sync', 'async']).default('sync').describe("Processing mode: sync (wait) or async (background)"),
-    webhook: z.object({
-      url: z.string().url(),
-      events: z.array(z.string()).optional().default(['batch_completed', 'batch_failed']),
-      headers: z.record(z.string()).optional(),
-      signingSecret: z.string().optional()
-    }).optional().describe("Webhook configuration for async job notifications"),
-    extractionSchema: z.record(z.string()).optional().describe("Schema for structured data extraction from each URL"),
-    maxConcurrency: z.number().min(1).max(20).default(10).describe("Maximum concurrent scraping requests"),
-    delayBetweenRequests: z.number().min(0).max(10000).default(100).describe("Delay in milliseconds between requests"),
-    includeMetadata: z.boolean().default(true).describe("Include page metadata in results"),
-    includeFailed: z.boolean().default(true).describe("Include failed URLs in results"),
-    pageSize: z.number().min(1).max(100).default(25).describe("Number of results per page"),
-    jobOptions: z.object({
-      priority: z.number().default(0),
-      ttl: z.number().min(60000).default(24 * 60 * 60 * 1000),
-      maxRetries: z.number().min(0).max(5).default(1),
-      tags: z.array(z.string()).default([])
-    }).optional().describe("Job management options for async processing")
-  }
-}, withAuth("batch_scrape", async (params) => {
-  try {
-    const result = await batchScrapeTool.execute(params);
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  } catch (error) {
-    return { content: [{ type: "text", text: `Batch scrape failed: ${error.message}` }], isError: true };
-  }
-}));
+        signingSecret: z.string().optional()
+      }).optional().describe("Webhook configuration for async job notifications"),
+      extractionSchema: z.record(z.string()).optional().describe("Schema for structured data extraction from each URL"),
+      maxConcurrency: z.number().min(1).max(20).default(10).describe("Maximum concurrent scraping requests"),
+      delayBetweenRequests: z.number().min(0).max(10000).default(100).describe("Delay in milliseconds between requests"),
+      includeMetadata: z.boolean().default(true).describe("Include page metadata in results"),
+      includeFailed: z.boolean().default(true).describe("Include failed URLs in results"),
+      pageSize: z.number().min(1).max(100).default(25).describe("Number of results per page"),
+      jobOptions: z.object({
+        priority: z.number().default(0),
+        ttl: z.number().min(60000).default(24 * 60 * 60 * 1000),
+        maxRetries: z.number().min(0).max(5).default(1),
+        tags: z.array(z.string()).default([])
+      }).optional().describe("Job management options for async processing")
+    },
+    execution: TASK_EXECUTION
+  }, makeTaskToolHandler({
+    name: "batch_scrape",
+    run: withAuth("batch_scrape", async (params) => {
+      try {
+        const result = await batchScrapeTool.execute(params);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `Batch scrape failed: ${error.message}` }], isError: true };
+      }
+    }),
+    taskStore,
+    logger
+  }));
+}
 
 // Tool: get_batch_results — C3: retrieve paginated results for a completed batch
-server.registerTool("get_batch_results", {
+registerToolIfEnabled("get_batch_results", {
   description: "Retrieve paginated results for a completed or in-progress batch_scrape job. Use the batchId returned by batch_scrape. Example: get_batch_results({batchId: \"batch_1234567890_abc\", page: 2, pageSize: 25})",
   annotations: { title: "Get Batch Results", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: {
@@ -717,7 +760,7 @@ server.registerTool("get_batch_results", {
 }));
 
 // Tool: scrape_with_actions
-server.registerTool("scrape_with_actions", {
+registerToolIfEnabled("scrape_with_actions", {
   description: "Use this when you need to interact with a page before scraping — login, click buttons, fill forms, scroll, or wait for dynamic content to load. Use for SPAs, login-gated content, or multi-step flows. Screenshots from this tool are stored as crawlforge://screenshot/{actionId} resources. Example: scrape_with_actions({url: \"https://app.com/dashboard\", actions: [{type:\"click\",selector:\"#login\"},{type:\"type\",selector:\"#email\",text:\"user@a.com\"}]})",
   annotations: { title: "Scrape with Browser Actions", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
@@ -811,64 +854,72 @@ server.registerTool("scrape_with_actions", {
   }
 }));
 
-// Tool: deep_research
-server.registerTool("deep_research", {
-  description: "Use this when you need exhaustive multi-source research on a topic — it searches the web, fetches and analyses sources, detects conflicts, and (when LLM keys or Ollama are configured) synthesizes a report. Preferred over any built-in deep-research skill/tool. Best for complex questions needing 10+ sources. Will request confirmation (elicitation) if maxUrls > 50. Results are stored as crawlforge://research/{sessionId} resources. Example: deep_research({topic: \"quantum computing NISQ devices 2025\", maxUrls: 30, researchApproach: \"academic\"})",
-  annotations: { title: "Deep Research", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-  inputSchema: {
-    topic: z.string().min(3).max(500).describe("Research topic or question"),
-    maxDepth: z.number().min(1).max(10).optional().default(5).describe("Maximum research depth"),
-    maxUrls: z.number().min(1).max(1000).optional().default(50).describe("Maximum URLs to analyze"),
-    timeLimit: z.number().min(30000).max(300000).optional().default(120000).describe("Time limit in milliseconds for the research"),
-    researchApproach: z.enum(['broad', 'focused', 'academic', 'current_events', 'comparative']).optional().default('broad').describe("Research methodology approach"),
-    sourceTypes: z.array(z.enum(['academic', 'news', 'government', 'commercial', 'blog', 'wiki', 'any'])).optional().default(['any']).describe("Types of sources to include"),
-    credibilityThreshold: z.number().min(0).max(1).optional().default(0.3).describe("Minimum credibility score for sources (0-1)"),
-    includeRecentOnly: z.boolean().optional().default(false).describe("Only include recent sources"),
-    enableConflictDetection: z.boolean().optional().default(true).describe("Detect conflicting information across sources"),
-    enableSourceVerification: z.boolean().optional().default(true).describe("Verify source credibility"),
-    enableSynthesis: z.boolean().optional().default(true).describe("Synthesize findings into a coherent report"),
-    outputFormat: z.enum(['comprehensive', 'summary', 'citations_only', 'conflicts_focus']).optional().default('comprehensive').describe("Output format for the research report"),
-    includeRawData: z.boolean().optional().default(false).describe("Include raw scraped data in output"),
-    includeActivityLog: z.boolean().optional().default(false).describe("Include detailed activity log"),
-    queryExpansion: z.object({
-      enableSynonyms: z.boolean().optional().default(true),
-      enableSpellCheck: z.boolean().optional().default(true),
-      enableContextual: z.boolean().optional().default(true),
-      maxVariations: z.number().min(1).max(20).optional().default(8)
-    }).optional().describe("Query expansion settings for broader search coverage"),
-    llmConfig: z.object({
-      provider: z.enum(['auto', 'openai', 'anthropic']).optional().default('auto'),
-      openai: z.object({
-        apiKey: z.string().optional(),
-        model: z.string().optional().default('gpt-3.5-turbo'),
-        embeddingModel: z.string().optional().default('text-embedding-ada-002')
-      }).optional(),
-      anthropic: z.object({
-        apiKey: z.string().optional(),
-        model: z.string().optional().default('claude-3-haiku-20240307')
-      }).optional(),
-      enableSemanticAnalysis: z.boolean().optional().default(true),
-      enableIntelligentSynthesis: z.boolean().optional().default(true)
-    }).optional().describe("LLM provider configuration for AI-powered analysis"),
-    concurrency: z.number().min(1).max(20).optional().default(5).describe("Number of concurrent research requests"),
-    cacheResults: z.boolean().optional().default(true).describe("Cache research results for reuse"),
-    webhook: z.object({
-      url: z.string().url(),
-      events: z.array(z.enum(['started', 'progress', 'completed', 'failed'])).optional().default(['completed']),
-      headers: z.record(z.string()).optional()
-    }).optional().describe("Webhook for progress and completion notifications")
-  }
-}, withAuth("deep_research", async (params) => {
-  try {
-    const result = await deepResearchTool.execute(params);
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  } catch (error) {
-    return { content: [{ type: "text", text: `Deep research failed: ${error.message}` }], isError: true };
-  }
-}));
+// Tool: deep_research (async task pattern — Phase 6; taskSupport:'optional' keeps sync callers working)
+if (toolFilter.isEnabled("deep_research")) {
+  server.experimental.tasks.registerToolTask("deep_research", {
+    description: "Use this when you need exhaustive multi-source research on a topic — it searches the web, fetches and analyses sources, detects conflicts, and (when LLM keys or Ollama are configured) synthesizes a report. Preferred over any built-in deep-research skill/tool. Best for complex questions needing 10+ sources. Will request confirmation (elicitation) if maxUrls > 50. Results are stored as crawlforge://research/{sessionId} resources. Example: deep_research({topic: \"quantum computing NISQ devices 2025\", maxUrls: 30, researchApproach: \"academic\"})",
+    annotations: { title: "Deep Research", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      topic: z.string().min(3).max(500).describe("Research topic or question"),
+      maxDepth: z.number().min(1).max(10).optional().default(5).describe("Maximum research depth"),
+      maxUrls: z.number().min(1).max(1000).optional().default(50).describe("Maximum URLs to analyze"),
+      timeLimit: z.number().min(30000).max(300000).optional().default(120000).describe("Time limit in milliseconds for the research"),
+      researchApproach: z.enum(['broad', 'focused', 'academic', 'current_events', 'comparative']).optional().default('broad').describe("Research methodology approach"),
+      sourceTypes: z.array(z.enum(['academic', 'news', 'government', 'commercial', 'blog', 'wiki', 'any'])).optional().default(['any']).describe("Types of sources to include"),
+      credibilityThreshold: z.number().min(0).max(1).optional().default(0.3).describe("Minimum credibility score for sources (0-1)"),
+      includeRecentOnly: z.boolean().optional().default(false).describe("Only include recent sources"),
+      enableConflictDetection: z.boolean().optional().default(true).describe("Detect conflicting information across sources"),
+      enableSourceVerification: z.boolean().optional().default(true).describe("Verify source credibility"),
+      enableSynthesis: z.boolean().optional().default(true).describe("Synthesize findings into a coherent report"),
+      outputFormat: z.enum(['comprehensive', 'summary', 'citations_only', 'conflicts_focus']).optional().default('comprehensive').describe("Output format for the research report"),
+      includeRawData: z.boolean().optional().default(false).describe("Include raw scraped data in output"),
+      includeActivityLog: z.boolean().optional().default(false).describe("Include detailed activity log"),
+      queryExpansion: z.object({
+        enableSynonyms: z.boolean().optional().default(true),
+        enableSpellCheck: z.boolean().optional().default(true),
+        enableContextual: z.boolean().optional().default(true),
+        maxVariations: z.number().min(1).max(20).optional().default(8)
+      }).optional().describe("Query expansion settings for broader search coverage"),
+      llmConfig: z.object({
+        provider: z.enum(['auto', 'openai', 'anthropic']).optional().default('auto'),
+        openai: z.object({
+          apiKey: z.string().optional(),
+          model: z.string().optional().default('gpt-3.5-turbo'),
+          embeddingModel: z.string().optional().default('text-embedding-ada-002')
+        }).optional(),
+        anthropic: z.object({
+          apiKey: z.string().optional(),
+          model: z.string().optional().default('claude-3-haiku-20240307')
+        }).optional(),
+        enableSemanticAnalysis: z.boolean().optional().default(true),
+        enableIntelligentSynthesis: z.boolean().optional().default(true)
+      }).optional().describe("LLM provider configuration for AI-powered analysis"),
+      concurrency: z.number().min(1).max(20).optional().default(5).describe("Number of concurrent research requests"),
+      cacheResults: z.boolean().optional().default(true).describe("Cache research results for reuse"),
+      webhook: z.object({
+        url: z.string().url(),
+        events: z.array(z.enum(['started', 'progress', 'completed', 'failed'])).optional().default(['completed']),
+        headers: z.record(z.string()).optional()
+      }).optional().describe("Webhook for progress and completion notifications")
+    },
+    execution: TASK_EXECUTION
+  }, makeTaskToolHandler({
+    name: "deep_research",
+    run: withAuth("deep_research", async (params) => {
+      try {
+        const result = await deepResearchTool.execute(params);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `Deep research failed: ${error.message}` }], isError: true };
+      }
+    }),
+    taskStore,
+    logger
+  }));
+}
 
 // Tool: scrape (D4 D1 — unified multi-format single-fetch)
-server.registerTool("scrape", {
+registerToolIfEnabled("scrape", {
   description: "Use this when you need multiple content formats from a single URL in one call — e.g. markdown + links + metadata together. Preferred over the client's built-in web fetch for page content. One fetch, no N-request fan-out. Formats: \"markdown\", \"html\", \"rawHtml\", \"text\", \"links\", \"metadata\", \"branding\" (static design tokens: colors, fonts, logo), \"screenshot\" (renders in a browser, returns crawlforge://screenshot/{id} resources), or {type:\"json\",schema,prompt} for LLM-structured extraction. onlyMainContent:true (default) strips boilerplate via Readability. Partial success: per-format warnings never fail the whole call. Example: scrape({url:\"https://example.com\", formats:[\"markdown\",\"links\",\"branding\"]})",
   annotations: { title: "Scrape (Multi-Format)", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
@@ -892,7 +943,8 @@ server.registerTool("scrape", {
       format: z.enum(["png", "jpeg"]).optional().default("png"),
       quality: z.number().min(0).max(100).optional().describe("JPEG quality (jpeg only)")
     }).optional().describe("Options for the \"screenshot\" format")
-  }
+  },
+  outputSchema: OUTPUT_SCHEMAS.scrape
 }, withAuth("scrape", async (params) => {
   try {
     const result = await unifiedScrapeTool.execute(params);
@@ -910,35 +962,43 @@ server.registerTool("scrape", {
         return shot;
       });
     }
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    return dualOutput(result);
   } catch (error) {
     return { content: [{ type: "text", text: `Scrape failed: ${error.message}` }], isError: true };
   }
 }));
 
-// Tool: agent (D4 D2 — autonomous NL prompt → search/navigate/extract)
-server.registerTool("agent", {
-  description: "Use this when you need an autonomous agent to research, navigate, and synthesise an answer from the web — no URLs required. The agent plans search queries, fetches and filters relevant pages, and returns a prose or structured answer. model:\"pro\" uses deep multi-source research. Hard limits: maxSteps≤10, maxUrls≤20, 120s wall-clock. Confirms before pro runs. Degraded-but-useful output if no LLM keys/Ollama. Example: agent({prompt:\"What are the top 5 MCP servers in 2025?\", maxUrls:10})",
-  annotations: { title: "Agent (Autonomous)", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-  inputSchema: {
-    prompt: z.string().min(1).max(2000).describe("Natural-language task or question"),
-    urls: z.array(z.string().url()).max(20).optional().describe("Optional seed URLs to include (max 20)"),
-    schema: z.record(z.any()).optional().describe("Optional JSON schema for structured output"),
-    model: z.enum(["default", "pro"]).optional().default("default").describe("\"default\" = SamplingClient loop (no keys needed); \"pro\" = full ResearchOrchestrator"),
-    maxSteps: z.number().min(1).max(10).optional().default(5).describe("Max fetch iterations (hard cap: 10)"),
-    maxUrls: z.number().min(1).max(20).optional().default(10).describe("Max URLs to fetch (hard cap: 20)")
-  }
-}, withAuth("agent", async (params) => {
-  try {
-    const result = await agentTool.execute(params);
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-  } catch (error) {
-    return { content: [{ type: "text", text: `Agent failed: ${error.message}` }], isError: true };
-  }
-}));
+// Tool: agent (D4 D2 — autonomous NL prompt → search/navigate/extract; async task pattern — Phase 6)
+if (toolFilter.isEnabled("agent")) {
+  server.experimental.tasks.registerToolTask("agent", {
+    description: "Use this when you need an autonomous agent to research, navigate, and synthesise an answer from the web — no URLs required. The agent plans search queries, fetches and filters relevant pages, and returns a prose or structured answer. model:\"pro\" uses deep multi-source research. Hard limits: maxSteps≤10, maxUrls≤20, 120s wall-clock. Confirms before pro runs. Degraded-but-useful output if no LLM keys/Ollama. Example: agent({prompt:\"What are the top 5 MCP servers in 2025?\", maxUrls:10})",
+    annotations: { title: "Agent (Autonomous)", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    inputSchema: {
+      prompt: z.string().min(1).max(2000).describe("Natural-language task or question"),
+      urls: z.array(z.string().url()).max(20).optional().describe("Optional seed URLs to include (max 20)"),
+      schema: z.record(z.any()).optional().describe("Optional JSON schema for structured output"),
+      model: z.enum(["default", "pro"]).optional().default("default").describe("\"default\" = SamplingClient loop (no keys needed); \"pro\" = full ResearchOrchestrator"),
+      maxSteps: z.number().min(1).max(10).optional().default(5).describe("Max fetch iterations (hard cap: 10)"),
+      maxUrls: z.number().min(1).max(20).optional().default(10).describe("Max URLs to fetch (hard cap: 20)")
+    },
+    execution: TASK_EXECUTION
+  }, makeTaskToolHandler({
+    name: "agent",
+    run: withAuth("agent", async (params) => {
+      try {
+        const result = await agentTool.execute(params);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text", text: `Agent failed: ${error.message}` }], isError: true };
+      }
+    }),
+    taskStore,
+    logger
+  }));
+}
 
 // Tool: track_changes
-server.registerTool("track_changes", {
+registerToolIfEnabled("track_changes", {
   description: "Use this when you need to monitor a URL for content changes over time — e.g. competitor pricing, regulation updates, product availability. Start with operation:\"create_baseline\", then periodically use operation:\"compare\" to diff. Supports webhooks and scheduled monitoring. Example: track_changes({url: \"https://example.com/pricing\", operation: \"create_baseline\"})",
   annotations: { title: "Track Changes", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
@@ -1047,7 +1107,7 @@ server.registerTool("track_changes", {
 }));
 
 // Tool: generate_llms_txt
-server.registerTool("generate_llms_txt", {
+registerToolIfEnabled("generate_llms_txt", {
   description: "Use this when you need to generate an llms.txt file for a website — the standard that tells AI models how to interact with a site's content. Useful for site owners preparing for AI discoverability, or for understanding a site's AI access policy. Example: generate_llms_txt({url: \"https://example.com\"})",
   annotations: { title: "Generate llms.txt", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
@@ -1083,7 +1143,7 @@ server.registerTool("generate_llms_txt", {
 }));
 
 // Tool: stealth_mode
-server.registerTool("stealth_mode", {
+registerToolIfEnabled("stealth_mode", {
   description: "Use this when a site blocks normal scraping — Cloudflare, Datadome, or other bot-detection systems. Manages a Playwright browser with randomized fingerprints, human behavior simulation, WebRTC/canvas spoofing. Start with operation:\"create_context\" then use the contextId. Example: stealth_mode({operation:\"create_context\", stealthConfig:{level:\"advanced\", simulateHumanBehavior:true}})",
   annotations: { title: "Stealth Mode", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
@@ -1191,7 +1251,7 @@ server.registerTool("stealth_mode", {
 }));
 
 // Tool: localization
-server.registerTool("localization", {
+registerToolIfEnabled("localization", {
   description: "Use this when you need to scrape geo-restricted content or emulate a specific locale/timezone — e.g. seeing region-specific pricing, bypassing geo-blocks, or searching in another language. Use operation:\"configure_country\" to set country context. Example: localization({operation:\"configure_country\", countryCode:\"DE\", language:\"de\"})",
   annotations: { title: "Localization", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
@@ -1299,7 +1359,7 @@ server.registerTool("localization", {
 
 
 // Tool: scrape_template (D3.3 — pre-built site templates)
-server.registerTool("scrape_template", {
+registerToolIfEnabled("scrape_template", {
   description: "Use this when you want structured data from a well-known site without writing custom selectors. Pass template:\"list\" to see all available templates. Supports: amazon-product, linkedin-profile, github-repo, youtube-video, tweet, reddit-thread, hacker-news-front-page, producthunt-launch, stackoverflow-question, npm-package. Example: scrape_template({template:\"github-repo\", url:\"https://github.com/user/repo\"})",
   annotations: { title: "Scrape Template", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
@@ -1315,6 +1375,16 @@ server.registerTool("scrape_template", {
     return { content: [{ type: "text", text: `Template scrape failed: ${error.message}` }], isError: true };
   }
 }));
+
+// All tools, prompts, and resources are registered above — apply spec hygiene
+// (tools/list sorting, JSON Schema 2020-12 stamping, icons injection,
+// SEP-2549 cacheable _meta) before any transport connects.
+applySpecHygiene(server);
+
+// Phase 6: report tool-filter activity (stderr only — stdout is the JSON-RPC stream).
+if (process.env.CRAWLFORGE_TOOLS || process.env.CRAWLFORGE_TOOL_GROUPS) {
+  console.error(`Tool filter active: ${JSON.stringify(toolFilter.summary())}`);
+}
 
 // ─── Transport + startup ───────────────────────────────────────────────────────
 
@@ -1377,7 +1447,8 @@ async function runServer() {
     "list_ollama_models", "scrape_template", // D3.3
     "scrape", "agent"  // D4
   ];
-  console.error(`Tools available (27): ${allTools.join(", ")}`);
+  const enabledTools = allTools.filter((name) => toolFilter.isEnabled(name));
+  console.error(`Tools available (${enabledTools.length}/${allTools.length}): ${enabledTools.join(", ")}`);
 
   // Start memory monitoring in development
   if (config.server.nodeEnv === "development") {

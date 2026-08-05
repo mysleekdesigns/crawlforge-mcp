@@ -5,6 +5,39 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Added — Remediation Phase 6: MCP-spec adoption & competitive parity (2026-08-05)
+
+Executes the user-greenlit subset of the [remediation plan](./plan/README.md)'s Phase 6 (DECISION phase): all of Track A, plus Track B's async-task pattern and client-side tool selection. Hosted remote endpoint/OAuth, keyless tier, scheduled monitoring, persistent sessions, redactPII, vertical tool groups (Track B) and the SDK v2 migration (Track C) were deliberately deferred.
+
+**Structured output (MCP 2025-06-18)**
+- `scrape`, `map_site`, `serp_rank`, `search_web`, `extract_structured`, `crawl_deep` now declare `outputSchema` and return `structuredContent` alongside the legacy JSON text (`src/schemas/toolOutputSchemas.js` — permissive-by-design shapes so a legitimate result can never fail SDK output validation).
+
+**Protocol hygiene (`src/server/specHygiene.js`)**
+- Tool schemas advertised in **JSON Schema 2020-12** (`$schema` stamp, `definitions`→`$defs` + `$ref` rewrite) instead of draft-07.
+- **Deterministic tools/list**: alphabetical, byte-order sort for client prompt-cache stability.
+- **SEP-2549-style cache hints**: `_meta["io.modelcontextprotocol/cacheable"] = { ttlMs: 300000, cacheScope: "private" }` on 10 read-only tools' call results (documented adaptation — the SEP defines these fields on list results; there is no call-result key in the spec text yet).
+- **SEP-973 icons** on serverInfo (`icons`, `websiteUrl`), every tool, and every prompt.
+- **SEP-1303** — invalid tool arguments come back as `isError:true` tool results (self-correctable by the calling model), not `-32602` protocol errors. In effect via SDK 1.30; now pinned by regression tests so it can't silently regress.
+
+**Async tasks — MCP `io.modelcontextprotocol/tasks` extension (experimental)**
+- `crawl_deep`, `batch_scrape`, `deep_research`, `agent` are registered via `registerToolTask` with `taskSupport: 'optional'` (`src/server/taskSupport.js`): task-aware clients receive a task handle immediately and poll `tasks/get` / fetch `tasks/result` (also `tasks/list`, `tasks/cancel`); clients without task support still get the synchronous result. In-memory task store with 10-min default / 30-min max TTL, unref'd cleanup timers, late-result-after-cancel protection, and no unhandled rejections.
+
+**Client-side tool selection**
+- `CRAWLFORGE_TOOLS` (names) / `CRAWLFORGE_TOOL_GROUPS` (groups) env whitelist (`src/server/toolFilter.js`) — expose a subset of the 27 tools to cut client context bloat. 12 groups (basic, search, crawl, extract, batch, research, tracking, llmstxt, stealth, templates, scrape, agent); unset = all tools; unknown names ignored with a stderr warning; `batch_scrape` auto-enables `get_batch_results`; startup banner reports enabled/total.
+
+**MCP Registry**
+- `server.json` completed against the 2025-12-11 registry schema (required `CRAWLFORGE_API_KEY` + optional DataForSEO env-var declarations, `websiteUrl`), with a GitHub-OIDC publish workflow (`.github/workflows/publish-mcp-registry.yml`) that publishes to registry.modelcontextprotocol.io on the next GitHub Release. Manual fallback + prerequisites: `docs/mcp-registry.md`.
+
+**Docs & tests**
+- `docs/mcp-spec-adoption.md` (wire-level examples + client-compatibility notes), README env + spec-features sections.
+- 5 new unit suites (`phase6-{output-schemas,tool-filter,tasks,spec-hygiene,sep1303-validation}`) + live stdio integration suite `tests/integration/phase6-spec-adoption.test.js`; 3 source-scan regression tests updated for the new registration surface. Unit total 845 → **914**.
+
+### Verification (Phase 6)
+
+- `npm run test:unit`: 914 tests — 913 pass, 0 fail, 1 deliberately skipped.
+- `npm test` (MCP protocol compliance): 100.0% COMPLIANT, 0 errors.
+- Live stdio server: `tests/integration/phase6-spec-adoption.test.js` 3/3 — 2020-12 schemas + icons + outputSchema + `execution.taskSupport` on tools/list, `capabilities.tasks` on initialize, SEP-1303 isError result, and both `CRAWLFORGE_TOOLS`/`CRAWLFORGE_TOOL_GROUPS` filter modes.
+
 ### Changed — Remediation Phase 5: dependency modernization, Node ≥ 20 floor (2026-08-05)
 
 Executes the [remediation plan](./plan/README.md)'s Phase 5 (user-approved DECISION phase): raises the Node floor, retires every abandoned/unmaintained dependency, and takes the security-only-in-a-major upgrades the old floor blocked. `npm audit` goes from 4 moderate to **0 vulnerabilities**.

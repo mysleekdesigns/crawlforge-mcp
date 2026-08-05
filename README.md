@@ -226,11 +226,27 @@ export OLLAMA_DEFAULT_MODEL="llama3.2"             # default; any locally-pulled
 export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
 
+# Optional: limit which tools this client sees — by name, by group, or both (comma-separated)
+export CRAWLFORGE_TOOLS="scrape,search_web,extract_content"
+export CRAWLFORGE_TOOL_GROUPS="basic,search,scrape"   # unset = all tools; unknown names/groups are ignored with a warning
+
 # Optional: deep_research stealth extraction fallback (v4.6.6) — see below
 export RESEARCH_STEALTH_ENGINE="auto"      # auto (default) | camoufox | chromium
 export RESEARCH_STEALTH_FALLBACK="true"    # set to "false" to disable entirely
 export RESEARCH_MAX_STEALTH_RETRIES="8"    # cap on stealth retries per research run
 ```
+
+### MCP Spec Features
+
+CrawlForge tracks the current MCP spec (2025-06-18) plus select experimental extensions:
+
+- **Structured output** — `scrape`, `map_site`, `serp_rank`, `search_web`, `extract_structured`, and `crawl_deep` return machine-parseable `structuredContent` alongside the usual text, validated against a published `outputSchema`; legacy clients keep working off the text.
+- **Self-correctable errors** — invalid tool input now comes back as an `isError: true` result the calling model can read and retry from, instead of a raw JSON-RPC protocol error.
+- **JSON Schema 2020-12** tool schemas, deterministic `tools/list` ordering (client prompt-cache friendly), and cacheable-result hints on read-only tools.
+- **Icons** on the server, its tools, and its prompts.
+- **Async tasks** (experimental) on the four long-running tools — `crawl_deep`, `batch_scrape`, `deep_research`, `agent` — for clients that support polling; synchronous results are still returned for clients that don't.
+
+See [docs/mcp-spec-adoption.md](docs/mcp-spec-adoption.md) for wire-level examples and client-compatibility notes.
 
 ### Local-LLM quickstart (`extract_with_llm` with Ollama)
 

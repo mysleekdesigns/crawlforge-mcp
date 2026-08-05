@@ -733,19 +733,26 @@ describe('D3.2 MapSiteTool with search: ranked_urls present and sorted by score 
 describe('D4.1 server.js registers scrape and agent tools', () => {
   test('registerTool("scrape") is present', () => {
     const src = readSrc('server.js');
-    assert.ok(src.includes('registerTool("scrape"'), 'scrape tool must be registered');
+    // Phase 6: registrations go through the tool-filter wrapper
+    assert.ok(src.includes('registerToolIfEnabled("scrape"'), 'scrape tool must be registered');
   });
 
   test('registerTool("agent") is present', () => {
     const src = readSrc('server.js');
-    assert.ok(src.includes('registerTool("agent"'), 'agent tool must be registered');
+    // Phase 6: agent is a long-running tool registered via the tasks extension
+    assert.ok(src.includes('registerToolTask("agent"'), 'agent tool must be registered');
   });
 });
 
 describe('D4.2 server.js banner reports 27 tools', () => {
   test('Tools available banner says 27', () => {
     const src = readSrc('server.js');
-    assert.ok(src.includes('Tools available (27)'), 'banner must say "Tools available (27)"');
+    // Phase 6: the banner derives from the 27-name allTools list filtered by
+    // the CRAWLFORGE_TOOLS / CRAWLFORGE_TOOL_GROUPS whitelist.
+    assert.ok(
+      src.includes('Tools available (${enabledTools.length}/${allTools.length})'),
+      'banner must report enabled/total tool counts'
+    );
   });
 });
 

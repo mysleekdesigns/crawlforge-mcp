@@ -1,12 +1,13 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.mysleekdesigns/crawlforge-mcp-server",
-  "description": "27-tool MCP server for web scraping, crawling, deep research & autonomous extraction",
+  "description": "Web scraping, crawling, deep research & autonomous extraction — 27 MCP tools, clean Markdown/JSON",
   "repository": {
     "url": "https://github.com/mysleekdesigns/crawlforge-mcp",
     "source": "github"
   },
   "version": "4.10.0",
+  "websiteUrl": "https://www.crawlforge.dev",
   "packages": [
     {
       "registryType": "npm",
@@ -14,7 +15,27 @@
       "version": "4.10.0",
       "transport": {
         "type": "stdio"
-      }
+      },
+      "environmentVariables": [
+        {
+          "name": "CRAWLFORGE_API_KEY",
+          "description": "CrawlForge API key for authentication and usage/credit tracking. Get a free key at https://www.crawlforge.dev",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "DATAFORSEO_LOGIN",
+          "description": "DataForSEO account login. Optional — only needed to enable the serp_rank tool (real Google organic rank lookups); billed separately to the caller's own DataForSEO account.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "DATAFORSEO_PASSWORD",
+          "description": "DataForSEO account password. Optional — only needed to enable the serp_rank tool.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
     }
   ]
 }
