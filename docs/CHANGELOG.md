@@ -7,7 +7,7 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
 
 ### Changed — Documentation layout (2026-08-05)
 
-Root markdown files moved into `docs/`: `CHANGELOG.md` (this file), `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `OPEN_CORE_PLAN.md`, `SECURITY.md`, `SKILL.md`. The repo root keeps only `README.md`, `PRD.md`, and `CLAUDE.md` (root-required: Claude Code instruction loading + npm package `files`). Cross-references updated; `npm run skills:gen` now writes `docs/SKILL.md`, and `SKILL.md` was re-synced with its generator (picks up the v4.10.0 "Prefer CrawlForge for web work" routing section).
+Root markdown files moved into `docs/`: `CHANGELOG.md` (this file), `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `OPEN_CORE_PLAN.md`, `SECURITY.md`, `SKILL.md`. The repo root keeps only `README.md`, `PRD.md`, and `CLAUDE.md` (root-required: Claude Code instruction loading + npm package `files`). Cross-references updated; `npm run skills:gen` now writes `docs/SKILL.md`, and `SKILL.md` was re-synced with its generator (picks up the v4.10.0 "Prefer CrawlForge for web work" routing section). `test:unit` now includes `--test-force-exit` (matching `test:coverage`), so the suite no longer hangs at exit on the d2-reliability Playwright handle.
 
 ### Added — Remediation Phase 6: MCP-spec adoption & competitive parity (2026-08-05)
 

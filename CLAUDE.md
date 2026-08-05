@@ -96,9 +96,10 @@ npm test
 npm run test:unit
 # Phase D regressions live in tests/unit/phaseD-regressions.test.js (agent hard stops, unified scrape, map_site ranking)
 # Run a single test file:  node --test tests/unit/phaseD-regressions.test.js
-# Note: add --test-force-exit if the run appears to hang at the end — importing
-# StealthBrowserManager (d2-reliability.test.js) leaves a Playwright handle that
-# otherwise delays process exit ~100s. Tests themselves pass either way.
+# Note: the script includes --test-force-exit — importing StealthBrowserManager
+# (d2-reliability.test.js) leaves a Playwright handle that otherwise hangs the
+# runner at exit after all tests pass. When running a single file manually, put
+# --test-force-exit BEFORE the file path (after it, the flag is silently ignored).
 
 # Integration tests
 npm run test:integration

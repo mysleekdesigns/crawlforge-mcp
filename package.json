@@ -16,7 +16,7 @@
     "setup": "node setup.js",
     "dev": "cross-env NODE_ENV=development node server.js",
     "test": "node tests/integration/mcp-protocol-compliance.test.js",
-    "test:unit": "CRAWLFORGE_CREATOR_SECRET= node --test 'tests/unit/**/*.test.js'",
+    "test:unit": "CRAWLFORGE_CREATOR_SECRET= node --test --test-force-exit 'tests/unit/**/*.test.js'",
     "test:integration": "CRAWLFORGE_CREATOR_SECRET= node --test 'tests/integration/tools/*.test.js'",
     "test:coverage": "CRAWLFORGE_CREATOR_SECRET= c8 --reporter=text --reporter=lcov --include='src/**/*.js' --exclude='src/**/_*.js' --lines=60 --statements=60 --functions=55 --branches=45 node --test --test-force-exit 'tests/unit/*.test.js' 'tests/integration/tools/*.test.js'",
     "test:tools": "node test-tools.js",
