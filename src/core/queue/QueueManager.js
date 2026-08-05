@@ -9,12 +9,13 @@ export class QueueManager {
       timeout = 30000
     } = options;
 
+    // p-queue v9 removed `throwOnTimeout` — timeouts always throw now
+    // (this was already the effective behavior since it was set to true).
     this.queue = new PQueue({
       concurrency,
       interval,
       intervalCap,
-      timeout,
-      throwOnTimeout: true
+      timeout
     });
 
     this.stats = {

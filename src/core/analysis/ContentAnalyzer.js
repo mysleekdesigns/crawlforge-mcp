@@ -3,7 +3,6 @@
  * Uses multiple NLP libraries for comprehensive content analysis
  */
 
-import { SummarizerManager } from 'node-summarizer';
 import { franc, francAll } from 'franc';
 import nlp from 'compromise';
 import { z } from 'zod';
@@ -378,19 +377,15 @@ export class ContentAnalyzer {
       targetSentences = Math.min(targetSentences, sentences.length);
 
       let summarySentences;
-      
+
       if (options.summaryType === 'extractive') {
-        // Use node-summarizer for extractive summarization. Its API takes the
-        // text and target sentence count in the constructor (one instance per call).
-        const summarizer = new SummarizerManager(text, targetSentences);
-        const summaryResult = await summarizer.getSummaryByRank();
-        if (!summaryResult || summaryResult instanceof Error || typeof summaryResult.summary !== 'string' || !summaryResult.summary) {
-          throw new Error('node-summarizer returned no summary');
+        // Extractive summarization via word-frequency + position scoring
+        // (Luhn-style salience), tokenized with compromise. Selects the
+        // top-N sentences and restores original document order.
+        summarySentences = this.createExtractiveSummary(sentences, targetSentences);
+        if (!summarySentences || summarySentences.length === 0) {
+          throw new Error('Extractive summarization returned no sentences');
         }
-        // node-summarizer concatenates its selected sentences with no separator
-        // (e.g. "...practice.Typography experts..."); insert a space after
-        // sentence-ending punctuation so splitSentences can recover them individually.
-        summarySentences = splitSentences(summaryResult.summary.replace(/([.!?])(?=\S)/g, '$1 '));
       } else {
         // Simple abstractive approach (for demonstration)
         summarySentences = await this.createAbstractiveSummary(text, targetSentences);
@@ -449,6 +444,49 @@ export class ContentAnalyzer {
       .sort((a, b) => b.score - a.score)
       .slice(0, targetSentences)
       .map(item => item.sentence.trim());
+  }
+
+  /**
+   * Create extractive summary by scoring pre-split sentences via word
+   * frequency (Luhn-style salience), tokenized with compromise, plus a small
+   * positional bonus for leading/closing sentences. Selects the top N and
+   * restores original document order.
+   * @param {string[]} sentences - Sentences in original document order
+   * @param {number} targetSentences - Number of sentences to select
+   * @returns {string[]} - Selected sentences, restored to original order
+   */
+  createExtractiveSummary(sentences, targetSentences) {
+    if (targetSentences >= sentences.length) {
+      return sentences.slice();
+    }
+
+    // Word-frequency table (stop words excluded) drives sentence salience.
+    const freq = {};
+    const sentenceWords = sentences.map(sentence => {
+      const words = nlp(sentence).terms().out('array')
+        .map(w => w.toLowerCase().replace(/[^a-z0-9]/g, ''))
+        .filter(w => w.length > 2 && !this.isStopWord(w));
+      words.forEach(w => { freq[w] = (freq[w] || 0) + 1; });
+      return words;
+    });
+
+    const maxFreq = Math.max(1, ...Object.values(freq));
+
+    const scored = sentences.map((sentence, index) => {
+      const words = sentenceWords[index];
+      const wordScore = words.length > 0
+        ? words.reduce((sum, w) => sum + freq[w] / maxFreq, 0) / words.length
+        : 0;
+      // Leading/closing sentences tend to carry more salience in prose.
+      const positionScore = (index === 0 || index === sentences.length - 1) ? 0.15 : 0;
+      return { sentence, index, score: wordScore + positionScore };
+    });
+
+    return scored
+      .sort((a, b) => b.score - a.score)
+      .slice(0, targetSentences)
+      .sort((a, b) => a.index - b.index)
+      .map(item => item.sentence);
   }
 
   /**

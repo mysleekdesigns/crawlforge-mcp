@@ -5,6 +5,39 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Changed — Remediation Phase 5: dependency modernization, Node ≥ 20 floor (2026-08-05)
+
+Executes the [remediation plan](./plan/README.md)'s Phase 5 (user-approved DECISION phase): raises the Node floor, retires every abandoned/unmaintained dependency, and takes the security-only-in-a-major upgrades the old floor blocked. `npm audit` goes from 4 moderate to **0 vulnerabilities**.
+
+**Node floor (approved decision)**
+- `engines.node` raised `>=18.0.0` → `>=20.16.0` (Node 18 is EOL April 2025; 20.16 is pdf-parse 2.4.5's own floor). Dockerfile (`node:20-alpine`) and CI (Node 22) already satisfy it — no changes needed. Downstream: Node 18 consumers now see an engines warning on install.
+
+**Retired dependencies**
+- `node-cron` **removed** (was 3.0.3) — imported nowhere since Phase 3 moved change-monitor scheduling to `MonitorScheduler`'s setInterval timers; removal clears its vulnerable-`uuid` chain (GHSA-w5hq-g745-h8pq) outright. Monitor fire/stop suites verified green.
+- `@googleapis/customsearch` **removed** (was 5.0.1) — imported nowhere; `search_web`'s Google adapter calls the Custom Search REST endpoint directly.
+- `node-summarizer` **removed** (abandoned 2019) — `ContentAnalyzer`'s extractive summarization rewritten as a `compromise`-based Luhn-style word-frequency scorer (sentence segmentation, salience scoring, top-N selection in document order, proper sentence separators); `summarize_content`/`analyze_content` result shapes and abstractive-degradation behavior unchanged.
+
+**Security/maintenance majors**
+- `pdf-parse` 1.1.1 → **2.4.5** (exact pin) — the actively maintained ESM rewrite (pdfjs-dist 5 + @napi-rs/canvas). `PDFProcessor` ported to the class API (`new PDFParse({data, password})`, `getInfo()`, `getText()`, `destroy()`): the `password` option now actually decrypts protected PDFs (v1 silently ignored it — closes the Phase 2 password no-op), page-range extraction uses v2's native `getText({ partial })`, the encrypted-metadata flag reads pdfjs-dist's real `EncryptFilterName`, and v1's debug-mode crash is gone. Download SSRF guard, 30 s abort, and size caps preserved.
+- `commander` 12 → **^14.0.3** — `src/cli/` audited against the v13/v14 stricter argument/option handling; no breaking patterns, zero code changes; subcommand smokes pass. (v15 is ESM-only + Node ≥22.12 — deferred.)
+- `p-queue` 8 → **^9.3.3** — v9 deletes `throwOnTimeout` (timeouts always throw); `QueueManager` already set it to `true`, so semantics are identical — the dead option is removed and callers audited for reliance on timeout-returns-undefined (none; the Phase 2 BFS refactor already handles rejected tasks).
+- `diff` 8 → **^9.0.0** — only `diffWords`/`diffLines`/`diffChars` are used (`ChangeTracker`); the breaking `formatPatch`/`parsePatch` changes don't apply; zero code changes, changeTracker suites green.
+- `@hono/node-server` override 1.19.x → **2.0.12** — our own `overrides` block was pinning the vulnerable 1.x line under `@modelcontextprotocol/sdk`; clears GHSA-frvp-7c67-39w9 (Windows path traversal).
+- Deferred to a future "Node 22 + SDK v2" initiative (unchanged): `undici` 8, `jsdom` 30, `zod` 4.
+
+**Supply-chain hardening (ChainDrop npm worm, active since 2026-08-04)**
+- Every install ran with `--ignore-scripts`; every adopted version (direct + new transitives) was publish-date-gated to before 2026-08-04; the full lockfile diff (12 added / 6 changed / 28 removed) was cross-checked against the Socket and StepSecurity compromised-package lists with zero matches; IoC scans (worm dropper filenames + `preinstall` hook grep) clean before and after; final `npm audit`: 0 vulnerabilities.
+
+**Tests**
+- `processDocument.test.js` rewritten for the true-ESM pdf-parse (the old CJS `require.cache` stubbing cannot intercept dynamic `import()`); new real-PDF fixture generator `tests/fixtures/pdfBuilder.js` and new `tests/unit/core/processing/PDFProcessor.test.js` covering multi-page text, page ranges, and password decryption. Unit total 835 → **845**.
+
+### Verification (Phase 5)
+
+- `npm run test:unit`: 845 tests — 844 pass, 0 fail, 1 deliberately skipped.
+- `npm test` (MCP protocol compliance): 100.0% COMPLIANT, 0 errors.
+- `node test-tools.js`: 20/20 tools pass.
+- `npm audit`: **0 vulnerabilities** (was 4 moderate).
+
 ### Fixed — Remediation Phase 4: HTTP transport, protocol hygiene & medium/low cleanup (2026-08-04)
 
 Closes all 19 Phase 4 findings from the [2026-08 codebase audit](./docs/CODEBASE_AUDIT_2026-08.md) — the HTTP/remote deployment path (previously degraded to one session and bricked on reconnect/DELETE), the unretrievable `getting-started` prompt, and the remaining medium/low catalog. Fifth phase of the [remediation plan](./plan/README.md).

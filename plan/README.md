@@ -13,7 +13,7 @@ The audit found **109 defects** (5 critical, 28 high, 47 medium, 29 low) off the
 | 2 | [phase-2-correctness.md](./phase-2-correctness.md) | Tool-breaking bugs — make every tool do what it promises | 52 | No ✅ **Done 2026-08-03** |
 | 3 | [phase-3-leaks-robustness.md](./phase-3-leaks-robustness.md) | Timer/browser/cache leaks · missing timeouts · shutdown | 24 | No ✅ **Done 2026-08-03** |
 | 4 | [phase-4-transport-cleanup.md](./phase-4-transport-cleanup.md) | HTTP transport · protocol hygiene · medium/low cleanup | 19 | No ✅ **Done 2026-08-04** |
-| 5 | [phase-5-dependency-modernization.md](./phase-5-dependency-modernization.md) | Node ≥20 · retire abandoned deps · security-only majors | — (deps) | **Yes** — raise Node floor |
+| 5 | [phase-5-dependency-modernization.md](./phase-5-dependency-modernization.md) | Node ≥20 · retire abandoned deps · security-only majors | — (deps) | **Yes** — approved ✅ **Done 2026-08-05** |
 | 6 | [phase-6-mcp-competitive.md](./phase-6-mcp-competitive.md) | MCP-spec adoption · async tasks · competitive parity | — (roadmap) | **Yes** — product roadmap |
 
 **Total code findings across Phases 1–4: 109** (every finding is assigned to exactly one phase).

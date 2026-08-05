@@ -17,6 +17,8 @@ const PDFProcessorSchema = z.object({
     extractMetadata: z.boolean().default(true),
     extractText: z.boolean().default(true),
     maxPages: z.number().min(1).max(1000).default(100),
+    // For decrypting password-protected PDFs (pdf-parse 2.x / pdfjs-dist honors this).
+    password: z.string().optional(),
     // C3: true page-range extraction (1-based, inclusive). When set, only the
     // text from pages [start..end] is returned.
     pageRange: z.object({
@@ -102,74 +104,79 @@ export class PDFProcessor {
         return result;
       }
 
-      // C3: when a page range is requested, capture per-page text so we can
-      // return exactly pages [start..end] (pdf-parse otherwise concatenates the
-      // whole document and its `max` option only caps the *upper* page bound).
+      // C3: page-range extraction (1-based, inclusive) — pdf-parse 2.x's
+      // getText({ partial: [...] }) parses and returns exactly the requested
+      // pages, so no manual per-page capture is needed here anymore.
       const pageRange = processingOptions.pageRange;
-      const capturedPages = [];
 
-      // Parse PDF with options
-      const parseOptions = {
-        ...processingOptions.parseOptions,
-        max: processingOptions.maxPages
-      };
+      // Dynamic import to avoid initialization issues
+      const { PDFParse, PasswordException } = await import('pdf-parse');
+      const parser = new PDFParse({
+        data: pdfBuffer,
+        ...(processingOptions.password ? { password: processingOptions.password } : {})
+      });
 
-      // If extracting a range, raise `max` to at least the requested end page
-      // and install a pagerender that records each page's text.
-      if (pageRange) {
-        if (pageRange.end) {
-          parseOptions.max = Math.max(parseOptions.max, pageRange.end);
-        } else {
-          parseOptions.max = processingOptions.maxPages;
-        }
-        parseOptions.pagerender = (pageData) => this._renderPage(pageData, capturedPages);
-      }
-
-      let pdfData;
       try {
-        // Dynamic import to avoid initialization issues
-        const pdfParse = (await import('pdf-parse')).default;
-        pdfData = await pdfParse(pdfBuffer, parseOptions);
-      } catch (error) {
-        result.error = `PDF parsing failed: ${error.message}`;
-        result.processingTime = Date.now() - startTime;
-        return result;
-      }
-
-      // Extract text content
-      if (processingOptions.extractText) {
-        if (pageRange) {
-          const start = pageRange.start || 1;
-          // C3: a start past the last rendered page means the requested range
-          // doesn't exist in this PDF — report that explicitly instead of
-          // silently returning success:true with empty text.
-          if (start > capturedPages.length) {
-            result.error = `Requested page range starts at page ${start}, but the PDF only has ${pdfData.numpages || capturedPages.length} page(s).`;
-            result.processingTime = Date.now() - startTime;
-            return result;
+        let info;
+        try {
+          info = await parser.getInfo();
+        } catch (error) {
+          if (error instanceof PasswordException) {
+            result.error = `PDF parsing failed: password required or incorrect (${error.message})`;
+          } else {
+            result.error = `PDF parsing failed: ${error.message}`;
           }
-          const end = Math.min(pageRange.end || capturedPages.length, capturedPages.length);
-          const slice = capturedPages.slice(start - 1, end);
-          result.text = this.cleanPDFText(slice.join('\n\n'));
-          result.extractedPages = { start, end, count: slice.length };
-        } else {
-          result.text = this.cleanPDFText(pdfData.text);
+          result.processingTime = Date.now() - startTime;
+          return result;
         }
+
+        const totalPages = info.total || 0;
+        // pdf-parse 2.x has no equivalent of v1's disableCombineTextItems; only
+        // normalizeWhitespace maps onto a v2 ParseParameters field (inverted).
+        const disableNormalization = !processingOptions.parseOptions?.normalizeWhitespace;
+
+        // Extract text content
+        if (processingOptions.extractText) {
+          if (pageRange) {
+            const start = pageRange.start || 1;
+            // C3: a start past the last page means the requested range
+            // doesn't exist in this PDF — report that explicitly instead of
+            // silently returning success:true with empty text.
+            if (start > totalPages) {
+              result.error = `Requested page range starts at page ${start}, but the PDF only has ${totalPages} page(s).`;
+              result.processingTime = Date.now() - startTime;
+              return result;
+            }
+            const end = Math.min(pageRange.end || processingOptions.maxPages, totalPages);
+            const pageNumbers = [];
+            for (let n = start; n <= end; n++) pageNumbers.push(n);
+
+            const textResult = await parser.getText({ partial: pageNumbers, disableNormalization });
+            const slice = textResult.pages.map(p => p.text);
+            result.text = this.cleanPDFText(slice.join('\n\n'));
+            result.extractedPages = { start, end, count: slice.length };
+          } else {
+            const textResult = await parser.getText({ first: processingOptions.maxPages, disableNormalization });
+            result.text = this.cleanPDFText(textResult.pages.map(p => p.text).join('\n\n'));
+          }
+        }
+
+        // Extract metadata
+        if (processingOptions.extractMetadata) {
+          result.metadata = this.extractPDFMetadata(info);
+        }
+
+        // Set page count
+        result.pageCount = totalPages;
+
+        // Calculate processing time
+        result.processingTime = Date.now() - startTime;
+        result.success = true;
+
+        return result;
+      } finally {
+        await parser.destroy().catch(() => {});
       }
-
-      // Extract metadata
-      if (processingOptions.extractMetadata) {
-        result.metadata = this.extractPDFMetadata(pdfData);
-      }
-
-      // Set page count
-      result.pageCount = pdfData.numpages || 0;
-
-      // Calculate processing time
-      result.processingTime = Date.now() - startTime;
-      result.success = true;
-
-      return result;
 
     } catch (error) {
       return {
@@ -315,12 +322,12 @@ export class PDFProcessor {
 
   /**
    * Extract and format PDF metadata
-   * @param {Object} pdfData - Parsed PDF data from pdf-parse
+   * @param {Object} infoResult - InfoResult from pdf-parse's PDFParse#getInfo()
    * @returns {Object} - Formatted metadata
    */
-  extractPDFMetadata(pdfData) {
-    const info = pdfData.info || {};
-    const metadata = pdfData.metadata || {};
+  extractPDFMetadata(infoResult) {
+    const info = infoResult.info || {};
+    const metadata = infoResult.metadata || {};
 
     return {
       title: this.cleanMetadataValue(info.Title || metadata.title),
@@ -331,8 +338,10 @@ export class PDFProcessor {
       creationDate: this.formatPDFDate(info.CreationDate || metadata.creationDate),
       modificationDate: this.formatPDFDate(info.ModDate || metadata.modificationDate),
       format: this.cleanMetadataValue(info.Format || metadata.format),
-      pages: pdfData.numpages || null,
-      encrypted: info.IsEncrypted || false,
+      pages: infoResult.total || null,
+      // pdfjs-dist's Info dictionary has no `IsEncrypted` flag; it reports the
+      // security filter name (e.g. "Standard") when the doc is encrypted, null otherwise.
+      encrypted: !!info.EncryptFilterName,
       linearized: info.IsLinearized || false,
       pdfVersion: this.cleanMetadataValue(info.PDFFormatVersion || metadata.pdfVersion)
     };

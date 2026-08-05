@@ -81,7 +81,7 @@
   "homepage": "https://crawlforge.dev",
   "type": "module",
   "engines": {
-    "node": ">=18.0.0",
+    "node": ">=20.16.0",
     "npm": ">=8.0.0"
   },
   "os": [
@@ -108,22 +108,19 @@
     "package.json"
   ],
   "dependencies": {
-    "@googleapis/customsearch": "^5.0.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@mozilla/readability": "^0.6.0",
     "cheerio": "^1.1.2",
-    "commander": "^12.1.0",
+    "commander": "^14.0.3",
     "compromise": "^14.14.4",
-    "diff": "^8.0.2",
+    "diff": "^9.0.0",
     "dotenv": "^17.2.1",
     "franc": "^6.2.0",
     "isomorphic-dompurify": "^3.9.0",
     "jsdom": "^29.0.2",
     "lru-cache": "^11.1.0",
-    "node-cron": "^3.0.3",
-    "node-summarizer": "^1.0.7",
-    "p-queue": "^8.1.0",
-    "pdf-parse": "^1.1.1",
+    "p-queue": "^9.3.3",
+    "pdf-parse": "2.4.5",
     "playwright": "^1.54.2",
     "robots-parser": "^3.0.1",
     "turndown": "^7.2.4",
@@ -147,7 +144,7 @@
     "underscore": "^1.13.8",
     "qs": "^6.14.2",
     "path-to-regexp": "^8.4.2",
-    "@hono/node-server": "^1.19.13",
+    "@hono/node-server": "2.0.12",
     "hono": "^4.12.4",
     "dompurify": "^3.4.0",
     "adm-zip": "^0.6.0"

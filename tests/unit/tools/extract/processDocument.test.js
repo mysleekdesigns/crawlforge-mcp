@@ -2,19 +2,18 @@
  * Unit tests: processDocument tool (real module — src/tools/extract/processDocument.js)
  * Run: node --test tests/unit/tools/extract/processDocument.test.js
  *
- * Coverage strategy (no live network, no real PDF fixture parsing):
+ * Coverage strategy (no live network):
  *  - sourceType 'url'  -> local HTTP server on 127.0.0.1, allowlisted via
  *    ALLOWED_DOMAINS (set before the SSRF-guarded modules are first imported,
  *    since config.js reads it once at import time).
  *  - sourceType 'file' -> real fs.readFile against temp files in $TMPDIR.
- *  - sourceType 'pdf_file' -> PDFProcessor dynamically `import()`s the
- *    'pdf-parse' package at call time; that CJS module is swapped for a fake
- *    in Node's require cache before the dynamic import runs. This exercises
- *    100% real ProcessDocumentTool/PDFProcessor logic (fs read, Zod
- *    validation, page-range slicing, error construction) — only pdf-parse's
- *    own byte-level PDF-format parsing (unrelated to the bug under test) is
- *    replaced, since pdf-parse's bundled legacy pdf.js requires byte-exact
- *    xref tables that aren't worth hand-rolling for a unit test.
+ *  - sourceType 'pdf_file' -> pdf-parse 2.x (PDFParse class, backed by
+ *    pdfjs-dist) is a true ESM package, so the old v1-era trick of swapping
+ *    a fake function into Node's CJS require.cache no longer intercepts the
+ *    dynamic `import('pdf-parse')` in PDFProcessor.js. Real, byte-valid PDF
+ *    fixtures are hand-built instead (tests/fixtures/pdfBuilder.js) and
+ *    parsed by the real library end-to-end — this exercises genuine
+ *    pdf-parse behavior (including password decryption) rather than a stub.
  */
 
 import { test, describe, before, after } from 'node:test';
@@ -23,7 +22,7 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { createRequire } from 'node:module';
+import { buildPdf, buildEncryptedPdf } from '../../../fixtures/pdfBuilder.js';
 
 process.env.ALLOWED_DOMAINS = 'localhost';
 const { ProcessDocumentTool } = await import('../../../../src/tools/extract/processDocument.js');
@@ -136,54 +135,15 @@ describe('processDocument tool (real module) — sourceType file (local disk, no
   });
 });
 
-describe('processDocument tool (real module) — sourceType pdf_file (fake pdf-parse output)', () => {
-  let pdfPath;
-  const require = createRequire(import.meta.url);
-  const pdfParseResolved = require.resolve('pdf-parse');
-  const originalCacheEntry = require.cache[pdfParseResolved];
-
-  // A dynamic `import('pdf-parse')` is only resolved through Node's ESM/CJS
-  // interop once per process — the resulting synthetic module (and its
-  // `default` binding) is then cached for the specifier regardless of later
-  // require.cache reassignments. So the fake export installed below must be
-  // a single stable function whose *behavior* tests reconfigure via a
-  // closure variable, not a function tests replace outright.
-  let currentFixture = { pageTexts: [], info: {}, metadata: {} };
-  function stubPdfParse(pageTexts, { info = {}, metadata = {} } = {}) {
-    currentFixture = { pageTexts, info, metadata };
-  }
-
-  before(async () => {
-    const fakeFn = async (_buffer, options) => {
-      const { pageTexts, info, metadata } = currentFixture;
-      if (typeof options?.pagerender === 'function') {
-        for (const text of pageTexts) {
-          await options.pagerender({
-            getTextContent: async () => ({ items: [{ str: text, transform: [1, 0, 0, 1, 0, 700] }] })
-          });
-        }
-      }
-      return { text: pageTexts.join('\n\n'), numpages: pageTexts.length, info, metadata };
-    };
-    require.cache[pdfParseResolved] = { id: pdfParseResolved, filename: pdfParseResolved, loaded: true, exports: fakeFn };
-    // Prime the dynamic-import cache with this fake before any test runs.
-    await import('pdf-parse');
-
-    pdfPath = path.join(tmpDir, 'fake.pdf');
-    await fs.writeFile(pdfPath, Buffer.from('%PDF-1.4 placeholder — content is irrelevant, pdf-parse is stubbed'));
-  });
-
-  after(() => {
-    if (originalCacheEntry) require.cache[pdfParseResolved] = originalCacheEntry;
-    else delete require.cache[pdfParseResolved];
-  });
-
+describe('processDocument tool (real module) — sourceType pdf_file (real PDF fixtures)', () => {
   // Reproduction test for the C3 page-range fix: requesting a pageRange.start
   // beyond the PDF's actual page count used to silently return success:true
   // with empty text (start > capturedPages.length was never checked). It now
   // reports an explicit, actionable error.
   test('PDF pageRange.start past the last page reports an explicit error (not silent success)', async () => {
-    stubPdfParse(['Page one text content.', 'Page two text content.']);
+    const pdfPath = path.join(tmpDir, 'two-page.pdf');
+    await fs.writeFile(pdfPath, buildPdf({ pages: ['Page one text content.', 'Page two text content.'] }));
+
     const tool = new ProcessDocumentTool();
     const result = await tool.execute({
       source: pdfPath,
@@ -196,7 +156,9 @@ describe('processDocument tool (real module) — sourceType pdf_file (fake pdf-p
   });
 
   test('PDF pageRange within bounds returns only the requested pages', async () => {
-    stubPdfParse(['Page one.', 'Page two.', 'Page three.', 'Page four.']);
+    const pdfPath = path.join(tmpDir, 'four-page.pdf');
+    await fs.writeFile(pdfPath, buildPdf({ pages: ['Page one.', 'Page two.', 'Page three.', 'Page four.'] }));
+
     const tool = new ProcessDocumentTool();
     const result = await tool.execute({
       source: pdfPath,
@@ -213,7 +175,9 @@ describe('processDocument tool (real module) — sourceType pdf_file (fake pdf-p
   });
 
   test('PDF metadata (title, page count) is surfaced on the result', async () => {
-    stubPdfParse(['Solo page.'], { info: { Title: 'My Fake PDF', Author: 'Test Author' } });
+    const pdfPath = path.join(tmpDir, 'solo-page.pdf');
+    await fs.writeFile(pdfPath, buildPdf({ pages: ['Solo page.'], info: { Title: 'My Fake PDF', Author: 'Test Author' } }));
+
     const tool = new ProcessDocumentTool();
     const result = await tool.execute({ source: pdfPath, sourceType: 'pdf_file' });
 
@@ -221,5 +185,23 @@ describe('processDocument tool (real module) — sourceType pdf_file (fake pdf-p
     assert.equal(result.title, 'My Fake PDF');
     assert.equal(result.metadata.author, 'Test Author');
     assert.equal(result.metadata.pages, 1);
+  });
+
+  // Phase 5 port note: pdf-parse 2.x actually honors a `password` option now
+  // (v1 never read it — see plan/phase-2-correctness.md, which dropped the
+  // option as a no-op). PDFProcessor.processPDF() supports it directly (see
+  // tests/unit/core/processing/PDFProcessor.test.js for decryption coverage);
+  // ProcessDocumentSchema/processPDFDocument() do not forward a `password`
+  // option to PDFProcessor at all, so process_document has no way to supply
+  // one yet — only the no-password failure path is testable at this level.
+  test('encrypted PDF without a password reports a structured failure (not a thrown error)', async () => {
+    const pdfPath = path.join(tmpDir, 'encrypted-no-pw.pdf');
+    await fs.writeFile(pdfPath, buildEncryptedPdf({ pages: ['Secret content.'], userPassword: 'hunter2' }));
+
+    const tool = new ProcessDocumentTool();
+    const result = await tool.execute({ source: pdfPath, sourceType: 'pdf_file' });
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /password/i);
   });
 });
