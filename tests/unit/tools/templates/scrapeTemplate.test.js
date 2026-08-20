@@ -82,6 +82,28 @@ const CASES = [
     }
   },
 
+  // Reproduction (2026-08-20): GitHub's logged-out React layout has no
+  // watchers aria-label (count is the <strong> after octicon-eye), renders
+  // topics as /topics/<name> anchors instead of a.topic-tag, and ships the
+  // Languages sidebar as an empty client-side skeleton (language stays null).
+  {
+    id: 'github-repo',
+    url: 'https://github.com/acme/react-layout',
+    html: `<html><head><meta property="og:description" content="React layout repo."></head><body>
+      <strong itemprop="name"><a href="/acme/react-layout">react-layout</a></strong>
+      <h3 class="sr-only"><span>Watchers</span></h3>
+      <div class="mt-2"><span><svg class="octicon octicon-eye mr-2"></svg><strong>635</strong> watching</span></div>
+      <a href="/topics/mcp">mcp</a><a href="/topics/scraping">scraping</a>
+      <h2><span>Languages</span></h2><div class="prc-SkeletonText-SkeletonText--DvUT"></div>
+    </body></html>`,
+    assert: (data) => {
+      assert.equal(data.name, 'react-layout');
+      assert.equal(data.watchers, '635');
+      assert.deepEqual(data.topics, ['mcp', 'scraping']);
+      assert.equal(data.language, null);
+    }
+  },
+
   {
     id: 'youtube-video',
     url: 'https://youtube.com/watch?v=abc123',
@@ -240,7 +262,9 @@ describe('TemplateRegistry.run (real extractors, table-driven)', () => {
 
   test('registry lists exactly the 10 templates covered by this fixture table', () => {
     const ids = registry.list().map((t) => t.id).sort();
-    assert.deepEqual(ids, CASES.map((c) => c.id).sort());
+    // Unique: a template may have multiple fixture cases (e.g. github-repo
+    // classic + React layouts).
+    assert.deepEqual(ids, [...new Set(CASES.map((c) => c.id))].sort());
   });
 
   for (const testCase of CASES) {

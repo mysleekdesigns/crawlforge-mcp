@@ -228,7 +228,9 @@ export class LLMsTxtAnalyzer {
         $('a[href*="api"], a[href*="developer"], a[href*="docs"]').each((_, element) => {
           const href = $(element).attr('href');
           const text = $(element).text().toLowerCase();
-          if (href && (text.includes('api') || text.includes('developer'))) {
+          // Word-boundary match: substring checks flagged "Sapiens"/"rapid"
+          // style words as API links.
+          if (href && /\b(api|developer)s?\b/.test(text)) {
             apis.push({
               url: new URL(href, baseUrl).toString(),
               type: 'documentation',

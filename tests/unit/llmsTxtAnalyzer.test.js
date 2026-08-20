@@ -80,3 +80,27 @@ describe('GenerateLLMsTxtTool — analyzer instance hygiene', () => {
     assert.equal(r2.analysis.errors[0].error, 'run:https://concurrent-b.example.com/');
   });
 });
+
+// Reproduction (2026-08-20): detectAPIEndpoints used substring matching on
+// link text, so "Sapiens: A Brief History of Humankind" qualified as an API
+// link ("s-api-ens"). Word-boundary matching keeps real API links only.
+describe('LLMsTxtAnalyzer.detectAPIEndpoints — word-boundary API link matching', () => {
+  test('embedded "api" inside a word does not qualify; a real API doc link does', async () => {
+    const analyzer = new LLMsTxtAnalyzer();
+    const base = 'https://books.toscrape.com';
+    const homepage = '<html><body>' +
+      '<a href="catalogue/sapiens-a-brief-history-of-humankind_996/index.html">Sapiens: A Brief History of Humankind</a>' +
+      '<a href="/docs/api">API documentation</a>' +
+      '</body></html>';
+    analyzer.fetchWithTimeout = async (url) => {
+      if (url.replace(/\/$/, '') === base) {
+        return { ok: true, status: 200, headers: { get: () => 'text/html' }, text: async () => homepage };
+      }
+      return { ok: false, status: 404, headers: { get: () => null } };
+    };
+    await analyzer.detectAPIEndpoints(base);
+    const urls = analyzer.analysis.apis.map((a) => a.url);
+    assert.ok(!urls.some((u) => u.includes('/catalogue/')), `book page misdetected as API: ${JSON.stringify(urls)}`);
+    assert.ok(urls.some((u) => u.endsWith('/docs/api')), `real API doc link missed: ${JSON.stringify(urls)}`);
+  });
+});

@@ -40,6 +40,22 @@ describe('analyzeContent tool (real module)', () => {
     assert.ok(result.statistics, 'statistics should be present');
   });
 
+  // Reproduction (2026-08-20): doc.dates() requires the uninstalled
+  // compromise-dates plugin; its throw aborted ALL entity extraction, so
+  // people/places/organizations were always empty (the happy-path test above
+  // only asserts entities is truthy, which let this slip through).
+  test('entity extraction actually extracts people/places/organizations', async () => {
+    const result = await tool.execute({
+      text: 'Apple and Microsoft announced record earnings in California last quarter. Tim Cook praised the results.',
+      options: { extractEntities: true }
+    });
+    assert.equal(result.success, true);
+    assert.ok(result.entities.people.includes('Tim Cook'), `people missing Tim Cook: ${JSON.stringify(result.entities.people)}`);
+    assert.ok(result.entities.organizations.includes('Microsoft'), `orgs missing Microsoft: ${JSON.stringify(result.entities.organizations)}`);
+    assert.ok(result.entities.places.includes('California'), `places missing California: ${JSON.stringify(result.entities.places)}`);
+    assert.ok(result.entities.summary.totalEntities > 0);
+  });
+
   // Reproduction test for the language-alternatives confidence fix:
   // ContentAnalyzer.detectLanguage() used to report `confidence: 1 - score`
   // for alternatives, which — since francAll() already returns candidates

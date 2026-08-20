@@ -225,6 +225,14 @@ export class GenerateLLMsTxtTool {
     emitSection('Tools', flatten('tools'));
     emitSection('Navigation', flatten('navigation'));
 
+    // Fallback: if no categorized section produced output, list the raw
+    // sitemap so llms.txt always carries a URL inventory. Must run BEFORE the
+    // APIs section — an APIs entry alone used to set hasBody and suppress it.
+    const hasBody = lines.some((l) => l.startsWith('## '));
+    if (!hasBody) {
+      emitSection('Pages', analysis.structure?.sitemap || []);
+    }
+
     // APIs as their own section.
     if (Array.isArray(analysis.apis) && analysis.apis.length > 0) {
       lines.push('## APIs');
@@ -234,12 +242,6 @@ export class GenerateLLMsTxtTool {
         lines.push(`- [${linkLabel(api.url)}](${api.url})${note}`);
       }
       lines.push('');
-    }
-
-    // Fallback: if no categorized sections produced output, list the raw sitemap.
-    const hasBody = lines.some((l) => l.startsWith('## '));
-    if (!hasBody) {
-      emitSection('Pages', analysis.structure?.sitemap || []);
     }
 
     return lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';

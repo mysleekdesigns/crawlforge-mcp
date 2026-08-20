@@ -30,7 +30,10 @@ const { LLMManager } = await import('../../../../src/core/llm/LLMManager.js');
 
 const PAGES = {
   '/product': '<html><head><title>Widget Page</title></head><body><h1>Widget Pro</h1><span class="price">$49.99</span></body></html>',
-  '/no-match': '<html><head><title>Empty</title></head><body><div>nothing matches any selector</div></body></html>'
+  '/no-match': '<html><head><title>Empty</title></head><body><div>nothing matches any selector</div></body></html>',
+  // books.toscrape.com-style markup: price is in class "price_color", which
+  // the exact-token `.price` selector cannot match.
+  '/book': '<html><head><title>Book Page</title></head><body><h1>Tipping the Velvet</h1><p class="price_color">£53.74</p><p class="instock availability">In stock</p></body></html>'
 };
 
 let server;
@@ -78,6 +81,17 @@ describe('extractStructured tool (real module, CSS fallback — no LLM configure
 
   // Reproduction test for the CSS-fallback crash fix: schema keys containing
   // spaces/parens (which become invalid CSS selector fragments, e.g.
+  // Reproduction (2026-08-20): "price" had no semantic-selector entry, so
+  // markup like books.toscrape.com's <p class="price_color"> silently
+  // yielded no price field; the semantic table now tries [class*="price"].
+  test('price extracts from a price_color class via the semantic [class*="price"] fallback', async () => {
+    const schema = { type: 'object', properties: { title: { type: 'string' }, price: { type: 'string' } }, required: ['title'] };
+    const result = await tool.execute({ url: `${baseUrl}/book`, schema });
+    assert.equal(result.extraction_method, 'css_fallback');
+    assert.equal(result.data.title, 'Tipping the Velvet');
+    assert.equal(result.data.price, '£53.74');
+  });
+
   // `.price(USD)` -> "Attribute selector didn't terminate") used to throw
   // inside the single un-guarded loop, aborting extraction for every field
   // and returning extraction_method: 'none'. Each field is now tried in its

@@ -28,7 +28,8 @@ const SEMANTIC_FIELD_SELECTORS = {
   summary: ['article p', 'main p', 'p'],
   author: ['[rel="author"]', '.author', '.byline'],
   date: ['time', '.date'],
-  published: ['time', '.published', '.date']
+  published: ['time', '.published', '.date'],
+  price: ['[itemprop="price"]', '[class*="price"]']
 };
 
 const ExtractStructuredSchema = z.object({

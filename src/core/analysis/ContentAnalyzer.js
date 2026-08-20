@@ -546,7 +546,9 @@ export class ContentAnalyzer {
       const people = doc.people().out('array');
       const places = doc.places().out('array');
       const organizations = doc.organizations().out('array');
-      const dates = doc.dates().out('array');
+      // .dates() needs the compromise-dates plugin (not installed) and threw,
+      // aborting ALL entity extraction; #Date+ tag matching is core compromise.
+      const dates = doc.match('#Date+').out('array');
       const money = doc.money().out('array');
       let other = doc.topics().out('array').slice(0, 10);
 

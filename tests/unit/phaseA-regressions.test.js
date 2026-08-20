@@ -179,6 +179,28 @@ describe('A1.8 generate_llms_txt spec output', () => {
     assert.ok(!/Disallow:/.test(md), 'must NOT emit robots.txt Disallow directives');
   });
 
+  // Reproduction (2026-08-20): the "## Pages" sitemap fallback ran AFTER the
+  // APIs section was pushed, so a lone (possibly false-positive) API entry
+  // set hasBody and suppressed the URL inventory entirely.
+  test('an APIs section alone does not suppress the "## Pages" sitemap fallback', async () => {
+    const { GenerateLLMsTxtTool } = await import('../../src/tools/llmstxt/generateLLMsTxt.js');
+    const tool = new GenerateLLMsTxtTool();
+    const analysis = {
+      metadata: { baseUrl: 'https://books.toscrape.com' },
+      structure: {
+        totalPages: 10,
+        sections: { documentation: [], content: [], tools: [], navigation: [], media: [], other: ['https://books.toscrape.com/catalogue/x/index.html'] },
+        sitemap: ['https://books.toscrape.com/', 'https://books.toscrape.com/catalogue/x/index.html']
+      },
+      apis: [{ url: 'https://books.toscrape.com/catalogue/sapiens_996/index.html', type: 'documentation' }],
+      contentTypes: {}, securityAreas: [], rateLimit: {}
+    };
+    const md = tool.generateLLMsTxt(analysis, {}, 'standard');
+    assert.ok(/\n## Pages\n/.test(md), `expected a ## Pages inventory, got:\n${md}`);
+    assert.ok(/\]\(https:\/\/books\.toscrape\.com\/catalogue\/x\/index\.html\)/.test(md), 'sitemap URLs must appear as markdown links');
+    assert.ok(/\n## APIs\n/.test(md), 'APIs section still renders');
+  });
+
   test('robotsStyle:true preserves legacy robots-style output', async () => {
     const { GenerateLLMsTxtTool } = await import('../../src/tools/llmstxt/generateLLMsTxt.js');
     const tool = new GenerateLLMsTxtTool();

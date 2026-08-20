@@ -87,9 +87,13 @@ const TEMPLATES = [
         description: attr($, 'meta[property="og:description"]', 'content') || text($, 'p.f4.my-3'),
         stars: text($, '#repo-stars-counter-star') || text($, '[aria-label*="stargazers"]'),
         forks: text($, '#repo-network-counter') || text($, '[aria-label*="forks"]'),
-        watchers: text($, '[aria-label*="watchers"]'),
+        // React (logged-out) layout has no watchers aria-label; the count is
+        // the <strong> right after the single octicon-eye. Language is a
+        // client-side skeleton on that layout — unrecoverable from static
+        // HTML, so it stays null there (itemprop still works on classic).
+        watchers: text($, '.octicon-eye + strong') || text($, '[aria-label*="watchers"]'),
         language: text($, 'span[itemprop="programmingLanguage"]') || text($, '.d-inline-flex[class*="language"]'),
-        topics: list($, 'a.topic-tag'),
+        topics: list($, 'a.topic-tag, a[href^="/topics/"]'),
         license: text($, 'a[href*="blob/"][href*="LICENSE"]') || text($, '.octicon-law ~ span'),
         last_updated: attr($, 'relative-time', 'datetime'),
         homepage: attr($, 'a[href][rel="noopener noreferrer"]', 'href'),
