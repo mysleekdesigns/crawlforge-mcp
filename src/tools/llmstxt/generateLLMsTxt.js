@@ -70,9 +70,12 @@ export class GenerateLLMsTxtTool {
       // per-analysis state on `this.analysis`, so a shared instance would let
       // concurrent (or successive) calls cross-contaminate results.
       logger.info(`Analyzing website: ${baseUrl}`);
+      // analysisOptions must reach the constructor: the analyzer reads crawl
+      // caps (maxPages/maxDepth/…) from this.options, not the per-call arg.
       const analyzer = new LLMsTxtAnalyzer({
         timeout: this.options.timeout,
-        userAgent: this.options.userAgent
+        userAgent: this.options.userAgent,
+        ...analysisOptions
       });
       const analysis = await analyzer.analyzeWebsite(url, analysisOptions);
 

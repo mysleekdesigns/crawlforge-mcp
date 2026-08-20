@@ -168,7 +168,13 @@ export class BFSCrawler {
       }
     }
 
-    // Mark as visited
+    // Mark as visited. Re-check the cap and dedupe first: the checks at the
+    // top of this task ran before the awaited robots lookup, so concurrent
+    // queue tasks may have filled the budget (or claimed this URL) since.
+    // This block is synchronous, so the cap is exact.
+    if (this.visited.size >= this.maxPages || this.visited.has(normalizedUrl)) {
+      return;
+    }
     this.visited.add(normalizedUrl);
 
     try {

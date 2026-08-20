@@ -37,7 +37,14 @@ A live test of all 27 tools against real websites surfaced three defects; all fi
 - **serp_rank output schema rejected valid paid responses.** The DataForSEO adapter deliberately emits `snippet: null` for organic items without a description, but `serpRankResultShape.snippet` lacked `.nullable()` — one null-snippet competitor discarded the whole (already-billed) lookup with an output-validation error. Fix: `snippet: z.string().nullable().optional()` + null-snippet regression case in `phase6-output-schemas.test.js`. Retest on a real SERP containing a null-snippet item validates cleanly.
 - **Playwright browsers out of date (environment).** The updated playwright package expected chromium build 1234; the local cache topped out at 1228, failing `stealth_mode`, `scrape_with_actions`, and `scrape`'s screenshot format. Fixed via `npx playwright install chromium`; all three retested green (stealth context/page/cleanup, 3/3 actions + screenshot, screenshot format).
 
-**Verification:** `npm run test:unit` 913 pass / 0 fail; `npm test` 100% MCP-compliant; previously blocked `deep_research`, `agent`, and `generate_llms_txt` (real site, 100 pages) all verified working. Known minor follow-ups: `crawl_deep` can overshoot `max_pages` (asked 5, crawled 10) and `generate_llms_txt` doesn't apply `analysisOptions.maxPages` as a cap (asked 10, analyzed 100).
+**Verification:** `npm run test:unit` 913 pass / 0 fail; `npm test` 100% MCP-compliant; previously blocked `deep_research`, `agent`, and `generate_llms_txt` (real site, 100 pages) all verified working.
+
+**Follow-up (same day): page-limit enforcement.** Two limit overshoots found during the retest, both fixed and live-verified:
+
+- **`crawl_deep` `max_pages` overshoot.** The cap check ran at the start of each queued task, but `visited.add` happened after an awaited robots.txt lookup — so with queue concurrency, many tasks passed the check before any registered (asked 5, crawled 10). Fix: re-check the cap and dedupe synchronously at the `visited.add` site, making the cap exact. Live retest: `max_pages: 6` crawls exactly 6.
+- **`generate_llms_txt` ignored `analysisOptions.maxPages`/`maxDepth`.** The tool passed per-call options only to `analyzeWebsite()`, but `LLMsTxtAnalyzer` reads its crawl caps from *constructor* options — so the schema-validated caps landed in metadata and nowhere else (asked 10, analyzed 100). Fix: spread `analysisOptions` into the analyzer constructor. Live retest: `maxPages: 10` analyzes exactly 10.
+
+Both re-verified: `npm run test:unit` 913 pass / 0 fail, `npm test` 100% MCP-compliant. Note for testers: `crawl_deep` caches whole results for 1h keyed by params — identical re-runs return the cached (pre-fix) result; vary a param to bypass.
 
 ### Repo housekeeping — root markdown moved to docs/ (2026-08-05, released in v5.0.0)
 
