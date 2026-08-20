@@ -97,6 +97,37 @@ function classifyContentType(contentType) {
 }
 
 /**
+ * Flatten a parsed document's <body> to text while preserving line structure.
+ *
+ * Cheerio's .text() joins adjacent elements with no separator, which welds
+ * table rows / list items together ("1.Story title329 points") and starves
+ * downstream LLM extraction (AgentOrchestrator, extractStructured,
+ * extractWithLlm) of any structure to parse. Works on a detached clone so the
+ * caller's $ tree is untouched — unifiedScrape reuses $ for other formats.
+ *
+ * @param {import('cheerio').CheerioAPI} $
+ * @returns {string}
+ */
+export function flattenBodyText($) {
+  // Block boundaries are marked with a U+E000 private-use sentinel so the
+  // HTML source's own insignificant newlines can be collapsed to spaces
+  // first, and only the sentinels become line breaks. (NUL won't survive:
+  // .after()/.replaceWith() parse their argument as HTML and the parser
+  // strips NUL; U+E000 passes through and never occurs in real page text.)
+  const $body = $('body').clone();
+  $body.find('br').replaceWith('\uE000');
+  $body.find('td, th').after(' ');
+  $body
+    .find('p, div, li, tr, h1, h2, h3, h4, h5, h6, blockquote, pre, table, ul, ol, dl, section, article, header, footer')
+    .after('\uE000');
+  return $body
+    .text()
+    .replace(/\s+/g, ' ')
+    .replace(/ ?(?:\uE000 ?)+/g, '\n')
+    .trim();
+}
+
+/**
  * Fetch a URL and return parsed HTML via Cheerio.
  *
  * @param {string} url
@@ -149,7 +180,7 @@ export async function fetchAndParse(url, options = {}) {
     $(stripTags.join(', ')).remove();
   }
 
-  const textContent = $('body').text().replace(/\s+/g, ' ').trim();
+  const textContent = flattenBodyText($);
 
   return { html, $, textContent, finalUrl: response.url };
 }

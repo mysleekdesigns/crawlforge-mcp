@@ -5,6 +5,23 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.0.4] - 2026-08-20
+
+Patch release: third full-surface live retest (all 27 MCP tools via a 10-agent workflow judging returned content, all 24 CLI subcommands against live sites). The one remaining hard defect (`agent` tool synthesis) is fixed and verified end-to-end, plus a CLI key-resolution bug found during testing.
+
+### Fixed
+
+- **`agent` tool fetched the right page but could not answer from it.** It gathered the named site fine (HTTP 200, evidence recorded) yet answered "unable to find the #1 story" / "I'm unable to access the internet". Three coupled causes, each verified insufficient to fix alone: (1) `_fetchAndParse` flattened pages with `$('body').text().replace(/\s+/g,' ')`, welding adjacent block elements into one string ("1.Story title329 points") — the new exported `flattenBodyText()` marks block-element boundaries with a U+E000 sentinel (NUL cannot be used: cheerio's `.after()` parses its argument as HTML and the parser strips NUL), collapses whitespace, then turns sentinels into newlines, so every table row / list item survives as its own line; it works on a detached clone because `unifiedScrape` reuses the returned `$`. (2) The SHAPE stage ordered synthesis sources purely by prompt-term overlap, so a generic article containing the task's words ("title", "story", "current") outranked the site the prompt explicitly named — an NFL article buried the news.ycombinator.com front page. Seed URLs and prompt-named sites now carry a fixed priority boost above any term-overlap score. (3) Small local models refused even perfectly-ordered input — the synthesis prompt now states the sources were ALREADY fetched and forbids refusing for lack of browsing ability; with that wording all four installed Ollama models answer the isolated test correctly. Live end-to-end over MCP stdio, the agent now names the real current HN #1 story.
+- **CLI `search` ignored the API key stored by setup.** `config.js` captured `process.env.CRAWLFORGE_API_KEY` at import time, but the CLI's preAction hook resolves the key (`--api-key` flag → env → `~/.crawlforge/config.json`) after that import, so a user whose only key was the stored one always got "CrawlForge API key is required". `getToolConfig('search_web')` now reads the env at call time. Verified from a non-repo working directory with no env var set.
+
+### Changed
+
+- Synthesis-model guidance: on the real ~13KB multi-source synthesis prompt, llama3.2 (the code default) still fails where qwen2.5:3b (the same 3B size), mistral:7b, and gemma3:12b all succeed — if `agent` answers degrade locally, set `OLLAMA_DEFAULT_MODEL=qwen2.5:3b`. The code default remains llama3.2 for ecosystem compatibility.
+
+### Tests
+
+- 980 unit tests pass (6 new: `tests/unit/fetchAndParse-text-structure.test.js` — line-structure, td spacing, br/li/p breaks, NBSP collapsing, no `$`-tree mutation; `tests/unit/agent-shape-priority.test.js` — prompt-named site precedes higher-term-overlap decoys in the synthesis input); MCP protocol compliance 100%.
+
 ## [5.0.3] - 2026-08-20
 
 Patch release: fifteen defects from a second full-surface live retest (all 27 MCP tools judged on returned content via an 8-agent workflow, all 23 CLI subcommands against live sites), run after v5.0.2 shipped. Every fix was researched via `search_web`, reproduced against live-captured fixtures, and re-verified live end-to-end.

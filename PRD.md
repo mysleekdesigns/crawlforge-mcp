@@ -16,6 +16,8 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **v5.0.3 released 2026-08-20** — patch release: second full-surface live retest (27 MCP tools + 23 CLI commands): five hard defects fixed (agent-tool synthesis + prompt-named-site URL seeding, camoufox false "not installed" via CJS load + real `Camoufox()` API, playwright-core 1.62 vs camoufox Firefox protocol mismatch fixed with `viewport: null` — this had also silently broken deep_research's camoufox fallback, llmstxt CLI `--max-pages` validation, stale `map` CLI docs) plus the monitor store move from cwd-relative `./monitors` to `~/.crawlforge/monitors` with legacy migration, and all nine content-quality warns (see "Second live retest remediation" below). 974/975 unit tests pass, MCP compliance 100%.
 
+**v5.0.4 released 2026-08-20** — patch release: third full-surface live retest (27 MCP tools via a 10-agent workflow judging returned content, 24 CLI subcommands live) came back green except one hard defect: the `agent` tool fetched the right page but could not answer from it. Fixed with three coupled changes (structured `flattenBodyText()` extraction in `_fetchAndParse.js` using a U+E000 block-boundary sentinel; SHAPE priority boost so seeds/prompt-named sites outrank generic term-overlap decoys; synthesis prompt hardened against small-model "I cannot browse" refusals) and verified end-to-end over MCP stdio against the live HN front page. Also fixed: CLI `search` ignored the key stored in `~/.crawlforge/config.json` (`getToolConfig` now reads `CRAWLFORGE_API_KEY` at call time, after the CLI's key-resolution hook). 980 unit tests pass (6 new), MCP compliance 100% (see "Third live retest remediation" below).
+
 ---
 
 ## v4.8.0 — Real Agent Skills, Security Enforcement, Branding/Screenshot, Change Scheduling
@@ -34,6 +36,21 @@ Delivered 2026-06-28. Additive minor; no breaking changes to tool schemas, outpu
 ---
 
 ## Release History
+
+### Third live retest remediation — agent synthesis root-caused three layers deep, CLI stored-key resolution (2026-08-20, released in v5.0.4)
+
+A third full-surface live retest (all 27 MCP tools via a 10-agent workflow grading returned content quality, all 24 CLI subcommands plus global flags against live sites) ran clean — 29 pass / 1 by-design warn (stealth_mode create_page returns navigation metadata only) — except the `agent` tool, which fetched news.ycombinator.com successfully on every attempt yet never named the #1 story.
+
+**`agent` synthesis (3 coupled causes, each proven insufficient alone by re-testing live after each fix):**
+1. **Flat text extraction** (`src/tools/extract/_fetchAndParse.js`): `$('body').text().replace(/\s+/g,' ')` joined adjacent elements with no separator, welding every HN rank/title/points into one string. New exported `flattenBodyText()`: mark block-element boundaries (`p, div, li, tr, h1–h6, blockquote, pre, table, ul, ol, dl, section, article, header, footer`; `td/th` get spaces; `br` too) with a U+E000 private-use sentinel, collapse all whitespace, convert sentinel runs to newlines. NUL was tried first and silently vanished — cheerio's `.after()`/`.replaceWith()` parse their argument as HTML and the HTML parser strips NUL. Runs on a detached clone: `unifiedScrape` reuses the returned `$`.
+2. **SHAPE ordering buried the named source** (`src/core/AgentOrchestrator.js`): evidence was ordered purely by prompt-term overlap, so an NFL article containing "title"/"story"/"current" outranked the explicitly-named HN front page in the synthesis input. Seeds + prompt-named sites (the `priorityUrls` the GATHER phase already treats as most authoritative) now get a +1000 ordering boost.
+3. **Small-model refusal**: with perfect, correctly-ordered input, llama3.2 still answered "I'm unable to access the internet". The synthesis prompt now opens with "the sources below have ALREADY been fetched … do not refuse for lack of browsing ability"; with that wording all four installed Ollama models answered the isolated test correctly.
+
+**Model finding:** on the real ~13KB five-source synthesis prompt, llama3.2 alone still failed while qwen2.5:3b (same 3B size), mistral:7b, and gemma3:12b all succeeded — `OLLAMA_DEFAULT_MODEL=qwen2.5:3b` is the recommended env override when agent answers degrade; the code default stays llama3.2.
+
+**CLI `search` stored-key bug** (`src/constants/config.js`): the CLI's preAction hook (flag → env → `~/.crawlforge/config.json`) sets `process.env.CRAWLFORGE_API_KEY` after `config.js` has already been imported, and the config snapshot captured the env at import time — so a stored-key-only user always got "CrawlForge API key is required" from `crawlforge search`. `getToolConfig('search_web')` now reads the env at call time; verified live from a non-repo cwd with no env var.
+
+**Verification:** 980 unit tests pass, 0 fail (6 new regression tests: `fetchAndParse-text-structure.test.js` ×5 including a no-`$`-mutation guard, `agent-shape-priority.test.js` ×1 asserting the named site precedes higher-overlap decoys in the captured synthesis prompt); `npm test` MCP compliance 100%; live stdio `tools/call agent` names the real current HN #1 story.
 
 ### Second live retest remediation — agent synthesis, camoufox engine, monitor home store, nine content-quality warns (2026-08-20, released in v5.0.3)
 

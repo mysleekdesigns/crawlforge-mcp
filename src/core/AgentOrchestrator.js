@@ -200,9 +200,13 @@ export class AgentOrchestrator {
     // "news.ycombinator.com") are the most authoritative sources for the task —
     // queue them ahead of search results.
     const namedSites = prompt.match(/https?:\/\/[^\s"'<>]+|(?<![\w.@/-])[a-z0-9][\w-]*(?:\.[a-z0-9][\w-]*)*\.[a-z]{2,}(?![\w-])/gi) || [];
+    // Seeds and prompt-named sites also outrank search results at SHAPE time
+    // (see priorityUrls below) — generic term overlap must not bury them.
+    const priorityUrls = [...seedUrls];
     for (const site of namedSites) {
       const url = (/^https?:\/\//i.test(site) ? site : `https://${site}`).replace(/[.,;:!?)]+$/, '');
       if (!urlQueue.includes(url)) urlQueue.push(url);
+      if (!priorityUrls.includes(url)) priorityUrls.push(url);
     }
     const searchResults = [];
 
@@ -261,10 +265,16 @@ export class AgentOrchestrator {
     // url+title+text) instead of raw queue order, then give every source a
     // per-source slice of the synthesis budget so no source is silently cut off.
     const promptTerms = prompt.toLowerCase().split(/\s+/).filter(t => t.length > 3);
+    // Seeds/prompt-named sites get a fixed boost above any term-overlap score:
+    // a generic article mentioning the task's words ("title", "story") must
+    // never outrank the source the user explicitly pointed at (live retest
+    // 2026-08-20: an NFL article buried the named news.ycombinator.com page).
+    const isPriority = url => priorityUrls.some(p => url === p || url.startsWith(`${p}/`) || `${url}/` === p);
     const orderedEvidence = evidence
       .map(e => ({
         ...e,
-        _score: promptTerms.filter(t => `${e.url} ${e.title || ''} ${e.text}`.toLowerCase().includes(t)).length
+        _score: (isPriority(e.url) ? 1000 : 0) +
+          promptTerms.filter(t => `${e.url} ${e.title || ''} ${e.text}`.toLowerCase().includes(t)).length
       }))
       .sort((a, b) => b._score - a._score);
     const perSourceCap = Math.max(1500, Math.floor(12000 / Math.max(evidence.length, 1)));
@@ -317,14 +327,19 @@ export class AgentOrchestrator {
     let degradedReason;
 
     try {
+      // Wording matters for small local models (llama3.2-class): without the
+      // "already fetched / do not refuse" framing they answer "I cannot access
+      // the internet" or "the sources do not contain it" even when the answer
+      // sits in the first source (live retest 2026-08-20).
       const synthesisPrompt =
-        `You are a research assistant. Answer this task using ONLY the sources below:\n\n` +
+        `You are a data-extraction assistant. The web sources below have ALREADY been fetched for you and their text is included — no internet access is needed; do not refuse for lack of browsing ability. They are ordered most-relevant first. Answer the task using ONLY this source text:\n\n` +
         `Task: ${prompt}\n\n` +
         `${combinedText}\n\n` +
         `Rules:\n` +
         `- Answer ONLY from the provided sources; do not use outside knowledge.\n` +
+        `- Read the sources carefully before concluding anything is missing from them.\n` +
         `- Cite the exact source URL(s) you used.\n` +
-        `- If the sources do not contain the answer, say so explicitly.\n` +
+        `- If, after careful reading, the sources genuinely do not contain the answer, say so explicitly.\n` +
         `- NEVER invent or guess a URL; cite only URLs that appear in the sources above.\n\n` +
         `Provide a clear, concise answer.`;
 

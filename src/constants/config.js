@@ -303,7 +303,11 @@ export function validateConfig() {
 export function getToolConfig(toolName) {
   const toolConfigs = {
     search_web: {
-      apiKey: config.crawlforge.apiKey,
+      // Read env at call time, not import time: the CLI resolves the key
+      // (--api-key flag / env / ~/.crawlforge/config.json) in a preAction
+      // hook that runs AFTER this module was imported, so the frozen
+      // config.crawlforge.apiKey snapshot misses stored keys.
+      apiKey: process.env.CRAWLFORGE_API_KEY || config.crawlforge.apiKey,
       apiBaseUrl: config.crawlforge.apiBaseUrl,
       
       // Common configuration
