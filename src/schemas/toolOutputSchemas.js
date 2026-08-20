@@ -122,7 +122,7 @@ const serpRankResultShape = z.object({
   domain: z.string().optional(),
   url: z.string().nullable().optional(),
   title: z.string().nullable().optional(),
-  snippet: z.string().optional()
+  snippet: z.string().nullable().optional()
 }).passthrough();
 
 const serpRankShape = {

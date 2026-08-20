@@ -204,11 +204,15 @@ export class BFSCrawler {
 
       // Process links for analysis
       if (this.enableLinkAnalysis && this.linkAnalyzer && pageData.links) {
+        // Parse the page once and reuse for every link; re-parsing per link is
+        // O(links × page size) and starves the event loop on link-dense pages.
+        const $page = pageData.originalHtml ? load(pageData.originalHtml) : null;
+        const pageBodyText = $page ? $page('body').text() : '';
         for (const link of pageData.links) {
           const absoluteUrl = this.resolveUrl(link, normalizedUrl);
           if (absoluteUrl) {
             // Extract anchor text and context from link
-            const linkMetadata = this.extractLinkMetadata(link, pageData.originalHtml, normalizedUrl);
+            const linkMetadata = this.extractLinkMetadata(link, $page, pageBodyText);
             this.linkAnalyzer.addLink(normalizedUrl, absoluteUrl, linkMetadata);
           }
         }
@@ -548,19 +552,18 @@ export class BFSCrawler {
   }
 
   /**
-   * Extract link metadata from HTML
+   * Extract link metadata from a pre-parsed page
    * @param {string} href - The href attribute value
-   * @param {string} html - Original HTML content
-   * @param {string} baseUrl - Base URL for context
+   * @param {Object} $ - Cheerio document for the page (parsed once per page)
+   * @param {string} bodyText - Pre-computed body text of the page
    * @returns {Object} Link metadata
    */
-  extractLinkMetadata(href, html, baseUrl) {
-    if (!html) return {};
+  extractLinkMetadata(href, $, bodyText = '') {
+    if (!$) return {};
 
     try {
-      const $ = load(html);
       const linkElement = $(`a[href="${href}"]`).first();
-      
+
       if (linkElement.length === 0) {
         return { href };
       }
@@ -569,10 +572,8 @@ export class BFSCrawler {
       const title = linkElement.attr('title');
       const rel = linkElement.attr('rel');
       const className = linkElement.attr('class');
-      
+
       // Get surrounding context (up to 100 characters before and after)
-      const linkHtml = linkElement.prop('outerHTML');
-      const bodyText = $('body').text();
       const linkTextIndex = bodyText.indexOf(anchorText);
       let context = '';
       

@@ -152,7 +152,11 @@ describe('OUTPUT_SCHEMAS — realistic samples parse', () => {
       url: 'https://dashboardhosting.com/wordpress',
       title: 'Managed WordPress Hosting | DashboardHosting',
       allPositions: [{ position: 4, rankAbsolute: 4, url: 'https://dashboardhosting.com/wordpress', title: 'Managed WordPress Hosting' }],
-      results: [{ position: 1, rankAbsolute: 1, domain: 'competitor.com', url: 'https://competitor.com/', title: 'Competitor', snippet: '...' }],
+      results: [
+        { position: 1, rankAbsolute: 1, domain: 'competitor.com', url: 'https://competitor.com/', title: 'Competitor', snippet: '...' },
+        // DataForSEO emits snippet:null for organic items with no description
+        { position: 2, rankAbsolute: 2, domain: 'nodesc.com', url: 'https://nodesc.com/', title: 'No Description', snippet: null }
+      ],
       location: 'United States',
       device: 'desktop',
       depthScanned: 100,
