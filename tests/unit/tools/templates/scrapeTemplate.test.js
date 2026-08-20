@@ -177,15 +177,30 @@ const CASES = [
         <span class="age"><a href="item?id=111">3 hours ago</a></span> |
         <a href="item?id=111">42&nbsp;comments</a>
       </td></tr>
+      <tr class="athing" id="222">
+        <td class="title"><span class="titleline"><a href="https://example.com/job-post">Acme (YC S26) Is Hiring</a></span></td>
+      </tr>
+      <tr><td class="subtext">
+        <span class="age"><a href="item?id=222">1 hour ago</a></span> | <a href="hide?id=222">hide</a>
+      </td></tr>
     </table></body></html>`,
     assert: (data) => {
-      assert.equal(data.stories.length, 1);
+      assert.equal(data.stories.length, 2);
       const story = data.stories[0];
       assert.equal(story.id, '111');
       assert.equal(story.title, 'Story One');
       assert.equal(story.url, 'https://example.com/story-one');
       assert.equal(story.score, '120');
       assert.equal(story.author, 'alice');
+      assert.equal(story.posted, '3 hours ago');           // age text, not the item?id= permalink
+      assert.equal(story.comments, '42\u00a0comments'); // comments link (HN uses &nbsp;), not the age anchor
+      // Job posts have no score/author/comments link — only the age anchor.
+      const job = data.stories[1];
+      assert.equal(job.id, '222');
+      assert.equal(job.score, null);
+      assert.equal(job.author, null);
+      assert.equal(job.posted, '1 hour ago');
+      assert.equal(job.comments, null);                    // age must not leak into comments
     }
   },
 

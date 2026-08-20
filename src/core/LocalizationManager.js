@@ -548,7 +548,7 @@ export class LocalizationManager extends EventEmitter {
   /**
    * Auto-detect appropriate localization from content
    * @param {string} content - Web page content
-   * @param {string} url - Source URL
+   * @param {string} [url] - Optional source URL (used only as a TLD country hint)
    * @returns {Object} - Detected localization settings
    */
   async autoDetectLocalization(content, url) {
@@ -698,14 +698,40 @@ export class LocalizationManager extends EventEmitter {
   }
   
   getDateFormat(countryCode) {
+    // Audited against CLDR short-date patterns / Wikipedia "List of date
+    // formats by country". Covers every SUPPORTED_COUNTRIES entry; the
+    // fallback is DD/MM/YYYY (day-first), which most of the world uses —
+    // MM/DD/YYYY is essentially US-only.
     const formats = {
       'US': 'MM/DD/YYYY',
       'GB': 'DD/MM/YYYY',
       'DE': 'DD.MM.YYYY',
-      'JP': 'YYYY/MM/DD'
+      'FR': 'DD/MM/YYYY',
+      'JP': 'YYYY/MM/DD',
+      'CN': 'YYYY/MM/DD',
+      'AU': 'DD/MM/YYYY',
+      'CA': 'YYYY-MM-DD',
+      'IT': 'DD/MM/YYYY',
+      'ES': 'DD/MM/YYYY',
+      'RU': 'DD.MM.YYYY',
+      'BR': 'DD/MM/YYYY',
+      'IN': 'DD/MM/YYYY',
+      'KR': 'YYYY.MM.DD',
+      'MX': 'DD/MM/YYYY',
+      'NL': 'DD-MM-YYYY',
+      'SE': 'YYYY-MM-DD',
+      'NO': 'DD.MM.YYYY',
+      'SA': 'DD/MM/YYYY',
+      'AE': 'DD/MM/YYYY',
+      'TR': 'DD.MM.YYYY',
+      'IL': 'DD.MM.YYYY',
+      'TH': 'DD/MM/YYYY',
+      'SG': 'DD/MM/YYYY',
+      'PL': 'DD.MM.YYYY',
+      'ZA': 'YYYY/MM/DD'
     };
-    
-    return formats[countryCode] || 'MM/DD/YYYY';
+
+    return formats[countryCode] || 'DD/MM/YYYY';
   }
   
   getNumberFormat(countryCode) {
@@ -1275,7 +1301,17 @@ export class LocalizationManager extends EventEmitter {
       const detectedLang = await this.analyzeTextLanguage(textSample);
       if (detectedLang) {
         detection.evidence.push(`Text analysis: ${detectedLang.language} (${detectedLang.confidence}%)`);
-        detection.confidence += detectedLang.confidence / 100 * 0.2;
+        if (!detection.detectedLanguage) {
+          // Text analysis is the primary (only) language evidence — use it as
+          // the detected language, weighted strongly. Previously the result
+          // was pushed to evidence but detectedLanguage stayed null and the
+          // 0.2 corroboration weight left confidence near zero.
+          detection.detectedLanguage = detectedLang.language;
+          detection.confidence += detectedLang.confidence / 100 * 0.6;
+        } else {
+          // Corroborates (or contradicts) HTML/meta evidence — lower weight
+          detection.confidence += detectedLang.confidence / 100 * 0.2;
+        }
       }
     }
   }
@@ -1347,15 +1383,22 @@ export class LocalizationManager extends EventEmitter {
     
     let bestMatch = null;
     let maxMatches = 0;
-    
+    const wordCount = text.split(/\s+/).filter(Boolean).length;
+
     for (const [lang, pattern] of Object.entries(patterns)) {
       const matches = (text.match(pattern) || []).length;
       if (matches > maxMatches) {
         maxMatches = matches;
-        bestMatch = { language: lang, confidence: Math.min(95, matches * 5) };
+        // Confidence from stop-word DENSITY (matches per word), not the
+        // absolute match count — absolute counts made confidence depend on
+        // sample length (a 500-char English sample scored only ~35%).
+        // Stop-words are ~25-40% of natural text in the matching language,
+        // so density * 250 puts an unambiguous match in the 60-95 range.
+        const density = matches / Math.max(1, wordCount);
+        bestMatch = { language: lang, confidence: Math.min(95, Math.round(density * 250)) };
       }
     }
-    
+
     return bestMatch;
   }
 
@@ -1363,15 +1406,17 @@ export class LocalizationManager extends EventEmitter {
    * Enhanced country detection
    */
   async performCountryDetection(content, url, detection) {
-    // TLD analysis
-    const urlObj = new URL(url);
-    const tldMatch = urlObj.hostname.match(/\.([a-z]{2})$/);
-    if (tldMatch) {
-      const tld = tldMatch[1].toUpperCase();
-      if (SUPPORTED_COUNTRIES[tld]) {
-        detection.detectedCountry = tld;
-        detection.evidence.push(`TLD suggests country: ${tld}`);
-        detection.confidence += 0.2;
+    // TLD analysis — url is optional metadata; content-only detection skips it
+    if (url) {
+      const urlObj = new URL(url);
+      const tldMatch = urlObj.hostname.match(/\.([a-z]{2})$/);
+      if (tldMatch) {
+        const tld = tldMatch[1].toUpperCase();
+        if (SUPPORTED_COUNTRIES[tld]) {
+          detection.detectedCountry = tld;
+          detection.evidence.push(`TLD suggests country: ${tld}`);
+          detection.confidence += 0.2;
+        }
       }
     }
     

@@ -246,6 +246,18 @@ describe('trackChanges tool — real module (Phase 2 fix)', () => {
       for (const t of [toolA, toolB, toolC]) await t.shutdown().catch(() => {});
     });
 
+    test('create_baseline reports real sections/contentHash/createdAt (not the always-0 mapping bug)', async () => {
+      // Regression: index.js read baseline.analysis?.hashes — a property the
+      // ChangeTracker summary return never had — so sections/elements were
+      // always 0 and contentHash/createdAt undefined for every page.
+      const html = '<html><body><header>H</header><nav>N</nav><main>M</main><footer>F</footer></body></html>';
+      const result = await realTool.execute({ url: trackedUrl, operation: 'create_baseline', html });
+      assert.equal(result.success, true, `baseline failed: ${result.error}`);
+      assert.ok(result.baseline.sections > 0, `expected sections > 0 for semantic HTML, got ${result.baseline.sections}`);
+      assert.ok(typeof result.baseline.contentHash === 'string' && result.baseline.contentHash.length > 0);
+      assert.ok(typeof result.baseline.createdAt === 'number');
+    });
+
     test('stop_scheduled_monitor with an unknown id reports success:false', async () => {
       const result = await realTool.execute({
         url: trackedUrl,

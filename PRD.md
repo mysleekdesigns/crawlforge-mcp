@@ -6,13 +6,15 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — all three shipped in v4.1.0 — without breaking any existing MCP tools or the current setup flow.
 
-**Last Updated:** 2026-08-05
+**Last Updated:** 2026-08-20
 
 **v5.0.0 released 2026-08-05** — major release bundling remediation Phases 0–6 (see Release History below). Breaking: Node floor `>=18` → `>=20.16`.
 
 **v5.0.1 released 2026-08-20** — patch release: thirteen defects from the full-surface live tool test (see "Live tool-test remediation" below), including the critical `crawl_deep` event-loop starvation, the init stanza pointing at a nonexistent npm package, empty junk snapshots written on every detected change, and `SnapshotManager` splitting content from metadata for custom storage dirs.
 
 **v5.0.2 released 2026-08-20** — patch release: the four content-quality defects deferred from v5.0.1 (analyze_content entity extraction, extract_structured price fallback, generate_llms_txt inventory/API mislabeling, github-repo template React-layout selectors).
+
+**Unreleased — committed 2026-08-20** — second full-surface live retest (27 MCP tools + 23 CLI commands): five hard defects fixed (agent-tool synthesis + prompt-named-site URL seeding, camoufox false "not installed" via CJS load + real `Camoufox()` API, playwright-core 1.62 vs camoufox Firefox protocol mismatch fixed with `viewport: null` — this had also silently broken deep_research's camoufox fallback, llmstxt CLI `--max-pages` validation, stale `map` CLI docs) plus the monitor store move from cwd-relative `./monitors` to `~/.crawlforge/monitors` with legacy migration, and all nine content-quality warns (see "Second live retest remediation" below). 974/975 unit tests pass, MCP compliance 100%.
 
 ---
 
@@ -32,6 +34,23 @@ Delivered 2026-06-28. Additive minor; no breaking changes to tool schemas, outpu
 ---
 
 ## Release History
+
+### Second live retest remediation — agent synthesis, camoufox engine, monitor home store, nine content-quality warns (2026-08-20, unreleased)
+
+A second full-surface live test (all 27 MCP tools via an 8-agent workflow judging returned content, all 23 CLI commands via scripted live runs) after v5.0.2 found 15 defects; every fix was researched via `search_web`, reproduced against live-captured fixtures, and re-verified live end-to-end.
+
+**Hard defects (5):**
+1. **`agent` tool wrong/fabricated answers** (`AgentOrchestrator.js`): the LLM's preamble line became search query #1 and a flat 12K truncation fed synthesis only the first-queued sources — fixed with preamble filtering, a per-source context budget with relevance ordering, anti-fabrication synthesis rules (cite sources, never invent URLs), and seeding the URL queue with sites named in the prompt.
+2. **camoufox false "not installed"** (`StealthBrowserManager.js`): camoufox's `exports.import` is a broken esbuild ESM bundle (`Dynamic require of "events"`); adapter now loads the CJS entry via `createRequire` and calls the real `Camoufox()` API (`camoufox.launch` never existed), distinguishing genuinely-absent from failed-to-load.
+3. **playwright-core 1.62 vs camoufox Firefox protocol** (regression since the v5.0.0 dep upgrade; camoufox pins ^1.54): any fixed-viewport context fails `Browser.setDefaultViewport` on unknown fields — fixed with `viewport: null` (skips the call) in both `createStealthContext` and `ResearchOrchestrator._stealthFetchOnce`, un-breaking deep_research's camoufox anti-bot fallback.
+4. **llmstxt CLI**: `--max-pages` outside 10–500 dumped a raw zod error; now validated pre-invocation with a friendly message.
+5. **CLI docs**: `map` documented nonexistent `--depth`/`--format` flags; `monitor:create/list/stop/run-due`, `init`, and `mcp` were undocumented.
+
+**Monitor store relocation:** `MonitorStore` defaulted to cwd-relative `./monitors`, so `monitor:list`/`stop`/`run-due` silently saw different stores per directory and the documented cron workflow broke. Now defaults to `~/.crawlforge/monitors` (consistent with `~/.crawlforge/config.json`) with best-effort one-time migration of legacy `./monitors` files; verified live across different working directories.
+
+**Content-quality warns (9, all live-verified):** track_changes unchanged-compare contradiction (`changeType:"none"` now; set-based Jaccard clamps structuralSimilarity to [0,1]; createBaseline read a nonexistent `.analysis` so sections/elements/contentHash were always 0); batch_scrape markdown dropped non-p/li content (hand-rolled walk replaced with the shared Turndown helper — batch markdown also no longer includes nav/footer boilerplate, matching `scrape`); HN template `posted` carried permalinks and job posts leaked age into `comments`; extract_text leaked Wikipedia's `<noscript>` tracking pixel as literal markup; localization FR dateFormat was MM/DD/YYYY (full 26-country audit), auto_detect now works content-only, and language confidence is stopword-density-based; extractive summarizer omitted the lead definitional sentence (lead-position bonus + brevity penalty); analyze_content topics were always empty (confidence normalized against max phrase frequency) and entities noisy (punctuation stripping, case-insensitive dedupe, "X v. Y" legal-case guard, ALL-CAPS org demotion); scrape_with_actions silently ignored scroll `x`/`y` (now supported at ActionExecutor, tool-schema, and MCP-schema layers, reporting `scrolledTo`).
+
+**Verification:** 974/975 unit tests pass (0 fail, ~50 new regression tests), `npm test` MCP compliance 100%, plus live re-runs of every fixed path (camoufox scrape of example.com, agent answering from the real HN front page, cross-directory monitor lifecycle, MCP-layer scroll `scrolledTo {x:0,y:500}`).
 
 ### Live tool-test remediation — crawl_deep event-loop starvation, serp_rank schema, Playwright browsers (2026-08-20, released in v5.0.1)
 

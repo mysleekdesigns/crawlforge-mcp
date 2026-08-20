@@ -421,6 +421,20 @@ export class StealthBrowserManager {
       javaScriptEnabled: true
     };
 
+    // camoufox's Firefox build predates the Browser.setDefaultViewport fields
+    // playwright-core 1.62 sends (screenSize, isMobile, ...) and rejects unknown
+    // properties, so any fixed viewport fails. viewport:null skips that protocol
+    // call entirely (deviceScaleFactor/isMobile/hasTouch/screen are invalid or
+    // meaningless without a viewport). window.screen is still spoofed via
+    // addInitScript in applyAdvancedStealthConfigurations.
+    if (this._launchedEngine === 'camoufox') {
+      contextOptions.viewport = null;
+      delete contextOptions.deviceScaleFactor;
+      delete contextOptions.isMobile;
+      delete contextOptions.hasTouch;
+      delete contextOptions.screen;
+    }
+
     const context = await this.browser.newContext(contextOptions);
     const contextId = this.generateContextId();
     
@@ -2001,32 +2015,79 @@ export class BrowserEngine {
 export class CamoufoxAdapter extends BrowserEngine {
   name() { return 'camoufox'; }
 
+  /**
+   * Load camoufox through its CJS entry (dist/index.cjs) via createRequire.
+   * The package's ESM entry (dist/index.js, an esbuild bundle) throws
+   * 'Dynamic require of "events" is not supported' when imported from ESM,
+   * so `await import('camoufox')` fails even when the package IS installed.
+   */
+  async _load() {
+    const { createRequire } = await import('module');
+    const require = createRequire(import.meta.url);
+    return require('camoufox'); // CJS build — ESM build is broken
+  }
+
+  /** True only when the camoufox package itself is absent (vs. present but failing to load). */
+  _isNotInstalled(err) {
+    return err?.code === 'MODULE_NOT_FOUND' && (err.message || '').includes("Cannot find module 'camoufox'");
+  }
+
   async isAvailable() {
     try {
-      await import('camoufox');
+      await this._load();
       return true;
-    } catch {
-      return false;
+    } catch (err) {
+      if (this._isNotInstalled(err)) {
+        return false;
+      }
+      // Installed but broken — surface the real error instead of misreporting "not installed".
+      throw new Error(`camoufox is installed but failed to load: ${err.message}`);
     }
   }
 
   async launch(config = {}) {
     let camoufox;
     try {
-      camoufox = await import('camoufox');
-    } catch {
-      throw new Error(
-        'camoufox is not installed. Run: npm install camoufox. Note: camoufox is MIT-licensed and requires Firefox to be installed.'
-      );
+      camoufox = await this._load();
+    } catch (err) {
+      if (this._isNotInstalled(err)) {
+        throw new Error(
+          'camoufox is not installed. Run: npm install camoufox. Note: camoufox is MIT-licensed and requires Firefox to be installed.'
+        );
+      }
+      throw new Error(`camoufox is installed but failed to load: ${err.message}`);
     }
 
-    // camoufox API mirrors playwright — returns a Browser object
-    const browser = await (camoufox.launch || camoufox.default?.launch)({
+    await this._ensureMacOSLayout(camoufox);
+
+    // camoufox's launcher is Camoufox(options) — the package has no launch()
+    // export. It resolves the fetched Firefox binary (npx camoufox fetch) and
+    // returns a Playwright-compatible Browser. Takes `headless` directly plus
+    // passthrough Playwright Firefox launch options.
+    return camoufox.Camoufox({
       headless: config.headless !== false,
       ...config.launchOptions
     });
+  }
 
-    return browser;
+  /**
+   * macOS packaging fix for camoufox-js: it expects properties.json in
+   * Camoufox.app/Contents/MacOS/, but the .app bundle ships it under
+   * Contents/Resources/. Bridge it so the launcher can boot. Best-effort.
+   * (Same fix as ResearchOrchestrator._ensureCamoufoxLayout.)
+   */
+  async _ensureMacOSLayout(camoufox) {
+    if (process.platform !== 'darwin' || !camoufox?.INSTALL_DIR) return;
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const appDir = path.join(camoufox.INSTALL_DIR, 'Camoufox.app', 'Contents');
+      const target = path.join(appDir, 'MacOS', 'properties.json');
+      const source = path.join(appDir, 'Resources', 'properties.json');
+      if (!fs.existsSync(target) && fs.existsSync(source)) {
+        fs.copyFileSync(source, target);
+      }
+    } catch { /* best-effort; launch surfaces a real error if it matters */ }
   }
 }
 

@@ -23,8 +23,14 @@ import { LLMsTxtAnalyzer } from '../../src/core/LLMsTxtAnalyzer.js';
 import { GenerateLLMsTxtTool } from '../../src/tools/llmstxt/generateLLMsTxt.js';
 
 let originalAnalyzeWebsite;
+let originalFetchHomePageMetadata;
 
 before(() => {
+  // execute() also fetches the homepage for title/description metadata;
+  // stub it so these unit tests stay fully offline.
+  originalFetchHomePageMetadata = GenerateLLMsTxtTool.prototype.fetchHomePageMetadata;
+  GenerateLLMsTxtTool.prototype.fetchHomePageMetadata = async () => null;
+
   originalAnalyzeWebsite = LLMsTxtAnalyzer.prototype.analyzeWebsite;
   // Fake analysis: yields mid-flight (setTimeout) so concurrent calls on
   // separate instances genuinely interleave, then pushes exactly one error
@@ -45,6 +51,7 @@ before(() => {
 
 after(() => {
   LLMsTxtAnalyzer.prototype.analyzeWebsite = originalAnalyzeWebsite;
+  GenerateLLMsTxtTool.prototype.fetchHomePageMetadata = originalFetchHomePageMetadata;
 });
 
 describe('GenerateLLMsTxtTool — analyzer instance hygiene', () => {
@@ -78,6 +85,106 @@ describe('GenerateLLMsTxtTool — analyzer instance hygiene', () => {
     assert.equal(r1.analysis.errors[0].error, 'run:https://concurrent-a.example.com/');
     assert.equal(r2.analysis.errors.length, 1, 'concurrent run B must not see run A\'s error entries');
     assert.equal(r2.analysis.errors[0].error, 'run:https://concurrent-b.example.com/');
+  });
+});
+
+// Reproduction (2026-08-20, quotes.toscrape.com maxPages 10): spec llms.txt
+// labeled 6 of 10 links "[1]" because names came from the URL's LAST path
+// segment ("/tag/abilities/page/1" -> "1"), and the blockquote summary was
+// always boilerplate. Names must prefer the page <title> captured during
+// analysis, else a humanized FULL path; the summary must prefer the
+// homepage's meta/og description.
+describe('GenerateLLMsTxtTool — spec llms.txt link names and site description', () => {
+  const sitemap = [
+    'https://quotes.toscrape.com/',
+    'https://quotes.toscrape.com/login',
+    'https://quotes.toscrape.com/author/Albert-Einstein',
+    'https://quotes.toscrape.com/tag/abilities/page/1',
+    'https://quotes.toscrape.com/tag/deep-thoughts/page/1'
+  ];
+  const makeAnalysis = (overrides = {}) => ({
+    metadata: { baseUrl: 'https://quotes.toscrape.com', analyzedAt: new Date().toISOString() },
+    structure: {
+      totalPages: sitemap.length,
+      sitemap,
+      sections: { content: [], navigation: [], media: [], tools: [], documentation: [], other: sitemap },
+      navigation: {}, hierarchy: {}, robotsTxt: null
+    },
+    contentTypes: { public: [], restricted: [], dynamic: [], static: [], forms: [], media: [], documents: [] },
+    apis: [],
+    securityAreas: [],
+    errors: [],
+    ...overrides
+  });
+
+  test('no link is ever labeled by a bare numeric segment; full path is humanized', () => {
+    const tool = new GenerateLLMsTxtTool();
+    const out = tool.generateSpecLLMsTxt(makeAnalysis(), {});
+    const labels = [...out.matchAll(/^- \[([^\]]*)\]/gm)].map((m) => m[1]);
+    assert.equal(labels.length, sitemap.length);
+    for (const label of labels) {
+      assert.ok(!/^\d+$/.test(label.trim()), `bare numeric link label "${label}" in:\n${out}`);
+    }
+    assert.ok(out.includes('- [Tag: abilities — page 1](https://quotes.toscrape.com/tag/abilities/page/1)'), out);
+    assert.ok(out.includes('- [Tag: deep thoughts — page 1](https://quotes.toscrape.com/tag/deep-thoughts/page/1)'), out);
+    assert.ok(out.includes('- [Author: Albert Einstein](https://quotes.toscrape.com/author/Albert-Einstein)'), out);
+    assert.ok(out.includes('- [Login](https://quotes.toscrape.com/login)'), out);
+  });
+
+  test('page <title> captured during analysis is preferred; duplicated titles fall back to path', () => {
+    const tool = new GenerateLLMsTxtTool();
+    const analysis = makeAnalysis({
+      contentTypes: {
+        public: [
+          { url: 'https://quotes.toscrape.com/login', metadata: { title: 'Login — Quotes to Scrape' } },
+          { url: 'https://quotes.toscrape.com/tag/abilities/page/1', metadata: { title: 'Quotes to Scrape' } },
+          { url: 'https://quotes.toscrape.com/tag/deep-thoughts/page/1', metadata: { title: 'Quotes to Scrape' } }
+        ]
+      }
+    });
+    const out = tool.generateSpecLLMsTxt(analysis, {});
+    assert.ok(out.includes('- [Login — Quotes to Scrape](https://quotes.toscrape.com/login)'), out);
+    // A <title> shared by several pages cannot identify one page — path wins.
+    assert.ok(!out.includes('[Quotes to Scrape](https://quotes.toscrape.com/tag/'), out);
+    assert.ok(out.includes('- [Tag: abilities — page 1](https://quotes.toscrape.com/tag/abilities/page/1)'), out);
+  });
+
+  test('homepage title names the root link; meta description becomes the blockquote summary', () => {
+    const tool = new GenerateLLMsTxtTool();
+    const homePage = tool.extractHomePageMetadata(
+      '<html><head><title>Quotes to Scrape</title>' +
+      '<meta name="description" content="  A sandbox site full of\n famous quotes to practice scraping.  "></head>' +
+      '<body><h1>ignored</h1></body></html>'
+    );
+    assert.deepEqual(homePage, { title: 'Quotes to Scrape', description: 'A sandbox site full of famous quotes to practice scraping.' });
+    const out = tool.generateSpecLLMsTxt(makeAnalysis({ homePage }), {});
+    assert.ok(out.includes('> A sandbox site full of famous quotes to practice scraping.'), out);
+    assert.ok(!out.includes('Site map and key resources for'), out);
+    assert.ok(out.includes('- [Quotes to Scrape](https://quotes.toscrape.com/)'), out);
+  });
+
+  test('og:description is used when meta description is absent; boilerplate only when neither exists', () => {
+    const tool = new GenerateLLMsTxtTool();
+    const ogOnly = tool.extractHomePageMetadata(
+      '<html><head><title>T</title><meta property="og:description" content="OG summary"></head></html>'
+    );
+    assert.equal(ogOnly.description, 'OG summary');
+
+    // quotes.toscrape.com's real homepage has no meta/og description at all.
+    const bare = tool.extractHomePageMetadata('<html><head><title>Quotes to Scrape</title></head><body><h1>Quotes to Scrape</h1></body></html>');
+    assert.equal(bare.description, '');
+    const out = tool.generateSpecLLMsTxt(makeAnalysis({ homePage: bare }), {});
+    assert.ok(out.includes('> Site map and key resources for https://quotes.toscrape.com,'), out);
+  });
+
+  test('humanizePath edge cases never yield bare numbers', () => {
+    const tool = new GenerateLLMsTxtTool();
+    assert.equal(tool.humanizePath('/'), 'Home');
+    assert.equal(tool.humanizePath('/page/2'), 'Page 2');
+    assert.equal(tool.humanizePath('/2'), 'Page 2');
+    assert.equal(tool.humanizePath('/catalogue/page-2.html'), 'Catalogue — page 2');
+    assert.equal(tool.humanizePath('/tag/abilities/page/1'), 'Tag: abilities — page 1');
+    assert.equal(tool.humanizePath('/docs/api/auth'), 'Docs: api / auth');
   });
 });
 

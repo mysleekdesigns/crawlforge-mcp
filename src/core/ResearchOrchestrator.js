@@ -903,8 +903,12 @@ export class ResearchOrchestrator extends EventEmitter {
   /** One stealth navigation. Fresh page/context; judges blocked by rendered content. */
   async _stealthFetchOnce(url) {
     let page;
+    let camoufoxContext;
     if (this._stealthEngineActive === 'camoufox') {
-      page = await this._stealthBrowser.newPage();
+      // viewport:null skips Browser.setDefaultViewport, whose playwright-core
+      // 1.62 payload (isMobile etc.) camoufox's older Firefox build rejects.
+      camoufoxContext = await this._stealthBrowser.newContext({ viewport: null });
+      page = await camoufoxContext.newPage();
     } else {
       const { contextId } = await this._stealthManager.createStealthContext({ level: this.stealthLevel });
       page = await this._stealthManager.createStealthPage(contextId);
@@ -930,6 +934,7 @@ export class ResearchOrchestrator extends EventEmitter {
       return html && html.length > 200 ? html : null;
     } finally {
       await page.close().catch(() => {});
+      if (camoufoxContext) await camoufoxContext.close().catch(() => {});
     }
   }
 

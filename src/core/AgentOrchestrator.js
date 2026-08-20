@@ -175,9 +175,20 @@ export class AgentOrchestrator {
     let searchQueries = [prompt]; // fallback: use raw prompt as query
     try {
       const planPrompt =
-        `Decompose this research task into 1-3 concise web search queries (one per line, no bullets):\n\n${prompt}`;
+        `Decompose this research task into 1-3 concise web search queries. ` +
+        `Output ONLY the queries, one per line, no preamble or numbering:\n\n${prompt}`;
       const { text } = await this._getSamplingClient().complete(planPrompt, { maxTokens: 200 });
-      const lines = text.split('\n').map(l => l.replace(/^[-*\d.)\s]+/, '').trim()).filter(Boolean);
+      const lines = text.split('\n')
+        .map(l => l.replace(/^[-*\d.)\s]+/, '').trim())
+        .filter(Boolean)
+        // Drop preamble/garbage lines ("Here are 3 concise web search queries:", …)
+        // so they never become search query #1 and poison the URL queue.
+        .filter(l =>
+          !l.endsWith(':') &&
+          !/^here (are|is)\b/i.test(l) &&
+          !/search quer(y|ies)/i.test(l) &&
+          l.length <= 100
+        );
       if (lines.length > 0) searchQueries = lines.slice(0, 3);
     } catch {
       // Sampling unavailable — use raw prompt
@@ -185,6 +196,14 @@ export class AgentOrchestrator {
 
     // ── GATHER (search) ───────────────────────────────────────────────────────
     const urlQueue = [...seedUrls]; // start with any user-provided seeds
+    // Sites named directly in the prompt (full URLs or bare domains like
+    // "news.ycombinator.com") are the most authoritative sources for the task —
+    // queue them ahead of search results.
+    const namedSites = prompt.match(/https?:\/\/[^\s"'<>]+|(?<![\w.@/-])[a-z0-9][\w-]*(?:\.[a-z0-9][\w-]*)*\.[a-z]{2,}(?![\w-])/gi) || [];
+    for (const site of namedSites) {
+      const url = (/^https?:\/\//i.test(site) ? site : `https://${site}`).replace(/[.,;:!?)]+$/, '');
+      if (!urlQueue.includes(url)) urlQueue.push(url);
+    }
     const searchResults = [];
 
     if (urlQueue.length < capUrls) {
@@ -227,8 +246,10 @@ export class AgentOrchestrator {
         const { textContent, finalUrl } = await fetchAndParse(url, { timeoutMs: 10000 });
         if (!isRelevant(textContent, prompt)) continue;
         step++;
+        const sr = searchResults.find(s => s.url === url);
         evidence.push({
           url: finalUrl,
+          title: sr ? sr.title : '',
           text: truncate(textContent),
           step
         });
@@ -236,7 +257,20 @@ export class AgentOrchestrator {
     }
 
     // ── SHAPE ─────────────────────────────────────────────────────────────────
-    const combinedText = evidence.map(e => `--- Source: ${e.url} ---\n${e.text}`).join('\n\n');
+    // Order evidence by simple relevance to the prompt (term overlap with
+    // url+title+text) instead of raw queue order, then give every source a
+    // per-source slice of the synthesis budget so no source is silently cut off.
+    const promptTerms = prompt.toLowerCase().split(/\s+/).filter(t => t.length > 3);
+    const orderedEvidence = evidence
+      .map(e => ({
+        ...e,
+        _score: promptTerms.filter(t => `${e.url} ${e.title || ''} ${e.text}`.toLowerCase().includes(t)).length
+      }))
+      .sort((a, b) => b._score - a._score);
+    const perSourceCap = Math.max(1500, Math.floor(12000 / Math.max(evidence.length, 1)));
+    const combinedText = orderedEvidence
+      .map(e => `--- Source: ${e.url} ---\n${truncate(e.text, perSourceCap)}`)
+      .join('\n\n');
 
     if (!combinedText.trim()) {
       return {
@@ -284,9 +318,14 @@ export class AgentOrchestrator {
 
     try {
       const synthesisPrompt =
-        `You are a research assistant. Based on the sources below, answer this task:\n\n` +
+        `You are a research assistant. Answer this task using ONLY the sources below:\n\n` +
         `Task: ${prompt}\n\n` +
-        `${truncate(combinedText, 12000)}\n\n` +
+        `${combinedText}\n\n` +
+        `Rules:\n` +
+        `- Answer ONLY from the provided sources; do not use outside knowledge.\n` +
+        `- Cite the exact source URL(s) you used.\n` +
+        `- If the sources do not contain the answer, say so explicitly.\n` +
+        `- NEVER invent or guess a URL; cite only URLs that appear in the sources above.\n\n` +
         `Provide a clear, concise answer.`;
 
       const { text } = await this._getSamplingClient().complete(synthesisPrompt, { maxTokens: 1024 });

@@ -120,3 +120,160 @@ describe('analyzeContent tool (real module)', () => {
     assert.ok(categories.length > 0, 'should extract at least one topic');
   });
 });
+
+// Reproduction (2026-08-20, live-tested on the Wikipedia "Web scraping"
+// article): condensed excerpt that triggered every defect below on the
+// pre-fix code — topics:[] (confidence was frequency/totalPhrases, which
+// collapses toward 0 on longer texts so every topic failed minConfidence),
+// trailing punctuation ("Craigslist.", "United States,"), un-deduped repeats,
+// sentence-initial stopwords as entities ("While", "It"), "X v. Y" legal-case
+// fragments classified as PERSON, and ALL-CAPS tech terms (UNIX, DOM)
+// classified as organizations.
+const WEB_SCRAPING_TEXT = `In the United States, website owners can use legal claims to prevent undesired web scraping, and the case law of the United States is still evolving. While web scraping can be done manually by a software user, the term typically refers to automated processes implemented using a bot or web crawler. It is a form of copying in which specific data is gathered and copied from the web. A simple approach to extract information from web pages is to use the UNIX grep command or regular expression-matching facilities of programming languages. Once an entire page is loaded, developers can access and parse the DOM using an expression language such as XPath. In 2012, a startup called 3Taps scraped classified housing ads from Craigslist. Craigslist sent 3Taps a cease-and-desist letter and blocked their IP addresses and later sued, in Craigslist v. 3Taps. The Ninth Circuit ruled in 2019 that web scraping did not violate the CFAA in hiQ Labs v. LinkedIn. The case was appealed to the United States Supreme Court, which returned the case to the Ninth Circuit. One of the first major tests of screen scraping involved American Airlines (AA), and a firm called FareChase. The airline argued that FareChase's websearch software trespassed on AA's servers when it collected the publicly available data. On April 30, 2020, the French Data Protection Authority (CNIL) released new guidelines on web scraping. Web scraping software may directly access the World Wide Web using the Hypertext Transfer Protocol or a web browser, and web scraping systems use techniques involving DOM parsing, computer vision and natural language processing to gather web page content for offline parsing.`;
+
+describe('analyzeContent topics regression (Wikipedia-style long text)', () => {
+  let tool;
+
+  beforeEach(() => {
+    tool = new AnalyzeContentTool();
+  });
+
+  test('extractTopics:true returns real topics with default minConfidence (was [])', async () => {
+    const result = await tool.execute({ text: WEB_SCRAPING_TEXT, options: { extractTopics: true } });
+    assert.equal(result.success, true);
+    assert.ok(Array.isArray(result.topics));
+    assert.ok(result.topics.length >= 5, `expected real topics, got ${JSON.stringify(result.topics)}`);
+    for (const t of result.topics) {
+      assert.equal(typeof t.topic, 'string');
+      assert.ok(t.topic.length > 2);
+      assert.ok(t.confidence > 0 && t.confidence <= 1, `confidence must be relative salience in (0,1]: ${t.confidence}`);
+      assert.ok(Array.isArray(t.keywords));
+    }
+    // Confidence is normalized against the most frequent phrase
+    assert.equal(result.topics[0].confidence, 1, 'top topic should have relative confidence 1');
+  });
+});
+
+describe('analyzeContent entity cleanup rules', () => {
+  let tool;
+  let entities;
+
+  beforeEach(async () => {
+    tool = new AnalyzeContentTool();
+    const result = await tool.execute({ text: WEB_SCRAPING_TEXT, options: { extractEntities: true } });
+    assert.equal(result.success, true);
+    entities = result.entities;
+  });
+
+  const flatEntities = () => [
+    ...entities.people,
+    ...entities.places,
+    ...entities.organizations,
+    ...entities.dates,
+    ...entities.money,
+    ...entities.other
+  ];
+
+  test('trailing punctuation is stripped ("Craigslist." -> "Craigslist")', () => {
+    assert.ok(entities.organizations.includes('Craigslist'), `orgs: ${JSON.stringify(entities.organizations)}`);
+    for (const e of flatEntities()) {
+      assert.ok(!/[,;:!?'"]$/.test(e), `entity keeps trailing punctuation: ${JSON.stringify(e)}`);
+      assert.notEqual(e, 'Craigslist.');
+    }
+  });
+
+  test('entities are deduped case-insensitively ("United States" appears once)', () => {
+    const usCount = entities.places.filter((e) => e.toLowerCase() === 'united states').length;
+    assert.equal(usCount, 1, `places: ${JSON.stringify(entities.places)}`);
+    for (const list of [entities.people, entities.places, entities.organizations, entities.other]) {
+      const lower = list.map((e) => e.toLowerCase());
+      assert.equal(new Set(lower).size, lower.length, `list has case-insensitive duplicates: ${JSON.stringify(list)}`);
+    }
+  });
+
+  test('sentence-initial stopwords are not emitted as entities ("While", "It", "Once")', () => {
+    for (const e of flatEntities()) {
+      assert.ok(!['while', 'it', 'once', 'the'].includes(e.toLowerCase()), `stopword emitted as entity: ${JSON.stringify(e)}`);
+    }
+  });
+
+  test('"X v. Y" legal-case fragments are classified as other, never PERSON', () => {
+    for (const e of [...entities.people, ...entities.places, ...entities.organizations]) {
+      assert.ok(!/\s+vs?\.?\s+/i.test(e), `legal-case fragment classified as person/place/org: ${JSON.stringify(e)}`);
+    }
+    assert.ok(
+      entities.other.some((e) => /\s+v\.\s+/.test(e)),
+      `the "Labs v. LinkedIn" fragment should land in other: ${JSON.stringify(entities.other)}`
+    );
+  });
+
+  test('bare ALL-CAPS tech terms (UNIX, DOM) are not organizations', () => {
+    assert.ok(!entities.organizations.includes('UNIX'), `orgs: ${JSON.stringify(entities.organizations)}`);
+    assert.ok(!entities.organizations.includes('DOM'), `orgs: ${JSON.stringify(entities.organizations)}`);
+    assert.ok(entities.other.includes('UNIX'), `demoted acronyms belong in other: ${JSON.stringify(entities.other)}`);
+  });
+
+  test('"other" does not duplicate entities already classified more specifically', () => {
+    const classified = new Set(
+      [...entities.people, ...entities.places, ...entities.organizations, ...entities.dates, ...entities.money]
+        .map((e) => e.toLowerCase())
+    );
+    for (const e of entities.other) {
+      assert.ok(!classified.has(e.toLowerCase()), `duplicated across categories: ${JSON.stringify(e)}`);
+    }
+  });
+});
+
+describe('ContentAnalyzer entity-cleanup helpers', () => {
+  let analyzer;
+
+  beforeEach(() => {
+    analyzer = new AnalyzeContentTool().contentAnalyzer;
+  });
+
+  test('cleanEntityText strips edge punctuation but preserves abbreviations', () => {
+    assert.equal(analyzer.cleanEntityText('Craigslist.'), 'Craigslist');
+    assert.equal(analyzer.cleanEntityText('United States,'), 'United States');
+    assert.equal(analyzer.cleanEntityText('(Copenhagen)'), 'Copenhagen');
+    assert.equal(analyzer.cleanEntityText('"CFAA".'), 'CFAA');
+    assert.equal(analyzer.cleanEntityText('Meltwater U.S. Holdings, Inc.,'), 'Meltwater U.S. Holdings, Inc.');
+    assert.equal(analyzer.cleanEntityText('U.S.'), 'U.S.');
+    assert.equal(analyzer.cleanEntityText('Home.dk'), 'Home.dk');
+  });
+
+  test('dedupeEntities dedupes case-insensitively keeping first casing', () => {
+    assert.deepEqual(
+      analyzer.dedupeEntities(['United States', 'UNITED STATES', 'united states', 'Texas']),
+      ['United States', 'Texas']
+    );
+  });
+
+  test('isLegalCaseFragment detects "X v. Y" and "X v Y" citations', () => {
+    assert.equal(analyzer.isLegalCaseFragment('hiQ Labs v. LinkedIn'), true);
+    assert.equal(analyzer.isLegalCaseFragment('Ryanair Ltd v Billigfluege.de GmbH'), true);
+    assert.equal(analyzer.isLegalCaseFragment('eBay vs. Bidder'), true);
+    assert.equal(analyzer.isLegalCaseFragment('Van Buren'), false);
+  });
+
+  test('hasOrganizationEvidence requires more than ALL-CAPS', () => {
+    assert.equal(analyzer.hasOrganizationEvidence('UNIX', 'use the UNIX grep command'), false);
+    assert.equal(analyzer.hasOrganizationEvidence('IBM', 'IBM Corp announced record earnings'), true);
+    assert.equal(
+      analyzer.hasOrganizationEvidence('CNIL', 'the French Data Protection Authority (CNIL) released guidelines'),
+      true
+    );
+    assert.equal(
+      analyzer.hasOrganizationEvidence('AA', 'the tests involved American Airlines (AA), and a firm'),
+      true
+    );
+  });
+
+  test('isSentenceInitialArtifact drops capitalized common words, keeps proper nouns', () => {
+    assert.equal(analyzer.isSentenceInitialArtifact('While', 'While the law evolves, courts decide.'), true);
+    assert.equal(analyzer.isSentenceInitialArtifact('It', 'It is a form of copying.'), true);
+    assert.equal(
+      analyzer.isSentenceInitialArtifact('Craigslist', 'ads from Craigslist. Craigslist sent a letter.'),
+      false
+    );
+  });
+});

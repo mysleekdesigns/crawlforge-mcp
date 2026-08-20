@@ -211,12 +211,14 @@ export class ChangeTracker extends EventEmitter {
       // Calculate change significance
       const significance = await this.calculateChangeSignificance(changeAnalysis, baseline.options);
       
-      // Create change record
+      // Create change record. An unchanged compare (significance 'none' ⇒
+      // hasChanges:false) must report a neutral changeType — classifyChangeType
+      // falls through to 'text_change' even when nothing changed at all.
       const changeRecord = {
         url,
         timestamp: Date.now(),
         baselineVersion: baseline.version,
-        changeType: this.classifyChangeType(changeAnalysis),
+        changeType: significance === 'none' ? 'none' : this.classifyChangeType(changeAnalysis),
         significance,
         details: changeAnalysis,
         metrics: {
@@ -742,12 +744,17 @@ export class ChangeTracker extends EventEmitter {
       currentContent = currentContent.toLowerCase();
     }
     
-    // Word-level diff
+    // Word-level diff. Only record an entry when something actually changed
+    // (mirrors line_diff below) — unconditionally pushing an empty word_diff
+    // made every unchanged compare report "Text content changed".
     const wordDiff = diffWords(baselineContent, currentContent);
-    textChanges.push({
-      type: 'word_diff',
-      changes: wordDiff.filter(part => part.added || part.removed)
-    });
+    const wordDiffChanges = wordDiff.filter(part => part.added || part.removed);
+    if (wordDiffChanges.length > 0) {
+      textChanges.push({
+        type: 'word_diff',
+        changes: wordDiffChanges
+      });
+    }
     
     // Line-level diff for structured content
     const lineDiff = diffLines(baselineContent, currentContent);
@@ -903,18 +910,23 @@ export class ChangeTracker extends EventEmitter {
     
     const tagSimilarity = this.calculateTagSimilarity(baselineElements, currentElements);
     const hierarchySimilarity = this.calculateHierarchySimilarity(baseline.hierarchy, current.hierarchy);
-    
-    return (tagSimilarity + hierarchySimilarity) / 2;
+
+    // Clamp defensively — this is a 0-1 metric and must never leave that range.
+    return Math.max(0, Math.min(1, (tagSimilarity + hierarchySimilarity) / 2));
   }
-  
+
   calculateTagSimilarity(baselineElements, currentElements) {
-    const baselineTags = baselineElements.map(el => el.tag);
-    const currentTags = currentElements.map(el => el.tag);
-    
-    const intersection = baselineTags.filter(tag => currentTags.includes(tag));
+    // Jaccard similarity: intersection and union must both operate on SETS.
+    // The old code intersected the raw (duplicate-laden) tag list against a
+    // set union, so repeated tags (div, p, ...) inflated the numerator and
+    // produced impossible scores > 1 (e.g. the observed 1.05).
+    const baselineTags = new Set(baselineElements.map(el => el.tag));
+    const currentTags = new Set(currentElements.map(el => el.tag));
+
+    const intersection = [...baselineTags].filter(tag => currentTags.has(tag));
     const union = new Set([...baselineTags, ...currentTags]);
-    
-    return intersection.length / union.size;
+
+    return union.size === 0 ? 1 : intersection.length / union.size;
   }
   
   calculateHierarchySimilarity(baseline, current) {

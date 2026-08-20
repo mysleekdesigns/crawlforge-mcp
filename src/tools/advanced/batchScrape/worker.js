@@ -8,6 +8,7 @@ import { load } from 'cheerio';
 import { config as appConfig } from '../../../constants/config.js';
 import { ssrfGuard, isSsrfError } from '../../../utils/ssrfGuard.js';
 import { throttleHost } from '../../../utils/hostRateLimiter.js';
+import { htmlToMarkdown } from '../../../utils/htmlToMarkdown.js';
 
 const USER_AGENT = 'MCP-WebScraper-BatchTool/1.0.0';
 
@@ -165,7 +166,6 @@ function generateFormats($, html, formats) {
 }
 
 function buildMarkdown($) {
-  let md = '';
   const title = $('title').text().trim();
 
   const selectors = ['article', 'main', '.content', '#content', '.post-content', '.entry-content'];
@@ -176,18 +176,17 @@ function buildMarkdown($) {
   }
   if (!$body || $body.length === 0) $body = $('body');
 
+  // Full-fidelity conversion via the shared Turndown helper (same converter
+  // the unified `scrape` tool uses). The previous hand-rolled h1–h3/p/li walk
+  // silently dropped any text living outside those tags (e.g. quotes in
+  // <span>/<small> on quotes.toscrape.com).
+  let md = htmlToMarkdown($.html($body));
+
   // C3: de-dup title — only emit the <title> heading if the page has no <h1>
   // or if the first <h1> text differs from the <title> text (case-insensitive).
   const firstH1 = $body.find('h1').first().text().trim();
   const titleDuplicated = firstH1 && firstH1.toLowerCase() === title.toLowerCase();
-  if (title && !titleDuplicated) md += `# ${title}\n\n`;
-
-  $body.find('h1').each((_, el) => { md += `# ${$(el).text().trim()}\n\n`; });
-  $body.find('h2').each((_, el) => { md += `## ${$(el).text().trim()}\n\n`; });
-  $body.find('h3').each((_, el) => { md += `### ${$(el).text().trim()}\n\n`; });
-  $body.find('p').each((_, el) => { const t = $(el).text().trim(); if (t) md += `${t}\n\n`; });
-  $body.find('ul li').each((_, el) => { md += `- ${$(el).text().trim()}\n`; });
-  $body.find('ol li').each((_, el) => { md += `1. ${$(el).text().trim()}\n`; });
+  if (title && !titleDuplicated) md = `# ${title}\n\n${md}`;
 
   return md.trim();
 }

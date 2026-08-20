@@ -31,6 +31,27 @@ const LONG_TEXT = [
   'Continuous integration runs the tests on every pull request.'
 ].join(' ');
 
+// Regression fixture (live-tested 2026-08-20): encyclopedia-style article
+// whose FIRST sentence is the definitional lead and whose LAST sentence is a
+// short low-information trailer. The old extractive scorer averaged word
+// frequency per sentence (inflating short sentences made of high-frequency
+// words) and gave first/last sentences the same weak 0.15 bonus — so the
+// trailer "MCP servers can be deployed to Cloudflare." outranked everything
+// while the lead could drop out. Fixed in ContentAnalyzer.createExtractiveSummary
+// with a lead-position bonus (Edmundson position method / Lead-3 baseline)
+// and a brevity penalty for very short sentences.
+const ENCYCLOPEDIA_TEXT = [
+  'The Model Context Protocol (MCP) is an open standard introduced by Anthropic in November 2024 to connect large language models with external tools and data sources. ' +
+  'It defines a client-server architecture in which a host application connects to lightweight servers that expose tools, resources, and prompts.',
+  'Before MCP existed, every assistant integration required custom connectors for each data source, a many-to-many problem that made ecosystems hard to scale. ' +
+  'MCP replaces those bespoke connectors with a single protocol based on JSON-RPC messages. ' +
+  'Servers advertise their capabilities during an initialization handshake, and clients discover available tools at runtime.',
+  'Adoption grew quickly after other major model providers announced support for the protocol. ' +
+  'Thousands of community servers now expose databases, browsers, and productivity applications through the standard. ' +
+  'Security researchers have also studied risks such as prompt injection and tool poisoning in MCP servers. ' +
+  'MCP servers can be deployed to Cloudflare.'
+].join('\n\n');
+
 describe('summarizeContent tool (real module)', () => {
   let tool;
 
@@ -136,5 +157,28 @@ describe('summarizeContent tool (real module)', () => {
     assert.equal(result.success, true);
     assert.equal(result.summary.compressionRatio, 1);
     assert.equal(result.summary.text, shortText.trim());
+  });
+
+  describe('extractive lead bias + brevity penalty (regression, 2026-08-20)', () => {
+    test('summary includes the document-leading definitional sentence, in first position', async () => {
+      const result = await tool.execute({ text: ENCYCLOPEDIA_TEXT });
+      assert.equal(result.success, true);
+      assert.equal(result.summary.type, 'extractive');
+      assert.ok(
+        result.summary.sentences.some(s => s.includes('The Model Context Protocol (MCP) is an open standard')),
+        'summary must include the lead definitional sentence'
+      );
+      // Selection restores document order, so the lead must open the summary.
+      assert.match(result.summary.text, /^The Model Context Protocol/);
+    });
+
+    test('very short low-information trailer sentence is not selected (this failed pre-fix: it outscored every other sentence)', async () => {
+      const result = await tool.execute({ text: ENCYCLOPEDIA_TEXT });
+      assert.equal(result.success, true);
+      assert.ok(
+        !result.summary.sentences.some(s => s.includes('deployed to Cloudflare')),
+        'the 4-content-word trailer must not make the default (medium) summary'
+      );
+    });
   });
 });

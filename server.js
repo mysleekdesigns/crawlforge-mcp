@@ -794,6 +794,8 @@ registerToolIfEnabled("scrape_with_actions", {
       distance: z.number().min(0).optional().describe("scroll: pixels to scroll"),
       smooth: z.boolean().optional().describe("scroll: smooth scrolling"),
       toElement: z.string().optional().describe("scroll: selector to scroll to"),
+      x: z.number().min(0).optional().describe("scroll: absolute X coordinate to scroll to (window.scrollTo; with y, takes precedence over direction/distance)"),
+      y: z.number().min(0).optional().describe("scroll: absolute Y coordinate to scroll to (window.scrollTo; with x, takes precedence over direction/distance)"),
       // screenshot
       fullPage: z.boolean().optional().describe("screenshot: capture full page"),
       quality: z.number().min(0).max(100).optional().describe("screenshot: jpeg quality"),
@@ -1299,8 +1301,8 @@ registerToolIfEnabled("localization", {
       extraHTTPHeaders: z.record(z.string()).optional(),
       userAgent: z.string().optional()
     }).optional().describe("Browser context options for locale emulation"),
-    content: z.string().optional().describe("Content for auto-detection of language and locale"),
-    url: z.string().url().optional().describe("URL for geo-blocking detection or auto-detection"),
+    content: z.string().optional().describe("Page content (HTML or plain text) to analyze — required for auto_detect; no fetching is performed"),
+    url: z.string().url().optional().describe("URL — required for handle_geo_blocking; for auto_detect it is optional metadata used only as a TLD country hint (the page is never fetched)"),
     response: z.object({
       status: z.number(),
       body: z.string().optional(),
@@ -1336,7 +1338,7 @@ registerToolIfEnabled("localization", {
         result = await localizationManager.detectGeoBlocking(params.url, params.response);
         break;
       case 'auto_detect':
-        if (!params.content || !params.url) throw new Error('content and url are required for auto_detect operation');
+        if (!params.content) throw new Error('content is required for auto_detect operation');
         result = await localizationManager.autoDetectLocalization(params.content, params.url);
         break;
       case 'get_stats':

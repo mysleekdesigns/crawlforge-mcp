@@ -234,6 +234,58 @@ test('ChangeTracker: compareWithBaseline scores completely different content as 
   assert.ok(result.metrics.contentSimilarity < 0.3, `expected low similarity for unrelated content, got ${result.metrics.contentSimilarity}`);
 });
 
+// ── compareWithBaseline: unchanged compare must be labeled neutrally ─────────
+
+test('ChangeTracker: compareWithBaseline on identical content reports changeType "none" and a neutral description', async () => {
+  const ct = new ChangeTracker();
+  await ct.createBaseline(VALID_URL, HTML1);
+  const result = await ct.compareWithBaseline(VALID_URL, HTML_IDENTICAL);
+
+  assert.equal(result.hasChanges, false);
+  assert.equal(result.changeType, 'none');
+  assert.equal(result.summary.changeDescription, 'No significant changes detected');
+  assert.equal(result.summary.totalChanges, 0);
+});
+
+test('ChangeTracker: compareWithBaseline on genuinely changed content still reports a non-"none" changeType', async () => {
+  const ct = new ChangeTracker();
+  await ct.createBaseline(VALID_URL, NATO_BASELINE);
+  const result = await ct.compareWithBaseline(VALID_URL, 'Something entirely unrelated with zero shared vocabulary whatsoever here today.');
+
+  assert.equal(result.hasChanges, true);
+  assert.notEqual(result.changeType, 'none');
+});
+
+// ── structuralSimilarity: 0-1 metric, never out of range ─────────────────────
+
+test('ChangeTracker: calculateTagSimilarity stays within [0,1] despite duplicate tags', () => {
+  const ct = new ChangeTracker();
+  // Duplicate-laden lists made the old bag-vs-set Jaccard exceed 1 (3/2 = 1.5 here).
+  const dupSim = ct.calculateTagSimilarity(
+    [{ tag: 'div' }, { tag: 'div' }, { tag: 'p' }],
+    [{ tag: 'div' }, { tag: 'p' }]
+  );
+  assert.equal(dupSim, 1);
+
+  const partialSim = ct.calculateTagSimilarity(
+    [{ tag: 'div' }, { tag: 'div' }, { tag: 'span' }],
+    [{ tag: 'div' }, { tag: 'p' }]
+  );
+  assert.ok(partialSim >= 0 && partialSim <= 1, `expected [0,1], got ${partialSim}`);
+  assert.ok(Math.abs(partialSim - 1 / 3) < 1e-9);
+});
+
+test('ChangeTracker: compareWithBaseline reports structuralSimilarity within [0,1] for duplicate-heavy HTML', async () => {
+  const ct = new ChangeTracker();
+  const before = '<html><body><div>a</div><div>b</div><div>c</div><p>x</p><p>y</p></body></html>';
+  const after = '<html><body><div>a</div><p>x</p></body></html>';
+  await ct.createBaseline(VALID_URL, before, { trackStructure: true });
+  const result = await ct.compareWithBaseline(VALID_URL, after);
+
+  const s = result.metrics.structuralSimilarity;
+  assert.ok(s >= 0 && s <= 1, `structuralSimilarity out of range: ${s}`);
+});
+
 // ── createBaseline ───────────────────────────────────────────────────────────
 
 test('ChangeTracker: createBaseline returns success result for valid URL+content', async () => {

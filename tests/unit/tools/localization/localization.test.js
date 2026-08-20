@@ -141,3 +141,93 @@ describe('LocalizationManager.cleanup', () => {
     assert.equal(manager.stats.localizationApplied, 0);
   });
 });
+
+describe('LocalizationManager.getDateFormat (locale audit regression)', () => {
+  // Regression: the mapping only covered US/GB/DE/JP and defaulted every
+  // other country to the US-only MM/DD/YYYY — France (and most of the
+  // world) got MM/DD/YYYY. Audited against CLDR short-date patterns /
+  // Wikipedia "List of date formats by country".
+  test('FR is day-first DD/MM/YYYY (was MM/DD/YYYY)', async () => {
+    const manager = await makeManager();
+    assert.equal(manager.getDateFormat('FR'), 'DD/MM/YYYY');
+  });
+
+  test('representative locales match their CLDR conventions', async () => {
+    const manager = await makeManager();
+    assert.equal(manager.getDateFormat('US'), 'MM/DD/YYYY');
+    assert.equal(manager.getDateFormat('GB'), 'DD/MM/YYYY');
+    assert.equal(manager.getDateFormat('DE'), 'DD.MM.YYYY');
+    assert.equal(manager.getDateFormat('JP'), 'YYYY/MM/DD');
+    assert.equal(manager.getDateFormat('CN'), 'YYYY/MM/DD');
+    assert.equal(manager.getDateFormat('KR'), 'YYYY.MM.DD');
+    assert.equal(manager.getDateFormat('CA'), 'YYYY-MM-DD');
+    assert.equal(manager.getDateFormat('SE'), 'YYYY-MM-DD');
+    assert.equal(manager.getDateFormat('NL'), 'DD-MM-YYYY');
+    assert.equal(manager.getDateFormat('BR'), 'DD/MM/YYYY');
+    assert.equal(manager.getDateFormat('IN'), 'DD/MM/YYYY');
+    assert.equal(manager.getDateFormat('RU'), 'DD.MM.YYYY');
+  });
+
+  test('every supported country has an explicit, well-formed mapping', async () => {
+    const manager = await makeManager();
+    for (const code of manager.getSupportedCountries()) {
+      const fmt = manager.getDateFormat(code);
+      assert.match(fmt, /^(DD|MM|YYYY)([./-]| )?(DD|MM|YYYY)([./-]| )?(DD|MM|YYYY)$/,
+        `${code} format "${fmt}" must contain DD, MM and YYYY components`);
+      assert.ok(fmt.includes('DD') && fmt.includes('MM') && fmt.includes('YYYY'),
+        `${code} format "${fmt}" must include all three components`);
+    }
+  });
+
+  test('unknown country falls back to day-first DD/MM/YYYY (world majority)', async () => {
+    const manager = await makeManager();
+    assert.equal(manager.getDateFormat('XX'), 'DD/MM/YYYY');
+  });
+
+  test('configureCountry FR exposes the corrected browserLocale.dateFormat', async () => {
+    const manager = await makeManager();
+    const result = await manager.configureCountry('FR');
+    assert.equal(result.browserLocale.dateFormat, 'DD/MM/YYYY');
+  });
+});
+
+describe('LocalizationManager.autoDetectLocalization (content-only + confidence regression)', () => {
+  const ENGLISH_TEXT = 'The quick brown fox jumps over the lazy dog. It was the best of times ' +
+    'and it was the worst of times. You are reading a plainly English paragraph that is ' +
+    'written for the purpose of language detection testing in this suite.';
+
+  test('works with content only — url is optional metadata', async () => {
+    const manager = await makeManager();
+    const detection = await manager.autoDetectLocalization(ENGLISH_TEXT);
+    assert.ok(detection, 'detection object returned without a url');
+    assert.equal(detection.detectedLanguage, 'en');
+  });
+
+  test('plainly-English text detects "en" with reasonable confidence (was null / 0.07)', async () => {
+    const manager = await makeManager();
+    const detection = await manager.autoDetectLocalization(ENGLISH_TEXT);
+    // Regression: text analysis pushed evidence but never set
+    // detectedLanguage, and absolute-count scoring left confidence at ~0.07.
+    assert.equal(detection.detectedLanguage, 'en');
+    assert.ok(detection.confidence >= 0.3,
+      `confidence ${detection.confidence} should be >= 0.3 for unambiguous English`);
+    assert.ok(detection.evidence.some((e) => e.startsWith('Text analysis: en')),
+      'text-analysis evidence recorded');
+  });
+
+  test('html lang attribute still wins and text analysis corroborates', async () => {
+    const manager = await makeManager();
+    const detection = await manager.autoDetectLocalization(
+      `<html lang="fr"><body><p>Le chat est dans le jardin et il est pour ce une</p></body></html>`
+    );
+    assert.equal(detection.detectedLanguage, 'fr');
+    assert.ok(detection.confidence >= 0.3, `confidence ${detection.confidence} should reflect lang attribute`);
+  });
+
+  test('url, when given, still contributes a TLD country hint', async () => {
+    const manager = await makeManager();
+    const detection = await manager.autoDetectLocalization(ENGLISH_TEXT, 'https://example.de/page');
+    assert.equal(detection.detectedCountry, 'DE');
+    assert.ok(detection.evidence.includes('TLD suggests country: DE'));
+  });
+});

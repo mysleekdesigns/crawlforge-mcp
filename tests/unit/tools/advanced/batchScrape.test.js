@@ -202,6 +202,73 @@ describe('BatchScrapeTool (real module) — async mode: in-progress status + can
   });
 });
 
+describe('batchScrape worker — markdown format keeps non-p/li content (quotes.toscrape regression)', () => {
+  // Regression (v5.0.2 live test): markdown for quotes.toscrape.com came back
+  // as page skeleton only — buildMarkdown was a hand-rolled h1–h3/p/li walk,
+  // so text living in other elements (the site keeps quotes in
+  // <span class="text"> and authors in <small class="author">) was silently
+  // dropped. buildMarkdown now converts via the shared Turndown helper
+  // (src/utils/htmlToMarkdown.js), same as the unified `scrape` tool.
+  // These tests stub globalThis.fetch, so no server / network is involved.
+  const quotesHtml = `<!DOCTYPE html><html><head><title>Quotes to Scrape</title></head><body>
+    <div class="container">
+      <h1><a href="/">Quotes to Scrape</a></h1>
+      <div class="quote"><span class="text">“The world as we have created it is a process of our thinking. It cannot be changed without changing our thinking.”</span>
+        <span>by <small class="author">Albert Einstein</small> <a href="/author/Albert-Einstein">(about)</a></span>
+        <div class="tags">Tags: <a class="tag" href="/tag/change/page/1/">change</a></div>
+      </div>
+      <div class="quote"><span class="text">“It is our choices, Harry, that show what we truly are, far more than our abilities.”</span>
+        <span>by <small class="author">J.K. Rowling</small> <a href="/author/J-K-Rowling">(about)</a></span>
+      </div>
+      <nav><ul class="pager"><li class="next"><a href="/page/2/">Next →</a></li></ul></nav>
+    </div>
+  </body></html>`;
+
+  async function markdownFor(html) {
+    const { scrapeUrl } = await import('../../../../src/tools/advanced/batchScrape/worker.js');
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(html, { status: 200, headers: { 'Content-Type': 'text/html' } });
+    try {
+      const result = await scrapeUrl({ url: 'https://quotes.toscrape.com/' }, { formats: ['markdown'] }, 5000);
+      assert.equal(result.success, true, `scrapeUrl failed: ${result.error}`);
+      return result.content.markdown;
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  }
+
+  test('quote text in <span> and authors in <small> survive markdown conversion', async () => {
+    const md = await markdownFor(quotesHtml);
+    assert.ok(
+      md.includes('The world as we have created it is a process of our thinking'),
+      'quote text (in <span class="text">) must not be dropped'
+    );
+    assert.ok(md.includes('Albert Einstein'), 'author (in <small class="author">) must not be dropped');
+    assert.ok(md.includes('J.K. Rowling'), 'second author must not be dropped');
+    // C3 title de-dup must still hold: <title> equals the <h1> text, so the
+    // page name appears exactly once (as the h1 heading, not prepended again).
+    assert.equal((md.match(/Quotes to Scrape/g) || []).length, 1, '<title> must not be duplicated above a matching <h1>');
+  });
+
+  test('simple example.com-style page still converts cleanly', async () => {
+    const md = await markdownFor(
+      '<html><head><title>Example Domain</title></head><body><div><h1>Example Domain</h1>' +
+      '<p>This domain is for use in illustrative examples in documents.</p>' +
+      '<p><a href="https://www.iana.org/domains/example">More information...</a></p></div></body></html>'
+    );
+    assert.equal((md.match(/# Example Domain/g) || []).length, 1, 'exactly one h1 heading');
+    assert.ok(md.includes('illustrative examples'), 'paragraph text present');
+    assert.ok(md.includes('[More information...](https://www.iana.org/domains/example)'), 'links preserved');
+  });
+
+  test('page without an <h1> still gets the <title> prepended as heading (C3)', async () => {
+    const md = await markdownFor('<html><head><title>My Page</title></head><body><p>Hello world.</p></body></html>');
+    assert.ok(md.startsWith('# My Page'), 'title heading prepended when the page has no h1');
+    assert.ok(md.includes('Hello world.'));
+  });
+});
+
 describe('BatchScrapeTool (real module) — batchResults cache TTL eviction', () => {
   // Complements the "expired entries are deleted on read" case already
   // covered in tests/unit/phase3-leaks.test.js by exercising it against a

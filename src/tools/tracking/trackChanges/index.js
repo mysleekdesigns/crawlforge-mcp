@@ -68,7 +68,10 @@ export class TrackChangesTool extends EventEmitter {
     // Scheduled-monitor subsystem (timers are NOT started here — only the
     // single server-owned instance calls startScheduler()).
     this._mcpServer = null;
-    this.monitorStore = new MonitorStore({ storageDir: this.options.monitorStorageDir || './monitors' });
+    // No storageDir fallback here: MonitorStore itself defaults to
+    // ~/.crawlforge/monitors (cwd-independent, like snapshotStorageDir above)
+    // and runs its legacy ./monitors migration only on that default path.
+    this.monitorStore = new MonitorStore({ storageDir: this.options.monitorStorageDir });
     this.scheduler = new MonitorScheduler({ tool: this, store: this.monitorStore });
 
     // Wired synchronously (no I/O) so no 'error' event emitted by
@@ -200,14 +203,18 @@ export class TrackChangesTool extends EventEmitter {
       snapshotInfo = await this.snapshotManager.storeSnapshot(url, sourceContent, { ...fetchMeta, baseline: true, trackingOptions }, { enableCompression: storageOptions.compressionEnabled });
     }
 
+    // ChangeTracker.createBaseline returns a summary ({contentHash, sections,
+    // elements, createdAt, ...}), NOT the internal baseline object — reading
+    // baseline.analysis?./baseline.timestamp here always yielded
+    // undefined/0/0/undefined regardless of the page.
     return {
       success: true, operation: 'create_baseline', url,
       baseline: {
         version: baseline.version,
-        contentHash: baseline.analysis?.hashes?.page,
-        sections: Object.keys(baseline.analysis?.hashes?.sections || {}).length,
-        elements: Object.keys(baseline.analysis?.hashes?.elements || {}).length,
-        createdAt: baseline.timestamp,
+        contentHash: baseline.contentHash,
+        sections: baseline.sections,
+        elements: baseline.elements,
+        createdAt: baseline.createdAt,
         options: trackingOptions
       },
       snapshot: snapshotInfo, timestamp: Date.now()

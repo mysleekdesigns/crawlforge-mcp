@@ -107,14 +107,13 @@ Generate a sitemap for a website.
 crawlforge map <url> [options]
 
 Options:
-  --depth <n>       Maximum crawl depth (default: 3)
-  --max-pages <n>   Maximum pages to include (default: 500)
-  --format <fmt>    Output format: json or xml (default: json)
+  --max-pages <n>   Maximum URLs to discover (default: 500)
+  --no-sitemap      Skip parsing sitemap.xml
 
 Examples:
   crawlforge map https://example.com --pretty
-  crawlforge map https://example.com --format xml > sitemap.xml
-  crawlforge map https://example.com --depth 2 --json
+  crawlforge map https://example.com --max-pages 100 --json
+  crawlforge map https://example.com --no-sitemap
 ```
 
 ---
@@ -307,13 +306,15 @@ crawlforge llmstxt <url> [options]
 
 Options:
   --include-full      Also generate llms-full.txt content
-  --max-pages <n>     Maximum pages to analyze (default: 50)
+  --max-pages <n>     Maximum pages to analyze, 10-500 (default: 50)
 
 Examples:
   crawlforge llmstxt https://example.com
   crawlforge llmstxt https://example.com --include-full > llms.txt
   crawlforge llmstxt https://docs.example.com --max-pages 100 --pretty
 ```
+
+Note: `--max-pages` must be at least 10 (maximum 500); values outside that range exit with an error.
 
 ---
 
@@ -364,6 +365,70 @@ Note: This command runs indefinitely. Use Ctrl+C to stop.
 
 ---
 
+## Scheduled Monitor Commands (4)
+
+Persisted monitors survive process restarts. They fire in-process while the MCP server runs, or via `monitor:run-due` from system cron for guaranteed firing.
+
+The persisted monitor store lives in `~/.crawlforge/monitors/` (alongside `~/.crawlforge/config.json`), so all `monitor:*` commands — including `monitor:run-due` from cron — can run from any directory and see the same monitors. Monitors created with an older version in a cwd-relative `./monitors` directory are migrated into `~/.crawlforge/monitors/` automatically the first time a `monitor:*` command runs from that directory.
+
+### monitor:create
+
+Create a persisted scheduled monitor (optionally with a plain-English alert goal).
+
+```bash
+crawlforge monitor:create <url> [options]
+
+Options:
+  --every <seconds>     Polling interval in seconds (default: 3600)
+  --goal <text>         Plain-English alert goal (LLM-judged; degrades to threshold if no LLM)
+  --webhook <url>       Webhook URL to notify on meaningful changes
+  --threshold <level>   Notification threshold: minor, moderate, major, or critical (default: moderate)
+  --cron <expr>         Optional cron expression (advanced)
+  --selector <css>      CSS selector to scope monitoring
+
+Examples:
+  crawlforge monitor:create https://example.com/pricing --every 1800
+  crawlforge monitor:create https://example.com --goal "alert me when the price drops" --webhook https://my-site.com/notify
+  crawlforge monitor:create https://example.com --selector ".price" --threshold major
+```
+
+---
+
+### monitor:list
+
+List persisted scheduled monitors.
+
+```bash
+crawlforge monitor:list
+```
+
+---
+
+### monitor:stop
+
+Stop and remove a scheduled monitor by id.
+
+```bash
+crawlforge monitor:stop <id>
+```
+
+Get the id from `monitor:list` or the `monitor:create` output.
+
+---
+
+### monitor:run-due
+
+Fire every due scheduled monitor once and exit. Wire this into system cron for guaranteed firing even when the MCP server is not running.
+
+```bash
+crawlforge monitor:run-due
+
+Example crontab entry (the monitor store is in ~/.crawlforge/monitors, so no cd is needed):
+  */15 * * * * crawlforge monitor:run-due
+```
+
+---
+
 ## Skills Commands (2)
 
 ### install-skills
@@ -406,6 +471,43 @@ Examples:
   crawlforge uninstall-skills
   crawlforge uninstall-skills --target cursor
 ```
+
+---
+
+## Setup & Server Commands (2)
+
+### init
+
+One-shot setup: verify API key, install skills, and register the MCP server with your AI clients (idempotent MCP-stanza merge).
+
+```bash
+crawlforge init [options]
+
+Options:
+  --all             Install skills to all targets and register all detected client configs
+  --client <name>   Target client to register: claude-code, claude-desktop, or cursor
+  --with-hook       Add an opt-in UserPromptSubmit reminder to boost skill auto-activation
+  --yes             Non-interactive — assume yes to all prompts
+
+Examples:
+  crawlforge init
+  crawlforge init --all --yes
+  crawlforge init --client cursor
+```
+
+---
+
+### mcp | serve
+
+Start the MCP server over stdio (for MCP clients like Claude Code, Claude Desktop, Cursor).
+
+```bash
+crawlforge mcp
+# or
+crawlforge serve
+```
+
+This is what `crawlforge init` registers in your client config. Running `crawlforge` with no subcommand over a pipe (i.e. spawned by an MCP host) also starts the server, so pre-v4.1.0 client configs keep working.
 
 ---
 

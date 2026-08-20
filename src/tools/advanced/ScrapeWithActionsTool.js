@@ -73,7 +73,11 @@ const ScrollActionSchema = BaseActionSchema.extend({
   direction: z.enum(['up', 'down', 'left', 'right']).default('down'),
   distance: z.number().min(0).default(100),
   smooth: z.boolean().default(true),
-  toElement: z.string().optional()
+  toElement: z.string().optional(),
+  // Absolute scroll-to coordinates (window.scrollTo). When present they take
+  // precedence over direction/distance — see ActionExecutor's ScrollActionSchema.
+  x: z.number().min(0).optional(),
+  y: z.number().min(0).optional()
 });
 
 const ScreenshotActionSchema = BaseActionSchema.extend({

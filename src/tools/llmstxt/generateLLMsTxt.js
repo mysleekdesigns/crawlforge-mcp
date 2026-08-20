@@ -1,7 +1,9 @@
 import { z } from 'zod';
+import { load } from 'cheerio';
 import { LLMsTxtAnalyzer } from '../../core/LLMsTxtAnalyzer.js';
 import { Logger } from '../../utils/Logger.js';
 import { getBaseUrl } from '../../utils/urlNormalizer.js';
+import { safeFetch } from '../../utils/ssrfGuard.js';
 
 const logger = new Logger('GenerateLLMsTxtTool');
 
@@ -78,6 +80,14 @@ export class GenerateLLMsTxtTool {
         ...analysisOptions
       });
       const analysis = await analyzer.analyzeWebsite(url, analysisOptions);
+
+      // Capture the homepage's <title>/h1 and meta/og description so the
+      // spec-compliant output can carry a real site summary and a named Home
+      // link (llmstxt.org) instead of boilerplate. Best-effort: null on
+      // failure, in which case the generic fallbacks below apply.
+      if (!outputOptions.robotsStyle) {
+        analysis.homePage = await this.fetchHomePageMetadata(baseUrl);
+      }
 
       // Step 2: Generate LLMs.txt Content
       const llmsTxtContent = this.generateLLMsTxt(analysis, outputOptions, complianceLevel);
@@ -156,8 +166,10 @@ export class GenerateLLMsTxtTool {
     lines.push(`# ${title}`);
     lines.push('');
 
-    // Blockquote summary (required by spec)
-    const summary = `Site map and key resources for ${baseUrl}, generated to help LLMs locate relevant content.`;
+    // Blockquote summary (required by spec). Prefer the site's own meta /
+    // og:description captured from the homepage over generic boilerplate.
+    const summary = analysis.homePage?.description
+      || `Site map and key resources for ${baseUrl}, generated to help LLMs locate relevant content.`;
     lines.push(`> ${summary}`);
     lines.push('');
 
@@ -177,13 +189,16 @@ export class GenerateLLMsTxtTool {
       lines.push('');
     }
 
-    // Helper: emit a "## Section" with a list of [name](url) links.
+    // Helper: emit a "## Section" with a list of [name](url) links. Link
+    // names prefer the page's actual <title> captured during analysis;
+    // otherwise a humanized full path ("/tag/abilities/page/1" ->
+    // "Tag: abilities — page 1") — never a bare trailing segment like "1".
+    const pageTitles = this.collectPageTitles(analysis);
     const linkLabel = (u) => {
+      const captured = pageTitles.get(this.normalizeTitleKey(u));
+      if (captured) return captured;
       try {
-        const p = new URL(u).pathname.replace(/\/+$/, '');
-        if (!p || p === '') return 'Home';
-        const seg = p.split('/').filter(Boolean).pop() || p;
-        return seg.replace(/[-_]/g, ' ').replace(/\.[a-z0-9]+$/i, '').trim() || p;
+        return this.humanizePath(new URL(u).pathname);
       } catch {
         return u;
       }
@@ -245,6 +260,131 @@ export class GenerateLLMsTxtTool {
     }
 
     return lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
+  }
+
+  /**
+   * Build a URL -> page title map from titles captured during analysis
+   * (classifyPage stores each public page's <title>; the homepage fetch names
+   * the site root). A title shared verbatim by multiple URLs is dropped — it
+   * cannot identify a specific page, so those links fall back to the
+   * humanized path instead.
+   */
+  collectPageTitles(analysis) {
+    const titles = new Map();
+    const counts = new Map();
+    const add = (url, title) => {
+      if (!url || typeof title !== 'string') return;
+      const clean = title.replace(/\s+/g, ' ').trim();
+      if (!clean) return;
+      const key = this.normalizeTitleKey(url);
+      const prev = titles.get(key);
+      if (prev === clean) return;
+      if (prev) counts.set(prev, counts.get(prev) - 1);
+      titles.set(key, clean);
+      counts.set(clean, (counts.get(clean) || 0) + 1);
+    };
+
+    for (const entries of Object.values(analysis.contentTypes || {})) {
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries) {
+        add(entry?.url, entry?.metadata?.title);
+      }
+    }
+    if (analysis.homePage?.title && analysis.metadata?.baseUrl) {
+      add(analysis.metadata.baseUrl, analysis.homePage.title);
+    }
+
+    for (const [key, title] of titles) {
+      if (counts.get(title) > 1) titles.delete(key);
+    }
+    return titles;
+  }
+
+  normalizeTitleKey(url) {
+    try {
+      return new URL(url).toString();
+    } catch {
+      return url;
+    }
+  }
+
+  /**
+   * Humanize a full URL path into a readable label:
+   *   "/"                      -> "Home"
+   *   "/login"                 -> "Login"
+   *   "/author/Albert-Einstein" -> "Author: Albert Einstein"
+   *   "/tag/abilities/page/1"  -> "Tag: abilities — page 1"
+   * A trailing pagination segment ("page/2", "page-2", bare "2") is folded
+   * into "page N" so a link is never labeled by a bare number.
+   */
+  humanizePath(pathname) {
+    let raw = pathname;
+    try { raw = decodeURIComponent(pathname); } catch { /* keep encoded */ }
+    const segments = raw.split('/').filter(Boolean);
+    if (segments.length === 0) return 'Home';
+
+    // Strip a file extension from the last segment, then de-slug.
+    segments[segments.length - 1] = segments[segments.length - 1].replace(/\.[a-z0-9]+$/i, '');
+    const clean = segments.map((s) => s.replace(/[-_]+/g, ' ').trim()).filter(Boolean);
+    if (clean.length === 0) return 'Home';
+
+    let pageNum = null;
+    const last = clean[clean.length - 1];
+    const pageMatch = last.match(/^page\s*(\d+)$/i);
+    if (pageMatch) {
+      pageNum = pageMatch[1];
+      clean.pop();
+    } else if (/^\d+$/.test(last)) {
+      pageNum = last;
+      clean.pop();
+      if (clean.length > 0 && /^pages?$/i.test(clean[clean.length - 1])) {
+        clean.pop();
+      }
+    }
+    if (clean.length === 0) return pageNum ? `Page ${pageNum}` : 'Home';
+
+    const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+    let label = clean.length === 1
+      ? cap(clean[0])
+      : `${cap(clean[0])}: ${clean.slice(1).join(' / ')}`;
+    if (pageNum) label += ` — page ${pageNum}`;
+    return label;
+  }
+
+  /**
+   * Fetch the site's homepage once and extract naming metadata for the spec
+   * output. Best-effort: returns null on any failure.
+   */
+  async fetchHomePageMetadata(baseUrl) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), Math.min(this.options.timeout, 10000));
+    try {
+      const response = await safeFetch(baseUrl, {
+        signal: controller.signal,
+        headers: { 'User-Agent': this.options.userAgent }
+      });
+      if (!response.ok) return null;
+      return this.extractHomePageMetadata(await response.text());
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
+   * Extract { title, description } from homepage HTML. Title prefers <title>
+   * then the first <h1>; description prefers meta[name="description"] then
+   * og:description. Returns null when neither is present.
+   */
+  extractHomePageMetadata(html) {
+    const $ = load(html);
+    const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
+    const title = clean($('title').first().text()) || clean($('h1').first().text());
+    const description = clean($('meta[name="description"]').attr('content'))
+      || clean($('meta[property="og:description"]').attr('content'));
+    if (!title && !description) return null;
+    return { title, description };
   }
 
   /**

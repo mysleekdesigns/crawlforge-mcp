@@ -183,8 +183,11 @@ const TEMPLATES = [
           site: $row.find('.sitebit a').text().trim() || null,
           score: $score.text().replace(' points', '').trim() || null,
           author: $subtext.find('.hnuser').text().trim() || null,
-          posted: $subtext.find('.age a').attr('href') || null,
-          comments: $subtext.find('a[href*="item"]').last().text().trim() || null
+          // ".age a" wraps the relative age string ("3 hours ago"); its href is the item permalink.
+          posted: $subtext.find('.age a').text().trim() || null,
+          // The comments link is also an item?id= link, so exclude the age anchor.
+          // Job posts have no comments link at all -> null.
+          comments: $subtext.find('a[href*="item"]').not('.age a').last().text().trim() || null
         });
       });
       return { stories: stories.slice(0, 30), scraped_at: new Date().toISOString() };

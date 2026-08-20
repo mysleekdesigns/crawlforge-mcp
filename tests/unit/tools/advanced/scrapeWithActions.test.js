@@ -169,6 +169,121 @@ describe('scrapeWithActions tool (real module)', () => {
  * rejection runs through the tool's actual try/catch/finally cleanup —
  * matching the pattern used in tests/unit/phase3-leaks.test.js.
  */
+/**
+ * Scroll action x/y absolute coordinates (live-tested defect): a scroll action
+ * given {"type":"scroll","x":0,"y":500} silently scrolled the default 100px —
+ * the schemas only defined direction/distance/toElement, so Zod stripped x/y
+ * and the executor fell back to the defaults. The CLI guide documents the
+ * x/y form, so it must be SUPPORTED: absolute window.scrollTo(x, y) taking
+ * precedence over direction/distance. No browser needed — the page object is
+ * mocked; the real ActionExecutor/schemas run.
+ */
+describe('scroll action x/y absolute coordinates', () => {
+  function makeScrollPage(calls) {
+    return {
+      evaluate: async (fn, args) => {
+        calls.push({ method: 'evaluate', args });
+        // Run the in-page function against a stubbed window to verify it
+        // actually issues window.scrollTo with the given coordinates.
+        const savedWindow = globalThis.window;
+        globalThis.window = { scrollTo: (x, y) => calls.push({ method: 'scrollTo', x, y }) };
+        try { fn(args); } finally {
+          if (savedWindow === undefined) delete globalThis.window;
+          else globalThis.window = savedWindow;
+        }
+      },
+      mouse: { wheel: async (dx, dy) => calls.push({ method: 'wheel', dx, dy }) },
+      waitForSelector: async () => ({ hover: async () => {}, scrollIntoView: async () => {} }),
+      url: () => 'https://example.com'
+    };
+  }
+
+  async function withExecutor(fn) {
+    const executor = new ActionExecutor({ enableLogging: false, enableScreenshotOnError: false });
+    try {
+      return await fn(executor);
+    } finally {
+      await executor.destroy();
+      await executor.browserProcessor.localizationManager?.cleanup();
+    }
+  }
+
+  test('x/y scrolls via window.scrollTo and reports the effective target', async () => {
+    await withExecutor(async (executor) => {
+      const calls = [];
+      const page = makeScrollPage(calls);
+      const result = await executor.executeScrollAction(page, { type: 'scroll', x: 0, y: 500 });
+
+      assert.deepEqual(result, { scrolledTo: { x: 0, y: 500 }, mode: 'absolute' });
+      assert.ok(calls.some(c => c.method === 'scrollTo' && c.x === 0 && c.y === 500), 'window.scrollTo(0, 500) must be issued in-page');
+      assert.ok(!calls.some(c => c.method === 'wheel'), 'mouse.wheel (relative delta) must not be used for absolute x/y');
+    });
+  });
+
+  test('x/y takes precedence over direction/distance when both are present', async () => {
+    await withExecutor(async (executor) => {
+      const calls = [];
+      const page = makeScrollPage(calls);
+      const result = await executor.executeScrollAction(page, { type: 'scroll', direction: 'down', distance: 100, y: 800 });
+
+      assert.deepEqual(result.scrolledTo, { x: 0, y: 800 }, 'missing axis defaults to 0');
+      assert.ok(!calls.some(c => c.method === 'wheel'), 'direction/distance must be ignored when x/y is present');
+    });
+  });
+
+  test('direction/distance behavior is unchanged when x/y is absent', async () => {
+    await withExecutor(async (executor) => {
+      const calls = [];
+      const page = makeScrollPage(calls);
+      const result = await executor.executeScrollAction(page, { type: 'scroll', direction: 'down', distance: 250 });
+
+      assert.deepEqual(calls, [{ method: 'wheel', dx: 0, dy: 250 }]);
+      assert.equal(result.direction, 'down');
+      assert.equal(result.distance, 250);
+    });
+  });
+
+  test('executeActionInternal validates and executes a scroll action carrying x/y', async () => {
+    await withExecutor(async (executor) => {
+      const calls = [];
+      const page = makeScrollPage(calls);
+      const actionResult = await executor.executeActionInternal(page, { type: 'scroll', x: 0, y: 500 }, { id: 'chain_test' });
+
+      assert.equal(actionResult.success, true, `schema must accept x/y (got error: ${actionResult.error})`);
+      assert.deepEqual(actionResult.result.scrolledTo, { x: 0, y: 500 });
+    });
+  });
+
+  test('tool-level Zod schema no longer strips x/y from scroll actions (defect reproduction)', async () => {
+    let receivedActions;
+    const executor = makeFakeExecutor({
+      onExecute: (url, chainConfig) => {
+        receivedActions = chainConfig.actions;
+        return makeFakeChainResult(chainConfig.actions);
+      }
+    });
+    const xyTool = new ScrapeWithActionsTool({ actionExecutor: executor, enableLogging: false });
+    const result = await xyTool.execute({
+      url: 'https://example.com',
+      actions: [{ type: 'scroll', x: 0, y: 500 }]
+    });
+
+    assert.equal(result.success, true);
+    const scroll = receivedActions.find(a => a.type === 'scroll');
+    assert.equal(scroll.x, 0, 'x must survive tool-level validation');
+    assert.equal(scroll.y, 500, 'y must survive tool-level validation');
+  });
+
+  test('recorder round-trips x/y on scroll actions', async () => {
+    const { buildRecordedEntry, recordedEntryToAction } = await import('../../../../src/tools/advanced/scrapeWithActions/recorder.js');
+    const entry = buildRecordedEntry({ type: 'scroll', x: 0, y: 500 }, 42);
+    assert.equal(entry.x, 0);
+    assert.equal(entry.y, 500);
+    const action = recordedEntryToAction(entry);
+    assert.deepEqual(action, { type: 'scroll', x: 0, y: 500 });
+  });
+});
+
 describe('ActionExecutor browser lifecycle (real module — src/core/ActionExecutor.js)', () => {
   function makeFakePage({ closeTracker }) {
     const fakeContext = { close: async () => { closeTracker.contextClosed = true; closeTracker.count++; } };

@@ -72,7 +72,12 @@ const ScrollActionSchema = BaseActionSchema.extend({
   direction: z.enum(['up', 'down', 'left', 'right']).default('down'),
   distance: z.number().min(0).default(100),
   smooth: z.boolean().default(true),
-  toElement: z.string().optional()
+  toElement: z.string().optional(),
+  // Absolute scroll-to coordinates (window.scrollTo). When present they take
+  // precedence over direction/distance. Matches the CLI guide's documented
+  // action-script format: { "type": "scroll", "x": 0, "y": 500 }.
+  x: z.number().min(0).optional(),
+  y: z.number().min(0).optional()
 });
 
 const ScreenshotActionSchema = BaseActionSchema.extend({
@@ -706,6 +711,20 @@ export class ActionExecutor extends EventEmitter {
         await element.scrollIntoView();
       }
       return { scrolledToElement: action.toElement };
+    }
+
+    // Absolute scroll-to coordinates take precedence over direction/distance.
+    // window.scrollTo (not scrollBy/mouse.wheel, which are relative deltas) is
+    // the standard Playwright pattern for absolute positioning. A missing axis
+    // defaults to 0, matching the plain window.scrollTo(x, y) call form.
+    if (action.x !== undefined || action.y !== undefined) {
+      const targetX = action.x ?? 0;
+      const targetY = action.y ?? 0;
+      await page.evaluate(
+        ([x, y]) => window.scrollTo(x, y),
+        [targetX, targetY]
+      );
+      return { scrolledTo: { x: targetX, y: targetY }, mode: 'absolute' };
     }
 
     if (humanBehaviorSimulator) {

@@ -448,8 +448,9 @@ export class ContentAnalyzer {
 
   /**
    * Create extractive summary by scoring pre-split sentences via word
-   * frequency (Luhn-style salience), tokenized with compromise, plus a small
-   * positional bonus for leading/closing sentences. Selects the top N and
+   * frequency (Luhn-style salience), tokenized with compromise, plus a
+   * lead-biased positional bonus (first sentence strongly favored) and a
+   * brevity penalty for very short sentences. Selects the top N and
    * restores original document order.
    * @param {string[]} sentences - Sentences in original document order
    * @param {number} targetSentences - Number of sentences to select
@@ -474,11 +475,22 @@ export class ContentAnalyzer {
 
     const scored = sentences.map((sentence, index) => {
       const words = sentenceWords[index];
+      // Very short sentences carry little information yet the frequency
+      // average below inflates them (few words, each high-frequency), so
+      // dampen their word score (length penalty, Nobata & Sekine 2004).
+      const brevityPenalty = words.length < 5 ? 0.5 : 1;
       const wordScore = words.length > 0
-        ? words.reduce((sum, w) => sum + freq[w] / maxFreq, 0) / words.length
+        ? (words.reduce((sum, w) => sum + freq[w] / maxFreq, 0) / words.length) * brevityPenalty
         : 0;
-      // Leading/closing sentences tend to carry more salience in prose.
-      const positionScore = (index === 0 || index === sentences.length - 1) ? 0.15 : 0;
+      // Lead bias (Edmundson position method): document-leading sentences
+      // carry the definitional payload — Lead-3 remains a near-SOTA
+      // extractive baseline — so favor the first sentence strongly, decay
+      // over the next two, and keep only a token bonus for the closer.
+      let positionScore = 0;
+      if (index === 0) positionScore = 0.4;
+      else if (index === 1) positionScore = 0.15;
+      else if (index === 2) positionScore = 0.08;
+      else if (index === sentences.length - 1) positionScore = 0.05;
       return { sentence, index, score: wordScore + positionScore };
     });
 
@@ -508,17 +520,23 @@ export class ContentAnalyzer {
       const phraseCount = {};
       
       allPhrases.forEach(phrase => {
-        const cleaned = phrase.toLowerCase().trim();
-        if (cleaned.length > 2) {
+        // Strip edge punctuation and skip phrases made only of stop words
+        const cleaned = phrase.toLowerCase().trim().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+        const words = cleaned.split(/\s+/);
+        if (cleaned.length > 2 && words.some(w => !this.isStopWord(w))) {
           phraseCount[cleaned] = (phraseCount[cleaned] || 0) + 1;
         }
       });
 
-      // Score and rank topics
+      // Score and rank topics. Confidence is the phrase frequency relative to
+      // the MOST frequent phrase (RAKE-style relative salience) — the old
+      // frequency/totalPhrases normalization collapsed toward 0 on long
+      // documents, so every topic failed minConfidence and topics came back [].
+      const maxFreq = Math.max(1, ...Object.values(phraseCount));
       const topics = Object.entries(phraseCount)
         .map(([topic, frequency]) => ({
           topic,
-          confidence: Math.min(1, frequency / Math.max(allPhrases.length, 1)),
+          confidence: Math.round((frequency / maxFreq) * 100) / 100,
           keywords: topic.split(' ').filter(w => w.length > 2)
         }))
         .filter(topic => topic.confidence >= options.minConfidence)
@@ -543,14 +561,53 @@ export class ContentAnalyzer {
     try {
       const doc = nlp(text);
 
-      const people = doc.people().out('array');
-      const places = doc.places().out('array');
-      const organizations = doc.organizations().out('array');
+      // compromise's out('array') keeps adjoining punctuation ("Craigslist.",
+      // "United States,") — clean edges, drop bare stopword/pronoun tokens,
+      // and dedupe case-insensitively keeping the first casing seen.
+      const clean = (arr) => this.dedupeEntities(
+        arr.map(e => this.cleanEntityText(e))
+          .filter(e => e.length > 1
+            && !this.isBareStopword(e)
+            && !/^(?:inc|corp|ltd|co|llc)\.?$/i.test(e)) // bare corporate-suffix fragment
+      );
+
+      let people = clean(doc.people().out('array'));
+      let places = clean(doc.places().out('array'));
+      let organizations = clean(doc.organizations().out('array'));
       // .dates() needs the compromise-dates plugin (not installed) and threw,
       // aborting ALL entity extraction; #Date+ tag matching is core compromise.
-      const dates = doc.match('#Date+').out('array');
-      const money = doc.money().out('array');
-      let other = doc.topics().out('array').slice(0, 10);
+      const dates = clean(doc.match('#Date+').out('array'));
+      const money = clean(doc.money().out('array'));
+      let other = clean(doc.topics().out('array').slice(0, 10))
+        .filter(e => !this.isSentenceInitialArtifact(e, text));
+
+      // "X v. Y" fragments are legal-case citations, not people/places/orgs —
+      // reclassify them under "other".
+      const legalCases = [];
+      const extractCases = (list) => list.filter(e => {
+        if (this.isLegalCaseFragment(e)) {
+          legalCases.push(e);
+          return false;
+        }
+        return true;
+      });
+      people = extractCases(people);
+      places = extractCases(places);
+      organizations = extractCases(organizations);
+
+      // A bare ALL-CAPS token (UNIX, DOM) is not enough evidence for an
+      // organization — demote to "other" unless the text corroborates it
+      // (corporate suffix or organization-headed alias definition).
+      const demotedAcronyms = [];
+      organizations = organizations.filter(e => {
+        if (/^[A-Z]{2,}$/.test(e) && !this.hasOrganizationEvidence(e, text)) {
+          demotedAcronyms.push(e);
+          return false;
+        }
+        return true;
+      });
+
+      other = [...other, ...legalCases, ...demotedAcronyms];
 
       // Supplement with capitalized proper nouns that compromise may miss
       // (technology names, product names, etc.)
@@ -558,14 +615,26 @@ export class ContentAnalyzer {
         ...people, ...places, ...organizations, ...other
       ].map(e => e.toLowerCase()));
 
-      const properNouns = text.match(/\b[A-Z][a-zA-Z.]+(?:\s+[A-Z][a-zA-Z.]+)*/g) || [];
-      const supplemental = [...new Set(properNouns)]
-        .filter(n => !existingEntities.has(n.toLowerCase()) && n.length > 1)
+      const properNouns = (text.match(/\b[A-Z][a-zA-Z.]+(?:\s+[A-Z][a-zA-Z.]+)*/g) || [])
+        // Split matches that crossed a sentence boundary ("XPath. In") — a
+        // period after a lowercase letter followed by a capital is a sentence
+        // end, while abbreviations ("U.S. Holdings") stay intact.
+        .flatMap(n => n.split(/(?<=[a-z]\.)\s+(?=[A-Z])/));
+      const supplemental = this.dedupeEntities(properNouns.map(n => this.cleanEntityText(n)))
+        .filter(n => n.length > 1
+          && !existingEntities.has(n.toLowerCase())
+          && !this.isSentenceInitialArtifact(n, text))
         .slice(0, 10);
 
       if (supplemental.length > 0) {
         other = [...other, ...supplemental].slice(0, 15);
       }
+
+      // Keep "other" free of entities already classified more specifically.
+      const classified = new Set(
+        [...people, ...places, ...organizations, ...dates, ...money].map(e => e.toLowerCase())
+      );
+      other = this.dedupeEntities(other).filter(e => !classified.has(e.toLowerCase()));
 
       const allEntities = [...people, ...places, ...organizations, ...dates, ...money, ...other];
       const uniqueEntities = new Set(allEntities.map(e => e.toLowerCase()));
@@ -826,6 +895,120 @@ export class ContentAnalyzer {
     if (score >= 50) return 'Fairly Difficult';
     if (score >= 30) return 'Difficult';
     return 'Very Difficult';
+  }
+
+  /**
+   * Strip leading/trailing punctuation from an entity string while preserving
+   * trailing periods on abbreviations ("Inc.", "U.S.") and internal
+   * punctuation ("Home.dk", "Bidder's Edge").
+   * @param {string} raw - Raw entity string
+   * @returns {string} - Cleaned entity string
+   */
+  cleanEntityText(raw) {
+    let entity = String(raw).trim();
+    let previous;
+    do {
+      previous = entity;
+      entity = entity.replace(/^[\s"'‘’“”`([{<,;:!?«»–—-]+/, '');
+      entity = entity.replace(/[\s"'‘’“”`)\]}>,;:!?«»–—-]+$/, '');
+      if (entity.endsWith('.')) {
+        const lastToken = entity.split(/\s+/).pop();
+        const isAbbreviation = /^(?:[A-Za-z]\.)+$/.test(lastToken)
+          || /^(?:inc|corp|ltd|co|llc|jr|sr|st|mr|mrs|ms|dr|no|vs?)\.$/i.test(lastToken);
+        if (!isAbbreviation) {
+          entity = entity.replace(/\.+$/, '');
+        }
+      }
+    } while (entity !== previous);
+    return entity;
+  }
+
+  /**
+   * Deduplicate entities case-insensitively, keeping the first casing seen
+   * @param {string[]} entities - Entity strings
+   * @returns {string[]} - Deduplicated entity strings
+   */
+  dedupeEntities(entities) {
+    const seen = new Set();
+    const result = [];
+    for (const entity of entities) {
+      const key = entity.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(entity);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Check whether an entity is a single bare stop word/pronoun token
+   * @param {string} entity - Cleaned entity string
+   * @returns {boolean} - True if a bare stop word
+   */
+  isBareStopword(entity) {
+    return !entity.includes(' ') && this.isStopWord(entity.toLowerCase());
+  }
+
+  /**
+   * True when a single capitalized token is likely just a sentence-initial
+   * common word ("While", "It", "Once"): it is a stop word, the same word
+   * also appears in lowercase elsewhere in the text, or it is only ever
+   * capitalized at the start of a sentence (real proper nouns keep their
+   * capital mid-sentence).
+   * @param {string} entity - Cleaned entity string
+   * @param {string} text - Full source text
+   * @returns {boolean} - True if likely a sentence-initial artifact
+   */
+  isSentenceInitialArtifact(entity, text) {
+    if (entity.includes(' ')) return false;
+    const lower = entity.toLowerCase();
+    if (this.isStopWord(lower)) return true;
+    if (!/^[A-Z][a-z]+$/.test(entity)) return false;
+
+    // Word also appears in lowercase → ordinary word, capitalized only by position
+    if (new RegExp(`(?:^|[^A-Za-z])${lower}(?:[^A-Za-z]|$)`).test(text)) return true;
+
+    // Keep only if at least one occurrence is NOT at a sentence start
+    const occurrence = new RegExp(`\\b${entity}\\b`, 'g');
+    let match;
+    while ((match = occurrence.exec(text)) !== null) {
+      const before = text.slice(0, match.index).replace(/[\s"'‘’“”()[\]]+$/, '');
+      if (before.length > 0 && !/[.!?:]$/.test(before)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Check whether an entity is an "X v. Y" / "X vs. Y" legal-case fragment
+   * @param {string} entity - Cleaned entity string
+   * @returns {boolean} - True if a legal-case citation fragment
+   */
+  isLegalCaseFragment(entity) {
+    return /\s+vs?\.?\s+/i.test(entity);
+  }
+
+  /**
+   * Corroborating evidence that an ALL-CAPS token really is an organization:
+   * a corporate suffix follows it ("IBM Corp"), or it is introduced as the
+   * alias of an organization-headed name ("American Airlines (AA)",
+   * "French Data Protection Authority (CNIL)").
+   * @param {string} acronym - ALL-CAPS candidate (already /^[A-Z]{2,}$/)
+   * @param {string} text - Full source text
+   * @returns {boolean} - True if the text corroborates the org classification
+   */
+  hasOrganizationEvidence(acronym, text) {
+    const corporateSuffix = new RegExp(
+      `\\b${acronym},?\\s+(?:Inc|Corp|Corporation|Company|Co|Ltd|LLC|Group)\\.?(?:[^a-zA-Z]|$)`
+    );
+    if (corporateSuffix.test(text)) return true;
+
+    const orgHeadedAlias = new RegExp(
+      `\\b(?:Airlines?|Authority|Agency|Association|Bureau|Commission|Committee|Corporation|Company|Council|Court|Foundation|Group|Institute|Institution|Organi[sz]ation|Press|Society|Union|University)\\s*\\(["'“‘]?${acronym}["'”’]?\\)`
+    );
+    return orgHeadedAlias.test(text);
   }
 
   /**

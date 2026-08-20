@@ -89,6 +89,13 @@ export async function extractTextHandler({ url, remove_scripts, remove_styles, o
     if (remove_scripts !== false) $('script').remove();
     if (remove_styles !== false) $('style').remove();
 
+    // <noscript> contents are parsed as raw TEXT when scripting is enabled
+    // (cheerio/parse5 default, per the HTML spec), so leaving them in leaks
+    // literal markup into the extracted text — e.g. Wikipedia's
+    // Special:CentralAutoLogin 1x1 <img> tracking pixel. Browsers with JS
+    // enabled never render noscript content, so always strip it.
+    $('noscript').remove();
+
     $('nav, header, footer, aside, .advertisement, .ad, .sidebar').remove();
 
     const result = {
