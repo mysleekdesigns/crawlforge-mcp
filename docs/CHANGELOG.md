@@ -5,6 +5,21 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.0.2] - 2026-08-20
+
+Patch release: the four content-quality defects deferred from v5.0.1, all found in the same full-surface live test.
+
+### Fixed
+
+- **`analyze_content` entity extraction always returned zero entities.** `ContentAnalyzer.extractEntities` called `doc.dates()`, which in compromise v14 requires the uninstalled `compromise-dates` plugin — the throw aborted the whole extraction (people/places/organizations worked fine underneath) and the catch silently returned empties. Dates now use the core build's `#Date+` tag matching; the repro sentence yields Tim Cook / Microsoft / California.
+- **`extract_structured` CSS fallback silently omitted price fields.** The semantic-selector table had no commerce entry and the literal `.price` selector cannot match class tokens like `price_color`. Added `price: ['[itemprop="price"]', '[class*="price"]']` — books.toscrape.com-style markup now extracts (`£53.74`).
+- **`generate_llms_txt` produced no URL inventory and mislabeled content pages as APIs.** Substring matching classified "S-**api**-ens" as an API link (now word-boundary `\b(api|developer)s?\b`), and the `## Pages` sitemap fallback ran *after* the APIs section, so one false positive suppressed the entire inventory (fallback now runs first). Uncategorized sites always get a `## Pages` listing; categorized sections are unchanged.
+- **`scrape_template` github-repo returned null watchers and empty topics.** GitHub's logged-out React layout dropped the old markup: watchers now read from `.octicon-eye + strong` (aria-label kept as classic-layout fallback) and topics accept `a[href^="/topics/"]` alongside `a.topic-tag`. Language is client-side-rendered on the React layout (unrecoverable from static HTML) and correctly stays null there; the `itemprop` selector still works on classic pages.
+
+### Tests
+
++5 regression tests (entity repro, `price_color` fixture, Pages-fallback ordering, word-boundary API matching, React-layout GitHub fixture); suite now 925 tests, 100% MCP-protocol-compliant.
+
 ## [5.0.1] - 2026-08-20
 
 Patch release: eleven defects found by a full-surface live test of all 27 MCP tools and all 23 CLI subcommands against real websites (see PRD.md, "Live tool-test remediation").

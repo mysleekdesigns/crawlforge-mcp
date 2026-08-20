@@ -12,6 +12,8 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **v5.0.1 released 2026-08-20** — patch release: thirteen defects from the full-surface live tool test (see "Live tool-test remediation" below), including the critical `crawl_deep` event-loop starvation, the init stanza pointing at a nonexistent npm package, empty junk snapshots written on every detected change, and `SnapshotManager` splitting content from metadata for custom storage dirs.
 
+**v5.0.2 released 2026-08-20** — patch release: the four content-quality defects deferred from v5.0.1 (analyze_content entity extraction, extract_structured price fallback, generate_llms_txt inventory/API mislabeling, github-repo template React-layout selectors).
+
 ---
 
 ## v4.8.0 — Real Agent Skills, Security Enforcement, Branding/Screenshot, Change Scheduling
