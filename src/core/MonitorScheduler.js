@@ -111,6 +111,7 @@ export class MonitorScheduler {
   }
 
   async stopMonitor(id) {
+    if (!this.store._loaded) await this.store.load();
     this._clearTimer(id);
     const existed = !!this.store.get(id);
     await this.store.remove(id);
@@ -118,6 +119,7 @@ export class MonitorScheduler {
   }
 
   async stopByUrl(url) {
+    if (!this.store._loaded) await this.store.load();
     let count = 0;
     for (const def of this.store.list()) {
       if (def.url === url) {
@@ -163,7 +165,10 @@ export class MonitorScheduler {
     if (ct?.snapshots?.has(def.url)) return;
     try {
       const q = await this.tool.snapshotManager.querySnapshots({ url: def.url, limit: 1, includeContent: true });
-      const content = q?.snapshots?.[0]?.content;
+      let content = q?.snapshots?.[0]?.content;
+      // querySnapshots returns stored content as a Buffer; the string guard
+      // below used to reject it, silently disabling rehydration after restart.
+      if (Buffer.isBuffer(content)) content = content.toString('utf8');
       if (content && typeof content === 'string') {
         await ct.createBaseline(def.url, content, def.trackingOptions);
       }

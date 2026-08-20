@@ -217,6 +217,46 @@ describe('trackChanges tool — real module (Phase 2 fix)', () => {
       assert.ok(Array.isArray(result.history));
     });
 
+    test('compare works across processes: baseline rehydrates from the persisted snapshot', async () => {
+      // Simulate separate CLI invocations: each tool instance is a fresh
+      // process (empty in-memory baseline Map) sharing one snapshot dir.
+      const sharedSnapshots = path.join(os.tmpdir(), `trackchanges-rehydrate-${Math.random().toString(36).slice(2)}`);
+      const sharedMonitors = path.join(os.tmpdir(), `trackchanges-rehydrate-mon-${Math.random().toString(36).slice(2)}`);
+      const mkTool = () => new TrackChangesTool({ snapshotStorageDir: sharedSnapshots, monitorStorageDir: sharedMonitors });
+      const url = 'https://example.com/rehydrate-page';
+
+      const toolA = mkTool();
+      const r1 = await toolA.execute({ url, operation: 'create_baseline', content: 'AAA content' });
+      assert.equal(r1.success, true, `baseline failed: ${r1.error}`);
+      await new Promise((r) => setTimeout(r, 10)); // distinct snapshot timestamps
+
+      const toolB = mkTool();
+      const r2 = await toolB.execute({ url, operation: 'compare', content: 'BBB changed content' });
+      assert.equal(r2.success, true, `cross-process compare failed: ${r2.error}`);
+      assert.equal(r2.operation, 'compare');
+      assert.equal(r2.hasChanges, true);
+      await new Promise((r) => setTimeout(r, 10));
+
+      // The change snapshot rolls the baseline forward for the next process.
+      const toolC = mkTool();
+      const r3 = await toolC.execute({ url, operation: 'compare', content: 'BBB changed content' });
+      assert.equal(r3.success, true, `second cross-process compare failed: ${r3.error}`);
+      assert.equal(r3.hasChanges, false);
+
+      for (const t of [toolA, toolB, toolC]) await t.shutdown().catch(() => {});
+    });
+
+    test('stop_scheduled_monitor with an unknown id reports success:false', async () => {
+      const result = await realTool.execute({
+        url: trackedUrl,
+        operation: 'stop_scheduled_monitor',
+        scheduledMonitorOptions: { monitorId: 'no-such-monitor-id' }
+      });
+      assert.equal(result.success, false);
+      assert.equal(result.stopped, false);
+      assert.match(result.error, /No scheduled monitor found/);
+    });
+
     test('{url, operation:"monitor"} — the documented default call — does not throw TypeError', async () => {
       const result = await realTool.execute({ url: trackedUrl, operation: 'monitor' });
       assert.equal(result.success, true, `expected success, got error: ${result.error}`);

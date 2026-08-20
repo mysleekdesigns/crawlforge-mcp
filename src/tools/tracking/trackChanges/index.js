@@ -209,9 +209,28 @@ export class TrackChangesTool extends EventEmitter {
     };
   }
 
+  // Rebuild the in-memory baseline from the newest persisted snapshot, so
+  // compare works across processes (fresh CLI runs, server restarts). Same
+  // fail-soft mechanism as MonitorScheduler._ensureBaseline: no usable
+  // snapshot means compare still reports "No baseline" for a genuine first run.
+  async rehydrateBaseline(url, trackingOptions = {}) {
+    if (this.changeTracker?.snapshots?.has(url)) return;
+    try {
+      const q = await this.snapshotManager.querySnapshots({ url, limit: 1, includeContent: true });
+      let content = q?.snapshots?.[0]?.content;
+      if (Buffer.isBuffer(content)) content = content.toString('utf8');
+      if (content && typeof content === 'string') {
+        await this.changeTracker.createBaseline(url, content, trackingOptions);
+      }
+    } catch {
+      /* no usable snapshot — caller's compare will surface "No baseline" */
+    }
+  }
+
   async compareWithBaseline(params) {
     const { url, content, html, trackingOptions, storageOptions = {}, notificationOptions } = params;
     const enableSnapshots = storageOptions.enableSnapshots !== false;
+    await this.rehydrateBaseline(url, trackingOptions);
 
     let currentContent = content || html;
     let fetchMeta = {};
@@ -362,7 +381,10 @@ export class TrackChangesTool extends EventEmitter {
     const monitorId = scheduledMonitorOptions?.monitorId;
     if (monitorId) {
       const result = await this.scheduler.stopMonitor(monitorId);
-      return { success: true, operation: 'stop_scheduled_monitor', monitorId, stopped: result.stopped, timestamp: Date.now() };
+      if (!result.stopped) {
+        return { success: false, operation: 'stop_scheduled_monitor', monitorId, stopped: false, error: `No scheduled monitor found with id ${monitorId}`, timestamp: Date.now() };
+      }
+      return { success: true, operation: 'stop_scheduled_monitor', monitorId, stopped: true, timestamp: Date.now() };
     }
     if (!url) throw new Error('stop_scheduled_monitor requires a url or scheduledMonitorOptions.monitorId');
     const result = await this.scheduler.stopByUrl(url);

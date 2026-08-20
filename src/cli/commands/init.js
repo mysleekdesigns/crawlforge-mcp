@@ -4,6 +4,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { install, installHook } from '../../skills/installer.js';
+import { isCreatorModeVerified } from '../../core/creatorMode.js';
 
 const HOME = process.env.HOME || process.env.USERPROFILE || '';
 
@@ -16,7 +17,7 @@ function loadStoredApiKey() {
   }
 }
 
-function mcpStanza(apiKey) {
+export function mcpStanza(apiKey) {
   const stanza = { command: 'npx', args: ['-y', 'crawlforge@latest', 'mcp'] };
   if (apiKey) stanza.env = { CRAWLFORGE_API_KEY: apiKey };
   return stanza;
@@ -66,15 +67,20 @@ export function register(program) {
     .action(async (opts) => {
       const out = (msg) => process.stderr.write(msg + '\n');
 
-      // 1. API key check
+      // 1. API key check (creator mode proceeds keyless — the registered
+      // server re-derives creator mode from its own environment, and the
+      // secret must never be written into client configs)
       const apiKey = loadStoredApiKey() || process.env.CRAWLFORGE_API_KEY;
-      if (!apiKey) {
+      if (apiKey) {
+        out('API key: found (' + apiKey.slice(0, 8) + '...)');
+      } else if (isCreatorModeVerified()) {
+        out('API key: none (creator mode active — proceeding without a key)');
+      } else {
         out('No CrawlForge API key found.');
         out('Run: npx crawlforge-setup');
         out('Then re-run: crawlforge init');
         process.exit(1);
       }
-      out('API key: found (' + apiKey.slice(0, 8) + '...)');
 
       // 2. Install skills
       const skillTarget = opts.all ? 'all' : 'claude-code';

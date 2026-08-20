@@ -137,4 +137,28 @@ describe('MonitorScheduler lifecycle', () => {
     assert.equal(scheduler.list().length, 0);
     scheduler.stopAll();
   });
+
+  test('stopMonitor in a fresh process (unloaded store) still finds and removes the monitor', async () => {
+    const storeA = makeStore();
+    const schedulerA = new MonitorScheduler({ tool: fakeTool(), store: storeA });
+    const mon = await schedulerA.createMonitor({ url: 'https://m.test/', interval: 60000 });
+    schedulerA.stopAll();
+
+    // Fresh process: new store on the same dir, never loaded, scheduler never started.
+    const storeB = new MonitorStore({ storageDir: storeA.storageDir });
+    const schedulerB = new MonitorScheduler({ tool: fakeTool(), store: storeB });
+    const r = await schedulerB.stopMonitor(mon.id);
+    assert.equal(r.stopped, true);
+
+    // A third fresh store proves the file is gone from disk.
+    const storeC = new MonitorStore({ storageDir: storeA.storageDir });
+    await storeC.load();
+    assert.equal(storeC.list().length, 0);
+  });
+
+  test('stopMonitor with an unknown id on a fresh store reports stopped:false', async () => {
+    const scheduler = new MonitorScheduler({ tool: fakeTool(), store: makeStore() });
+    const r = await scheduler.stopMonitor('no-such-id');
+    assert.equal(r.stopped, false);
+  });
 });
