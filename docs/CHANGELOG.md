@@ -5,6 +5,30 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.0.1] - 2026-08-20
+
+Patch release: eleven defects found by a full-surface live test of all 27 MCP tools and all 23 CLI subcommands against real websites (see PRD.md, "Live tool-test remediation").
+
+### Fixed
+
+- **`crawl_deep` event-loop starvation (critical).** `BFSCrawler.extractLinkMetadata` re-parsed the entire page HTML with cheerio (plus a full `$('body').text()` serialization) for *every link* on a page — O(links × page size) synchronous CPU. On link-dense pages (~1,500 links, MB-scale HTML) the server pegged the CPU for 13+ minutes at multi-GB memory, starving the event loop so *all* concurrent MCP calls hung and even SIGTERM/graceful shutdown could not run. The page is now parsed once and reused for every link. Same crawl: ~168s, server responsive throughout.
+- **`crawl_deep` could overshoot `max_pages`.** The cap check ran before an awaited robots.txt lookup, so concurrent queue tasks all passed it before any registered (asked 5, crawled 10). The cap is now re-checked synchronously at registration and is exact.
+- **`serp_rank` rejected valid paid responses.** DataForSEO emits `snippet: null` for organic items without a description, but the output schema required a string — one such item discarded the whole (already-billed) lookup. `snippet` is now nullable.
+- **`generate_llms_txt` ignored `analysisOptions.maxPages`/`maxDepth`.** The per-call options never reached the analyzer's constructor, which is where the crawl caps are read (asked 10, analyzed 100). They are now applied.
+- **CLI `stealth` failed on every default invocation.** `--engine` defaulted to `playwright`, a value the engine enum stopped accepting in v4.0.0 (`chromium | camoufox`). Default is now `chromium`; `playwright` remains a back-compat alias.
+- **CLI `track` could never compare across invocations.** Baselines lived only in process memory, so every CLI run re-created the baseline. New `TrackChangesTool.rehydrateBaseline()` rebuilds the baseline from the newest persisted snapshot at compare time — fixing fresh CLI processes and restarted MCP servers alike.
+- **Baseline rehydration never worked (latent since v4.8.0).** `SnapshotManager.querySnapshots` returns stored content as a Buffer; both rehydration sites guarded with `typeof content === 'string'` and silently rejected every snapshot, so scheduled monitors re-baselined after every restart. Buffers are now normalized to UTF-8.
+- **`monitor:stop` reported `stopped:false` while succeeding.** In a fresh process the unloaded `MonitorStore` made the existence check always false (and `stopByUrl` a silent no-op) even though the file was removed. Both now load the store first; unknown ids return `success:false` with a clear error (CLI exit 1).
+- **`crawlforge init` demanded an API key in creator mode.** Creator machines now proceed keyless (via `isCreatorModeVerified()`), writing an env-less MCP stanza; machines with neither key nor creator secret still exit 1 with setup guidance.
+- **`init` wrote a stanza pointing at a nonexistent npm package.** The generated MCP-server entry invoked `npx -y crawlforge@latest mcp`, but the published package is `crawlforge-mcp-server` — every init-generated config was broken (and the unclaimed name was a squatting risk). The stanza now references `crawlforge-mcp-server@latest`.
+- **Every detected change stored an empty junk snapshot.** The `changeDetected` handler stored `changeRecord.details.current || ''`, but the change record carries diff analysis, never page content — so each significant change wrote a zero-byte snapshot (often timestamp-tied with the real one, which could then make baseline rehydration pick the empty and give up). The handler now only stores when content is actually present, and both rehydration sites skip empty snapshots so stores polluted by the old behavior still rehydrate correctly.
+- **Custom snapshot dirs split content from metadata.** `SnapshotManager` anchored `metadataDir`/`tempDir` to the global default (`~/.crawlforge/snapshots`) even when a custom `storageDir` was passed, so snapshot content and its metadata landed in different directories and all custom-dir instances shared one metadata store. Both now derive from the effective storage dir (default-path users are unaffected — the paths coincide).
+- Environment note for self-hosters: `stealth_mode`, `scrape_with_actions`, and `scrape`'s screenshot format require the Playwright browsers matching the installed playwright version (`npx playwright install chromium`).
+
+### Tests
+
+- +6 unit tests: cross-process baseline rehydration (including roll-forward), fresh-store `monitor:stop` and unknown-id contract, keyless/keyed `mcpStanza` shapes; suite now 920 tests. A null-snippet regression case guards the `serp_rank` schema.
+
 ## [5.0.0] - 2026-08-05
 
 **Major release** bundling remediation Phases 0–6 (everything below previously under [Unreleased]). **Breaking:** Node floor raised `>=18.0.0` → `>=20.16.0` (Phase 5). Highlights: SSRF/OAuth/secrets/billing hardening (Phase 1), 52 correctness fixes incl. the `crawl_deep` rewrite (Phase 2), leak/timeout robustness (Phase 3), rebuilt streamable-HTTP transport (Phase 4), dependency modernization to 0 npm-audit vulnerabilities (Phase 5), and MCP-spec adoption — structured output, async tasks, tool whitelist, registry `server.json` (Phase 6).

@@ -164,13 +164,17 @@ export class MonitorScheduler {
     const ct = this.tool.changeTracker;
     if (ct?.snapshots?.has(def.url)) return;
     try {
-      const q = await this.tool.snapshotManager.querySnapshots({ url: def.url, limit: 1, includeContent: true });
-      let content = q?.snapshots?.[0]?.content;
-      // querySnapshots returns stored content as a Buffer; the string guard
-      // below used to reject it, silently disabling rehydration after restart.
-      if (Buffer.isBuffer(content)) content = content.toString('utf8');
-      if (content && typeof content === 'string') {
-        await ct.createBaseline(def.url, content, def.trackingOptions);
+      // limit > 1 skips legacy empty junk snapshots; Buffer normalization is
+      // required because querySnapshots returns stored content as a Buffer —
+      // the old string guard silently disabled rehydration after restart.
+      const q = await this.tool.snapshotManager.querySnapshots({ url: def.url, limit: 5, includeContent: true });
+      for (const snap of q?.snapshots ?? []) {
+        let content = snap?.content;
+        if (Buffer.isBuffer(content)) content = content.toString('utf8');
+        if (content && typeof content === 'string') {
+          await ct.createBaseline(def.url, content, def.trackingOptions);
+          return;
+        }
       }
     } catch {
       /* no usable snapshot — first fire will create the baseline */

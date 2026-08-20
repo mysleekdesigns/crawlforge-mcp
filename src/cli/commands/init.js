@@ -18,7 +18,7 @@ function loadStoredApiKey() {
 }
 
 export function mcpStanza(apiKey) {
-  const stanza = { command: 'npx', args: ['-y', 'crawlforge@latest', 'mcp'] };
+  const stanza = { command: 'npx', args: ['-y', 'crawlforge-mcp-server@latest', 'mcp'] };
   if (apiKey) stanza.env = { CRAWLFORGE_API_KEY: apiKey };
   return stanza;
 }

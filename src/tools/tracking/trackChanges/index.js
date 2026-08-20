@@ -130,11 +130,16 @@ export class TrackChangesTool extends EventEmitter {
 
   _setupEventHandlers() {
     this.changeTracker.on('changeDetected', async (changeRecord) => {
-      if (changeRecord.significance !== 'none') {
+      // changeRecord.details is diff analysis and carries no page content —
+      // storing `details.current || ''` wrote an empty junk snapshot on every
+      // significant change (compareWithBaseline already snapshots the real
+      // current content). Only store if a future record ever carries content.
+      const current = changeRecord.details?.current;
+      if (changeRecord.significance !== 'none' && current) {
         try {
           await this.snapshotManager.storeSnapshot(
             changeRecord.url,
-            changeRecord.details.current || '',
+            current,
             { changes: changeRecord.details, significance: changeRecord.significance, changeType: changeRecord.changeType }
           );
         } catch (error) {
@@ -216,11 +221,17 @@ export class TrackChangesTool extends EventEmitter {
   async rehydrateBaseline(url, trackingOptions = {}) {
     if (this.changeTracker?.snapshots?.has(url)) return;
     try {
-      const q = await this.snapshotManager.querySnapshots({ url, limit: 1, includeContent: true });
-      let content = q?.snapshots?.[0]?.content;
-      if (Buffer.isBuffer(content)) content = content.toString('utf8');
-      if (content && typeof content === 'string') {
-        await this.changeTracker.createBaseline(url, content, trackingOptions);
+      // limit > 1: existing stores contain empty junk snapshots (from the old
+      // changeDetected handler) that can tie on timestamp with the real one —
+      // take the newest snapshot that actually has content.
+      const q = await this.snapshotManager.querySnapshots({ url, limit: 5, includeContent: true });
+      for (const snap of q?.snapshots ?? []) {
+        let content = snap?.content;
+        if (Buffer.isBuffer(content)) content = content.toString('utf8');
+        if (content && typeof content === 'string') {
+          await this.changeTracker.createBaseline(url, content, trackingOptions);
+          return;
+        }
       }
     } catch {
       /* no usable snapshot — caller's compare will surface "No baseline" */

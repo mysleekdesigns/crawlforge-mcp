@@ -84,10 +84,15 @@ export class SnapshotManager extends EventEmitter {
     // the server with a cwd the process cannot write to (e.g. '/').
     const defaultBaseDir = path.join(os.homedir(), '.crawlforge', 'snapshots');
 
+    // metadata/temp must live under the EFFECTIVE storage dir: anchoring them
+    // to defaultBaseDir when a custom storageDir is passed split content from
+    // metadata and shared one metadata dir across all custom-dir instances.
+    const baseDir = options.storageDir || defaultBaseDir;
+
     this.options = {
-      storageDir: options.storageDir || defaultBaseDir,
-      metadataDir: options.metadataDir || path.join(defaultBaseDir, 'metadata'),
-      tempDir: options.tempDir || path.join(defaultBaseDir, 'temp'),
+      storageDir: baseDir,
+      metadataDir: options.metadataDir || path.join(baseDir, 'metadata'),
+      tempDir: options.tempDir || path.join(baseDir, 'temp'),
       enableCompression: options.enableCompression !== false,
       enableDeltaStorage: options.enableDeltaStorage !== false,
       enableEncryption: options.enableEncryption || false,

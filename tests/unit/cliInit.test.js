@@ -14,7 +14,7 @@ import { mcpStanza } from '../../src/cli/commands/init.js';
 describe('cli init — mcpStanza', () => {
   test('keyless stanza (creator mode) has no env block', () => {
     const stanza = mcpStanza(undefined);
-    assert.deepEqual(stanza, { command: 'npx', args: ['-y', 'crawlforge@latest', 'mcp'] });
+    assert.deepEqual(stanza, { command: 'npx', args: ['-y', 'crawlforge-mcp-server@latest', 'mcp'] });
     assert.ok(!('env' in stanza));
   });
 

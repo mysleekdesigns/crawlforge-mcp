@@ -10,6 +10,8 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **v5.0.0 released 2026-08-05** — major release bundling remediation Phases 0–6 (see Release History below). Breaking: Node floor `>=18` → `>=20.16`.
 
+**v5.0.1 released 2026-08-20** — patch release: thirteen defects from the full-surface live tool test (see "Live tool-test remediation" below), including the critical `crawl_deep` event-loop starvation, the init stanza pointing at a nonexistent npm package, empty junk snapshots written on every detected change, and `SnapshotManager` splitting content from metadata for custom storage dirs.
+
 ---
 
 ## v4.8.0 — Real Agent Skills, Security Enforcement, Branding/Screenshot, Change Scheduling
@@ -29,7 +31,7 @@ Delivered 2026-06-28. Additive minor; no breaking changes to tool schemas, outpu
 
 ## Release History
 
-### Live tool-test remediation — crawl_deep event-loop starvation, serp_rank schema, Playwright browsers (2026-08-20)
+### Live tool-test remediation — crawl_deep event-loop starvation, serp_rank schema, Playwright browsers (2026-08-20, released in v5.0.1)
 
 A live test of all 27 tools against real websites surfaced three defects; all fixed same-day and re-verified end-to-end over MCP stdio.
 
@@ -60,6 +62,10 @@ Sweep verdict: everything else passes. Notable non-blocking observations for a f
 - **`init` proceeds keyless in creator mode** via `isCreatorModeVerified()`, writing the already-supported env-less MCP stanza (the creator secret is never written into client configs; the registered server re-derives creator mode from its own environment). Machines with neither key nor secret still exit 1 with the setup guidance.
 
 Verification: +6 unit tests (cross-process rehydration cycle incl. baseline roll-forward, fresh-store stop + unknown-id contract, keyless/keyed stanza shapes); suites 920 tests / 919 pass / 0 fail (1 known skip) twice consecutively, `npm test` 100% MCP-compliant; live CLI runs confirm all three behaviors.
+
+**Found during the v5.0.1 release prep: init stanza referenced a nonexistent npm package.** `mcpStanza` wrote `npx -y crawlforge@latest mcp`, but no npm package named `crawlforge` exists (the published package is `crawlforge-mcp-server`) — every init-generated client config was broken, and the unclaimed name was a supply-chain squatting risk. Fixed to `crawlforge-mcp-server@latest` (whose package-name bin routes to the CLI's `mcp` subcommand, verified via the stdio initialize handshake).
+
+**Also found during release prep (via a flaky rehydration test — both latent production bugs):** (1) the `changeDetected` handler stored `details.current || ''`, but change records carry diff analysis, never content — every significant change wrote a zero-byte junk snapshot, which could timestamp-tie with the real snapshot and make rehydration pick the empty and give up; the handler now stores only when content exists, and both rehydration sites skip empty snapshots (legacy-polluted stores still rehydrate). (2) `SnapshotManager` anchored `metadataDir`/`tempDir` to the global `~/.crawlforge/snapshots` even with a custom `storageDir`, splitting content from metadata and sharing one metadata store across all custom-dir instances; both now derive from the effective storage dir. Rehydration test then passed 8/8 consecutive runs.
 
 ### Repo housekeeping — root markdown moved to docs/ (2026-08-05, released in v5.0.0)
 
