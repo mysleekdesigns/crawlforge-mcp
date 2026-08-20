@@ -9,7 +9,7 @@ export function register(program) {
   program
     .command('stealth <url>')
     .description('Scrape a URL using stealth/anti-bot browser mode')
-    .option('--engine <engine>', 'Browser engine: playwright or camoufox', 'playwright')
+    .option('--engine <engine>', 'Browser engine: chromium or camoufox', 'chromium')
     .option('--wait <ms>', 'Wait time after page load in milliseconds', '2000')
     .option('--screenshot', 'Capture a screenshot')
     .action(async (url, opts, cmd) => {
@@ -21,7 +21,8 @@ export function register(program) {
       };
       await runTool(wrapperTool, {
         url,
-        engine: opts.engine,
+        // "playwright" was the pre-v4.0.0 name for the chromium engine
+        engine: opts.engine === 'playwright' ? 'chromium' : opts.engine,
         wait_for: parseInt(opts.wait, 10),
         screenshot: !!opts.screenshot
       }, cliFlags);
