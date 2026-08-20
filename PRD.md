@@ -14,7 +14,7 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **v5.0.2 released 2026-08-20** — patch release: the four content-quality defects deferred from v5.0.1 (analyze_content entity extraction, extract_structured price fallback, generate_llms_txt inventory/API mislabeling, github-repo template React-layout selectors).
 
-**Unreleased — committed 2026-08-20** — second full-surface live retest (27 MCP tools + 23 CLI commands): five hard defects fixed (agent-tool synthesis + prompt-named-site URL seeding, camoufox false "not installed" via CJS load + real `Camoufox()` API, playwright-core 1.62 vs camoufox Firefox protocol mismatch fixed with `viewport: null` — this had also silently broken deep_research's camoufox fallback, llmstxt CLI `--max-pages` validation, stale `map` CLI docs) plus the monitor store move from cwd-relative `./monitors` to `~/.crawlforge/monitors` with legacy migration, and all nine content-quality warns (see "Second live retest remediation" below). 974/975 unit tests pass, MCP compliance 100%.
+**v5.0.3 released 2026-08-20** — patch release: second full-surface live retest (27 MCP tools + 23 CLI commands): five hard defects fixed (agent-tool synthesis + prompt-named-site URL seeding, camoufox false "not installed" via CJS load + real `Camoufox()` API, playwright-core 1.62 vs camoufox Firefox protocol mismatch fixed with `viewport: null` — this had also silently broken deep_research's camoufox fallback, llmstxt CLI `--max-pages` validation, stale `map` CLI docs) plus the monitor store move from cwd-relative `./monitors` to `~/.crawlforge/monitors` with legacy migration, and all nine content-quality warns (see "Second live retest remediation" below). 974/975 unit tests pass, MCP compliance 100%.
 
 ---
 
@@ -35,7 +35,7 @@ Delivered 2026-06-28. Additive minor; no breaking changes to tool schemas, outpu
 
 ## Release History
 
-### Second live retest remediation — agent synthesis, camoufox engine, monitor home store, nine content-quality warns (2026-08-20, unreleased)
+### Second live retest remediation — agent synthesis, camoufox engine, monitor home store, nine content-quality warns (2026-08-20, released in v5.0.3)
 
 A second full-surface live test (all 27 MCP tools via an 8-agent workflow judging returned content, all 23 CLI commands via scripted live runs) after v5.0.2 found 15 defects; every fix was researched via `search_web`, reproduced against live-captured fixtures, and re-verified live end-to-end.
 
