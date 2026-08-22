@@ -30,9 +30,49 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 
 const pkg = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
 const SERVER_VERSION = pkg.version;
+
+/**
+ * Build the `tools` array for the Smithery static server card, straight from
+ * the live tool registry.
+ *
+ * Smithery scans a published server to populate its listing, but our /mcp
+ * endpoint 401s without a key, so the scan cannot enumerate anything. Their
+ * documented fallback is a static server card carrying the metadata — and a
+ * card with no `tools` leaves the listing showing whatever was typed in by
+ * hand at publish time, which is how it goes stale.
+ *
+ * Deriving it here means the card tracks the registry on every release instead
+ * of drifting. Tool `inputSchema`s are registered as ZodRawShapes, so wrap
+ * before converting; a tool whose schema will not convert is still listed,
+ * with an open object schema, rather than dropped.
+ */
+function buildToolCards(server) {
+  const registered = server?._registeredTools ?? {};
+  return Object.entries(registered)
+    .filter(([, tool]) => tool?.enabled !== false)
+    .map(([name, tool]) => {
+      let inputSchema = { type: 'object', properties: {} };
+      try {
+        const shape = tool?.inputSchema;
+        if (shape) {
+          const zodObject = typeof shape?.safeParse === 'function' ? shape : z.object(shape);
+          const converted = zodToJsonSchema(zodObject, { $refStrategy: 'none' });
+          delete converted.$schema;
+          inputSchema = converted;
+        }
+      } catch {
+        // Keep the tool visible with an open schema rather than hiding it.
+      }
+      const card = { name, description: tool?.description ?? tool?.annotations?.title ?? '', inputSchema };
+      if (tool?.annotations) card.annotations = tool.annotations;
+      return card;
+    });
+}
 
 /**
  * The MCP SDK's Protocol.connect() allows at most one active transport per
@@ -163,6 +203,10 @@ export async function connectStreamableHttp(server, authManager, logger, options
           icon: 'https://www.crawlforge.dev/icon.png'
         },
         transport: { type: 'streamable-http', url: '/mcp' },
+        authentication: { required: true, schemes: ['apiKey'] },
+        tools: buildToolCards(server),
+        resources: [],
+        prompts: [],
         configSchema: {
           type: 'object',
           properties: {
