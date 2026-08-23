@@ -72,7 +72,7 @@ describe('DataForSEOSearchAdapter', () => {
     const a = new DataForSEOSearchAdapter('user', 'pass');
     const expected = 'Basic ' + Buffer.from('user:pass').toString('base64');
     assert.equal(a.authHeader, expected);
-    assert.equal(a.timeoutMs, 60000); // default
+    assert.equal(a.timeoutMs, 120000); // default
   });
 
   test('DATAFORSEO_TIMEOUT_MS overrides the default; options still win', () => {
@@ -82,7 +82,7 @@ describe('DataForSEOSearchAdapter', () => {
       assert.equal(new DataForSEOSearchAdapter('u', 'p').timeoutMs, 90000);
       assert.equal(new DataForSEOSearchAdapter('u', 'p', { timeoutMs: 5000 }).timeoutMs, 5000);
       process.env.DATAFORSEO_TIMEOUT_MS = 'not-a-number';
-      assert.equal(new DataForSEOSearchAdapter('u', 'p').timeoutMs, 60000); // falls back
+      assert.equal(new DataForSEOSearchAdapter('u', 'p').timeoutMs, 120000); // falls back
     } finally {
       if (saved === undefined) delete process.env.DATAFORSEO_TIMEOUT_MS;
       else process.env.DATAFORSEO_TIMEOUT_MS = saved;
@@ -106,7 +106,7 @@ describe('DataForSEOSearchAdapter', () => {
     assert.equal(lastRequest.body[0].keyword, 'managed hosting');
     assert.equal(lastRequest.body[0].location_name, 'United States'); // default
     assert.equal(lastRequest.body[0].device, 'desktop');              // default
-    assert.equal(lastRequest.body[0].depth, 100);                     // default
+    assert.equal(lastRequest.body[0].depth, 20);                      // default
     assert.equal(lastRequest.body[0].language_code, 'en');            // default
   });
 

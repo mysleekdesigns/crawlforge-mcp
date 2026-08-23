@@ -6,7 +6,7 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — all three shipped in v4.1.0 — without breaking any existing MCP tools or the current setup flow.
 
-**Last Updated:** 2026-08-22
+**Last Updated:** 2026-08-23
 
 **v5.0.0 released 2026-08-05** — major release bundling remediation Phases 0–6 (see Release History below). Breaking: Node floor `>=18` → `>=20.16`.
 
@@ -36,6 +36,20 @@ Delivered 2026-06-28. Additive minor; no breaking changes to tool schemas, outpu
 ---
 
 ## Release History
+
+### `serp_rank` live verification — depth default 100 → 20, timeout 60s → 120s, cost docs corrected 10× (2026-08-23, no version bump)
+
+Live-testing `serp_rank` end-to-end against the real DataForSEO account (direct tool + MCP stdio `tools/call`) confirmed the tool itself is sound — python.org returned at organic **position 1** (rank_absolute 2) with a valid `checkUrl`, an absent target honestly returned `found:false`/`position:null` rather than a fabricated rank, and the unconfigured path returned `{configured:false}` — but it invalidated two numbers the codebase had been asserting.
+
+**1. The 60 s cap raised earlier the same day was still too low at the default depth.** Two consecutive `depth:100` lookups both aborted at exactly 60,004 ms. Measured latency for the *same* endpoint in one session: ~13–15 s at `depth:10`, and 30 s / 44.9 s / >60 s (×2) at `depth:100`. Default raised to **120 s** (`DATAFORSEO_TIMEOUT_MS` still overrides). A timed-out lookup is *not* free — DataForSEO has already run the scrape and bills it — so an over-tight cap buys nothing and costs money.
+
+**2. The documented price was wrong by 10×.** `~US$0.002/call` is the `depth:10` price; Live Advanced bills **US$0.002 per 10 results of `depth`**, so the old `depth:100` default was **$0.02** per lookup. Confirmed two ways: the API's own `cost` field (0.002 at depth 10, 0.02 at depth 100, 0.004 at depth 20) and the account balance dropping $0.042 across three billed calls. Corrected in `.env.example`, `CLAUDE.md`, the adapter header, and the `AuthManager` cost notice (historical release entries left as written).
+
+**3. Default `depth` lowered 100 → 20** (`src/tools/search/serpRank.js` zod schema + the adapter's own fallback, kept in sync): two pages of Google for **$0.004** and ~19 s instead of one deep scan for $0.02 and 30–60+ s. Ranks below 20 now report `found:false` until the caller raises `depth` (max still 200). The server-side `depth` description states the new default and the per-10 billing.
+
+**Also fixed:** `server.js` hard-coded `version: "5.0.2"` in `serverInfo` — two patches stale against `package.json` 5.0.4; now 5.0.4.
+
+**Verification:** `npm run test:unit` **982 tests / 981 pass / 0 fail / 1 skipped** (serpRank suite 30/30 with the updated default assertions); `npm test` **100.0% COMPLIANT / 0 errors**; live MCP stdio `tools/call serp_rank` with no `depth` argument returned `depthScanned:20`, `cost:0.004` in 18.9 s against `serverInfo` 5.0.4.
 
 ### Fix: `serp_rank` timed out on healthy DataForSEO lookups (2026-08-22, no version bump)
 

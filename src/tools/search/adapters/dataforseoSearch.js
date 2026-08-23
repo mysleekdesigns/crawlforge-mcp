@@ -11,9 +11,13 @@
  * Endpoint (Live Advanced, synchronous — one request, one response):
  *   POST https://api.dataforseo.com/v3/serp/google/organic/live/advanced
  *
- * Cost: ~US$0.002 per 100 results (depth) on Live Advanced. For high-volume
- * scheduled tracking, DataForSEO's task-based "Standard" queue (task_post →
- * tasks_ready → task_get) is cheaper; swap the endpoint + poll if cost matters.
+ * Cost: US$0.002 per 10 results of `depth` on Live Advanced — measured live,
+ * not estimated: depth 10 bills $0.002, the depth 20 default bills $0.004, and
+ * depth 100 bills $0.02. Deeper scans are also slower (see the timeout note
+ * below), so raise `depth` only when a rank below the default is worth paying
+ * for. For high-volume scheduled tracking, DataForSEO's task-based "Standard"
+ * queue (task_post → tasks_ready → task_get) is cheaper; swap the endpoint +
+ * poll if cost matters.
  */
 
 export class DataForSEOSearchAdapter {
@@ -26,12 +30,15 @@ export class DataForSEOSearchAdapter {
     this.password = password;
     this.apiBaseUrl = options.apiBaseUrl || 'https://api.dataforseo.com';
     // Live Advanced is synchronous and runs a real-time Google scrape, so its
-    // latency swings widely with their capacity — the same keyword has been
-    // observed at 11s and at 28s. The cap stops a hung connection wedging the
-    // tool, but set it well above the slow end or healthy lookups get killed.
+    // latency swings widely with their capacity AND with `depth`. Measured on
+    // one account in a single session: ~13-15s at depth 10, and 30s / 45s /
+    // over 60s (twice) for the SAME depth-100 request. A killed request is
+    // still billed — DataForSEO has already run the scrape — so the cap exists
+    // only to stop a hung connection wedging the tool, and sits well above the
+    // slow end rather than through the middle of it.
     // Overridable via DATAFORSEO_TIMEOUT_MS, or directly for tests/self-host.
     this.timeoutMs =
-      options.timeoutMs ?? (Number(process.env.DATAFORSEO_TIMEOUT_MS) || 60000);
+      options.timeoutMs ?? (Number(process.env.DATAFORSEO_TIMEOUT_MS) || 120000);
     // HTTP Basic auth header, computed once.
     this.authHeader = 'Basic ' + Buffer.from(`${login}:${password}`).toString('base64');
   }
@@ -44,7 +51,7 @@ export class DataForSEOSearchAdapter {
    * @param {number} [params.locationCode] - Numeric DataForSEO location code (overrides locationName)
    * @param {string} [params.languageCode='en'] - Language code
    * @param {('desktop'|'mobile')} [params.device='desktop'] - Device to emulate
-   * @param {number} [params.depth=100] - How many results to scan (100 = one page of cost)
+   * @param {number} [params.depth=20] - How many results to scan (billed per 10)
    * @returns {Promise<{items: Array<Object>, meta: Object}>} Normalized organic results + metadata
    */
   async search(params) {
@@ -54,7 +61,7 @@ export class DataForSEOSearchAdapter {
       locationCode,
       languageCode = 'en',
       device = 'desktop',
-      depth = 100,
+      depth = 20,
     } = params;
 
     if (!keyword) {
