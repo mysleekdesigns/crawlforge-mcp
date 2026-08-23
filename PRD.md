@@ -6,7 +6,7 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — all three shipped in v4.1.0 — without breaking any existing MCP tools or the current setup flow.
 
-**Last Updated:** 2026-08-20
+**Last Updated:** 2026-08-22
 
 **v5.0.0 released 2026-08-05** — major release bundling remediation Phases 0–6 (see Release History below). Breaking: Node floor `>=18` → `>=20.16`.
 
@@ -36,6 +36,10 @@ Delivered 2026-06-28. Additive minor; no breaking changes to tool schemas, outpu
 ---
 
 ## Release History
+
+### Fix: `serp_rank` timed out on healthy DataForSEO lookups (2026-08-22, no version bump)
+
+The DataForSEO Live Advanced endpoint runs a real-time Google scrape, so its latency tracks their capacity rather than a fixed cost — the *same* keyword was observed answering in 11 s and in 28 s. The adapter's 30 s abort cap sat inside that spread, so healthy lookups were being killed and surfaced to the user as a timeout error (billed by DataForSEO all the same, since the scrape had already run). Default raised to **60 s** (`src/tools/search/adapters/dataforseoSearch.js`), overridable per-deployment via **`DATAFORSEO_TIMEOUT_MS`**, with the explicit `options.timeoutMs` constructor argument still winning over the env var for tests/self-host. A non-numeric env value falls back to the 60 s default rather than `NaN`. Documented in `.env.example` next to the existing `DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD` keys. The cap still exists to stop a hung connection wedging the tool — it is now set above the slow end of the observed range instead of through the middle of it. **Tests:** the default-value assertion in `tests/unit/serpRank.test.js` updated to 60000, plus one new case covering env override, options-precedence, and the non-numeric fallback (env var saved/restored). **Verification:** `npm run test:unit` **982 tests / 981 pass / 0 fail / 1 skipped**; `npm test` 100.0% COMPLIANT / 0 errors.
 
 ### Third live retest remediation — agent synthesis root-caused three layers deep, CLI stored-key resolution (2026-08-20, released in v5.0.4)
 
