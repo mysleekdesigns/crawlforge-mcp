@@ -25,9 +25,13 @@ export class DataForSEOSearchAdapter {
     this.login = login;
     this.password = password;
     this.apiBaseUrl = options.apiBaseUrl || 'https://api.dataforseo.com';
-    // Live Advanced is synchronous and usually answers in a few seconds; cap it
-    // so a hung connection can't wedge the tool. Overridable for tests/self-host.
-    this.timeoutMs = options.timeoutMs ?? 30000;
+    // Live Advanced is synchronous and runs a real-time Google scrape, so its
+    // latency swings widely with their capacity — the same keyword has been
+    // observed at 11s and at 28s. The cap stops a hung connection wedging the
+    // tool, but set it well above the slow end or healthy lookups get killed.
+    // Overridable via DATAFORSEO_TIMEOUT_MS, or directly for tests/self-host.
+    this.timeoutMs =
+      options.timeoutMs ?? (Number(process.env.DATAFORSEO_TIMEOUT_MS) || 60000);
     // HTTP Basic auth header, computed once.
     this.authHeader = 'Basic ' + Buffer.from(`${login}:${password}`).toString('base64');
   }
