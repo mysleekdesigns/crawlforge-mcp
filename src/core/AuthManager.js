@@ -644,7 +644,7 @@ class AuthManager {
       case 'serp_rank':
         note = projected === 0
           ? 'DataForSEO not configured — no-op, no credits charged. Set DATAFORSEO_LOGIN/PASSWORD to enable.'
-          : 'DataForSEO SERP API (~US$0.002/call) billed to your own DataForSEO account, separate from the credit cost.';
+          : 'DataForSEO SERP API (~US$0.002 per 10 results of depth — $0.004 at the default depth 20) billed to your own DataForSEO account, separate from the credit cost.';
         break;
       case 'scrape': {
         projected = base;
