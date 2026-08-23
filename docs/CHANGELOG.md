@@ -5,6 +5,25 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.0.5] - 2026-08-23
+
+Patch release: `serp_rank` live-verified against a real DataForSEO account, which invalidated two numbers the codebase had been asserting — the request timeout and the documented price. Also ships the Smithery static server card fix and a stale `serverInfo` version.
+
+### Fixed
+
+- **`serp_rank` timed out on healthy lookups.** DataForSEO's Live Advanced endpoint runs a real-time Google scrape, so latency tracks their capacity *and* the requested `depth` rather than being roughly fixed. Measured on one account in a single session: ~13–15s at `depth:10`, and 30s / 44.9s / over 60s (twice) for the *same* `depth:100` request. The adapter's 30s abort cap sat well inside that spread and killed lookups that were merely slow — and a killed lookup is still billed, because DataForSEO has already run the scrape. Default raised to **120000 ms**, overridable per-deployment with the new **`DATAFORSEO_TIMEOUT_MS`** env var (an explicit `options.timeoutMs` still wins for tests/self-host; a non-numeric env value falls back to the default instead of `NaN`).
+- **`serp_rank` cost was documented 10× too low.** `~US$0.002/call` is the `depth:10` price; Live Advanced bills **US$0.002 per 10 results of `depth`**, so the old `depth:100` default cost **$0.02** per lookup. Confirmed two ways — the API's own `cost` field (0.002 at depth 10, 0.004 at depth 20, 0.02 at depth 100) and the account balance across billed calls. Corrected in `.env.example`, `CLAUDE.md`, the adapter header, and the `AuthManager` cost notice.
+- **MCP `serverInfo.version` was stale.** `server.js` hard-coded `5.0.2` while `package.json` was at 5.0.4, so every client saw a version two patches old. Now bumped with the release. `package-lock.json`, which the v5.0.4 release left at 5.0.3, is back in sync too.
+- **Smithery listing showed a hand-written, drifted tool table** (18 rows labelled "20 tools" against a real count of 27). Smithery populates a listing by scanning the server, but `/mcp` 401s without a key, so the scan enumerated nothing and the listing kept whatever was typed in at publish time. The static card at `/.well-known/mcp/server-card.json` now derives its `tools` from `server._registeredTools`, so it tracks the registry every release; ZodRawShape input schemas are wrapped before conversion and a tool whose schema fails to convert is still listed with an open object schema rather than silently dropped. Adds the `authentication` block Smithery reads plus empty resources/prompts arrays. `zod-to-json-schema` (already a hard dependency of the MCP SDK) is now declared directly rather than relying on npm hoisting.
+
+### Changed
+
+- **`serp_rank` default `depth` lowered 100 → 20** (tool zod schema and the adapter's own fallback, kept in sync): two pages of Google for **$0.004** in ~19s, instead of one deep scan for $0.02 in 30–60s+. Ranks below position 20 now report `found:false` until the caller raises `depth` (min 10, max 200 — DataForSEO's cap — both unchanged). The server-side `depth` description states the new default and the per-10 billing.
+
+### Tests
+
+- 982 unit tests / 981 pass / 0 fail / 1 skipped (one new case covering `DATAFORSEO_TIMEOUT_MS` override, `options.timeoutMs` precedence, and the non-numeric fallback; default-value assertions updated). MCP protocol compliance 100.0%, 0 errors. Live verification over MCP stdio: `serp_rank` with no `depth` argument returned `depthScanned:20`, `cost:0.004` in 18.9s, and correctly placed python.org at organic position 1 in a separate lookup.
+
 ## [5.0.4] - 2026-08-20
 
 Patch release: third full-surface live retest (all 27 MCP tools via a 10-agent workflow judging returned content, all 24 CLI subcommands against live sites). The one remaining hard defect (`agent` tool synthesis) is fixed and verified end-to-end, plus a CLI key-resolution bug found during testing.
