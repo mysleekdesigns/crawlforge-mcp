@@ -296,3 +296,62 @@ test('withAuth: metrics — works fine when no registry is passed', async () => 
   const withAuth = makeWithAuth({ authManager: auth, logger });
   await withAuth('x', async () => ({ content: [] }))({});
 });
+
+// ─── Internal proxy requests (requestContext) ────────────────────────────────
+
+test('withAuth: internal request runs the tool but never checks or reports credits', async () => {
+  const { requestContext } = await import('../../src/server/requestContext.js');
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 5 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const handler = withAuth('stealth_mode', async () => ({
+    content: [{ type: 'text', text: JSON.stringify({ ok: true }) }]
+  }));
+
+  const result = await requestContext.run({ internal: true }, () => handler({ url: 'https://example.com' }));
+
+  const parsed = JSON.parse(result.content[0].text);
+  assert.equal(parsed.ok, true, 'tool ran normally');
+  assert.equal(parsed._cost.actual, 0, 'internal request surfaces zero actual cost');
+  assert.equal(parsed._cost.remaining_credits, null, 'static key balance is not surfaced to internal callers');
+  assert.equal(auth.checkCalls.length, 0, 'no credit check for internal requests');
+  assert.equal(auth.reportCalls.length, 0, 'no usage report for internal requests — the website already billed');
+  assert.equal(logger.calls.length, 1, 'still exactly one log line');
+  assert.equal(logger.calls[0].context.internal, true);
+  assert.equal(logger.calls[0].context.creatorMode, false);
+  assert.equal(logger.calls[0].context.creditCost, 0);
+});
+
+test('withAuth: internal request error path reports nothing (no half-credit charge)', async () => {
+  const { requestContext } = await import('../../src/server/requestContext.js');
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 4 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const handler = withAuth('scrape_with_actions', async () => { throw new Error('browser died'); });
+
+  await assert.rejects(
+    () => requestContext.run({ internal: true }, () => handler({})),
+    /browser died/
+  );
+
+  assert.equal(auth.reportCalls.length, 0, 'no usage report on internal error');
+  assert.equal(logger.calls[0].context.outcome, 'error');
+  assert.equal(logger.calls[0].context.internal, true);
+});
+
+test('withAuth: outside a request context, billing behaves exactly as before', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 2 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const handler = withAuth('fetch_url', async () => ({
+    content: [{ type: 'text', text: JSON.stringify({ ok: true }) }]
+  }));
+  await handler({ url: 'https://example.com' });
+
+  assert.equal(auth.checkCalls.length, 1, 'credit check still runs');
+  assert.equal(auth.reportCalls.length, 1, 'usage still reported');
+  assert.equal(logger.calls[0].context.internal, false, 'internal flag defaults to false');
+});
