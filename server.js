@@ -462,7 +462,7 @@ registerToolIfEnabled("reddit_search", {
     before: z.string().optional().describe("Only content posted before this date — same formats as after"),
     limit: z.number().min(1).max(100).optional().describe("Max results (default 25; thread mode: max comments returned)"),
     sort: z.enum(["asc", "desc"]).optional().describe("Sort by post date (default desc = newest first)"),
-    source: z.enum(["auto", "arctic_shift", "pullpush"]).optional().describe("Force a specific archive backend (default auto routes + falls back)")
+    source: z.enum(["auto", "arctic_shift", "pullpush", "reddit_api"]).optional().describe("Backend: auto routes + falls back (default). reddit_api uses the official Reddit Data API — only when REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET are set; serves posts/thread, not comment search")
   },
   outputSchema: OUTPUT_SCHEMAS.reddit_search
 }, withAuth("reddit_search", async ({ query, subreddit, author, mode, link_id, after, before, limit, sort, source }) => {
