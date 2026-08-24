@@ -560,6 +560,7 @@ class AuthManager {
       process_document: 2,
       localization: 2,
       scrape: 2,
+      reddit_search: 2, // free community archives (Arctic Shift / PullPush), no external billing
 
       // 3 credits
       track_changes: 3,

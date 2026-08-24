@@ -5,6 +5,18 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.1.0] - 2026-08-24
+
+Minor release: new `reddit_search` tool — the 28th tool — giving CrawlForge real Reddit search despite reddit.com blocking every direct access path.
+
+### Added
+
+- **`reddit_search` tool (28 tools total).** reddit.com 403-blocks ALL direct CrawlForge access — verified live against `fetch_url` (even with a full browser User-Agent), `scrape` on old.reddit.com, `scrape_template` reddit-thread, and `stealth_mode` at advanced level, so the block is IP/TLS-reputation based and unbeatable from a scraper. The new tool never touches reddit.com; it queries the two community-run archives: **Arctic Shift** (`arctic-shift.photon-reddit.com` — near-real-time ingestion, verified returning a post created the same day; nested comment trees) and **PullPush** (`api.pullpush.io` — Pushshift-compatible cross-subreddit full-text search, with documented post-2023 gaps and aggressive ~15 req/min rate limits). Three modes: `posts` (default) and `comments` keyword search, and `thread` (a post plus its nested comment tree by `link_id`, with reddit-style `{more_count, more_ids}` markers for collapsed branches). Routing is dictated by a live-verified Arctic Shift constraint — its keyword search returns HTTP 400 without a `subreddit`/`author` scope — so unscoped full-text search goes to PullPush only, while scoped searches use Arctic Shift with error-only PullPush fallback (`fallback_used` reports when this happened). Both archives shed load transiently (PullPush 429s; Arctic Shift answers 422 "Timeout. Maybe slow down a bit" — observed live), so each request gets one bounded retry after 3s. Every request also carries an identifying `User-Agent` (`CrawlForge-MCP/x.y.z`) — verified live that Arctic Shift throttles UA-less Node clients into a shared bucket (422 for the tool while curl got 200 on the identical URL, seconds apart); with the UA it answers instantly. PullPush's 429 policy message ("does not provide free scraping resources for agents…") is passed through verbatim so callers see the real reason. Results are normalized (full reddit.com permalinks, ISO dates, 2000-char selftext/body caps with truncation flags) and carry provenance `notes` (archive freshness caveats — scores of <36h-old content read 0/1). Free, no credentials; `REDDIT_SEARCH_TIMEOUT_MS` overrides the 30s per-request cap. Cost: **2 credits**. Registered with structured `outputSchema`; `search/` instructions and getting-started prompt updated.
+
+### Tests
+
+- 1018 unit tests / 1017 pass / 0 fail / 1 skipped (31 new `redditSearch.test.js` cases: routing, the scoped-keyword constraint, fallback, forced-source behavior, normalization, thread-tree nesting, PullPush date conversion, throttle retry semantics; `phase6-output-schemas.test.js` extended to the new 7-key frozen contract with realistic posts/thread samples). MCP protocol compliance 100.0%, 0 errors, 28 tools. Live verification over MCP stdio: `tools/list` shows 28 tools and `reddit_search` returns real r/ClaudeAI posts through Arctic Shift.
+
 ## [5.0.5] - 2026-08-23
 
 Patch release: `serp_rank` live-verified against a real DataForSEO account, which invalidated two numbers the codebase had been asserting — the request timeout and the documented price. Also ships the Smithery static server card fix and a stale `serverInfo` version.
