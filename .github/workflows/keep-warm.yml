@@ -1,0 +1,16 @@
+# Pings the hosted MCP server so the Render instance never idles out —
+# the crawlforge-website REST proxy gives a cold backend only a short
+# window to answer `initialize`, and a spun-down instance misses it.
+name: Keep Render warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health
+        run: curl -fsS -m 60 --retry 2 https://crawlforge-mcp.onrender.com/health

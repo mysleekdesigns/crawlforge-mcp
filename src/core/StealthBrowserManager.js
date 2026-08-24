@@ -370,6 +370,9 @@ export class StealthBrowserManager {
 
     this.browser = await chromium.launch({
       headless: true,
+      // Hosted images set this to their system Chromium (Playwright itself
+      // never reads it) — see Dockerfile.
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
       args: stealthArgs,
       ignoreDefaultArgs: [
         '--enable-blink-features=IdleDetection',
@@ -2128,6 +2131,9 @@ export class LocalPlaywrightBackend extends BrowserBackend {
     const { chromium } = await import('playwright');
     return chromium.launch({
       headless: config.headless !== false,
+      // Hosted images set this to their system Chromium (Playwright itself
+      // never reads it) — see Dockerfile.
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
       ...config.launchOptions
     });
   }

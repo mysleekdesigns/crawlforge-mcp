@@ -249,6 +249,10 @@ export class BrowserProcessor {
     if (!this.browser) {
       this.browser = await chromium.launch({
         headless: true,
+        // Playwright never reads this env var itself; hosted images (see
+        // Dockerfile) set it to their system Chromium instead of downloading
+        // Playwright's browsers.
+        executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
         args: [
           '--no-sandbox',
           '--disable-dev-shm-usage',

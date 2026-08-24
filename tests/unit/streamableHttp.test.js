@@ -12,8 +12,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 import { connectStreamableHttp } from '../../src/server/transports/streamableHttp.js';
 import { createMetricsRegistry } from '../../src/observability/metrics.js';
+import { createTaskStore, TASK_EXECUTION, TASKS_CAPABILITY, makeTaskToolHandler } from '../../src/server/taskSupport.js';
 
 function makeAuth({ apiKey = 'cf-test', creator = false } = {}) {
   return {
@@ -55,7 +57,7 @@ function pingBody(id) {
 }
 
 async function startServer(opts = {}) {
-  const server = new McpServer({ name: 'test', version: '0.0.0' });
+  const server = opts.server ?? new McpServer({ name: 'test', version: '0.0.0' });
   const auth = opts.auth ?? makeAuth();
   const logger = quietLogger();
   // Pick a random port by passing 0
@@ -334,6 +336,71 @@ test('legacy mode: a second and third request each get a proper response, no han
 
     const res3 = await send(3);
     assert.equal(res3.status, 200, 'third request must also get a real response');
+  } finally {
+    await close(env);
+  }
+});
+
+// ─── Task-capable tools over stateful HTTP sessions ─────────────────────────
+// Session servers are clones of the template (cloneServerForSession); the clone
+// must inherit the template's taskStore or every tools/call on a task-capable
+// tool (crawl_deep, batch_scrape, deep_research, agent) dies with the SDK's
+// 'No task store provided for task-capable tool.'
+
+/** Parses a Streamable HTTP response body (plain JSON or single-response SSE). */
+async function readRpcBody(res) {
+  const text = await res.text();
+  const ct = res.headers.get('content-type') ?? '';
+  if (ct.includes('text/event-stream')) {
+    const dataLines = text.split('\n').filter((l) => l.startsWith('data: '));
+    return JSON.parse(dataLines[dataLines.length - 1].slice('data: '.length));
+  }
+  return JSON.parse(text);
+}
+
+/** A template server registered the way server.js registers agent & friends. */
+function makeTaskToolServer() {
+  const taskStore = createTaskStore({});
+  const server = new McpServer({ name: 'test', version: '0.0.0' }, { taskStore });
+  server.server.registerCapabilities(TASKS_CAPABILITY);
+  server.experimental.tasks.registerToolTask('slow_echo', {
+    description: 'test task tool',
+    inputSchema: { text: z.string() },
+    execution: TASK_EXECUTION
+  }, makeTaskToolHandler({
+    name: 'slow_echo',
+    run: async (args) => ({ content: [{ type: 'text', text: `echo:${args.text}` }] }),
+    taskStore,
+    logger: quietLogger()
+  }));
+  return server;
+}
+
+test('stateful mode: a task-capable tool completes over a session (clone inherits taskStore)', async () => {
+  const env = await startServer({ server: makeTaskToolServer(), auth: makeAuth({ creator: true }) });
+  try {
+    const initRes = await fetchPath(env.port, '/mcp', { method: 'POST', body: initializeBody(1), headers: jsonRpcHeaders });
+    assert.equal(initRes.status, 200);
+    const sessionId = initRes.headers.get('mcp-session-id');
+    assert.ok(sessionId);
+    await initRes.text(); // drain
+
+    const notifRes = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+      headers: { ...jsonRpcHeaders, 'mcp-session-id': sessionId }
+    });
+    assert.ok(notifRes.status < 300);
+
+    const callRes = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'slow_echo', arguments: { text: 'hi' } } }),
+      headers: { ...jsonRpcHeaders, 'mcp-session-id': sessionId }
+    });
+    assert.equal(callRes.status, 200);
+    const body = await readRpcBody(callRes);
+    assert.equal(body.error, undefined, `tools/call must not error (got: ${JSON.stringify(body.error)})`);
+    assert.equal(body.result?.content?.[0]?.text, 'echo:hi');
   } finally {
     await close(env);
   }
