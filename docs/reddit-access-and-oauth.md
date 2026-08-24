@@ -2,7 +2,7 @@
 
 **Status:** decision + prototype (unreleased). Not yet version-bumped or published.
 **Scope:** the `reddit_search` tool (`src/tools/search/redditSearch.js`).
-**Date:** 2026-08-24.
+**Date:** 2026-08-24 (updated same day: Reddit closed self-service API signup on 2025-11-11 — see §2 and §4).
 
 This doc records (1) why `reddit_search` reads community archives instead of
 `reddit.com`, (2) the research on whether that block can be worked around, and
@@ -42,10 +42,17 @@ through a sanctioned door.
 | **D. Unified third-party APIs** (SocialCrawl, etc.) | Yes | Paid credits | Same as any 3rd-party scrape | Adds a middleman; no clear win over A/C |
 | **E. Real-browser session** (Claude-in-Chrome / Playwright MCP) | Yes | — | User's own session | Not server-side/automated; doesn't scale |
 
-**Ground truth on Path A's approval queue (r/redditdev, Feb–Jul 2026):** devs
-report month-long silences and generic auto-rejections even for tiny
-non-commercial apps. A *script-type app for personal read-only use* still
-self-serves in minutes; anything beyond that is gated.
+**Ground truth — self-service is CLOSED (r/redditdev, official).** On
+**2025-11-11**, Reddit ended self-service API access (announcement thread
+`1oug31u`, admin u/redtaboo): *"self-service access to Reddit's public data API
+will be closed … [everyone] will need to request approval before gaining
+access."* Clicking **create app** at `/prefs/apps` now returns the Responsible
+Builder Policy link instead of issuing credentials. **Tokens created before that
+date keep working** (*"current access won't be affected"*); only *new* apps are
+gated. New access requires an approval ticket, and devs report the queue as a
+black hole — silent form loops, no confirmation, and generic rejections
+(*"not in compliance … and/or lacks necessary details"*) — Reddit's stated
+~7-day turnaround notwithstanding.
 
 **Conclusion:** the archive approach (Path C) is the right **default** — free,
 credential-free, and clear of both the anti-bot wall and the approval
@@ -97,25 +104,47 @@ directly. Absent them, the tool is byte-for-byte unchanged.
 | `posts`, no query, `author` only | `GET /user/{author}/submitted` |
 | `posts`, no query, `subreddit` | `GET /r/{sr}/new` |
 
-## 4. Setup
+## 4. Setup — getting credentials (self-service closed 2025-11-11)
 
-1. Sign in to Reddit → https://www.reddit.com/prefs/apps → **create an app**.
-2. Type **script**; redirect URI `http://localhost:8080` (required, unused).
-3. Copy the **client id** (under the app name) and **secret**.
-4. Set in your environment / `.env`:
-   ```bash
-   REDDIT_CLIENT_ID=your_client_id
-   REDDIT_CLIENT_SECRET=your_client_secret
-   # Optional; Reddit prefers a descriptive UA. Default is CrawlForge-MCP/…:
-   REDDIT_USER_AGENT="CrawlForge-MCP/5.1.0 (by /u/yourname)"
-   ```
-5. Reconnect the MCP server. `reddit_search` now uses the official API first for
-   posts/thread; everything else is unchanged. Force it with
-   `source:"reddit_api"`, or force an archive with
-   `source:"arctic_shift"`/`"pullpush"`.
+> **There is no longer a self-serve "create an app in 2 minutes" path for NEW
+> apps.** Reddit's Responsible Builder Policy closed it; `/prefs/apps` now shows
+> the policy link instead of issuing a `client_id`/`secret`. Earlier revisions of
+> this doc said otherwise — that was correct pre-Nov-2025 and is now wrong.
+
+Which situation are you in?
+
+- **You already have a pre-Nov-2025 app** — its `client_id`/`secret` still work.
+  Go straight to the `.env` step below.
+- **You need new access** — file an approval ticket (Reddit's own links from the
+  announcement):
+  - Developer / non-Devvit: `https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=14868593862164&tf_14867328473236=api_request_type_enterprise`
+  - Researcher: same URL with `…=api_request_type_research`
+  - Moderator: same URL with `…=api_request_type_moderator`
+
+  Reddit claims a ~7-day turnaround; in practice it is slow and frequently
+  rejected (see §2). **Devvit is NOT a path here** — it issues an in-Reddit dev
+  token, not the classic OAuth `client_id`/`secret` this tool needs.
+- **You can't get credentials** — do nothing. The archive default already works
+  with no credentials and is unaffected by any of this.
+
+Once you have a `client_id` + `secret`, set them in your environment / `.env`:
+```bash
+REDDIT_CLIENT_ID=your_client_id
+REDDIT_CLIENT_SECRET=your_client_secret
+# Optional; Reddit prefers a descriptive UA. Default is CrawlForge-MCP/…:
+REDDIT_USER_AGENT="CrawlForge-MCP/5.1.0 (by /u/yourname)"
+```
+Reconnect the MCP server. `reddit_search` then uses the official API first for
+posts/thread; everything else is unchanged. Force it with `source:"reddit_api"`,
+or force an archive with `source:"arctic_shift"`/`"pullpush"`.
 
 ## 5. Open questions before shipping (need a maintainer decision)
 
+- **Is it worth shipping now?** Reddit closed self-service signup (2025-11-11),
+  so most *new* users cannot easily obtain credentials — the passthrough only
+  benefits holders of pre-Nov-2025 apps or the few who win an approval ticket.
+  This strengthens "archives are the right default"; the OAuth path is a
+  power-user add-on, not a headline feature. Ship it quietly, or hold it.
 - **Credit cost.** Should the official path stay at 2 credits (it's the user's
   own quota/key, like `serp_rank` costing 5 even though DataForSEO bills
   separately)? Current prototype leaves it at **2**, unchanged.
@@ -127,8 +156,10 @@ directly. Absent them, the tool is byte-for-byte unchanged.
 - **Docs sweep + version bump + publish** — not done; this is a prototype.
 
 ## 6. Primary sources
+- **r/redditdev `1oug31u` — Reddit admin (u/redtaboo), *"Introducing the Responsible Builder Policy + new approval process for API access"*, 2025-11-11 — the authoritative "self-service closed" announcement (read via `reddit_search`)**
+- Reddit Help — *Responsible Builder Policy* (support.reddithelp.com article `42728983564564`)
 - Scrapfly — *How to Scrape Reddit … in 2026* (asp + render_js + residential recipe)
 - SocialCrawl — *Reddit API in 2026: Pricing, Rate Limits & What Works*
 - Thunderbit — *How to Scrape Reddit with Python: 4 Methods*
 - Scrapfly — *JA3/JA4 TLS Fingerprinting Guide*
-- r/redditdev thread `1r13hbv` and r/ClaudeAI thread `1utab6f` (read via `reddit_search`)
+- r/redditdev `1r13hbv`, r/redditdev `1ts9e5h`/`1ts6cuv` (create-app loop reports), and r/ClaudeAI `1utab6f` (all read via `reddit_search`)
