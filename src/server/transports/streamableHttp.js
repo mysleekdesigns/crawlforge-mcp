@@ -89,14 +89,24 @@ function buildToolCards(server) {
  * prompt tables — plain config + handler-closure references, no per-connection
  * state — then re-runs the same internal handler-wiring methods McpServer
  * itself calls from registerTool/registerResource/registerPrompt. This
- * depends on @modelcontextprotocol/sdk 1.29.0's internal McpServer field
- * names (`_registered*`, `set*RequestHandlers`); re-check on SDK upgrades.
+ * depends on @modelcontextprotocol/sdk 1.30.0's internal McpServer/Server
+ * field names (`_registered*`, `set*RequestHandlers`, `_capabilities`,
+ * `_taskStore`); re-check on SDK upgrades.
  *
  * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} templateServer
  */
 function cloneServerForSession(templateServer) {
   const low = templateServer.server;
-  const sessionServer = new McpServer(low._serverInfo, { instructions: low._instructions });
+  // capabilities + taskStore must survive the clone: the SDK's Protocol
+  // constructor wires the tasks/* request handlers only when options.taskStore
+  // is present, and without it a tools/call on any task-capable tool
+  // (crawl_deep, batch_scrape, deep_research, agent) throws
+  // 'No task store provided for task-capable tool.'
+  const sessionServer = new McpServer(low._serverInfo, {
+    instructions: low._instructions,
+    capabilities: low._capabilities,
+    taskStore: low._taskStore
+  });
 
   sessionServer._registeredTools = templateServer._registeredTools;
   sessionServer._registeredResources = templateServer._registeredResources;
