@@ -23,3 +23,8 @@ services:
       # Add it manually under "Environment" → "Add Environment Variable".
       - key: CRAWLFORGE_API_KEY
         sync: false
+      # Shared secret for the crawlforge-website REST proxy (sent as the
+      # X-Internal-Secret header; see src/server/requestContext.js). Must
+      # match CRAWLFORGE_MCP_INTERNAL_SECRET on Vercel. Set in the dashboard.
+      - key: INTERNAL_PROXY_SECRET
+        sync: false

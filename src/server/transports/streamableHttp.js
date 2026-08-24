@@ -28,8 +28,9 @@
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { requestContext } from '../requestContext.js';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
@@ -156,7 +157,7 @@ export async function connectStreamableHttp(server, authManager, logger, options
     // CORS — Smithery + browser-based MCP clients
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Mcp-Session-Id, mcp-session-id, Authorization, X-API-Key');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Mcp-Session-Id, mcp-session-id, Authorization, X-API-Key, X-Internal-Secret');
     res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id, mcp-session-id');
 
     if (req.method === 'OPTIONS') {
@@ -231,7 +232,11 @@ export async function connectStreamableHttp(server, authManager, logger, options
 
     // MCP endpoint
     if (req.url === '/mcp' || req.url === '/' || req.url?.startsWith('/mcp?')) {
-      // Per-request auth (bypassed in creator mode)
+      // Per-request auth (bypassed in creator mode). `internal` marks a
+      // request from the website's REST proxy (INTERNAL_PROXY_SECRET): it is
+      // billing-exempt in withAuth because the website already charged the
+      // end user. Request-scoped only — never persisted on the session.
+      let internal = false;
       if (!authManager.isCreatorMode()) {
         const authResult = await authenticateRequest(req, authManager, oauthProvider);
         if (!authResult.ok) {
@@ -246,6 +251,7 @@ export async function connectStreamableHttp(server, authManager, logger, options
           }));
           return;
         }
+        internal = authResult.internal === true;
       }
 
       if (legacy) {
@@ -258,7 +264,7 @@ export async function connectStreamableHttp(server, authManager, logger, options
           sessionServer = cloneServerForSession(server);
           reqTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
           await sessionServer.connect(reqTransport);
-          await reqTransport.handleRequest(req, res);
+          await requestContext.run({ internal }, () => reqTransport.handleRequest(req, res));
         } catch (err) {
           logger.error('Legacy Streamable HTTP request failed', { error: err?.message });
           sendRpcError(res, 500, -32603, 'Internal server error');
@@ -279,7 +285,7 @@ export async function connectStreamableHttp(server, authManager, logger, options
       const existing = sessionIdHeader ? sessions.get(String(sessionIdHeader)) : undefined;
 
       if (existing) {
-        await existing.transport.handleRequest(req, res);
+        await requestContext.run({ internal }, () => existing.transport.handleRequest(req, res));
         return;
       }
 
@@ -312,7 +318,7 @@ export async function connectStreamableHttp(server, authManager, logger, options
 
       try {
         await sessionServer.connect(transport);
-        await transport.handleRequest(req, res);
+        await requestContext.run({ internal }, () => transport.handleRequest(req, res));
       } catch (err) {
         logger.error('Streamable HTTP session initialization failed', { error: err?.message });
         safeClose(transport);
@@ -357,14 +363,41 @@ export async function connectStreamableHttp(server, authManager, logger, options
  * Validate a request's credentials.
  *
  * Accepts:
+ *   - `X-Internal-Secret: <INTERNAL_PROXY_SECRET>` — server-to-server requests
+ *     from the crawlforge-website REST proxy. Returns { ok, internal: true };
+ *     internal requests are billing-exempt in withAuth (the website already
+ *     charged the end user). Only active when the env var is set.
  *   - `Authorization: Bearer <crawlforge-api-key>` (legacy static key)
  *   - `X-API-Key: <crawlforge-api-key>` (legacy static key)
  *   - `Authorization: Bearer <oauth-access-token>` if OAuth is enabled —
  *     the OAuth provider validates the token and maps it to the API key.
  *
- * @returns {Promise<{ok: true} | {ok: false, status: number, error: string, message: string, reason: string}>}
+ * @returns {Promise<{ok: true, internal?: boolean} | {ok: false, status: number, error: string, message: string, reason: string}>}
  */
 async function authenticateRequest(req, authManager, oauthProvider) {
+  // Internal proxy path first: presenting the header at all means the caller
+  // claims to be the website proxy, so a mismatch is a hard 401 rather than a
+  // fall-through to the key paths. Compare digests — timingSafeEqual on raw
+  // strings throws on length mismatch, which would leak length via timing.
+  const internalSecret = process.env.INTERNAL_PROXY_SECRET;
+  const providedSecret = (req.headers['x-internal-secret'] || '').toString();
+  if (providedSecret) {
+    if (internalSecret) {
+      const provided = createHash('sha256').update(providedSecret).digest();
+      const expected = createHash('sha256').update(internalSecret).digest();
+      if (timingSafeEqual(provided, expected)) {
+        return { ok: true, internal: true };
+      }
+    }
+    return {
+      ok: false,
+      status: 401,
+      error: 'Unauthorized',
+      message: 'Invalid internal secret.',
+      reason: 'invalid-internal-secret'
+    };
+  }
+
   const authHeader = (req.headers['authorization'] || '').toString();
   const apiKeyHeader = (req.headers['x-api-key'] || '').toString();
   const expectedKey = authManager.getConfig()?.apiKey;

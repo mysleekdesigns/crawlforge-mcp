@@ -15,6 +15,7 @@
 
 import { createHash } from 'node:crypto';
 import { recordToolInvocation } from '../observability/tracing.js';
+import { isInternalRequest } from './requestContext.js';
 
 export function hashParams(params) {
   try {
@@ -36,7 +37,12 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
       const startTime = Date.now();
       const paramHash = hashParams(params);
       const creatorMode = authManager.isCreatorMode();
-      const creditCost = creatorMode ? 0 : authManager.getToolCost(toolName, params);
+      // Internal = a request from the website REST proxy (see requestContext).
+      // Billing-exempt like creator mode — the website already checked and
+      // charged the end user's credits — but auth still happened per-request.
+      const internal = isInternalRequest();
+      const billingExempt = creatorMode || internal;
+      const creditCost = billingExempt ? 0 : authManager.getToolCost(toolName, params);
       let outcome = 'pending';
       let thrown = null;
       // Only bill the error-path half-charge once the handler has actually run.
@@ -45,7 +51,11 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
       let handlerStarted = false;
 
       try {
-        if (!creatorMode) {
+        // billingExempt covers creator mode and authenticated internal-proxy
+        // requests (the website REST layer has already checked AND charged the
+        // end user's credits before forwarding — checking the static key's
+        // balance here would gate users on an unrelated account).
+        if (!billingExempt) {
           const hasCredits = await authManager.checkCredits(creditCost);
           if (!hasCredits) {
             outcome = 'insufficient_credits';
@@ -76,10 +86,16 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
           ? 0
           : (isErrorResult ? Math.max(1, Math.floor(creditCost * 0.5)) : creditCost);
 
-        // D3.5: Surface cost transparency in all tool responses
+        // D3.5: Surface cost transparency in all tool responses. For internal
+        // proxy requests the meaningful balance is the end user's, which only
+        // the website knows — report null rather than the static key's cache.
         try {
           const projection = authManager.projectCost(toolName, params);
-          const remainingCredits = creatorMode ? Infinity : (authManager.creditCache ? [...authManager.creditCache.values()][0] ?? null : null);
+          const remainingCredits = creatorMode
+            ? Infinity
+            : internal
+              ? null
+              : (authManager.creditCache ? [...authManager.creditCache.values()][0] ?? null : null);
           const costMeta = {
             projected: creditCost,
             actual: creatorMode ? 0 : charge,
@@ -134,7 +150,8 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
           durationMs,
           outcome,
           creditCost,
-          creatorMode
+          creatorMode,
+          internal
         });
 
         // Prometheus (no-op unless registry was supplied)
@@ -161,7 +178,8 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
           duration_ms: durationMs,
           outcome,
           credit_cost: creditCost,
-          creator_mode: creatorMode
+          creator_mode: creatorMode,
+          internal
         }, thrown);
       }
     };

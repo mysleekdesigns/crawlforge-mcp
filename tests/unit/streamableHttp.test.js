@@ -348,3 +348,60 @@ test('Unknown path returns 404', async () => {
     await close(env);
   }
 });
+
+// ─── Internal proxy secret (X-Internal-Secret) ───────────────────────────────
+
+test('POST /mcp with a valid X-Internal-Secret authenticates without an API key', async () => {
+  process.env.INTERNAL_PROXY_SECRET = 'test-internal-secret';
+  const env = await startServer();
+  try {
+    const res = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      headers: { ...jsonRpcHeaders, 'x-internal-secret': 'test-internal-secret' },
+      body: initializeBody(1)
+    });
+    assert.equal(res.status, 200, 'internal secret passes the auth gate');
+  } finally {
+    delete process.env.INTERNAL_PROXY_SECRET;
+    await close(env);
+  }
+});
+
+test('POST /mcp with a wrong X-Internal-Secret is rejected, not passed to the key paths', async () => {
+  process.env.INTERNAL_PROXY_SECRET = 'test-internal-secret';
+  const env = await startServer();
+  try {
+    // Even a valid API key alongside a wrong internal secret must fail:
+    // presenting the header claims internal identity, and that claim is false.
+    const res = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      headers: {
+        ...jsonRpcHeaders,
+        'x-internal-secret': 'wrong-secret',
+        authorization: 'Bearer cf-test'
+      },
+      body: initializeBody(1)
+    });
+    assert.equal(res.status, 401);
+    const body = await res.json();
+    assert.equal(body.error, 'Unauthorized');
+  } finally {
+    delete process.env.INTERNAL_PROXY_SECRET;
+    await close(env);
+  }
+});
+
+test('POST /mcp with X-Internal-Secret is rejected when the deployment has no secret configured', async () => {
+  delete process.env.INTERNAL_PROXY_SECRET;
+  const env = await startServer();
+  try {
+    const res = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      headers: { ...jsonRpcHeaders, 'x-internal-secret': 'anything' },
+      body: initializeBody(1)
+    });
+    assert.equal(res.status, 401, 'header without configured secret never authenticates');
+  } finally {
+    await close(env);
+  }
+});
