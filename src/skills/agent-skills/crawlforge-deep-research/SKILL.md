@@ -1,6 +1,6 @@
 ---
 name: crawlforge-deep-research
-description: "Runs multi-source web research and autonomous question-answering with CrawlForge's deep_research, agent, and search_web tools. Use when the user wants to research a topic, do a deep dive, compare competitors, gather facts with citations, answer a question from the web, search the web, or get a synthesized report from many sources. deep_research expands queries, fetches and dedupes sources, then synthesizes; agent autonomously plans searches and navigation from a plain-English prompt with no URLs needed; search_web returns ranked results. Caps costs via max_urls and confirms before expensive runs."
+description: "Runs multi-source web research and autonomous question-answering with CrawlForge's deep_research, agent, search_web, and reddit_search tools. Use when the user wants to research a topic, do a deep dive, compare competitors, gather facts with citations, answer a question from the web, search the web, or get a synthesized report from many sources, or search Reddit posts, comments, and threads. deep_research expands queries, fetches and dedupes sources, then synthesizes; agent autonomously plans searches and navigation from a plain-English prompt with no URLs needed; search_web returns ranked results; reddit_search searches Reddit via community archives (reddit.com blocks scrapers). Caps costs via max_urls and confirms before expensive runs."
 metadata:
   version: 4.8.0
   source: crawlforge-mcp-server
@@ -9,13 +9,15 @@ metadata:
 # CrawlForge Deep Research
 
 Answer questions and produce reports from many web sources using the CrawlForge
-MCP server. Three tools, from lightest to heaviest: `search_web` (ranked
-results), `agent` (autonomous plan-and-answer), `deep_research` (exhaustive
+MCP server. Four tools, from lightest to heaviest: `reddit_search` (Reddit
+posts/comments/threads), `search_web` (ranked results), `agent` (autonomous plan-and-answer), `deep_research` (exhaustive
 multi-source synthesis).
 
 ## When to use
 
 - "Search the web for X" / "find pages about X" → `search_web`
+- "Search Reddit for X" / "what does Reddit say about X" / "read this Reddit
+  thread" → `reddit_search`
 - "Answer this question from the web" / "what are the top 5 X" (no URLs given) → `agent`
 - "Research this topic in depth" / "compare competitors" / "give me a cited
   report" / "gather facts with sources" → `deep_research`
@@ -28,6 +30,7 @@ skill (`scrape` / `extract_content`) instead.
 | Need | Tool | Cost |
 |------|------|------|
 | A ranked list of result URLs + snippets | `search_web` | 5 |
+| Reddit posts, comments, or a full thread | `reddit_search` | 2 |
 | A direct answer, agent decides what to read | `agent` | 8 (scales) |
 | A synthesized, multi-source, cited report | `deep_research` | 10+ (scales) |
 
@@ -47,6 +50,26 @@ Returns titles, URLs, snippets. Supports `lang`, `site` (domain filter),
 `file_type`, `time_range` (`day`/`week`/`month`/`year`/`all`), `expand_query`,
 `enable_ranking`, and `enable_deduplication`. CLI:
 `crawlforge search "MCP server tutorial" --limit 5`.
+
+## reddit_search (cost: 2)
+
+reddit.com 403-blocks direct scraping, so this queries the Arctic Shift and
+PullPush community archives instead (free, no Reddit credentials).
+
+```json
+{
+  "tool": "reddit_search",
+  "params": { "query": "best MCP servers", "subreddit": "ClaudeAI", "limit": 10 }
+}
+```
+
+Modes: `posts` (default), `comments`, and `thread` (a post plus its nested
+comment tree via `link_id`). Scope with `subreddit`/`author` for near-real-time
+results (Arctic Shift); an unscoped `query` searches all of Reddit via PullPush
+(best-effort — it rate-limits aggressively). `after`/`before` accept ISO dates,
+epoch seconds, or offsets like `"7d"`. Scores of posts under ~36h old read 0/1
+until the archive backfills. Space calls out rather than firing them in
+parallel — the archives shed load under concurrent bursts.
 
 ## agent — autonomous answer (cost: 8, scales with maxUrls)
 

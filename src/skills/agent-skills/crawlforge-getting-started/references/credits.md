@@ -25,6 +25,7 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
 | `map_site` | URL discovery / sitemap. |
 | `process_document` | PDF / DOCX / TXT parsing. |
 | `localization` | Locale / geo emulation. |
+| `reddit_search` | Reddit posts/comments/threads via community archives. |
 
 ## 3 credits
 

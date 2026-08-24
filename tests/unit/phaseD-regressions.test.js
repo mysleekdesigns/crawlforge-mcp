@@ -744,10 +744,10 @@ describe('D4.1 server.js registers scrape and agent tools', () => {
   });
 });
 
-describe('D4.2 server.js banner reports 27 tools', () => {
-  test('Tools available banner says 27', () => {
+describe('D4.2 server.js banner reports 28 tools', () => {
+  test('Tools available banner reports enabled/total counts', () => {
     const src = readSrc('server.js');
-    // Phase 6: the banner derives from the 27-name allTools list filtered by
+    // Phase 6: the banner derives from the 28-name allTools list filtered by
     // the CRAWLFORGE_TOOLS / CRAWLFORGE_TOOL_GROUPS whitelist.
     assert.ok(
       src.includes('Tools available (${enabledTools.length}/${allTools.length})'),

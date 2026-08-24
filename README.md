@@ -256,7 +256,7 @@ export RESEARCH_MAX_STEALTH_RETRIES="8"    # cap on stealth retries per research
 
 CrawlForge tracks the current MCP spec (2025-06-18) plus select experimental extensions:
 
-- **Structured output** — `scrape`, `map_site`, `serp_rank`, `search_web`, `extract_structured`, and `crawl_deep` return machine-parseable `structuredContent` alongside the usual text, validated against a published `outputSchema`; legacy clients keep working off the text.
+- **Structured output** — `scrape`, `map_site`, `serp_rank`, `reddit_search`, `search_web`, `extract_structured`, and `crawl_deep` return machine-parseable `structuredContent` alongside the usual text, validated against a published `outputSchema`; legacy clients keep working off the text.
 - **Self-correctable errors** — invalid tool input now comes back as an `isError: true` result the calling model can read and retry from, instead of a raw JSON-RPC protocol error.
 - **JSON Schema 2020-12** tool schemas, deterministic `tools/list` ordering (client prompt-cache friendly), and cacheable-result hints on read-only tools.
 - **Icons** on the server, its tools, and its prompts.

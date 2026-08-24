@@ -47,7 +47,7 @@ In your workflow, add an **AI Agent** node, then attach an **MCP Client Tool** s
 - **Authentication**: `Bearer` — create a credential whose token is the **same API key the server was started with** (`CRAWLFORGE_API_KEY`). A generic-header credential with `X-API-Key: <key>` also works.
 - **Tools to Include**: `All`, or cherry-pick (e.g. just `scrape`, `search_web`, `extract_content`) to keep the agent's tool list focused.
 
-n8n will discover all 27 tools automatically via `tools/list`.
+n8n will discover all 28 tools automatically via `tools/list`.
 
 ### 3. Security notes
 
