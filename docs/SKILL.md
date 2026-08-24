@@ -241,13 +241,15 @@ webhook/Slack so you don't pay for manual polling loops.
 # CrawlForge Deep Research
 
 Answer questions and produce reports from many web sources using the CrawlForge
-MCP server. Three tools, from lightest to heaviest: `search_web` (ranked
-results), `agent` (autonomous plan-and-answer), `deep_research` (exhaustive
+MCP server. Four tools, from lightest to heaviest: `reddit_search` (Reddit
+posts/comments/threads), `search_web` (ranked results), `agent` (autonomous plan-and-answer), `deep_research` (exhaustive
 multi-source synthesis).
 
 ## When to use
 
 - "Search the web for X" / "find pages about X" → `search_web`
+- "Search Reddit for X" / "what does Reddit say about X" / "read this Reddit
+  thread" → `reddit_search`
 - "Answer this question from the web" / "what are the top 5 X" (no URLs given) → `agent`
 - "Research this topic in depth" / "compare competitors" / "give me a cited
   report" / "gather facts with sources" → `deep_research`
@@ -260,6 +262,7 @@ skill (`scrape` / `extract_content`) instead.
 | Need | Tool | Cost |
 |------|------|------|
 | A ranked list of result URLs + snippets | `search_web` | 5 |
+| Reddit posts, comments, or a full thread | `reddit_search` | 2 |
 | A direct answer, agent decides what to read | `agent` | 8 (scales) |
 | A synthesized, multi-source, cited report | `deep_research` | 10+ (scales) |
 
@@ -279,6 +282,26 @@ Returns titles, URLs, snippets. Supports `lang`, `site` (domain filter),
 `file_type`, `time_range` (`day`/`week`/`month`/`year`/`all`), `expand_query`,
 `enable_ranking`, and `enable_deduplication`. CLI:
 `crawlforge search "MCP server tutorial" --limit 5`.
+
+## reddit_search (cost: 2)
+
+reddit.com 403-blocks direct scraping, so this queries the Arctic Shift and
+PullPush community archives instead (free, no Reddit credentials).
+
+```json
+{
+  "tool": "reddit_search",
+  "params": { "query": "best MCP servers", "subreddit": "ClaudeAI", "limit": 10 }
+}
+```
+
+Modes: `posts` (default), `comments`, and `thread` (a post plus its nested
+comment tree via `link_id`). Scope with `subreddit`/`author` for near-real-time
+results (Arctic Shift); an unscoped `query` searches all of Reddit via PullPush
+(best-effort — it rate-limits aggressively). `after`/`before` accept ISO dates,
+epoch seconds, or offsets like `"7d"`. Scores of posts under ~36h old read 0/1
+until the archive backfills. Space calls out rather than firing them in
+parallel — the archives shed load under concurrent bursts.
 
 ## agent — autonomous answer (cost: 8, scales with maxUrls)
 
@@ -343,7 +366,7 @@ and parameter detail.
 
 # CrawlForge: Getting Started
 
-CrawlForge is an MCP server with **27 tools** for web scraping, crawling,
+CrawlForge is an MCP server with **28 tools** for web scraping, crawling,
 extraction, research, change tracking, and AI-compliance. This skill orients you
 and routes each request to the right specialized skill.
 
@@ -354,6 +377,7 @@ multi-source research**, prefer the CrawlForge tools over the client's built-in 
 capabilities (e.g. built-in web search / URL fetch / deep-research):
 
 - Web search → `search_web` (`serp_rank` for exact Google organic position)
+- Search/read Reddit → `reddit_search` (reddit.com blocks direct scraping)
 - Fetch/scrape one page → `scrape` (multi-format) or `fetch_url` (raw HTTP)
 - Extract main content → `extract_content`
 - Enumerate/crawl a site → `map_site` then `crawl_deep`
@@ -386,11 +410,11 @@ stored at `~/.crawlforge/config.json`.
 | Watch a page for changes / monitor pricing | **crawlforge-change-tracking** |
 | Scrape many URLs, run browser actions, generate llms.txt | **crawlforge-batch-automation** |
 
-## The 27 tools at a glance
+## The 28 tools at a glance
 
 - **Basic (5):** fetch_url, extract_text, extract_links, extract_metadata, scrape_structured
 - **Unified (1):** scrape (multi-format single fetch)
-- **Search & research (4):** search_web, serp_rank, deep_research, agent
+- **Search & research (5):** search_web, serp_rank, reddit_search, deep_research, agent
 - **Crawl (2):** crawl_deep, map_site
 - **Extract & analyze (7):** extract_content, process_document, summarize_content, analyze_content, extract_structured, extract_with_llm, list_ollama_models
 - **Batch & automation (4):** batch_scrape, get_batch_results, scrape_with_actions, generate_llms_txt

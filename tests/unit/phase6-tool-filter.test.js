@@ -7,7 +7,7 @@
  * No network, no process.env mutation — env is always injected explicitly.
  *
  * Note: TOOL_GROUPS as specified sums to 27 unique tool names, matching the
- * 27 tools server.js actually registers (see tests/unit/phaseD-regressions.test.js
+ * 28 tools server.js actually registers (see tests/unit/phaseD-regressions.test.js
  * D4.2 "tool count banner says 27"), not 28.
  */
 

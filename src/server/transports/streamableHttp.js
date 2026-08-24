@@ -82,7 +82,7 @@ function buildToolCards(server) {
  * per session, not just one transport per session.
  *
  * connectStreamableHttp() only receives a single already-configured McpServer
- * (all 27 tools/resources/prompts registered by server.js before this runs),
+ * (all 28 tools/resources/prompts registered by server.js before this runs),
  * so instead of re-running that registration per session, this clones a
  * fresh McpServer and copies over the already-registered tool/resource/
  * prompt tables — plain config + handler-closure references, no per-connection
