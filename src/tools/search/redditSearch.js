@@ -18,9 +18,26 @@
  * Routing: scoped searches go to Arctic Shift (fresher) with PullPush as an
  * error-only fallback; unscoped keyword searches can only go to PullPush.
  * Both services are free and need no credentials.
+ *
+ * Optional official-API path: if the user sets REDDIT_CLIENT_ID and
+ * REDDIT_CLIENT_SECRET (their own Reddit app), posts/thread requests can read
+ * Reddit's official Data API (live scores, complete comment trees) on their own
+ * free quota, preferred in `auto` mode with the archives as fallback. Absent
+ * those vars — the default — this tool never touches reddit.com. Comment
+ * full-text search and date-range filters always use the archives (the official
+ * API supports neither). See adapters/redditOfficialApi.js and
+ * docs/reddit-access-and-oauth.md.
  */
 
 import { z } from 'zod';
+import {
+  normalizePost,
+  normalizeComment,
+  normalizeTreeNodes,
+  stripIdPrefix,
+  stripNamePrefix,
+} from './redditNormalize.js';
+import { RedditOfficialApiAdapter } from './adapters/redditOfficialApi.js';
 
 const ARCTIC_SHIFT_BASE = 'https://arctic-shift.photon-reddit.com';
 const PULLPUSH_BASE = 'https://api.pullpush.io';
@@ -32,9 +49,6 @@ const PULLPUSH_BASE = 'https://api.pullpush.io';
  */
 const USER_AGENT = 'CrawlForge-MCP/5.1.0 (+https://www.crawlforge.dev)';
 
-/** Cap selftext/body length so a 100-result payload stays LLM-friendly. */
-const TEXT_MAX = 2000;
-
 const RedditSearchSchema = z.object({
   query: z.string().min(1).optional(),
   subreddit: z.string().min(1).optional(),
@@ -45,18 +59,8 @@ const RedditSearchSchema = z.object({
   before: z.string().min(1).optional(),
   limit: z.number().int().min(1).max(100).optional().default(25),
   sort: z.enum(['asc', 'desc']).optional().default('desc'),
-  source: z.enum(['auto', 'arctic_shift', 'pullpush']).optional().default('auto'),
+  source: z.enum(['auto', 'arctic_shift', 'pullpush', 'reddit_api']).optional().default('auto'),
 });
-
-/** "t3_abc123" / "t1_abc123" → "abc123" (both archives accept bare IDs). */
-function stripIdPrefix(id) {
-  return String(id).replace(/^t[13]_/, '');
-}
-
-/** "r/Foo" → "Foo", "u/bar" → "bar" (Arctic Shift ignores prefixes; PullPush doesn't). */
-function stripNamePrefix(name) {
-  return name == null ? name : String(name).replace(/^[ru]\//, '');
-}
 
 /**
  * PullPush (Pushshift schema) wants epoch seconds for after/before. Pass
@@ -72,76 +76,6 @@ function toEpochSeconds(value) {
   return String(Math.floor(ms / 1000));
 }
 
-function truncate(text) {
-  if (typeof text !== 'string' || text.length <= TEXT_MAX) {
-    return { text: text ?? null, truncated: false };
-  }
-  return { text: text.slice(0, TEXT_MAX), truncated: true };
-}
-
-function toIso(epochSeconds) {
-  return typeof epochSeconds === 'number'
-    ? new Date(epochSeconds * 1000).toISOString()
-    : null;
-}
-
-/** Both archives store raw Reddit post objects — reduce to the fields that matter. */
-function normalizePost(raw) {
-  const { text: selftext, truncated } = truncate(raw.selftext);
-  return {
-    id: raw.id ?? null,
-    title: raw.title ?? null,
-    author: raw.author ?? null,
-    subreddit: raw.subreddit ?? null,
-    created_utc: raw.created_utc ?? null,
-    created_iso: toIso(raw.created_utc),
-    score: raw.score ?? null,
-    num_comments: raw.num_comments ?? null,
-    upvote_ratio: raw.upvote_ratio ?? null,
-    flair: raw.link_flair_text ?? null,
-    over_18: raw.over_18 ?? null,
-    selftext,
-    selftext_truncated: truncated,
-    url: raw.url ?? null,
-    permalink: raw.permalink ? `https://www.reddit.com${raw.permalink}` : null,
-  };
-}
-
-function normalizeComment(raw) {
-  const { text: body, truncated } = truncate(raw.body);
-  return {
-    id: raw.id ?? null,
-    author: raw.author ?? null,
-    subreddit: raw.subreddit ?? null,
-    created_utc: raw.created_utc ?? null,
-    created_iso: toIso(raw.created_utc),
-    score: raw.score ?? null,
-    body,
-    body_truncated: truncated,
-    link_id: raw.link_id ? stripIdPrefix(raw.link_id) : null,
-    parent_id: raw.parent_id ?? null,
-    permalink: raw.permalink ? `https://www.reddit.com${raw.permalink}` : null,
-  };
-}
-
-/**
- * Arctic Shift's /api/comments/tree returns Reddit-API-style nodes:
- * {kind:"t1", data:{...comment, replies:{kind:"Listing", data:{children:[...]}}}}
- * and {kind:"more", data:{count, children:[ids]}} for collapsed branches.
- * Flatten to a nested {..comment, replies:[...]} shape.
- */
-function normalizeTreeNodes(nodes) {
-  if (!Array.isArray(nodes)) return [];
-  return nodes.map((node) => {
-    if (node?.kind === 'more') {
-      return { more_count: node.data?.count ?? null, more_ids: node.data?.children ?? [] };
-    }
-    const data = node?.data ?? {};
-    const children = data.replies?.data?.children;
-    return { ...normalizeComment(data), replies: normalizeTreeNodes(children) };
-  });
-}
-
 export class RedditSearchTool {
   constructor(options = {}) {
     // Overridable for tests / self-hosted mirrors.
@@ -151,6 +85,27 @@ export class RedditSearchTool {
     this.timeoutMs = options.timeoutMs ?? (Number(process.env.REDDIT_SEARCH_TIMEOUT_MS) || 30000);
     // Pause before the single retry of a transient throttle response.
     this.retryDelayMs = options.retryDelayMs ?? 3000;
+
+    // Optional official-API path. When the user supplies THEIR OWN Reddit app
+    // credentials, reddit_search can read Reddit's own API (live, authoritative)
+    // instead of the archives. Absent (the default), the tool is unchanged.
+    this.redditClientId = options.redditClientId || process.env.REDDIT_CLIENT_ID || null;
+    this.redditClientSecret = options.redditClientSecret || process.env.REDDIT_CLIENT_SECRET || null;
+    this.officialConfigured = Boolean(this.redditClientId && this.redditClientSecret);
+    // Lazily constructed on first official-path use; overridable for tests.
+    this._officialAdapter = options.officialAdapter || null;
+  }
+
+  /** The official-API adapter, built once from the configured credentials. */
+  #official() {
+    if (!this._officialAdapter) {
+      this._officialAdapter = new RedditOfficialApiAdapter(
+        this.redditClientId,
+        this.redditClientSecret,
+        { timeoutMs: this.timeoutMs },
+      );
+    }
+    return this._officialAdapter;
   }
 
   async execute(params) {
@@ -168,9 +123,20 @@ export class RedditSearchTool {
     // Arctic Shift keyword search must be scoped (its documented constraint).
     const scoped = Boolean(subreddit || author || (v.mode === 'comments' && v.link_id));
     const arcticPossible = v.mode === 'thread' || !v.query || scoped;
+    // The official API serves posts search/listings and thread reads. It has no
+    // comment full-text search, so `comments` mode always uses the archives.
+    const officialPossible = this.officialConfigured && (v.mode === 'thread' || v.mode === 'posts');
 
     let order; // backends to try, in order
-    if (v.source === 'arctic_shift') {
+    if (v.source === 'reddit_api') {
+      if (!this.officialConfigured) {
+        throw new Error('source:"reddit_api" needs Reddit app credentials — set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET (create a "script" app at https://www.reddit.com/prefs/apps)');
+      }
+      if (v.mode === 'comments') {
+        throw new Error('the official Reddit API has no comment full-text search — use comments mode with source:"arctic_shift"/"pullpush", or read a whole thread with mode:"thread"');
+      }
+      order = ['reddit_api'];
+    } else if (v.source === 'arctic_shift') {
       if (!arcticPossible) {
         throw new Error('Arctic Shift cannot keyword-search across all of Reddit — add a subreddit or author scope, or use source:"pullpush"');
       }
@@ -179,17 +145,27 @@ export class RedditSearchTool {
       if (v.mode === 'thread') throw new Error('thread mode requires Arctic Shift (source:"pullpush" only supports posts/comments search)');
       order = ['pullpush'];
     } else {
-      order = v.mode === 'thread' ? ['arctic_shift']
+      // auto: prefer the user's own official API (live, authoritative) when it
+      // can serve this request, then fall back to the community archives.
+      const archives = v.mode === 'thread' ? ['arctic_shift']
         : arcticPossible ? ['arctic_shift', 'pullpush']
         : ['pullpush'];
+      order = officialPossible ? ['reddit_api', ...archives] : archives;
     }
 
     const errors = [];
     for (const source of order) {
       try {
-        const result = source === 'arctic_shift'
-          ? await this.#searchArcticShift(v, { subreddit, author })
-          : await this.#searchPullPush(v, { subreddit, author });
+        let result;
+        if (source === 'reddit_api') {
+          result = v.mode === 'thread'
+            ? await this.#official().getThread(v)
+            : await this.#official().searchPosts(v, { subreddit, author });
+        } else if (source === 'arctic_shift') {
+          result = await this.#searchArcticShift(v, { subreddit, author });
+        } else {
+          result = await this.#searchPullPush(v, { subreddit, author });
+        }
         if (errors.length > 0) result.fallback_used = `primary source failed (${errors[0]}), fell back to ${source}`;
         return result;
       } catch (error) {
@@ -201,7 +177,7 @@ export class RedditSearchTool {
     const hint = order.length === 1 && order[0] === 'pullpush' && v.source === 'auto'
       ? ' Tip: add a subreddit or author filter to route to the more reliable Arctic Shift archive.'
       : '';
-    throw new Error(`All Reddit archive sources failed — ${errors.join('; ')}.${hint}`);
+    throw new Error(`All Reddit sources failed — ${errors.join('; ')}.${hint}`);
   }
 
   async #searchArcticShift(v, { subreddit, author }) {

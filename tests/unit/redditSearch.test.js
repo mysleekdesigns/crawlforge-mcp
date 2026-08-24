@@ -151,7 +151,7 @@ describe('RedditSearchTool — validation & routing', () => {
     const tool = new RedditSearchTool();
     await assert.rejects(
       () => tool.execute({ query: 'x', subreddit: 'foo' }),
-      /All Reddit archive sources failed.*arctic_shift.*pullpush/s,
+      /All Reddit sources failed.*arctic_shift.*pullpush/s,
     );
   });
 
@@ -176,7 +176,7 @@ describe('RedditSearchTool — validation & routing', () => {
     const tool = new RedditSearchTool();
     await assert.rejects(
       () => tool.execute({ query: 'x', subreddit: 'foo', source: 'arctic_shift' }),
-      /All Reddit archive sources failed — arctic_shift: HTTP 500/,
+      /All Reddit sources failed — arctic_shift: HTTP 500/,
     );
     assert.equal(requests.length, 1, 'no PullPush attempt when a source is forced');
   });
@@ -438,5 +438,127 @@ describe('RedditSearchTool — PullPush specifics & errors', () => {
       if (saved === undefined) delete process.env.REDDIT_SEARCH_TIMEOUT_MS;
       else process.env.REDDIT_SEARCH_TIMEOUT_MS = saved;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Official Reddit Data API path (opt-in via REDDIT_CLIENT_ID/SECRET)
+// ---------------------------------------------------------------------------
+
+describe('RedditSearchTool — official API path', () => {
+  const CREDS = { redditClientId: 'id', redditClientSecret: 'secret' };
+
+  const tokenResponse = () => okResponse({ access_token: 'tok', token_type: 'bearer', expires_in: 3600 });
+  const isToken = (url) => String(url).includes('/api/v1/access_token');
+  const isOauth = (url) => String(url).includes('oauth.reddit.com');
+
+  // Reddit listing/thread envelopes (Listing → children → {kind,data}).
+  const listing = (children, after = null) => okResponse({ data: { after, children } });
+  const THREAD = [
+    { data: { children: [{ kind: 't3', data: RAW_POST }] } },
+    { data: { children: [
+      { kind: 't1', data: { ...RAW_COMMENT, replies: { kind: 'Listing', data: { children: [
+        { kind: 't1', data: { ...RAW_COMMENT, id: 'child1', body: 'nested', replies: '' } },
+        { kind: 'more', data: { count: 3, children: ['aaa'] } },
+      ] } } } },
+    ] } },
+  ];
+
+  test('configured: thread mode uses the official API first (token + oauth.reddit.com)', async () => {
+    stubFetch((url) => isToken(url) ? tokenResponse() : okResponse(THREAD));
+    const tool = new RedditSearchTool(CREDS);
+    const res = await tool.execute({ mode: 'thread', link_id: 't3_1twm1zh', limit: 20 });
+
+    assert.equal(res.source, 'reddit_api');
+    assert.ok(requests.some((r) => isToken(r.url) && r.opts.method === 'POST'), 'fetched an OAuth token');
+    const call = requests.find((r) => isOauth(r.url));
+    assert.match(call.url.pathname, /\/comments\/1twm1zh$/); // t3_ stripped
+    assert.equal(res.post.title, RAW_POST.title);
+    assert.equal(res.comment_count, 1);
+    assert.equal(res.comments[0].replies[0].body, 'nested');
+    assert.deepEqual(res.comments[0].replies[1], { more_count: 3, more_ids: ['aaa'] });
+  });
+
+  test('configured: subreddit-scoped post search uses the official /r/{sr}/search endpoint', async () => {
+    stubFetch((url) => isToken(url) ? tokenResponse() : listing([{ kind: 't3', data: RAW_POST }], 't3_next'));
+    const tool = new RedditSearchTool(CREDS);
+    const res = await tool.execute({ query: 'switches', subreddit: 'MechanicalKeyboards', limit: 10 });
+
+    assert.equal(res.source, 'reddit_api');
+    const call = requests.find((r) => isOauth(r.url));
+    assert.match(call.url.pathname, /\/r\/MechanicalKeyboards\/search$/);
+    assert.equal(call.url.searchParams.get('q'), 'switches');
+    assert.equal(call.url.searchParams.get('restrict_sr'), 'true');
+    assert.equal(res.results[0].id, '1twm1zh');
+    assert.equal(res.after_cursor, 't3_next');
+  });
+
+  test('configured: unconfigured-style bearer request carries the token + a descriptive UA', async () => {
+    stubFetch((url) => isToken(url) ? tokenResponse() : listing([]));
+    const tool = new RedditSearchTool(CREDS);
+    await tool.execute({ subreddit: 'foo' });
+    const call = requests.find((r) => isOauth(r.url));
+    assert.equal(call.opts.headers.Authorization, 'Bearer tok');
+    assert.match(call.opts.headers['User-Agent'], /^CrawlForge-MCP\//);
+  });
+
+  test('auto: official-API failure falls back to the archive with fallback_used set', async () => {
+    stubFetch((url) => {
+      if (isToken(url)) return tokenResponse();
+      if (isOauth(url)) return errResponse(500, 'Internal Server Error');
+      return okResponse({ data: [RAW_POST] }); // arctic shift
+    });
+    const tool = new RedditSearchTool(CREDS);
+    const res = await tool.execute({ query: 'switches', subreddit: 'MechanicalKeyboards' });
+    assert.equal(res.source, 'arctic_shift');
+    assert.match(res.fallback_used, /reddit_api: .*HTTP 500/);
+  });
+
+  test('auto: a date-range filter skips the official API (which cannot honor it) and uses the archive', async () => {
+    stubFetch((url) => {
+      if (isToken(url)) return tokenResponse();
+      if (isOauth(url)) throw new Error('official API should not be called for a dated query');
+      return okResponse({ data: [RAW_POST] }); // arctic shift
+    });
+    const tool = new RedditSearchTool(CREDS);
+    const res = await tool.execute({ query: 'switches', subreddit: 'MechanicalKeyboards', after: '2026-01-01' });
+    assert.equal(res.source, 'arctic_shift');
+    assert.match(res.fallback_used, /reddit_api: .*date range/);
+    assert.ok(!requests.some((r) => isOauth(r.url)), 'never issued an official-API data call');
+  });
+
+  test('source:"reddit_api" refuses comments mode (no official comment search)', async () => {
+    const tool = new RedditSearchTool(CREDS);
+    await assert.rejects(
+      () => tool.execute({ query: 'HMX', subreddit: 'foo', mode: 'comments', source: 'reddit_api' }),
+      /no comment full-text search/,
+    );
+  });
+
+  test('source:"reddit_api" without credentials throws a setup hint', async () => {
+    const tool = new RedditSearchTool(); // no creds
+    await assert.rejects(
+      () => tool.execute({ subreddit: 'foo', source: 'reddit_api' }),
+      /needs Reddit app credentials.*REDDIT_CLIENT_ID/s,
+    );
+  });
+
+  test('unconfigured tool never touches the official API', async () => {
+    stubFetch(() => okResponse({ data: [RAW_POST] }));
+    const tool = new RedditSearchTool(); // no creds
+    await tool.execute({ subreddit: 'foo' });
+    assert.ok(!requests.some((r) => isToken(r.url) || isOauth(r.url)), 'no OAuth/official calls');
+    assert.match(requests[0].url.hostname, /arctic-shift/);
+  });
+
+  test('the OAuth token is cached across calls (one token fetch, two data calls)', async () => {
+    stubFetch((url) => isToken(url) ? tokenResponse() : listing([{ kind: 't3', data: RAW_POST }]));
+    const tool = new RedditSearchTool(CREDS);
+    await tool.execute({ subreddit: 'foo', source: 'reddit_api' });
+    await tool.execute({ subreddit: 'bar', source: 'reddit_api' });
+    const tokenCalls = requests.filter((r) => isToken(r.url)).length;
+    const dataCalls = requests.filter((r) => isOauth(r.url)).length;
+    assert.equal(tokenCalls, 1, 'token fetched once and reused');
+    assert.equal(dataCalls, 2, 'one data call per execute');
   });
 });
