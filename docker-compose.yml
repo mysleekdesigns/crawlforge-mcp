@@ -55,7 +55,8 @@ services:
       - cache_prod:/app/cache
       - logs_prod:/app/logs
     ports:
-      - "3001:3000"
+      # Image runs `node server.js --http` on $PORT (default 10000)
+      - "3001:10000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "console.log('Health check passed')"]

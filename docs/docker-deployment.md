@@ -28,8 +28,9 @@ docker run -i --rm \
   -e CRAWLFORGE_API_KEY=your_api_key \
   crawlforge:latest
 
-# Run HTTP transport (for REST/SSE access)
-docker run -p 3000:3000 --rm \
+# Run HTTP transport (Streamable HTTP, for remote MCP clients — e.g. n8n)
+# The image listens on $PORT (default 10000)
+docker run -p 10000:10000 --rm \
   -e CRAWLFORGE_API_KEY=your_api_key \
   crawlforge:latest node server.js --http
 ```
