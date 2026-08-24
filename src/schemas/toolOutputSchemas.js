@@ -148,6 +148,55 @@ const serpRankShape = {
   _cost: costShape
 };
 
+// ── reddit_search ───────────────────────────────────────────────────────────
+
+const redditPostShape = z.object({
+  id: z.string().nullable().optional(),
+  title: z.string().nullable().optional(),
+  author: z.string().nullable().optional(),
+  subreddit: z.string().nullable().optional(),
+  created_utc: z.number().nullable().optional(),
+  created_iso: z.string().nullable().optional(),
+  score: z.number().nullable().optional(),
+  num_comments: z.number().nullable().optional(),
+  selftext: z.string().nullable().optional(),
+  selftext_truncated: z.boolean().optional(),
+  url: z.string().nullable().optional(),
+  permalink: z.string().nullable().optional().describe('Full reddit.com URL of the post')
+}).passthrough();
+
+const redditCommentShape = z.object({
+  id: z.string().nullable().optional(),
+  author: z.string().nullable().optional(),
+  subreddit: z.string().nullable().optional(),
+  created_utc: z.number().nullable().optional(),
+  created_iso: z.string().nullable().optional(),
+  score: z.number().nullable().optional(),
+  body: z.string().nullable().optional(),
+  body_truncated: z.boolean().optional(),
+  link_id: z.string().nullable().optional(),
+  parent_id: z.string().nullable().optional(),
+  permalink: z.string().nullable().optional()
+}).passthrough();
+
+const redditSearchShape = {
+  source: z.enum(['arctic_shift', 'pullpush']).optional().describe('Which community archive served this result'),
+  mode: z.string().optional(),
+  query: z.string().nullable().optional(),
+  subreddit: z.string().nullable().optional(),
+  author: z.string().nullable().optional(),
+  link_id: z.string().optional().describe('Present in thread mode'),
+  count: z.number().optional(),
+  results: z.array(z.union([redditPostShape, redditCommentShape])).optional().describe('posts/comments modes'),
+  post: redditPostShape.nullable().optional().describe('thread mode: the post itself'),
+  comments: z.array(z.unknown()).optional().describe('thread mode: nested comment tree ({...comment, replies:[...]}); collapsed branches appear as {more_count, more_ids}'),
+  comment_count: z.number().optional(),
+  fallback_used: z.string().optional().describe('Present when the primary archive failed and the fallback served the result'),
+  notes: z.array(z.string()).optional().describe('Data-provenance caveats (archive freshness, coverage gaps)'),
+  checkedAt: z.string().optional(),
+  _cost: costShape
+};
+
 // ── search_web ──────────────────────────────────────────────────────────────
 
 const searchWebResultShape = z.object({
@@ -261,6 +310,7 @@ export const OUTPUT_SCHEMAS = {
   scrape: scrapeShape,
   map_site: mapSiteShape,
   serp_rank: serpRankShape,
+  reddit_search: redditSearchShape,
   search_web: searchWebShape,
   extract_structured: extractStructuredShape,
   crawl_deep: crawlDeepShape

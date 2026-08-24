@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <b>27 web scraping, crawling, deep-research &amp; autonomous-extraction tools for Claude, Cursor &amp; any MCP client.</b><br>
+  <b>28 web scraping, crawling, deep-research &amp; autonomous-extraction tools for Claude, Cursor &amp; any MCP client.</b><br>
   Clean Markdown &amp; structured JSON from any site. Get started with <b>1,000 free credits</b> — no credit card required.
 </p>
 
@@ -35,7 +35,7 @@
 
 ## 🎯 Why CrawlForge?
 
-- **27 MCP-native tools** — scraping, crawling, search, real Google SERP rank tracking, deep research, an autonomous `agent`, a unified multi-format `scrape`, document processing, stealth browsing, and more, callable directly from your AI assistant.
+- **28 MCP-native tools** — scraping, crawling, search, real Google SERP rank tracking, deep research, an autonomous `agent`, a unified multi-format `scrape`, document processing, stealth browsing, and more, callable directly from your AI assistant.
 - **Generous free tier** — 1,000 credits to start instantly, no credit card. Credits never expire and roll over month-to-month.
 - **Local-LLM by default** — `extract_with_llm` runs against a local **Ollama** model out of the box: no LLM API key, no per-token cost, and your data never leaves your machine. Cloud (OpenAI/Anthropic) is opt-in.
 - **LLM-ready output** — clean Markdown, structured JSON (schema-driven), screenshots, links, and metadata from a single fetch.
@@ -47,7 +47,7 @@
 
 | | **CrawlForge MCP** | Firecrawl | Raw scraping API |
 |---|:---:|:---:|:---:|
-| Native MCP server | ✅ 27 tools | ✅ | ❌ |
+| Native MCP server | ✅ 28 tools | ✅ | ❌ |
 | Free tier | ✅ 1,000 credits, rollover | Limited | Varies |
 | Self-hosted / local LLM extraction (Ollama) | ✅ default, $0/token | ❌ | ❌ |
 | Autonomous agent (no URLs needed) | ✅ `agent` | ✅ | ❌ |
@@ -146,6 +146,21 @@ The setup wizard automatically configures Cursor by adding to `~/.cursor/mcp.jso
 Restart Cursor to activate.
 </details>
 
+<details>
+<summary>🔁 For n8n (workflow automation)</summary>
+
+n8n's built-in **MCP Client Tool** node connects over Streamable HTTP (works on n8n Cloud and self-hosted). Run the server in HTTP mode:
+
+```bash
+export CRAWLFORGE_API_KEY=your_api_key
+npm run start:http    # Streamable HTTP endpoint at http://localhost:10000/mcp
+```
+
+Then point the MCP Client Tool node at `http://<host>:10000/mcp` with transport **HTTP Streamable** and a **Bearer** credential set to the same API key. On self-hosted n8n you can instead use the community `n8n-nodes-mcp` node over STDIO (`npx -y crawlforge-mcp-server`).
+
+Full guide: [docs/n8n-integration.md](docs/n8n-integration.md)
+</details>
+
 > **Which launch command?** `npx -y crawlforge-mcp-server` needs no global install and always runs the published version (recommended for Claude Desktop). For a global install (`npm i -g crawlforge-mcp-server`), use the dedicated `crawlforge-mcp` bin — it resolves on your `PATH`, so it survives Node/nvm version switches. The bare `crawlforge` command still launches the server when an MCP client spawns it over stdio (backward compatibility for configs created before v4.2.5); interactively it's the CLI — run `crawlforge mcp` to start the server by hand.
 
 ## 📊 Available Tools
@@ -169,6 +184,7 @@ CrawlForge requires a CrawlForge API key — **every tool is metered and consume
 | `map_site` | 2 | Discover and map website structure (optional `search=` ranks the discovered URLs) |
 | `process_document` | 2 | Multi-format document processing |
 | `localization` | 2 | Multi-language and geo-location management |
+| `reddit_search` | 2 | Search Reddit posts/comments or read a full thread — reddit.com blocks direct scraping, so this queries the Arctic Shift + PullPush community archives (free, no Reddit credentials) |
 | `track_changes` | 3 | Monitor content changes over time |
 | `analyze_content` | 3 | Comprehensive content analysis |
 | `extract_structured` | 3 | LLM-powered schema-driven extraction (your own LLM key or local Ollama) |
@@ -200,7 +216,7 @@ For the full canonical capabilities reference (all tools, CLI commands, stealth 
 | **Business** ($399) | 250,000 | Large scale operations |
 
 **All plans include:**
-- Access to all 27 tools
+- Access to all 28 tools
 - Credits never expire and roll over month-to-month
 - API access and webhook notifications
 

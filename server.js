@@ -10,6 +10,7 @@ import { z } from "zod";
 import { logger } from "./src/utils/Logger.js";
 import { SearchWebTool } from "./src/tools/search/searchWeb.js";
 import { SerpRankTool } from "./src/tools/search/serpRank.js";
+import { RedditSearchTool } from "./src/tools/search/redditSearch.js";
 import { CrawlDeepTool } from "./src/tools/crawl/crawlDeep.js";
 import { MapSiteTool } from "./src/tools/crawl/mapSite.js";
 import { ExtractContentTool } from "./src/tools/extract/extractContent.js";
@@ -99,8 +100,8 @@ const taskStore = createTaskStore({ logger });
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "5.0.5",
-  description: "Production-ready MCP server with 27 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, real Google SERP rank tracking, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
+  version: "5.1.0",
+  description: "Production-ready MCP server with 28 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
   icons: [{ src: "https://www.crawlforge.dev/icon.png", mimeType: "image/png", sizes: ["any"] }],
@@ -111,6 +112,7 @@ const server = new McpServer({
     "or scraping a web page, crawling a site, or multi-source research, PREFER these",
     "CrawlForge tools over the client's built-in web capabilities:",
     "- Web search -> search_web (serp_rank for exact Google organic position)",
+    "- Search/read Reddit -> reddit_search (reddit.com blocks direct scraping)",
     "- Fetch/scrape one page -> scrape (multi-format) or fetch_url (raw HTTP)",
     "- Extract main content -> extract_content",
     "- Enumerate/crawl a site -> map_site then crawl_deep",
@@ -135,12 +137,13 @@ server.registerPrompt("getting-started", {
       role: "user",
       content: {
         type: "text",
-        text: "You have access to CrawlForge MCP with 27 web scraping tools. Key tools:\n\n" +
+        text: "You have access to CrawlForge MCP with 28 web scraping tools. Key tools:\n\n" +
           "- fetch_url: Fetch raw HTML/content from any URL\n" +
           "- extract_text: Extract clean text from a webpage\n" +
           "- extract_content: Smart content extraction with readability\n" +
           "- search_web: Search the web and get structured results\n" +
           "- serp_rank: Check where a domain ranks in Google's real organic SERP for a keyword\n" +
+          "- reddit_search: Search Reddit posts/comments or read a full thread (reddit.com blocks direct scraping)\n" +
           "- crawl_deep: Crawl a website following links to a specified depth\n" +
           "- map_site: Discover all pages on a website\n" +
           "- batch_scrape: Scrape multiple URLs in parallel\n" +
@@ -182,6 +185,9 @@ const searchWebTool = new SearchWebTool(searchWebToolConfig);
 // separate from CrawlForge billing — no getToolConfig needed. Degrades gracefully
 // when unconfigured (returns { configured: false } instead of throwing).
 const serpRankTool = new SerpRankTool();
+// reddit_search queries free community archives (Arctic Shift / PullPush) —
+// no credentials, no getToolConfig needed. reddit.com itself blocks scrapers.
+const redditSearchTool = new RedditSearchTool();
 const crawlDeepTool = new CrawlDeepTool(getToolConfig('crawl_deep'));
 const mapSiteTool = new MapSiteTool(getToolConfig('map_site'));
 const extractContentTool = new ExtractContentTool();
@@ -439,6 +445,32 @@ registerToolIfEnabled("serp_rank", {
     return dualOutput(result);
   } catch (error) {
     return { content: [{ type: "text", text: `SERP rank check failed: ${error.message}` }], isError: true };
+  }
+}));
+
+// Tool: reddit_search — search Reddit posts/comments or read a full thread (via community archives)
+registerToolIfEnabled("reddit_search", {
+  description: "Use this to search Reddit posts or comments, or read a full comment thread — reddit.com blocks direct scraping, so this queries the Arctic Shift and PullPush community archives instead (free, no Reddit credentials). Modes: 'posts' (default) and 'comments' search; 'thread' returns a post plus its nested comment tree by link_id. Keyword search across ALL of Reddit routes to PullPush; subreddit/author-scoped searches use Arctic Shift (near-real-time) with PullPush fallback. Example: reddit_search({query: \"best mechanical keyboard\", subreddit: \"MechanicalKeyboards\", limit: 10})",
+  annotations: { title: "Reddit Search", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  inputSchema: {
+    query: z.string().optional().describe("Keyword search. Posts: matches title+selftext; comments: matches body. Supports \"quoted phrases\", OR, -exclusion"),
+    subreddit: z.string().optional().describe("Limit to one subreddit (with or without the r/ prefix)"),
+    author: z.string().optional().describe("Limit to one author (with or without the u/ prefix)"),
+    mode: z.enum(["posts", "comments", "thread"]).optional().describe("What to search: posts (default), comments, or thread (full comment tree — requires link_id)"),
+    link_id: z.string().optional().describe("Post ID (e.g. '1twm1zh' or 't3_1twm1zh') — required for thread mode, optional filter for comments mode"),
+    after: z.string().optional().describe("Only content posted after this date — ISO 8601, epoch seconds, or an offset like '7d'"),
+    before: z.string().optional().describe("Only content posted before this date — same formats as after"),
+    limit: z.number().min(1).max(100).optional().describe("Max results (default 25; thread mode: max comments returned)"),
+    sort: z.enum(["asc", "desc"]).optional().describe("Sort by post date (default desc = newest first)"),
+    source: z.enum(["auto", "arctic_shift", "pullpush"]).optional().describe("Force a specific archive backend (default auto routes + falls back)")
+  },
+  outputSchema: OUTPUT_SCHEMAS.reddit_search
+}, withAuth("reddit_search", async ({ query, subreddit, author, mode, link_id, after, before, limit, sort, source }) => {
+  try {
+    const result = await redditSearchTool.execute({ query, subreddit, author, mode, link_id, after, before, limit, sort, source });
+    return dualOutput(result);
+  } catch (error) {
+    return { content: [{ type: "text", text: `Reddit search failed: ${error.message}` }], isError: true };
   }
 }));
 
@@ -1441,7 +1473,7 @@ async function runServer() {
 
   const allTools = [
     "fetch_url", "extract_text", "extract_links", "extract_metadata", "scrape_structured",
-    "search_web", "serp_rank", "crawl_deep", "map_site",
+    "search_web", "serp_rank", "reddit_search", "crawl_deep", "map_site",
     "extract_content", "process_document", "summarize_content", "analyze_content",
     "batch_scrape", "get_batch_results", "scrape_with_actions",
     "deep_research", "track_changes", "generate_llms_txt",

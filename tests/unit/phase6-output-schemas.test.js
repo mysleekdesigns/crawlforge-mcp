@@ -15,10 +15,10 @@ import assert from 'node:assert/strict';
 import { z } from 'zod';
 import { OUTPUT_SCHEMAS } from '../../src/schemas/toolOutputSchemas.js';
 
-const TOOL_NAMES = ['scrape', 'map_site', 'serp_rank', 'search_web', 'extract_structured', 'crawl_deep'];
+const TOOL_NAMES = ['scrape', 'map_site', 'serp_rank', 'reddit_search', 'search_web', 'extract_structured', 'crawl_deep'];
 
 describe('OUTPUT_SCHEMAS — shape', () => {
-  test('exports exactly the 6 frozen-contract keys', () => {
+  test('exports exactly the 7 frozen-contract keys', () => {
     assert.deepEqual(Object.keys(OUTPUT_SCHEMAS).sort(), TOOL_NAMES.slice().sort());
   });
 
@@ -168,6 +168,41 @@ describe('OUTPUT_SCHEMAS — realistic samples parse', () => {
     };
     const result = schema.safeParse(sample);
     assert.equal(result.success, true, JSON.stringify(result.error?.issues));
+  });
+
+  test('reddit_search: posts-mode and thread-mode success shapes', () => {
+    const schema = z.object(OUTPUT_SCHEMAS.reddit_search);
+    const posts = {
+      source: 'arctic_shift',
+      mode: 'posts',
+      query: 'switches',
+      subreddit: 'MechanicalKeyboards',
+      author: null,
+      count: 1,
+      results: [{
+        id: '1twm1zh', title: 'Best-selling switches', author: 'dovenyi',
+        subreddit: 'MechanicalKeyboards', created_utc: 1780575000,
+        created_iso: '2026-06-05T00:00:00.000Z', score: 363, num_comments: 123,
+        selftext: '...', selftext_truncated: false,
+        url: 'https://i.redd.it/x.jpeg',
+        permalink: 'https://www.reddit.com/r/MechanicalKeyboards/comments/1twm1zh/x/'
+      }],
+      notes: ['Data from the Arctic Shift community archive'],
+      checkedAt: new Date().toISOString()
+    };
+    assert.equal(schema.safeParse(posts).success, true, 'posts shape');
+    const thread = {
+      source: 'arctic_shift',
+      mode: 'thread',
+      link_id: '1twm1zh',
+      post: posts.results[0],
+      comments: [{ id: 'p2zcr74', body: 'nice', replies: [{ more_count: 5, more_ids: ['aaa'] }] }],
+      comment_count: 1,
+      fallback_used: 'primary source failed (arctic_shift: HTTP 500), fell back to pullpush',
+      notes: [],
+      checkedAt: new Date().toISOString()
+    };
+    assert.equal(schema.safeParse(thread).success, true, 'thread shape');
   });
 
   test('search_web: standard success result', () => {
