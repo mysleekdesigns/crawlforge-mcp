@@ -7,7 +7,7 @@ to enumerate at runtime. Cost: 1 credit per call.
 | Template ID | Target | Typical fields returned |
 |-------------|--------|-------------------------|
 | `shopify-product` | Any Shopify storefront product page (`/products/<handle>`), custom domains included | title, price, compare-at price, on_sale, currency, price range, per-variant stock, options, images, tags — read from the store's `/products/<handle>.json`, not the rendered page |
-| `amazon-product` | Amazon product page (`/dp/...`) | title, price, rating, review count, availability, images, features |
+| `amazon-product` | Amazon product page (`/dp/...`) | title, price, currency, rating (number), review count (number), brand, ASIN, availability, full-size images, description, breadcrumbs. Breadcrumbs are empty on device pages, which genuinely have none |
 | `linkedin-profile` | LinkedIn public profile | name, headline, location, current role, about, experience |
 | `github-repo` | GitHub repository | name, owner, description, stars, forks, language, topics, README excerpt |
 | `youtube-video` | YouTube watch page | title, channel, views, likes, published date, description |

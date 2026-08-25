@@ -50,18 +50,28 @@ const CASES = [
     }
   },
   {
+    // Markup shaped after a live product page captured 2026-08-25 — the
+    // previous fixture was written to match the selectors rather than the
+    // site, so six fields that were null or dirty in production passed here.
     id: 'amazon-product',
     url: 'https://amazon.com/dp/B000000000',
     html: `<html><body>
-      <span id="productTitle">Wireless Mouse</span>
+      <span id="productTitle">  Wireless Mouse  </span>
       <span class="a-price"><span class="a-offscreen">$19.99</span></span>
-      <meta itemprop="priceCurrency" content="USD">
-      <span id="acrPopover"><span class="a-size-base">4.5 out of 5 stars</span></span>
-      <span id="acrCustomerReviewText">1,234 ratings</span>
+      <input type="hidden" name="items[0.base][customerVisiblePrice][currencyCode]" value="USD">
+      <span id="acrPopover" title="4.5 out of 5 stars"><span>4.5</span></span>
+      <span id="acrCustomerReviewText">(1,234)</span>
       <input id="ASIN" name="ASIN" value="B000000000">
-      <div id="bylineInfo">Visit the Acme Store</div>
-      <div id="feature-bullets">Ergonomic wireless mouse with USB receiver.</div>
-      <div id="altImages"><img class="a-thumbnail-image" src="https://img.example.com/1.jpg"></div>
+      <a id="bylineInfo">Visit the Acme Store</a>
+      <div id="feature-bullets"><ul>
+        <li><span class="a-list-item">Ergonomic shape.</span></li>
+        <li><span class="a-list-item">USB receiver included.</span></li>
+      </ul></div>
+      <div id="imgTagWrapperId"><img id="landingImage" src="https://m.media-amazon.com/images/I/61ABCDEFGH._AC_SY300_SX300_.jpg"></div>
+      <div id="altImages">
+        <img src="https://m.media-amazon.com/images/I/31IJKLMNOP._AC_SR40,60_.jpg">
+        <img src="https://images-na.ssl-images-amazon.com/images/G/01/x-locale/common/transparent-pixel._V192234675_.gif">
+      </div>
       <div id="availability"><span>In Stock</span></div>
       <div id="wayfinding-breadcrumbs_feature_div"><a href="#">Electronics</a><a href="#">Accessories</a></div>
     </body></html>`,
@@ -69,8 +79,15 @@ const CASES = [
       assert.equal(data.title, 'Wireless Mouse');
       assert.equal(data.price, '$19.99');
       assert.equal(data.currency, 'USD');
+      assert.equal(data.rating, 4.5);
+      assert.equal(data.review_count, 1234);
       assert.equal(data.asin, 'B000000000');
-      assert.ok(data.images.includes('https://img.example.com/1.jpg'));
+      assert.equal(data.brand, 'Acme');
+      assert.equal(data.description, 'Ergonomic shape. USB receiver included.');
+      assert.deepEqual(data.images, [
+        'https://m.media-amazon.com/images/I/61ABCDEFGH.jpg',
+        'https://m.media-amazon.com/images/I/31IJKLMNOP.jpg'
+      ]);
       assert.deepEqual(data.category_breadcrumb, ['Electronics', 'Accessories']);
     }
   },
