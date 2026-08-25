@@ -91,8 +91,9 @@ export class ResearchOrchestrator extends EventEmitter {
     
     // Initialize LLM Manager for AI-powered research
     this.llmManager = new LLMManager(options.llmConfig || {});
+    // Provisional: conductResearch() re-resolves this with an async probe.
     this.enableLLMFeatures = this.llmManager.isAvailable();
-    
+
     if (this.enableLLMFeatures) {
       this.logger.info('LLM-powered research features enabled');
     } else {
@@ -146,10 +147,15 @@ export class ResearchOrchestrator extends EventEmitter {
     const startTime = Date.now();
     
     this.initializeResearchSession(sessionId, topic, startTime);
-    
+
+    // Settle LLM availability before the first LLM-gated stage. The constructor
+    // can only read it synchronously, and Ollama — which needs no API key — can
+    // only be confirmed by a probe.
+    this.enableLLMFeatures = await this.llmManager.ready();
+
     try {
       this.logger.info('Starting deep research', { sessionId, topic, options });
-      
+
       // Stage 1: Initial topic exploration and query expansion
       const expandedQueries = await this.expandResearchTopic(topic, options);
       this.researchState.currentDepth = 1;

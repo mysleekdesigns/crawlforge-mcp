@@ -1,5 +1,6 @@
 import { OpenAIProvider } from './OpenAIProvider.js';
 import { AnthropicProvider } from './AnthropicProvider.js';
+import { OllamaProvider } from './OllamaProvider.js';
 import { Logger } from '../../utils/Logger.js';
 
 /**
@@ -12,7 +13,10 @@ export class LLMManager {
     this.providers = new Map();
     this.defaultProvider = null;
     this.fallbackProvider = null;
-    
+    // Ollama needs no credential, so its presence can only be settled by an
+    // HTTP probe. Cached here for the lifetime of the manager; see ready().
+    this._ollamaProbe = null;
+
     this.initializeProviders(options);
   }
 
@@ -23,6 +27,7 @@ export class LLMManager {
     const {
       openai = {},
       anthropic = {},
+      ollama = {},
       defaultProvider = 'auto'
     } = options;
 
@@ -40,6 +45,17 @@ export class LLMManager {
       this.logger.info('Anthropic provider initialized');
     }
 
+    // Initialize Ollama provider. Unlike the cloud providers there is no API
+    // key to gate on — a local Ollama is the zero-config default — so it is
+    // registered optimistically and dropped by ready() if the host is not
+    // reachable. Without this, a machine running Ollama but holding no cloud
+    // keys reported "no LLM providers available" and every caller silently
+    // downgraded to keyword/CSS extraction.
+    if (ollama.enabled !== false && process.env.DISABLE_OLLAMA !== 'true') {
+      this.providers.set('ollama', new OllamaProvider(ollama));
+      this.logger.info('Ollama provider initialized');
+    }
+
     // Set default provider
     this.setDefaultProvider(defaultProvider);
   }
@@ -49,14 +65,12 @@ export class LLMManager {
    */
   setDefaultProvider(providerName) {
     if (providerName === 'auto') {
-      // Auto-select: prefer OpenAI for embeddings, fallback to Anthropic
-      if (this.providers.has('openai')) {
-        this.defaultProvider = 'openai';
-        this.fallbackProvider = this.providers.has('anthropic') ? 'anthropic' : null;
-      } else if (this.providers.has('anthropic')) {
-        this.defaultProvider = 'anthropic';
-        this.fallbackProvider = null;
-      }
+      // Auto-select in order of preference: a cloud provider is only present
+      // when its key was deliberately configured, so it outranks the
+      // zero-config local Ollama.
+      const preference = ['openai', 'anthropic', 'ollama'].filter(name => this.providers.has(name));
+      this.defaultProvider = preference[0] || null;
+      this.fallbackProvider = preference[1] || null;
     } else if (this.providers.has(providerName)) {
       this.defaultProvider = providerName;
       // Set fallback to other available provider
@@ -351,7 +365,10 @@ Extract the data and return valid JSON:`;
       const response = await this.generateCompletion(extractionPrompt, {
         systemPrompt,
         maxTokens: scaledTokens,
-        temperature: 0.1
+        temperature: 0.1,
+        // Constrain the output to a parseable object. Small local models
+        // otherwise wrap the JSON in prose and the parse below throws.
+        format: 'json'
       });
 
       // Strip markdown code fences if present
@@ -362,12 +379,16 @@ Extract the data and return valid JSON:`;
       const validation = this.validateAgainstSchema(parsed, schema);
       return {
         data: parsed,
+        method: 'llm',
         valid: validation.valid,
         validationErrors: validation.errors
       };
     } catch (error) {
       this.logger.warn('LLM structured extraction failed, using fallback', { error: error.message });
-      return this.fallbackStructuredExtraction(content, schema);
+      // Report which path produced the data. Callers previously labelled this
+      // result "llm", so a failed LLM call was returned as a high-confidence
+      // LLM extraction.
+      return { ...this.fallbackStructuredExtraction(content, schema), error: error.message };
     }
   }
 
@@ -434,6 +455,7 @@ Extract the data and return valid JSON:`;
 
     return {
       data: extracted,
+      method: 'keyword_fallback',
       valid: false,
       validationErrors: ['Used fallback extraction — no LLM provider available']
     };
@@ -496,6 +518,34 @@ Extract the data and return valid JSON:`;
    */
   isAvailable() {
     return this.providers.size > 0;
+  }
+
+  /**
+   * Resolve whether an LLM can actually be reached, probing Ollama once and
+   * caching the answer. Callers that branch on LLM-vs-fallback should await
+   * this rather than read isAvailable(), which reports Ollama optimistically
+   * because its availability cannot be determined synchronously.
+   *
+   * An unreachable Ollama is de-registered, so isAvailable() becomes accurate
+   * from that point on.
+   * @returns {Promise<boolean>}
+   */
+  async ready() {
+    const ollama = this.providers.get('ollama');
+    if (ollama) {
+      if (this._ollamaProbe === null) {
+        this._ollamaProbe = ollama.isAvailable();
+      }
+      const reachable = await this._ollamaProbe;
+      if (!reachable) {
+        this.providers.delete('ollama');
+        if (this.defaultProvider === 'ollama' || this.fallbackProvider === 'ollama') {
+          this.setDefaultProvider('auto');
+        }
+        this.logger.warn('Ollama is not reachable; provider de-registered');
+      }
+    }
+    return this.isAvailable();
   }
 
   /**

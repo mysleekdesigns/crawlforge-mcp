@@ -20,6 +20,10 @@ const savedOpenAiKey = process.env.OPENAI_API_KEY;
 const savedAnthropicKey = process.env.ANTHROPIC_API_KEY;
 delete process.env.OPENAI_API_KEY;
 delete process.env.ANTHROPIC_API_KEY;
+// Ollama needs no key, so clearing the cloud keys is no longer enough to keep
+// these tests off the LLM path — a developer running Ollama locally would
+// otherwise exercise a live model here.
+process.env.DISABLE_OLLAMA = 'true';
 
 const { ExtractStructuredTool } = await import('../../../../src/tools/extract/extractStructured.js');
 const { LLMManager } = await import('../../../../src/core/llm/LLMManager.js');
@@ -115,10 +119,10 @@ describe('extractStructured tool (real module, CSS fallback — no LLM configure
     assert.equal(result.validation.errors.length, 0, 'no validation errors — invalid-selector keys are skipped, not reported as failures');
   });
 
-  test('falls through to keyword fallback (still extraction_method css_fallback) when no CSS selector matches anything', async () => {
+  test('falls through to keyword fallback, and reports it as keyword_fallback, when no CSS selector matches anything', async () => {
     const schema = { type: 'object', properties: { headline: { type: 'string' } } };
     const result = await tool.execute({ url: `${baseUrl}/no-match`, schema });
-    assert.equal(result.extraction_method, 'css_fallback');
+    assert.equal(result.extraction_method, 'keyword_fallback');
     assert.ok(result.data);
   });
 
