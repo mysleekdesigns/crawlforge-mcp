@@ -211,6 +211,51 @@ function jsonSchemaToZod(schema) {
   }
 }
 
+/** JSON Schema type keywords, used to spot a type declaration posing as a value. */
+const SCHEMA_TYPE_KEYWORDS = new Set(['string', 'number', 'integer', 'boolean', 'object', 'array', 'null']);
+
+/**
+ * True when the model returned the output schema itself instead of data
+ * extracted from the page — e.g. {"type":"object","properties":{"title":{"type":"null"}}}
+ * for a schema asking for a title. The schema is embedded in the prompt as an
+ * output hint, and on long inputs a model will latch onto it and echo it back.
+ *
+ * The result is well-formed JSON and, when the caller declared no required
+ * fields, it passes schema validation too — so it reaches callers as a
+ * successful extraction full of nonsense.
+ *
+ * @param {*} parsed - Parsed LLM output
+ * @param {Object} schema - The schema hint that was sent
+ * @returns {boolean}
+ */
+function looksLikeSchemaEcho(parsed, schema) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  if (!schema || Object.keys(schema).length === 0) return false;
+
+  const requested = new Set(Object.keys(schema.properties || schema));
+  const returned = Object.keys(parsed);
+  if (returned.length === 0) return false;
+
+  // The whole schema document came back. Only suspicious when the caller did
+  // not actually ask for a field named "properties".
+  if (parsed.properties && typeof parsed.properties === 'object' && !requested.has('properties')) {
+    return true;
+  }
+
+  // Every value is a type declaration rather than a value:
+  // {"title":{"type":"string"},"price":{"type":"string"}}. A field the caller
+  // genuinely declared as an object is exempt, since a nested object result is
+  // legitimate there.
+  const declarations = returned.filter((key) => {
+    const value = parsed[key];
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    if (!SCHEMA_TYPE_KEYWORDS.has(value.type)) return false;
+    const declaredType = schema.properties?.[key]?.type;
+    return declaredType !== 'object';
+  });
+  return declarations.length === returned.length;
+}
+
 /**
  * Validate parsed output against the schema hint.
  * @returns {{ valid: boolean, errors: string[] }}
@@ -503,15 +548,27 @@ export class ExtractWithLlm {
       }
     }
 
-    // Step 3: Parse JSON; retry once with stricter prompt if it fails
-    let parsed;
+    // Step 3: Parse JSON; retry once with a stricter prompt if the response is
+    // unusable. "Unusable" covers both unparseable output and a schema echo —
+    // the latter parses cleanly but contains no page data at all.
+    let parsed = null;
+    let unusableReason = null;
     try {
       parsed = parseJson(rawText);
+      if (looksLikeSchemaEcho(parsed, schema)) {
+        parsed = null;
+        unusableReason = 'echoed the output schema instead of extracting data from the page';
+      }
     } catch (_parseErr) {
+      unusableReason = 'was not valid JSON';
+    }
+
+    if (parsed === null) {
       // Retry with stricter instruction
       const retryUserMessage =
-        `${userMessage}\n\nIMPORTANT: Your previous response was not valid JSON. ` +
-        'Respond with ONLY a JSON object or array. No explanation, no markdown fences.';
+        `${userMessage}\n\nIMPORTANT: Your previous response ${unusableReason}. ` +
+        'Respond with ONLY a JSON object or array whose values are data taken from the page content. ' +
+        'Never return a JSON Schema. No explanation, no markdown fences.';
       let retryRaw, retryUsage;
       try {
         ({ rawText: retryRaw, usage: retryUsage } = await callLLM({
@@ -534,6 +591,18 @@ export class ExtractWithLlm {
           success: false,
           error: 'LLM did not return valid JSON after retry',
           raw: retryRaw.slice(0, 500)
+        };
+      }
+
+      if (looksLikeSchemaEcho(parsed, schema)) {
+        // Fail loudly. Returning the echo would hand the caller a well-formed
+        // object containing nothing from the page.
+        return {
+          success: false,
+          error: 'LLM echoed the output schema instead of extracting data, after retry. ' +
+                 'The page text is likely too long or too noisy for this model — try a larger model ' +
+                 '(OLLAMA_DEFAULT_MODEL) or narrow the input with onlyMainContent.',
+          raw: JSON.stringify(parsed).slice(0, 500)
         };
       }
     }
