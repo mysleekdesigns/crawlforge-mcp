@@ -193,7 +193,13 @@ describe('scroll action x/y absolute coordinates', () => {
         }
       },
       mouse: { wheel: async (dx, dy) => calls.push({ method: 'wheel', dx, dy }) },
-      waitForSelector: async () => ({ hover: async () => {}, scrollIntoView: async () => {} }),
+      // Mirrors what the executor actually calls now: page.locator(sel).first().
+      // The old stub answered waitForSelector() with a scrollIntoView() method,
+      // an API Playwright does not have — which is how the real scroll-to-element
+      // TypeError stayed invisible to this suite.
+      locator: () => ({
+        first: () => ({ hover: async () => {}, scrollIntoViewIfNeeded: async () => {} })
+      }),
       url: () => 'https://example.com'
     };
   }

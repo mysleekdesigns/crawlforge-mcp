@@ -27,7 +27,10 @@ const BaseActionSchema = z.object({
   timeout: z.number().optional(),
   description: z.string().optional(),
   continueOnError: z.boolean().default(false),
-  retries: z.number().min(0).max(5).default(0),
+  // Kept in step with ActionExecutor's BaseActionSchema: this schema runs
+  // first and stamps a value onto every action, so a 0 here would switch
+  // error recovery back off for every call that comes through this tool.
+  retries: z.number().min(0).max(5).default(1), // recovery strategies to try
   captureAfter: z.boolean().default(false) // Capture content after this action
 });
 
