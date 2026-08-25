@@ -9,6 +9,7 @@
 
 import { z } from 'zod';
 import { fetchAndParse } from './_fetchAndParse.js';
+import { ollamaBaseUrl, ollamaHeaders } from '../../utils/ollamaConfig.js';
 // D1.3: SamplingClient for MCP sampling fallback (lazy — only imported if needed)
 let _SamplingClient = null;
 async function getSamplingClient() {
@@ -34,9 +35,8 @@ function openaiBaseUrl() {
 function anthropicBaseUrl() {
   return (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '');
 }
-function ollamaBaseUrl() {
-  return (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/$/, '');
-}
+// Base URL + optional OLLAMA_API_KEY bearer auth (Ollama Cloud / proxied
+// instances) come from the shared config.
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -349,7 +349,7 @@ async function callOllama({ model, systemMessage, userMessage, maxTokens, schema
   try {
     response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: ollamaHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(120_000)
     });
