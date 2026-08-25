@@ -296,6 +296,22 @@ export class UnifiedScrapeTool {
           content.json = result.success ? result.data : { error: result.error };
           if (!result.success) {
             warnings.push(`json: extraction failed — ${result.error}`);
+          } else {
+            // extract_with_llm reports these but does not fail on them, and
+            // dropping them here is what let schema-violating output — and
+            // silently clipped input on long pages — reach callers looking
+            // like a clean extraction.
+            if (result.valid === false) {
+              warnings.push(
+                `json: output did not match the requested schema — ${(result.validationErrors || []).join('; ')}`
+              );
+            }
+            if (result.truncated) {
+              warnings.push(
+                `json: page text was truncated from ${result.original_length} chars before extraction; ` +
+                'fields appearing late in the page may be missing'
+              );
+            }
           }
         } catch (err) {
           content.json = { error: err.message };
