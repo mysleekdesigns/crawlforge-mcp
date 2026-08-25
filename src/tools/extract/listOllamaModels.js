@@ -66,8 +66,8 @@ export class ListOllamaModelsTool {
       models,
       hint:
         models.length === 0
-          ? 'No models installed. Run "ollama pull llama3.2" (or any model from https://ollama.com/library) in your terminal.'
-          : 'Pass any of these names as the `model` parameter to extract_with_llm.'
+          ? 'No models installed. Run "ollama pull gemma3:4b" (or any model from https://ollama.com/library) in your terminal.'
+          : 'Pass any of these names as the `model` parameter to extract_with_llm. Left unset, the most accurate installed model is chosen automatically.'
     };
   }
 }

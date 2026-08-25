@@ -9,7 +9,7 @@
 
 import { z } from 'zod';
 import { fetchAndParse } from './_fetchAndParse.js';
-import { ollamaBaseUrl, ollamaHeaders } from '../../utils/ollamaConfig.js';
+import { ollamaBaseUrl, ollamaHeaders, selectOllamaModel } from '../../utils/ollamaConfig.js';
 // D1.3: SamplingClient for MCP sampling fallback (lazy — only imported if needed)
 let _SamplingClient = null;
 async function getSamplingClient() {
@@ -26,7 +26,6 @@ const MAX_INPUT_CHARS = 50_000;
 
 const OPENAI_DEFAULT_MODEL = 'gpt-4o-mini';
 const ANTHROPIC_DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
-const OLLAMA_DEFAULT_MODEL = 'llama3.2';
 
 // Support test-time overrides so the test suite can stub endpoints.
 function openaiBaseUrl() {
@@ -498,7 +497,9 @@ export class ExtractWithLlm {
     const { provider, apiKey } = resolved;
     const defaultModel =
       provider === 'openai' ? OPENAI_DEFAULT_MODEL :
-      provider === 'ollama' ? (process.env.OLLAMA_DEFAULT_MODEL || OLLAMA_DEFAULT_MODEL) :
+      // Picks the most accurate model actually installed; OLLAMA_DEFAULT_MODEL
+      // still wins when set.
+      provider === 'ollama' ? await selectOllamaModel() :
       ANTHROPIC_DEFAULT_MODEL;
     const model = modelParam || defaultModel;
 
