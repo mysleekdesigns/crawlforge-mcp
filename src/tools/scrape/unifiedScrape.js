@@ -15,6 +15,7 @@ import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import { fetchAndParse } from '../extract/_fetchAndParse.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
+import { stripHiddenFromDom } from '../../utils/hiddenContent.js';
 import { extractBlockText, readabilityToMarkdown } from '../basic/extractText.js';
 
 // ── Schema ────────────────────────────────────────────────────────────────────
@@ -34,6 +35,11 @@ export const UnifiedScrapeSchema = z.object({
   url: z.string().url(),
   formats: z.array(FormatSchema).min(1).default(['markdown']),
   onlyMainContent: z.boolean().optional().default(true),
+  // Remove content a browser would not paint (screen-reader-only labels,
+  // state-gated theme badges) before deriving any format. "linked" also fetches
+  // the page's stylesheets, which is what resolves class-driven display:none;
+  // "inline" uses only the document's own <style> blocks and costs no requests.
+  resolveHiddenContent: z.enum(['linked', 'inline', 'off']).optional().default('linked'),
   // Pass-through to fetchAndParse
   timeoutMs: z.number().min(1000).max(60000).optional().default(15000),
   // Optional, additive: only consulted when 'branding' / 'screenshot' is requested.
@@ -192,7 +198,7 @@ export class UnifiedScrapeTool {
    */
   async execute(params) {
     const validated = UnifiedScrapeSchema.parse(params);
-    const { url, formats, onlyMainContent, timeoutMs, brandingOptions, screenshotOptions } = validated;
+    const { url, formats, onlyMainContent, timeoutMs, brandingOptions, screenshotOptions, resolveHiddenContent } = validated;
 
     // Single fetch
     let html, $, finalUrl;
@@ -231,14 +237,56 @@ export class UnifiedScrapeTool {
     const content = {};
     const warnings = [];
 
+    // Kept for the rawHtml format, which must survive the strip below.
+    const pristineHtml = html;
+
+    // Remove content a browser would not paint, before any format is derived.
+    // Every format reads from $ or html — and the json path takes
+    // $('body').text() directly — so stripping once here is what keeps
+    // screen-reader-only labels and state-gated theme badges out of
+    // extraction. A Shopify Dawn storefront ships "Sale"/"Sold out" badges
+    // unconditionally and hides them in component CSS; left in, they made
+    // extraction report "Sold out" for a product with 100 units in stock.
+    if (resolveHiddenContent !== 'off') {
+      try {
+        let css = '';
+        if (resolveHiddenContent === 'linked') {
+          const { collectCssSources } = await import('./_brandingExtractor.js');
+          const collected = await collectCssSources($, docBaseUrl, {
+            fetchLinkedCss: true,
+            // Themes split visibility rules across many component sheets — the
+            // rule hiding Shopify's sold-out badge sits at index 12 of 38 on a
+            // stock Dawn storefront, so a cap of 10 silently misses it.
+            maxStylesheets: 20
+          });
+          css = collected.cssText || '';
+        }
+        const { removed } = stripHiddenFromDom($, { css });
+        // Formats that read the raw string need the cleaned markup too.
+        if (removed > 0) html = $.html();
+      } catch (err) {
+        warnings.push(`hiddenContent: ${err.message}`);
+      }
+    }
+
     for (const fmt of formats) {
       // JSON format object
       if (fmt && typeof fmt === 'object' && fmt.type === 'json') {
         try {
           const extractWithLlm = await this._getExtractWithLlm();
-          const text = onlyMainContent
-            ? htmlToMarkdown(getMainHtml())
-            : $('body').text().replace(/\s+/g, ' ').trim();
+          let text;
+          if (onlyMainContent) {
+            text = htmlToMarkdown(getMainHtml());
+          } else {
+            // Script and template bodies are never rendered, but $('body').text()
+            // includes them — on a Shopify storefront that was 179KB of
+            // JavaScript, more than the page's real text, and it carried the
+            // very "Sold out" strings the strip had just removed from the DOM.
+            const { load } = await import('cheerio');
+            const $visible = load(html);
+            $visible('script, style, noscript, template').remove();
+            text = $visible('body').text().replace(/\s+/g, ' ').trim();
+          }
           const result = await extractWithLlm.execute({
             content: text,
             prompt: fmt.prompt || 'Extract structured data from this page content.',
@@ -279,7 +327,9 @@ export class UnifiedScrapeTool {
           break;
 
         case 'rawHtml':
-          content.rawHtml = html;
+          // Deliberately the untouched response body: "raw" must not reflect
+          // the hidden-content strip that rewrites `html` for other formats.
+          content.rawHtml = pristineHtml;
           break;
 
         case 'text':
