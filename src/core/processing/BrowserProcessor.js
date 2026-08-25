@@ -246,8 +246,18 @@ export class BrowserProcessor {
    * @returns {Promise<void>}
    */
   async initBrowser() {
-    if (!this.browser) {
-      this.browser = await chromium.launch({
+    // A Chromium that was OOM-killed or crashed doesn't error on reuse — its
+    // protocol calls hang. Detect the corpse and relaunch instead.
+    if (this.browser && !this.browser.isConnected()) {
+      this.browser = null;
+    }
+    if (this.browser) {
+      return;
+    }
+    // Only one launch in flight: concurrent cold-start callers would each
+    // launch a Chromium and orphan every instance but the last assignment.
+    if (!this._launchPromise) {
+      this._launchPromise = chromium.launch({
         headless: true,
         // Playwright never reads this env var itself; hosted images (see
         // Dockerfile) set it to their system Chromium instead of downloading
@@ -262,8 +272,20 @@ export class BrowserProcessor {
           '--disable-backgrounding-occluded-windows',
           '--disable-renderer-backgrounding'
         ]
+      }).then((browser) => {
+        // Drop the handle when Chromium dies so the next call relaunches
+        // instead of reusing a corpse.
+        browser.on('disconnected', () => {
+          if (this.browser === browser) {
+            this.browser = null;
+          }
+        });
+        this.browser = browser;
+      }).finally(() => {
+        this._launchPromise = null;
       });
     }
+    await this._launchPromise;
   }
 
   /**

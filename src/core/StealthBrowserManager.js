@@ -64,15 +64,7 @@ export class StealthBrowserManager {
   constructor(options = {}) {
     this.browser = null;
     this._maxContexts = parseInt(process.env.MAX_BROWSER_CONTEXTS || '10', 10);
-    this.contexts = new BrowserContextPool({
-      maxContexts: this._maxContexts,
-      periodicRefreshAfter: 200,
-      closeIdleAfterMs: 30 * 60 * 1000,
-      waitTimeoutMs: 10_000,
-      onContextExpired: (contextId) => {
-        this.fingerprints.delete(contextId);
-      }
-    });
+    this.contexts = this._createContextPool();
     // D2.2: fingerprints Map is capped at _maxContexts to prevent unbounded growth.
     // Oldest entries are evicted when the cap is exceeded (insertion order via Map).
     this.fingerprints = new Map();
@@ -235,11 +227,33 @@ export class StealthBrowserManager {
   }
 
   /**
+   * Build the context pool. Also used by cleanup(): the pool's destroy()
+   * permanently stops its idle timer, so a destroyed pool must be replaced.
+   */
+  _createContextPool() {
+    return new BrowserContextPool({
+      maxContexts: this._maxContexts,
+      periodicRefreshAfter: 200,
+      closeIdleAfterMs: 30 * 60 * 1000,
+      waitTimeoutMs: 10_000,
+      onContextExpired: (contextId) => {
+        this.fingerprints.delete(contextId);
+      }
+    });
+  }
+
+  /**
    * Launch stealth browser with anti-detection configurations.
    * C2: honours config.engine — 'chromium' (default) or 'camoufox' (Firefox-based).
    */
   async launchStealthBrowser(config = {}) {
     const validatedConfig = StealthConfigSchema.parse({ ...this.defaultConfig, ...config });
+
+    // A Chromium that was OOM-killed or crashed doesn't error on reuse — its
+    // protocol calls hang. Detect the corpse and relaunch instead.
+    if (this.browser && !this.browser.isConnected()) {
+      this.browser = null;
+    }
 
     // C2: if the requested engine differs from the running browser, tear it down first.
     if (this.browser && this._launchedEngine && this._launchedEngine !== validatedConfig.engine) {
@@ -368,7 +382,7 @@ export class StealthBrowserManager {
       stealthArgs.push(`--proxy-server=${currentProxy}`);
     }
 
-    this.browser = await chromium.launch({
+    const browser = await chromium.launch({
       headless: true,
       // Hosted images set this to their system Chromium (Playwright itself
       // never reads it) — see Dockerfile.
@@ -379,6 +393,16 @@ export class StealthBrowserManager {
         '--enable-automation'
       ]
     });
+
+    // If this Chromium dies (OOM kill, crash), drop the handle so the next
+    // call relaunches instead of reusing a corpse. The identity guard keeps a
+    // late event from an old instance from nulling a newer one.
+    browser.on('disconnected', () => {
+      if (this.browser === browser) {
+        this.browser = null;
+      }
+    });
+    this.browser = browser;
 
     return this.browser;
   }
@@ -1867,8 +1891,20 @@ export class StealthBrowserManager {
    * Close all contexts and browser
    */
   async cleanup() {
-    // Close all contexts via pool (handles idle timer cleanup + wait queue drain)
-    await this.contexts.destroy();
+    // A wedged Chromium doesn't error on close() — it hangs. Race each close
+    // against a short deadline so cleanup always finishes inside callers'
+    // timeout windows and works as a remote unwedge lever.
+    const withDeadline = (promise, ms) =>
+      Promise.race([
+        promise.then(() => true, () => true),
+        new Promise((resolve) => setTimeout(() => resolve(false), ms))
+      ]);
+
+    // Close all contexts via pool (handles idle timer cleanup + wait queue
+    // drain). destroy() permanently stops the pool's idle timer, so recreate
+    // the pool afterwards or idle reaping is dead for the process lifetime.
+    await withDeadline(this.contexts.destroy(), 5000);
+    this.contexts = this._createContextPool();
     this.fingerprints.clear();
 
     // Reset human behavior simulator
@@ -1877,14 +1913,18 @@ export class StealthBrowserManager {
       this.humanBehaviorSimulator = null;
     }
 
-    // Close browser
+    // Close browser; if close hangs, kill the process so the OS reclaims it.
     if (this.browser) {
-      try {
-        await this.browser.close();
-      } catch (error) {
-        console.warn('Failed to close browser:', error.message);
-      }
+      const browser = this.browser;
       this.browser = null;
+      const closed = await withDeadline(browser.close(), 5000);
+      if (!closed) {
+        try {
+          browser.process()?.kill('SIGKILL');
+        } catch {
+          // Process already gone.
+        }
+      }
     }
   }
 
