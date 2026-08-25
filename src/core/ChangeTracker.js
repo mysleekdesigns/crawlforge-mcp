@@ -48,6 +48,12 @@ const ChangeComparisonSchema = z.object({
 
 const ChangeSignificance = z.enum(['none', 'minor', 'moderate', 'major', 'critical']);
 
+// Bounds that keep a compare response usable. An unscoped Amazon product page
+// produced a 5.6MB payload — 4MB of it a single line_diff holding the entire
+// document twice — which overflows the MCP response limit on every comparison.
+const MAX_DIFF_ENTRIES = 200;
+const MAX_DIFF_VALUE_CHARS = 2000;
+
 export class ChangeTracker extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -156,7 +162,8 @@ export class ChangeTracker extends EventEmitter {
         contentHash: contentAnalysis.hashes.page,
         sections: Object.keys(contentAnalysis.hashes.sections).length,
         elements: Object.keys(contentAnalysis.hashes.elements).length,
-        createdAt: baseline.timestamp
+        createdAt: baseline.timestamp,
+        ...(contentAnalysis.warnings ? { warnings: contentAnalysis.warnings } : {})
       };
       
     } catch (error) {
@@ -294,13 +301,36 @@ export class ChangeTracker extends EventEmitter {
     
     try {
       // Parse HTML if available
-      const $ = load(content);
-      
+      let $ = load(content);
+
       // Remove excluded elements
       options.excludeSelectors?.forEach(selector => {
         $(selector).remove();
       });
-      
+
+      // Narrow the working document to customSelectors so hashing, similarity
+      // and text diffs all operate on the same subtree. Previously these
+      // selectors only added extra section hashes while every comparison still
+      // ran over the whole page, so document-level churn (session tokens,
+      // CSP nonces, rotating ad ids) registered as changes no matter how
+      // tightly the caller scoped.
+      if (options.customSelectors?.length) {
+        const scoped = options.customSelectors
+          .flatMap(selector => $(selector).toArray().map(element => $.html(element)))
+          .join('\n');
+
+        if (scoped) {
+          $ = load(scoped);
+          analysis.originalContent = scoped;
+        } else {
+          // Falling back to the full document keeps a bad selector from
+          // silently tracking nothing, but the caller needs to know.
+          analysis.warnings = [
+            `customSelectors matched no elements (${options.customSelectors.join(', ')}); tracked the full document instead`
+          ];
+        }
+      }
+
       // Analyze at different granularities
       switch (options.granularity) {
         case 'element':
@@ -324,8 +354,8 @@ export class ChangeTracker extends EventEmitter {
       // Extract metadata
       analysis.metadata = this.extractMetadata($, options);
       
-      // Calculate statistics
-      analysis.statistics = this.calculateContentStatistics(content, $);
+      // Calculate statistics over the scoped content, matching what is hashed
+      analysis.statistics = this.calculateContentStatistics(analysis.originalContent, $);
       
     } catch (error) {
       // Fallback to plain text analysis
@@ -752,20 +782,64 @@ export class ChangeTracker extends EventEmitter {
     if (wordDiffChanges.length > 0) {
       textChanges.push({
         type: 'word_diff',
-        changes: wordDiffChanges
+        changes: this.capDiffPayload(wordDiffChanges)
       });
     }
-    
-    // Line-level diff for structured content
-    const lineDiff = diffLines(baselineContent, currentContent);
-    if (lineDiff.some(part => part.added || part.removed)) {
-      textChanges.push({
-        type: 'line_diff',
-        changes: lineDiff.filter(part => part.added || part.removed)
-      });
+
+    // Line-level diff for structured content. With ignoreWhitespace (the
+    // default) the whole document collapses onto a single line, so diffLines
+    // degenerates into "remove everything, add everything" — a payload twice
+    // the page size describing what word_diff already pinpointed. Only run it
+    // when the content genuinely has line structure.
+    const hasLineStructure = baselineContent.includes('\n') || currentContent.includes('\n');
+    if (hasLineStructure) {
+      const lineDiff = diffLines(baselineContent, currentContent);
+      const lineDiffChanges = lineDiff.filter(part => part.added || part.removed);
+      if (lineDiffChanges.length > 0) {
+        textChanges.push({
+          type: 'line_diff',
+          changes: this.capDiffPayload(lineDiffChanges)
+        });
+      }
     }
-    
+
     return textChanges;
+  }
+
+  /**
+   * Bound a diff payload so a large page cannot produce a multi-megabyte
+   * response. Keeps the first maxEntries changes, truncates any oversized
+   * value, and appends a marker describing what was dropped so callers never
+   * mistake a truncated diff for a complete one.
+   * @param {Array} changes - Diff parts from diffWords/diffLines
+   * @param {Object} limits - Optional maxEntries / maxValueChars overrides
+   * @returns {Array} - Bounded diff parts
+   */
+  capDiffPayload(changes, limits = {}) {
+    const maxEntries = limits.maxEntries ?? MAX_DIFF_ENTRIES;
+    const maxValueChars = limits.maxValueChars ?? MAX_DIFF_VALUE_CHARS;
+
+    const capped = changes.slice(0, maxEntries).map(part => {
+      if (typeof part.value === 'string' && part.value.length > maxValueChars) {
+        return {
+          ...part,
+          value: part.value.slice(0, maxValueChars),
+          truncated: true,
+          omittedChars: part.value.length - maxValueChars
+        };
+      }
+      return part;
+    });
+
+    const omittedEntries = changes.length - capped.length;
+    if (omittedEntries > 0) {
+      capped.push({
+        omittedEntries,
+        note: `${omittedEntries} further changes omitted; scope the comparison with customSelectors to see them`
+      });
+    }
+
+    return capped;
   }
   
   detectLinkChanges(baselineLinks, currentLinks) {
