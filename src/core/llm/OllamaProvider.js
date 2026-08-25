@@ -1,7 +1,5 @@
 import { LLMProvider } from './LLMProvider.js';
-import { ollamaBaseUrl, ollamaHeaders } from '../../utils/ollamaConfig.js';
-
-const DEFAULT_MODEL = 'llama3.2';
+import { ollamaBaseUrl, ollamaHeaders, selectOllamaModel } from '../../utils/ollamaConfig.js';
 
 /**
  * Ollama Provider
@@ -15,12 +13,20 @@ export class OllamaProvider extends LLMProvider {
   constructor(options = {}) {
     super(options);
 
-    this.model = options.model || process.env.OLLAMA_DEFAULT_MODEL || DEFAULT_MODEL;
-    this.embeddingModel = options.embeddingModel || process.env.OLLAMA_EMBEDDING_MODEL || this.model;
+    // Resolved lazily: choosing the best installed model needs an HTTP call.
+    this.model = options.model || null;
+    this.embeddingModel = options.embeddingModel || process.env.OLLAMA_EMBEDDING_MODEL || null;
     this.timeout = options.timeout || 120000;
   }
 
+  /** The model to use, selecting the best installed one on first use. */
+  async resolveModel() {
+    if (!this.model) this.model = await selectOllamaModel();
+    return this.model;
+  }
+
   async generateCompletion(prompt, options = {}) {
+    const model = await this.resolveModel();
     const {
       maxTokens = 1000,
       temperature = 0.7,
@@ -38,7 +44,7 @@ export class OllamaProvider extends LLMProvider {
     messages.push({ role: 'user', content: prompt });
 
     const body = {
-      model: this.model,
+      model,
       messages,
       stream: false,
       options: { num_predict: maxTokens, temperature }
@@ -64,7 +70,7 @@ export class OllamaProvider extends LLMProvider {
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
       const message = response.status === 404 && /model.*not found|pull/i.test(errText)
-        ? `Ollama model "${this.model}" is not pulled. Run: "ollama pull ${this.model}"`
+        ? `Ollama model "${model}" is not pulled. Run: "ollama pull ${model}"`
         : `Ollama API error ${response.status}: ${errText.slice(0, 200)}`;
       this.logger.error('Ollama completion failed', { error: message });
       throw new Error(message);
@@ -79,10 +85,11 @@ export class OllamaProvider extends LLMProvider {
   }
 
   async generateEmbedding(text) {
+    const model = this.embeddingModel || await this.resolveModel();
     const response = await fetch(`${ollamaBaseUrl()}/api/embeddings`, {
       method: 'POST',
       headers: ollamaHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ model: this.embeddingModel, prompt: text }),
+      body: JSON.stringify({ model, prompt: text }),
       signal: AbortSignal.timeout(this.timeout)
     });
 
@@ -120,8 +127,8 @@ export class OllamaProvider extends LLMProvider {
       ...super.getMetadata(),
       name: 'Ollama',
       baseUrl: ollamaBaseUrl(),
-      model: this.model,
-      embeddingModel: this.embeddingModel,
+      model: this.model || '(selected on first use)',
+      embeddingModel: this.embeddingModel || '(same as model)',
       capabilities: {
         completion: true,
         embedding: true,

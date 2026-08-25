@@ -11,9 +11,7 @@
  *   4. Error
  */
 
-import { ollamaBaseUrl as OLLAMA_BASE_URL, ollamaHeaders } from '../utils/ollamaConfig.js';
-
-const OLLAMA_DEFAULT_MODEL = 'llama3.2';
+import { ollamaBaseUrl as OLLAMA_BASE_URL, ollamaHeaders, selectOllamaModel } from '../utils/ollamaConfig.js';
 
 /**
  * Attempt an Ollama completion.
@@ -22,7 +20,7 @@ const OLLAMA_DEFAULT_MODEL = 'llama3.2';
  * @returns {Promise<string>}
  */
 async function tryOllama(prompt, { model, maxTokens } = {}) {
-  const ollamaModel = model || process.env.OLLAMA_DEFAULT_MODEL || OLLAMA_DEFAULT_MODEL;
+  const ollamaModel = model || await selectOllamaModel();
   const url = `${OLLAMA_BASE_URL()}/api/generate`;
   const res = await fetch(url, {
     method: 'POST',
