@@ -116,7 +116,7 @@ function resolveUrl(href, base) {
  * Gather raw CSS text from <style> blocks, inline style="" attributes, and
  * (optionally) linked stylesheets.
  */
-async function collectCssSources($, pageUrl, opts) {
+export async function collectCssSources($, pageUrl, opts) {
   const warnings = [];
   const fetchedUrls = [];
   let styleBlocks = 0;
