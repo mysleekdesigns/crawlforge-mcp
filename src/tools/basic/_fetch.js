@@ -68,6 +68,11 @@ export async function fetchWithTimeout(url, options = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
+  // Started after the politeness throttle so the figure is the target's
+  // latency and not our own waiting — a monitor polling one host repeatedly
+  // would otherwise read its own throttle delay as the site being slow.
+  const startedAt = Date.now();
+
   // The timeout must stay armed for the entire body read, not just until
   // headers arrive — a stalled/trickling body (slowloris, hung proxy) would
   // otherwise hang the awaiting reader.read() forever. clearTimeout runs in
@@ -114,7 +119,7 @@ export async function fetchWithTimeout(url, options = {}) {
     // without a ReadableStream body (already-buffered responses, test mocks)
     // are returned unchanged so callers' native .text()/.json() still work.
     if (!response.body || typeof response.body.getReader !== 'function') {
-      return response;
+      return Object.assign(response, { _responseTime: Date.now() - startedAt });
     }
 
     // Stream the body and abort if accumulated bytes exceed the cap.
@@ -168,7 +173,8 @@ export async function fetchWithTimeout(url, options = {}) {
     return Object.assign(response, {
       text: () => Promise.resolve(bodyText),
       json: () => Promise.resolve(JSON.parse(bodyText)),
-      _body: bodyText
+      _body: bodyText,
+      _responseTime: Date.now() - startedAt
     });
   } finally {
     clearTimeout(timeoutId);

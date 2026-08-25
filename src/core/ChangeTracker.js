@@ -428,7 +428,10 @@ export class ChangeTracker extends EventEmitter {
   async detectChanges(baseline, current, options = {}) {
     const changes = {
       similarity: 0,
-      structuralSimilarity: 0,
+      // null rather than 0: a structural score is only produced when
+      // trackStructure is on, and 0 is a real score meaning "the structure
+      // changed completely".
+      structuralSimilarity: null,
       addedElements: [],
       removedElements: [],
       modifiedElements: [],

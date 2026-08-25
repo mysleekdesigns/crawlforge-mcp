@@ -286,6 +286,30 @@ test('ChangeTracker: compareWithBaseline reports structuralSimilarity within [0,
   assert.ok(s >= 0 && s <= 1, `structuralSimilarity out of range: ${s}`);
 });
 
+test('ChangeTracker: structuralSimilarity is null when trackStructure is off', async () => {
+  // Regression (2026-08-25): it was initialised to 0 and only overwritten when
+  // trackStructure was on, so opting out reported 0 — which is a real score
+  // meaning "the structure changed completely", not "this was not measured".
+  const ct = new ChangeTracker();
+  const opts = { trackStructure: false, trackText: true };
+  await ct.createBaseline(VALID_URL, '<html><body><p>one</p></body></html>', opts);
+  const result = await ct.compareWithBaseline(VALID_URL, '<html><body><p>two</p></body></html>', opts);
+
+  assert.equal(result.metrics.structuralSimilarity, null);
+  assert.equal(result.hasChanges, true, 'the text change is still detected');
+});
+
+test('ChangeTracker: an unchanged page still scores structuralSimilarity 1 when tracked', async () => {
+  // The null above must not swallow a genuine score at either end of the range.
+  const ct = new ChangeTracker();
+  const html = '<html><body><div>a</div><p>x</p></body></html>';
+  const opts = { trackStructure: true, trackText: true };
+  await ct.createBaseline(VALID_URL, html, opts);
+  const result = await ct.compareWithBaseline(VALID_URL, html, opts);
+
+  assert.equal(result.metrics.structuralSimilarity, 1);
+});
+
 // ── createBaseline ───────────────────────────────────────────────────────────
 
 test('ChangeTracker: createBaseline returns success result for valid URL+content', async () => {

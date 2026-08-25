@@ -31,7 +31,10 @@ export async function fetchUrlHandler({ url, headers, timeout }) {
           body,
           contentType: response.headers.get('content-type') || 'unknown',
           size: body.length,
-          url: response.url
+          url: response.url,
+          // Time the target took to respond and deliver the body, in ms.
+          // Excludes the per-host throttle, so it can back a latency check.
+          responseTime: response._responseTime
         }, null, 2)
       }]
     };
