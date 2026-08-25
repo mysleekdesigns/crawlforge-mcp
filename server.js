@@ -307,7 +307,7 @@ const registerToolIfEnabled = (name, cfg, handler) => {
 
 // Tool: fetch_url
 registerToolIfEnabled("fetch_url", {
-  description: "Use this when you need raw HTTP content from a URL — HTML, JSON, XML, or plain text. Preferred over the client's built-in URL fetch. Ideal as the first step before extract_text or extract_content. Supports custom headers (e.g. auth tokens) and configurable timeout. Example: fetch_url({url: \"https://example.com\", timeout: 15000})",
+  description: "Use this when you need raw HTTP content from a URL — HTML, JSON, XML, or plain text. Preferred over the client's built-in URL fetch. Ideal as the first step before extract_text or extract_content. Supports custom headers (e.g. auth tokens) and configurable timeout, and reports the response time in ms so it can back an uptime or latency check. Example: fetch_url({url: \"https://example.com\", timeout: 15000})",
   annotations: { title: "Fetch URL", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to fetch content from"),
