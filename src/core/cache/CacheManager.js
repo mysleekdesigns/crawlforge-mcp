@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { EventEmitter } from 'events';
+import { config } from '../../constants/config.js';
 
 export class CacheManager extends EventEmitter {
   constructor(options = {}) {
@@ -11,8 +12,12 @@ export class CacheManager extends EventEmitter {
     const {
       maxSize = 1000,
       ttl = 3600000, // 1 hour default
-      diskCacheDir = './cache',
-      enableDiskCache = true,
+      // CACHE_DIR and CACHE_ENABLE_DISK have always been documented knobs in
+      // constants/config.js, but nothing read them: the disk cache was hard-
+      // wired to ./cache and always on. Defaults are unchanged ('./cache',
+      // true) — the env vars now actually do what they say.
+      diskCacheDir = config.performance.cacheDir,
+      enableDiskCache = config.performance.cacheEnableDisk,
       enableCacheWarming = false,
       warmingBatchSize = 10,
       enableMonitoring = true,
