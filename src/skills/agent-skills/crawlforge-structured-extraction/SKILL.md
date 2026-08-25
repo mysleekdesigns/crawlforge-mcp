@@ -33,10 +33,12 @@ before reaching for the LLM tools.
 { "tool": "scrape_template", "params": { "template": "github-repo", "url": "https://github.com/user/repo" } }
 ```
 
-Pass `template:"list"` to enumerate templates. Supports `amazon-product`,
-`linkedin-profile`, `github-repo`, `youtube-video`, `tweet`, `reddit-thread`,
-`hacker-news-front-page`, `producthunt-launch`, `stackoverflow-question`,
-`npm-package`. Full field lists: [templates](references/templates.md).
+Pass `template:"list"` to enumerate templates. Supports `shopify-product`,
+`amazon-product`, `linkedin-profile`, `github-repo`, `youtube-video`, `tweet`,
+`reddit-thread`, `hacker-news-front-page`, `producthunt-launch`,
+`stackoverflow-question`, `npm-package`. Prefer `shopify-product` over scraping
+or LLM extraction on any Shopify storefront — it reads the store's own JSON, so
+prices and stock cannot be misread. Full field lists: [templates](references/templates.md).
 CLI: `crawlforge template github-repo https://github.com/owner/repo`.
 
 ## scrape_structured — CSS selectors (cost: 2)
