@@ -15,6 +15,12 @@ import http from 'node:http';
 // this does not leak into sibling test files.
 process.env.ALLOWED_DOMAINS = '127.0.0.1';
 delete process.env.SSRF_PROTECTION_ENABLED;
+// CacheManager persists results to ./cache, shared by every test process and
+// every previous run. Cache keys contain this file's server URL, whose port
+// is ephemeral and gets recycled by the OS, so a later run could be served a
+// completely different site's crawl — the source of this file's parallel-run
+// flake. Unit tests keep the cache in memory.
+process.env.CACHE_ENABLE_DISK = 'false';
 const { CrawlDeepTool } = await import('../../../../src/tools/crawl/crawlDeep.js');
 
 // ---------------------------------------------------------------------------
