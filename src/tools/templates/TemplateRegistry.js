@@ -86,6 +86,61 @@ function htmlToText(html) {
   return text || null;
 }
 
+// ── Amazon helpers ───────────────────────────────────────────────────────────
+
+/** Amazon's server-side templates leave runs of whitespace and newlines inline. */
+function tidy(value) {
+  const cleaned = String(value ?? '').replace(/\s+/g, ' ').trim();
+  return cleaned || null;
+}
+
+/**
+ * The byline slot holds three different things: "Brand: Amazon" on a
+ * first-party device, "Visit the Apple Store" on a branded storefront, and
+ * "by Jonathan Haidt (Author) Format: Hardcover" on a book. Each states the
+ * same fact wrapped in different chrome.
+ */
+function amazonByline($) {
+  const contributor = tidy($('#bylineInfo .contributorNameID').first().text());
+  const raw = tidy($('#bylineInfo').first().text());
+  if (!raw) return null;
+
+  const branded = raw.match(/^Brand:\s*(.+)$/i) || raw.match(/^Visit the (.+?) Store$/i);
+  if (branded) return tidy(branded[1]);
+
+  // Books: the contributor link is the name on its own; the surrounding text
+  // continues into "(Author) Format: Hardcover".
+  if (/^by\s/i.test(raw)) return contributor || tidy(raw.replace(/^by\s+/i, '').split('(')[0]);
+
+  return raw;
+}
+
+/** "4.7 out of 5 stars" → 4.7 */
+function amazonRating(value) {
+  const match = tidy(value)?.match(/([\d.]+)/);
+  return match ? Number.parseFloat(match[1]) : null;
+}
+
+/** Both "(198,594)" and "198,594 global ratings" mean 198594. */
+function amazonCount(value) {
+  const digits = tidy(value)?.replace(/[^\d]/g, '');
+  return digits ? Number.parseInt(digits, 10) : null;
+}
+
+/**
+ * Amazon serves every size of an image from one object, with the size encoded
+ * in the filename: ..._AC_SR40,60_.jpg is the 40x60 thumbnail of ....jpg.
+ * Dropping the token yields the original (verified 2026-08-25: the thumbnail
+ * is 1KB, the same URL without the token is 16KB).
+ */
+function fullSizeImage(src) {
+  if (!src) return null;
+  // The alt-image strip is padded with a transparent spacer gif, and the page
+  // chrome is served from the shared /x-locale/common/ sprite directory.
+  if (/transparent-pixel|\/x-locale\/common\//.test(src)) return null;
+  return src.replace(/\._[^/]*_\.(jpe?g|png|gif)$/i, ".$1");
+}
+
 // ── Template definitions ─────────────────────────────────────────────────────
 
 const TEMPLATES = [
@@ -186,17 +241,35 @@ const TEMPLATES = [
     description: 'Scrape an Amazon product page for title, price, rating, reviews, ASIN, and description.',
     targetPattern: /amazon\.(com|co\.uk|de|fr|jp|ca|com\.au)/i,
     extract($) {
+      const bullets = $('#feature-bullets ul li span.a-list-item')
+        .map((_, el) => tidy($(el).text()))
+        .get()
+        .filter(Boolean);
+      const images = [attr($, '#landingImage', 'src'), ...listAttr($, '#altImages img', 'src')]
+        .map(fullSizeImage)
+        .filter(Boolean);
+
       return {
-        title: text($, '#productTitle'),
+        title: tidy(text($, '#productTitle')),
         price: text($, '.a-price .a-offscreen') || text($, '#priceblock_ourprice') || text($, '#priceblock_dealprice'),
-        currency: attr($, 'meta[itemprop="priceCurrency"]', 'content'),
-        rating: text($, '#acrPopover .a-size-base'),
-        review_count: text($, '#acrCustomerReviewText'),
+        // Amazon ships no priceCurrency meta tag — the ISO code is a hidden
+        // field on the add-to-cart form.
+        currency: attr($, 'input[name*="currencyCode"]', 'value') || attr($, 'meta[itemprop="priceCurrency"]', 'content'),
+        rating: amazonRating(attr($, '#acrPopover', 'title') || text($, '#averageCustomerReviews .a-icon-alt')),
+        review_count: amazonCount(text($, '#acrCustomerReviewText') || text($, '[data-hook="total-review-count"]')),
         asin: text($, 'input#ASIN') || attr($, 'input[name="ASIN"]', 'value'),
-        brand: text($, '#bylineInfo'),
-        description: text($, '#productDescription p') || text($, '#feature-bullets'),
-        images: listAttr($, '#altImages img.a-thumbnail-image', 'src').slice(0, 8),
-        availability: text($, '#availability span'),
+        brand: amazonByline($),
+        // Device pages leave #productDescription empty and put the copy in the
+        // bullet list; books use neither and have their own container.
+        description:
+          tidy(text($, '#productDescription')) ||
+          (bullets.length ? bullets.join(' ') : null) ||
+          tidy(text($, '#bookDescription_feature_div .a-expander-content')) ||
+          tidy(text($, '#feature-bullets')),
+        images: [...new Set(images)].slice(0, 8),
+        availability: tidy(text($, '#availability span')),
+        // Only category pages (books, media) carry breadcrumbs; device pages
+        // genuinely have none, so [] here is a fact about the page.
         category_breadcrumb: list($, '#wayfinding-breadcrumbs_feature_div a')
       };
     }
