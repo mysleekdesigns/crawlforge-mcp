@@ -170,6 +170,30 @@ function wins(a, b) {
   return a.order > b.order;
 }
 
+/** Elements whose contents a browser never renders as page text. */
+const NON_RENDERED = 'script, style, noscript, template';
+
+/**
+ * Size of the content a browser would actually render inside an element.
+ *
+ * Script and style payloads must not count: on a commercial storefront they are
+ * an order of magnitude larger than the visible copy, and including them in the
+ * bulk-removal denominator made a wrapper holding the entire product section
+ * look like a minor fragment of the page.
+ *
+ * @param {import('cheerio').CheerioAPI} $
+ * @param {*} el - Element, or a cheerio selection
+ * @returns {{text: number, markup: number}} lengths in characters
+ */
+function renderedSize($, el) {
+  const $clone = $(el).clone();
+  $clone.find(NON_RENDERED).remove();
+  return {
+    text: $clone.text().replace(/\s+/g, ' ').trim().length,
+    markup: ($clone.html() || '').length
+  };
+}
+
 /** Gather the text of every inline <style> block in the document. */
 export function inlineStyleText($) {
   const parts = [];
@@ -207,8 +231,14 @@ export function stripHiddenFromDom($, options = {}) {
   // Share is measured by markup as well as text, because the streamed Next.js
   // wrapper is only ~8% of the page's text but half its markup — the visible
   // copy is there while the remaining "text" is script payload.
-  const documentTextLength = $('body').text().replace(/\s+/g, ' ').trim().length || 1;
-  const documentMarkupLength = ($('body').html() || '').length || 1;
+  //
+  // Both sides of the ratio count rendered content only. Measuring raw text
+  // put ~58KB of inline script into the denominator on a Shopify storefront,
+  // so the EasyLockdown wrapper — which held the whole product section,
+  // price included — scored 0.27 against a 0.3 threshold and was deleted.
+  const document = renderedSize($, 'body');
+  const documentTextLength = document.text || 1;
+  const documentMarkupLength = document.markup || 1;
   const guardApplies =
     documentTextLength >= MIN_TEXT_FOR_BULK_GUARD ||
     documentMarkupLength >= MIN_MARKUP_FOR_BULK_GUARD;
@@ -217,8 +247,9 @@ export function stripHiddenFromDom($, options = {}) {
     const $el = $(el);
     if (!$el.length || !$el.parent().length) return;
     if (guardApplies) {
-      const textShare = $el.text().replace(/\s+/g, ' ').trim().length / documentTextLength;
-      const markupShare = ($el.html() || '').length / documentMarkupLength;
+      const size = renderedSize($, el);
+      const textShare = size.text / documentTextLength;
+      const markupShare = size.markup / documentMarkupLength;
       if (Math.max(textShare, markupShare) > maxRemovalFraction) {
         skippedBulk++;
         return;

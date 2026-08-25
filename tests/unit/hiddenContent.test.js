@@ -149,10 +149,8 @@ test('a hidden wrapper holding most of the page is left alone', () => {
 
 test('a markup-heavy hidden wrapper is left alone (Next.js streaming SSR)', () => {
   // Next.js App Router streams the rendered page inside <div id="S:0" hidden>
-  // and moves it into place with JavaScript. The wrapper is only a small share
-  // of the document's *text* — most text lives in script payload — but half its
-  // markup, so the guard has to weigh markup as well as text.
-  const rendered = '<section><h2>Plans</h2><p class="a b c">Hobby $19</p></section>'.repeat(80);
+  // and moves it into place with JavaScript. Removing it deletes the page.
+  const rendered = '<section><h2>Plans</h2><p class="a b c">Hobby $19</p></section>'.repeat(400);
   const payload = '<script>' + 'x'.repeat(9000) + '</script>';
   const $ = load(`<body><div id="S:0" hidden>${rendered}</div>${payload}</body>`);
 
@@ -160,6 +158,28 @@ test('a markup-heavy hidden wrapper is left alone (Next.js streaming SSR)', () =
   assert.equal(skippedBulk, 1, 'the streamed wrapper must be skipped');
   assert.equal(removed, 0);
   assert.match($.text(), /Hobby \$19/, 'the streamed page content must survive');
+});
+
+test('script payload does not count as page text when sizing a wrapper', () => {
+  // Reproduction (2026-08-25): a Shopify storefront wraps the whole page in
+  // <div class="easylockdown-content" style="display:none"> and reveals it with
+  // JavaScript. Measuring share against $('body').text() counted ~58KB of
+  // inline script as page text, so the wrapper — which held the entire product
+  // section including the price — scored 0.27 against the 0.3 threshold and was
+  // deleted. Sized against rendered content it is 0.39 and survives.
+  //
+  // Proportions mirror the live page: script text dwarfs visible copy, and the
+  // wrapper holds well under half of it once script is discounted.
+  const product = '<div class="price"><span>$11.99</span><p>Light Roast Coffee</p></div>';
+  const chrome = '<nav><a href="/a">Coffee</a><a href="/b">Merch</a><a href="/c">Subscribe</a></nav>'.repeat(300);
+  const script = '<script>' + 'var padding="x";'.repeat(4000) + '</script>';
+  const $ = load(
+    `<body>${chrome}<div class="easylockdown-content" style="display:none">${product.repeat(200)}</div>${script}</body>`
+  );
+
+  const { skippedBulk } = stripHiddenFromDom($);
+  assert.equal(skippedBulk, 1, 'the JS-revealed wrapper must be recognised as bulk content');
+  assert.match($.text(), /\$11\.99/, 'the product price must survive the strip');
 });
 
 test('body and html are never removed', () => {
