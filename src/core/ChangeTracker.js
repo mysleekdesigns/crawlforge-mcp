@@ -54,6 +54,54 @@ const ChangeSignificance = z.enum(['none', 'minor', 'moderate', 'major', 'critic
 const MAX_DIFF_ENTRIES = 200;
 const MAX_DIFF_VALUE_CHARS = 2000;
 
+// Significance ordering, used to raise a level without ever lowering it.
+const SIGNIFICANCE_ORDER = ['none', 'minor', 'moderate', 'major', 'critical'];
+
+/**
+ * A monetary amount carries meaning that its size on the page does not.
+ * Significance is otherwise purely volumetric — how much of the document
+ * changed — so a price is scored by how many characters it occupies. Tracking
+ * a price block, a rise from $19.99 to $99.99 scored "minor", below the default
+ * "moderate" notification threshold; untracked, the same change did not
+ * register as a change at all.
+ *
+ * Only currency-tagged numbers count. Treating every number this way would fire
+ * on view counters, timestamps and review totals, which is the opposite failure.
+ */
+const MONETARY_PATTERN =
+  /[$£€¥₹]\s?\d[\d,]*(?:\.\d{1,2})?|\b\d[\d,]*(?:\.\d{1,2})?\s?(?:USD|EUR|GBP|JPY|CAD|AUD|CHF|CNY|INR)\b/gi;
+
+/** A price change at or above this fraction is major rather than moderate. */
+const MAJOR_VALUE_CHANGE = 0.2;
+
+/**
+ * Parse the numeric amount out of a matched monetary string.
+ * Commas are read as thousands separators; a European decimal comma is
+ * ambiguous here and is not guessed at, so such a value simply reads as
+ * changed rather than being scored by magnitude.
+ * @param {string} raw
+ * @returns {number|null}
+ */
+function parseMonetaryAmount(raw) {
+  const amount = Number.parseFloat(raw.replace(/[^\d.,]/g, '').replace(/,/g, ''));
+  return Number.isFinite(amount) ? amount : null;
+}
+
+/**
+ * Monetary amounts in document order.
+ * @param {string} text
+ * @returns {Array<{raw: string, amount: number}>}
+ */
+function extractMonetaryValues(text) {
+  if (!text) return [];
+  const values = [];
+  for (const match of String(text).matchAll(MONETARY_PATTERN)) {
+    const amount = parseMonetaryAmount(match[0]);
+    if (amount !== null) values.push({ raw: match[0].trim(), amount });
+  }
+  return values;
+}
+
 export class ChangeTracker extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -443,6 +491,15 @@ export class ChangeTracker extends EventEmitter {
       );
     }
     
+    // Detect monetary value changes. Scored by magnitude rather than by how
+    // much of the page they occupy, so a price change is not diluted away.
+    if (options.trackText !== false) {
+      changes.valueChanges = this.detectValueChanges(
+        baseline.originalContent,
+        current.originalContent
+      );
+    }
+
     // Detect link changes
     if (options.trackLinks) {
       changes.linkChanges = this.detectLinkChanges(
@@ -462,6 +519,49 @@ export class ChangeTracker extends EventEmitter {
     return changes;
   }
   
+  /**
+   * Compare the monetary amounts in two versions of the tracked content.
+   *
+   * Amounts are paired in document order. When the two versions hold different
+   * counts the set of prices itself changed (an item sold out, a sale price
+   * appeared), which is reported as a change even though no single pair can be
+   * measured.
+   *
+   * @param {string} baselineText
+   * @param {string} currentText
+   * @returns {{changes: Array, countChanged: boolean, maxRelativeChange: number}|null}
+   *   null when no monetary value changed
+   */
+  detectValueChanges(baselineText, currentText) {
+    const before = extractMonetaryValues(baselineText);
+    const after = extractMonetaryValues(currentText);
+    if (before.length === 0 && after.length === 0) return null;
+
+    const changes = [];
+    const pairs = Math.min(before.length, after.length);
+    for (let i = 0; i < pairs; i++) {
+      if (before[i].amount === after[i].amount) continue;
+      const base = Math.abs(before[i].amount);
+      const relativeChange = base > 0
+        ? Math.abs(after[i].amount - before[i].amount) / base
+        : 1;
+      changes.push({
+        before: before[i].raw,
+        after: after[i].raw,
+        relativeChange: Math.round(relativeChange * 1000) / 1000
+      });
+    }
+
+    const countChanged = before.length !== after.length;
+    if (changes.length === 0 && !countChanged) return null;
+
+    return {
+      changes: changes.slice(0, MAX_DIFF_ENTRIES),
+      countChanged,
+      maxRelativeChange: changes.reduce((max, c) => Math.max(max, c.relativeChange), 0)
+    };
+  }
+
   /**
    * Calculate change significance score
    * @param {Object} changeAnalysis - Change analysis results
@@ -512,17 +612,33 @@ export class ChangeTracker extends EventEmitter {
     }
     
     // Determine significance level
+    let level;
     if (significanceScore < thresholds.minor) {
-      return 'none';
+      level = 'none';
     } else if (significanceScore < thresholds.moderate) {
-      return 'minor';
+      level = 'minor';
     } else if (significanceScore < thresholds.major) {
-      return 'moderate';
+      level = 'moderate';
     } else if (significanceScore < 0.9) {
-      return 'major';
+      level = 'major';
     } else {
-      return 'critical';
+      level = 'critical';
     }
+
+    // The score above measures how much of the page changed. A price change is
+    // significant because of what it is, not how many characters it takes up,
+    // so a monetary change raises the level to at least "moderate" — the
+    // default notification threshold, which it previously fell below. This only
+    // ever raises the level; a large structural change stays major.
+    const valueChanges = changeAnalysis.valueChanges;
+    if (valueChanges) {
+      const floor = valueChanges.maxRelativeChange >= MAJOR_VALUE_CHANGE ? 'major' : 'moderate';
+      if (SIGNIFICANCE_ORDER.indexOf(floor) > SIGNIFICANCE_ORDER.indexOf(level)) {
+        level = floor;
+      }
+    }
+
+    return level;
   }
   
   // Content Analysis Methods
