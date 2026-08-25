@@ -248,7 +248,7 @@ const searchWebShape = {
 const extractStructuredShape = {
   url: z.string().optional(),
   data: z.record(z.unknown()).optional().describe('Extracted fields matching the requested schema'),
-  extraction_method: z.string().optional().describe('"llm" | "css_fallback" | "none"'),
+  extraction_method: z.string().optional().describe('"llm" | "css_fallback" | "keyword_fallback" | "none"'),
   confidence: z.number().optional(),
   schema_used: z.record(z.unknown()).optional(),
   processingTime: z.number().optional(),

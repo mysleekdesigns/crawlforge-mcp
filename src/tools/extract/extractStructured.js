@@ -115,13 +115,25 @@ export class ExtractStructuredTool {
 
       try {
         const llm = this._ensureLLMManager(llmConfig || {});
-        llmAvailable = llm.isAvailable();
+        // ready() probes Ollama, which has no API key to gate on. isAvailable()
+        // alone reported false on any machine without a cloud key, so a running
+        // local Ollama was never used.
+        llmAvailable = await llm.ready();
         if (llmAvailable) {
-          extractionResult = await llm.extractStructured(textContent, schema, {
+          const result = await llm.extractStructured(textContent, schema, {
             prompt: prompt || '',
             maxContentLength: 6000
           });
-          extractionMethod = 'llm';
+          // extractStructured swallows LLM failures and returns its keyword
+          // fallback. Only accept the result as an LLM extraction when it
+          // actually is one; otherwise fall through to the CSS pass, which is
+          // higher fidelity than keyword matching.
+          if (result?.method === 'llm') {
+            extractionResult = result;
+            extractionMethod = 'llm';
+          } else {
+            llmErrorMessage = result?.error || 'LLM did not return usable JSON';
+          }
         }
       } catch (llmError) {
         // LLM failed — will fall through to CSS fallback. Keep the message so
@@ -162,7 +174,7 @@ export class ExtractStructuredTool {
       if (!extractionResult) {
         const llm = this._ensureLLMManager(llmConfig || {});
         extractionResult = llm.fallbackStructuredExtraction(textContent, schema);
-        extractionMethod = 'css_fallback';
+        extractionMethod = 'keyword_fallback';
       }
 
       // Step 6: Calculate confidence
