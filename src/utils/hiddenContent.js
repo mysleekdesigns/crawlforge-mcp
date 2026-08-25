@@ -54,10 +54,11 @@ const NEVER_REMOVE = new Set(['html', 'body', 'head', 'main', '*', ':root']);
 const MAX_REMOVAL_FRACTION = 0.3;
 
 /**
- * Below this much text the share test is meaningless — in a short fragment a
+ * Below this much content the share test is meaningless — in a short fragment a
  * single badge can be a third of the content — so the wrapper guard is skipped.
  */
 const MIN_TEXT_FOR_BULK_GUARD = 2000;
+const MIN_MARKUP_FOR_BULK_GUARD = 20000;
 
 /** Strip CSS comments and any at-rule block whose contents are conditional. */
 function stripConditionalBlocks(css) {
@@ -197,17 +198,28 @@ export function stripHiddenFromDom($, options = {}) {
 
   // Genuinely invisible furniture is small: a badge, a label, a tooltip. An
   // element holding a large share of the page is a wrapper that JavaScript
-  // reveals on load — Shopify's EasyLockdown app ships the whole storefront
-  // inside <div class="easylockdown-content" style="display:none">. Removing
-  // that would delete the product and its price along with the noise.
+  // reveals on load, and removing it would delete the page. Two real cases:
+  // Shopify's EasyLockdown app ships the whole storefront inside
+  // <div class="easylockdown-content" style="display:none">, and Next.js
+  // App Router streams the rendered page inside <div id="S:0" hidden> before
+  // moving it into place.
+  //
+  // Share is measured by markup as well as text, because the streamed Next.js
+  // wrapper is only ~8% of the page's text but half its markup — the visible
+  // copy is there while the remaining "text" is script payload.
   const documentTextLength = $('body').text().replace(/\s+/g, ' ').trim().length || 1;
+  const documentMarkupLength = ($('body').html() || '').length || 1;
+  const guardApplies =
+    documentTextLength >= MIN_TEXT_FOR_BULK_GUARD ||
+    documentMarkupLength >= MIN_MARKUP_FOR_BULK_GUARD;
 
   const remove = (el) => {
     const $el = $(el);
     if (!$el.length || !$el.parent().length) return;
-    if (documentTextLength >= MIN_TEXT_FOR_BULK_GUARD) {
-      const share = $el.text().replace(/\s+/g, ' ').trim().length / documentTextLength;
-      if (share > maxRemovalFraction) {
+    if (guardApplies) {
+      const textShare = $el.text().replace(/\s+/g, ' ').trim().length / documentTextLength;
+      const markupShare = ($el.html() || '').length / documentMarkupLength;
+      if (Math.max(textShare, markupShare) > maxRemovalFraction) {
         skippedBulk++;
         return;
       }
