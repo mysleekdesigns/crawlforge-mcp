@@ -11,6 +11,11 @@
  *
  * Templates do NOT make network calls.  The ScrapeTemplateTool fetches the
  * page and passes the parsed HTML to the template's extract() method.
+ *
+ * Two optional hooks let a template read a machine-readable endpoint instead of
+ * scraping the rendered page, without taking the fetch into its own hands:
+ *   resolveUrl(url)      — rewrite the URL the tool should fetch
+ *   extractRaw(body,url) — parse the response itself, instead of extract($)
  */
 
 import { load } from 'cheerio';
@@ -33,9 +38,148 @@ function listAttr($, sel, attribute) {
   return $(sel).map((_, el) => $(el).attr(attribute)).get().filter(Boolean);
 }
 
+// ── Shopify helpers ──────────────────────────────────────────────────────────
+
+/** Shopify writes an absent compare-at price as "" rather than omitting it. */
+function money(value) {
+  return value === '' || value === null || value === undefined ? null : String(value);
+}
+
+/**
+ * A compare-at price of 0 means "unset", not "was free" — Allbirds ships
+ * "0.00" where Death Wish ships "". Both render as no sale badge, so both read
+ * as null here. Only compare-at prices are zero-normalised: a `price` of 0.00
+ * is a genuinely free product.
+ */
+function compareAtPrice(value) {
+  const raw = money(value);
+  return raw !== null && Number.parseFloat(raw) === 0 ? null : raw;
+}
+
+/**
+ * Whether a variant can be bought.
+ *
+ * The product JSON endpoint does not carry the storefront's `available` flag,
+ * so it is derived: an untracked variant is always sellable, a variant whose
+ * policy allows overselling is always sellable, and otherwise it comes down to
+ * stock on hand. Returns null when the payload does not say — better than
+ * guessing "in stock" for something sold out.
+ */
+function variantAvailable(variant) {
+  if (typeof variant.available === 'boolean') return variant.available;
+  if (!variant.inventory_management) return true;
+  if (variant.inventory_policy === 'continue') return true;
+  return typeof variant.inventory_quantity === 'number' ? variant.inventory_quantity > 0 : null;
+}
+
+/** Shopify returns tags as an array on some stores and a comma-joined string on others. */
+function normalizeTags(tags) {
+  if (Array.isArray(tags)) return tags;
+  if (typeof tags === 'string') return tags.split(',').map(t => t.trim()).filter(Boolean);
+  return [];
+}
+
+/** body_html is a rendered HTML fragment; callers want the copy, not the markup. */
+function htmlToText(html) {
+  if (!html) return null;
+  const text = load(`<div>${html}</div>`)('div').text().replace(/\s+/g, ' ').trim();
+  return text || null;
+}
+
 // ── Template definitions ─────────────────────────────────────────────────────
 
 const TEMPLATES = [
+  {
+    id: 'shopify-product',
+    name: 'Shopify Product',
+    description:
+      'Read a Shopify product from the store\'s own /products/<handle>.json endpoint: exact price, ' +
+      'compare-at price, per-variant stock, options and images. Works on any Shopify storefront, ' +
+      'including custom domains. No HTML parsing and no LLM, so prices cannot be misread or invented.',
+    // Shopify runs on millions of custom domains, so the product URL shape is
+    // the only reliable signal. Non-Shopify sites using /products/ URLs are
+    // rejected by extractRaw rather than silently returning nonsense.
+    targetPattern: /\/products\/[^/?#]+/i,
+
+    /** Point the fetch at the JSON endpoint for the same product. */
+    resolveUrl(url) {
+      const parsed = new URL(url);
+      const match = parsed.pathname.match(/^(.*\/products\/[^/]+?)(?:\.json)?\/?$/i);
+      if (!match) return url;
+      parsed.pathname = `${match[1]}.json`;
+      parsed.search = '';
+      parsed.hash = '';
+      return parsed.toString();
+    },
+
+    extractRaw(body, url) {
+      let payload;
+      try {
+        payload = JSON.parse(body);
+      } catch {
+        throw new Error(
+          `Not a Shopify product endpoint: ${url} did not return JSON. ` +
+          'This template only works on Shopify storefronts.'
+        );
+      }
+
+      const product = payload?.product;
+      if (!product || !Array.isArray(product.variants)) {
+        throw new Error(
+          `Not a Shopify product endpoint: ${url} returned JSON without a product. ` +
+          'This template only works on Shopify storefronts.'
+        );
+      }
+
+      const variants = product.variants.map(v => ({
+        id: v.id,
+        title: v.title,
+        price: money(v.price),
+        compare_at_price: compareAtPrice(v.compare_at_price),
+        sku: v.sku || null,
+        available: variantAvailable(v),
+        inventory_quantity: typeof v.inventory_quantity === 'number' ? v.inventory_quantity : null,
+        options: [v.option1, v.option2, v.option3].filter(Boolean)
+      }));
+
+      const prices = variants.map(v => Number.parseFloat(v.price)).filter(Number.isFinite);
+      const first = variants[0] || {};
+      const availability = variants.map(v => v.available);
+
+      return {
+        title: product.title || null,
+        vendor: product.vendor || null,
+        product_type: product.product_type || null,
+        handle: product.handle || null,
+        product_id: product.id ?? null,
+
+        // Headline price is the first variant's, matching what the product page
+        // shows before a selection is made.
+        price: first.price ?? null,
+        compare_at_price: first.compare_at_price ?? null,
+        // A compare-at price above the price is what renders as a sale badge.
+        on_sale: first.compare_at_price !== null && first.compare_at_price !== undefined
+          ? Number.parseFloat(first.compare_at_price) > Number.parseFloat(first.price)
+          : false,
+        currency: product.variants[0]?.price_currency || null,
+        price_min: prices.length ? String(Math.min(...prices).toFixed(2)) : null,
+        price_max: prices.length ? String(Math.max(...prices).toFixed(2)) : null,
+
+        available: availability.some(a => a === true) ? true
+          : availability.every(a => a === false) ? false
+          : null,
+        variants,
+        options: (product.options || []).map(o => o.name),
+
+        description: htmlToText(product.body_html),
+        tags: normalizeTags(product.tags),
+        images: (product.images || []).map(i => i.src),
+        published_at: product.published_at || null,
+        updated_at: product.updated_at || null
+      };
+    }
+  },
+
   {
     id: 'amazon-product',
     name: 'Amazon Product',
@@ -297,25 +441,28 @@ export class TemplateRegistry {
   }
 
   /**
-   * Run a template against raw HTML.
+   * Run a template against a fetched response body.
    * @param {string} id     — template ID
-   * @param {string} html   — raw HTML of the target page
+   * @param {string} body   — response body (HTML, or JSON for extractRaw templates)
    * @param {string} url    — original URL (for context)
+   * @param {string} [fetchedUrl] — URL actually fetched, when resolveUrl rewrote it
    * @returns {{ template: string, url: string, data: object, extractedAt: string }}
    */
-  async run(id, html, url) {
+  async run(id, body, url, fetchedUrl = url) {
     const template = this.get(id);
     if (!template) {
       throw new Error(`Unknown template: "${id}". Available: ${TEMPLATES.map(t => t.id).join(', ')}`);
     }
 
-    const $ = load(html);
-    const data = template.extract($);
+    const data = template.extractRaw
+      ? template.extractRaw(body, url)
+      : template.extract(load(body));
 
     return {
       template: id,
       template_name: template.name,
       url,
+      ...(fetchedUrl !== url ? { fetchedUrl } : {}),
       data,
       extractedAt: new Date().toISOString()
     };

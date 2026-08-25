@@ -3,9 +3,11 @@
  * and src/tools/templates/ScrapeTemplateTool.js)
  * Run: node --test tests/unit/tools/templates/scrapeTemplate.test.js
  *
- * TemplateRegistry.run(id, html, url) takes raw HTML directly (no network),
- * so the table-driven suite below exercises all 10 real template extractors
- * against representative fixture HTML with no stubbing. ScrapeTemplateTool
+ * TemplateRegistry.run(id, body, url) takes a raw response body directly (no
+ * network), so the table-driven suite below exercises all 11 real template
+ * extractors against representative fixtures with no stubbing. Most bodies are
+ * HTML; shopify-product reads the store's product JSON endpoint instead, so its
+ * fixture is a JSON string. ScrapeTemplateTool
  * wraps the registry with a safeFetch (SSRF-guarded) network call, tested
  * separately against a local HTTP server allowlisted via ALLOWED_DOMAINS.
  */
@@ -21,6 +23,32 @@ import { TemplateRegistry } from '../../../../src/tools/templates/TemplateRegist
 // ---------------------------------------------------------------------------
 
 const CASES = [
+  {
+    // Reads /products/<handle>.json rather than the rendered page, so this
+    // fixture is JSON. Behaviour is covered in depth by
+    // tests/unit/shopifyProductTemplate.test.js.
+    id: 'shopify-product',
+    url: 'https://shop.example.com/products/some-handle',
+    html: JSON.stringify({
+      product: {
+        id: 1, title: 'Test Product', vendor: 'Acme', handle: 'some-handle',
+        body_html: '<p>Copy.</p>', tags: ['a'], options: [{ name: 'Size' }],
+        images: [{ src: 'https://cdn.example/1.jpg' }],
+        variants: [{
+          id: 11, title: 'S', price: '19.99', compare_at_price: '29.99', sku: 'S-1',
+          option1: 'S', inventory_management: 'shopify', inventory_policy: 'deny',
+          inventory_quantity: 3, price_currency: 'USD'
+        }]
+      }
+    }),
+    assert: (data) => {
+      assert.equal(data.title, 'Test Product');
+      assert.equal(data.price, '19.99');
+      assert.equal(data.compare_at_price, '29.99');
+      assert.equal(data.on_sale, true);
+      assert.equal(data.available, true);
+    }
+  },
   {
     id: 'amazon-product',
     url: 'https://amazon.com/dp/B000000000',
@@ -275,7 +303,7 @@ const CASES = [
 describe('TemplateRegistry.run (real extractors, table-driven)', () => {
   const registry = new TemplateRegistry();
 
-  test('registry lists exactly the 10 templates covered by this fixture table', () => {
+  test('registry lists exactly the templates covered by this fixture table', () => {
     const ids = registry.list().map((t) => t.id).sort();
     // Unique: a template may have multiple fixture cases (e.g. github-repo
     // classic + React layouts).
@@ -331,10 +359,10 @@ describe('ScrapeTemplateTool (real module, real fetch against a local server)', 
     assert.ok(tool.registry instanceof TemplateRegistry);
   });
 
-  test('list mode — returns all 10 available templates, no network call', async () => {
+  test('list mode — returns all available templates, no network call', async () => {
     const tool = new ScrapeTemplateTool();
     const result = await tool.execute({ template: 'list' });
-    assert.equal(result.count, 10);
+    assert.equal(result.count, 11);
     assert.ok(result.templates.some((t) => t.id === 'github-repo'));
   });
 

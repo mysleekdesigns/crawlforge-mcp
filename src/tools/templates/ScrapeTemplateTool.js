@@ -35,12 +35,17 @@ export class ScrapeTemplateTool {
       throw new Error(`Unknown template "${template}". Available templates: ${available}`);
     }
 
+    // A template may redirect its own fetch to a machine-readable endpoint
+    // (shopify-product reads /products/<handle>.json). Same host either way,
+    // so the SSRF guard below still applies.
+    const fetchUrl = template === 'list' ? url : (tpl.resolveUrl ? tpl.resolveUrl(url) : url);
+
     // Fetch the page
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
     let html;
     try {
-      const response = await safeFetch(url, {
+      const response = await safeFetch(fetchUrl, {
         signal: controller.signal,
         headers: {
           'User-Agent': 'Mozilla/5.0 (compatible; CrawlForge-TemplateScraper/4.0)'
@@ -61,7 +66,7 @@ export class ScrapeTemplateTool {
     }
 
     // Run the template extractor
-    const result = await this.registry.run(template, html, url);
+    const result = await this.registry.run(template, html, url, fetchUrl);
     return result;
   }
 }
