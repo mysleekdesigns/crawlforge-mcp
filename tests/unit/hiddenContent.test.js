@@ -147,6 +147,21 @@ test('a hidden wrapper holding most of the page is left alone', () => {
   assert.match($.text(), /\$19\.99/, 'must not delete the page to remove a wrapper');
 });
 
+test('a markup-heavy hidden wrapper is left alone (Next.js streaming SSR)', () => {
+  // Next.js App Router streams the rendered page inside <div id="S:0" hidden>
+  // and moves it into place with JavaScript. The wrapper is only a small share
+  // of the document's *text* — most text lives in script payload — but half its
+  // markup, so the guard has to weigh markup as well as text.
+  const rendered = '<section><h2>Plans</h2><p class="a b c">Hobby $19</p></section>'.repeat(80);
+  const payload = '<script>' + 'x'.repeat(9000) + '</script>';
+  const $ = load(`<body><div id="S:0" hidden>${rendered}</div>${payload}</body>`);
+
+  const { removed, skippedBulk } = stripHiddenFromDom($);
+  assert.equal(skippedBulk, 1, 'the streamed wrapper must be skipped');
+  assert.equal(removed, 0);
+  assert.match($.text(), /Hobby \$19/, 'the streamed page content must survive');
+});
+
 test('body and html are never removed', () => {
   const $ = load('<html><body><p>content</p></body></html>');
   stripHiddenFromDom($, { css: 'body{display:none}html{display:none}' });
