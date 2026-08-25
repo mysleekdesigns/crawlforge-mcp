@@ -1253,17 +1253,25 @@ registerToolIfEnabled("stealth_mode", {
         if (!contextId) throw new Error('contextId is required for create_page operation');
         const page = await stealthBrowserManager.createStealthPage(contextId);
         let navigation = null;
-        if (urlToTest) {
-          // page.goto returns a Playwright Response handle, which is not
-          // JSON-serializable — extract just the useful navigation details.
-          const response = await page.goto(urlToTest);
-          navigation = {
-            requestedUrl: urlToTest,
-            finalUrl: page.url(),
-            status: response ? response.status() : null,
-            ok: response ? response.ok() : null,
-            title: await page.title().catch(() => null)
-          };
+        try {
+          if (urlToTest) {
+            // page.goto returns a Playwright Response handle, which is not
+            // JSON-serializable — extract just the useful navigation details.
+            // Explicit timeout keeps navigation inside every caller's window
+            // (Playwright's default is 30s, longer than some proxy budgets).
+            const response = await page.goto(urlToTest, { waitUntil: 'domcontentloaded', timeout: 20000 });
+            navigation = {
+              requestedUrl: urlToTest,
+              finalUrl: page.url(),
+              status: response ? response.status() : null,
+              ok: response ? response.ok() : null,
+              title: await page.title().catch(() => null)
+            };
+          }
+        } finally {
+          // No operation can ever reference this page again — keeping it open
+          // leaks one Chromium renderer per call until the context idles out.
+          await page.close().catch(() => {});
         }
         result = { pageCreated: true, contextId, navigation };
         break;
