@@ -24,7 +24,8 @@ export class BFSCrawler {
       domainFilter = null,
       enableLinkAnalysis = true,
       linkAnalyzerOptions = {},
-      sessionContext = null
+      sessionContext = null,
+      cacheEnabled = true
     } = options;
 
     this.maxDepth = maxDepth;
@@ -46,7 +47,14 @@ export class BFSCrawler {
     this.linkAnalyzer = enableLinkAnalysis ? new LinkAnalyzer(linkAnalyzerOptions) : null;
     
     this.queue = new QueueManager({ concurrency, timeout });
-    this.cache = new CacheManager({ ttl: 3600000 }); // 1 hour cache
+    // Page-body cache for this crawler only: it is destroyed with the
+    // instance, so it stays in memory. Persisting it made bodies outlive the
+    // crawl by an hour and cross process boundaries, which is neither what
+    // destroy() below implies nor what a caller passing cacheEnabled:false
+    // could switch off.
+    this.cache = cacheEnabled
+      ? new CacheManager({ ttl: 3600000, enableDiskCache: false })
+      : null;
     // C1: per-domain rate-limiter map — reuse existing limiter when
     // effectiveRateLimit hasn't changed, rather than recreating it on every URL.
     this.rateLimiter = new RateLimiter({ requestsPerSecond: 10 });
@@ -179,8 +187,8 @@ export class BFSCrawler {
 
     try {
       // Check cache first
-      const cacheKey = this.cache.generateKey(normalizedUrl);
-      let pageData = await this.cache.get(cacheKey);
+      const cacheKey = this.cache ? this.cache.generateKey(normalizedUrl) : null;
+      let pageData = cacheKey ? await this.cache.get(cacheKey) : null;
 
       if (!pageData) {
         // Apply domain-specific rate limiting
@@ -205,7 +213,7 @@ export class BFSCrawler {
         pageData = await this.fetchPage(normalizedUrl);
         
         // Cache the result
-        await this.cache.set(cacheKey, pageData);
+        if (cacheKey) await this.cache.set(cacheKey, pageData);
       }
 
       // Process links for analysis
@@ -425,7 +433,7 @@ export class BFSCrawler {
       visited: this.visited.size,
       results: this.results.length,
       errors: this.errors.length,
-      cacheStats: this.cache.getStats(),
+      cacheStats: this.cache ? this.cache.getStats() : null,
       queueStats: this.queue.getStats(),
       rateLimitStats: this.rateLimiter.getStats(),
       domainFilterStats: filterStats,

@@ -301,6 +301,8 @@ const crawlDeepShape = {
     enabled: z.boolean().optional(),
     cookies_captured: z.number().optional()
   }).passthrough().optional(),
+  crawled_at: z.string().optional().describe('When the pages were actually fetched (ISO 8601)'),
+  cached: z.boolean().optional().describe('True when this response was replayed from an earlier crawl rather than crawled now; crawled_at gives its age'),
   _cost: costShape
 };
 
