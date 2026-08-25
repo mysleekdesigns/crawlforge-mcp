@@ -14,13 +14,37 @@ import { assertUrlAllowed } from '../utils/ssrfGuard.js';
 const JS_MAX_SCRIPT_LENGTH = parseInt(process.env.JS_MAX_SCRIPT_LENGTH || '10000', 10);
 const JS_EXECUTION_TIMEOUT_MS = parseInt(process.env.JS_EXECUTION_TIMEOUT_MS || '5000', 10);
 
+// Headroom for the per-action backstop in executeActionInternal. The underlying
+// Playwright call gets the action's real deadline, so the backstop must lose
+// that race — Playwright's error names the selector and the state it waited
+// for, the backstop can only say "timed out".
+const ACTION_TIMEOUT_GRACE_MS = 2000;
+
+// Ceiling for a single error-recovery strategy. By the time recovery runs the
+// action has already spent its whole timeout failing, so each strategy gets a
+// bounded slice — granting it another full deadline made a chain that was never
+// going to work cost several times its stated timeout.
+const RECOVERY_TIMEOUT_MS = 5000;
+
+// The only states locator.waitFor()/page.waitForSelector() accept. The rest of
+// the wait-action enum (enabled/disabled/stable) are ElementHandle states and
+// have to go through waitForElementState instead — passing them here is
+// rejected outright with "expected one of (attached|detached|visible|hidden)".
+const SELECTOR_WAIT_STATES = new Set(['attached', 'detached', 'visible', 'hidden']);
+
 // Action schemas
 const BaseActionSchema = z.object({
   type: z.string(),
   timeout: z.number().optional(),
   description: z.string().optional(),
   continueOnError: z.boolean().default(false),
-  retries: z.number().min(0).max(5).default(0),
+  // How many of the recovery strategies registered in
+  // initializeErrorRecoveryStrategies() this action may try (in order, until
+  // one succeeds); 0 opts out. Defaults to 1 — the previous 0 default combined
+  // with the `action.retries > 0` gate in executeActionInternal left every
+  // strategy unreachable. ScrapeWithActionsTool's form-autofill presets already
+  // set 1 and 2 on exactly the actions that have that many strategies.
+  retries: z.number().min(0).max(5).default(1),
   // When true, capture page state (page.content()/page.url()) natively right
   // after this action executes. Does not use in-page JS execution, so it
   // works regardless of the ALLOW_JAVASCRIPT_EXECUTION flag.
@@ -368,6 +392,11 @@ export class ActionExecutor extends EventEmitter {
           this.log('info', 'Retrying chain execution, attempt ' + (attempt + 1));
           executionContext.results = []; // Clear previous results on retry
           executionContext.capturedStates = []; // Clear previous captures on retry
+          // Replaying the chain against whatever the failed attempt left behind
+          // (form half-filled, menu open, possibly a different URL) is not a
+          // retry. Reload the starting URL so every attempt begins where the
+          // first one did.
+          await this.navigateToUrl(page, executionContext.url);
         }
 
         // Execute actions in sequence
@@ -463,7 +492,8 @@ export class ActionExecutor extends EventEmitter {
       this.emit('actionStarted', { actionId, action, chainId: executionContext.id });
 
       let result;
-      let timeout = action.timeout || this.defaultTimeout;
+      // Deadline handed to the underlying Playwright call — see actionTimeout().
+      let timeout = this.actionTimeout(action);
 
       // A `wait` action that uses `timeout` as its pause duration (no
       // duration/milliseconds/selector/text) must not also use that same value
@@ -474,13 +504,33 @@ export class ActionExecutor extends EventEmitter {
         timeout = Math.max(this.defaultTimeout, action.timeout + 5000);
       }
 
-      // Execute based on action type with timeout
+      // Execute based on action type. Playwright owns the real deadline (every
+      // call below is given `timeout`), so this race is only a backstop for a
+      // call that hangs past it — a wedged browser, say. Without the grace
+      // period it fired first on every ordinary failure and replaced
+      // Playwright's "waiting for locator('#x') to be visible" with a bare
+      // "Action timeout".
+      const backstopMs = timeout + ACTION_TIMEOUT_GRACE_MS;
+      let backstopTimer;
       const executionPromise = this.executeActionByType(page, action);
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Action timeout')), timeout);
+        backstopTimer = setTimeout(
+          () => reject(new Error(
+            'Action backstop timeout: ' + action.type +
+            (action.selector ? ' (' + action.selector + ')' : '') +
+            ' did not settle within ' + backstopMs + 'ms'
+          )),
+          backstopMs
+        );
       });
 
-      result = await Promise.race([executionPromise, timeoutPromise]);
+      try {
+        result = await Promise.race([executionPromise, timeoutPromise]);
+      } finally {
+        // Without this every action left a live timer behind for its full
+        // deadline, keeping the event loop busy long after the chain finished.
+        clearTimeout(backstopTimer);
+      }
 
       const actionResult = {
         id: actionId,
@@ -520,6 +570,94 @@ export class ActionExecutor extends EventEmitter {
 
       this.emit('actionCompleted', actionResult);
       return actionResult;
+    }
+  }
+
+  /**
+   * Deadline to hand the underlying Playwright call for an action, so a failure
+   * surfaces Playwright's own error rather than the generic backstop.
+   * @param {Object} action - Action configuration
+   * @returns {number} Timeout in ms
+   */
+  actionTimeout(action) {
+    return action?.timeout || this.defaultTimeout;
+  }
+
+  /**
+   * Deadline for one recovery strategy — bounded, see RECOVERY_TIMEOUT_MS.
+   * @param {Object} action - Action configuration
+   * @returns {number} Timeout in ms
+   */
+  recoveryTimeout(action) {
+    return Math.min(this.actionTimeout(action), RECOVERY_TIMEOUT_MS);
+  }
+
+  /**
+   * Locator for an action's selector.
+   *
+   * `.first()` preserves the first-match semantics of the page.waitForSelector()
+   * calls this replaced: locators are strict by default and throw on any
+   * selector matching more than one element, which would break action chains
+   * that work today.
+   * @param {Page} page - Playwright page
+   * @param {string} selector - CSS/text selector
+   * @returns {Locator} Playwright locator
+   */
+  elementLocator(page, selector) {
+    return page.locator(selector).first();
+  }
+
+  /**
+   * Wait for a selector to reach a condition.
+   *
+   * Playwright splits these across two APIs: attached/detached/visible/hidden
+   * are selector states (locator.waitFor), while enabled/disabled/stable are
+   * element states (ElementHandle.waitForElementState). Handing the latter to
+   * waitForSelector is rejected outright, which is what made those three
+   * documented wait conditions unusable.
+   * @param {Page} page - Playwright page
+   * @param {string} selector - CSS/text selector
+   * @param {string} [condition] - Wait condition
+   * @param {number} timeout - Timeout in ms
+   * @returns {Promise<void>}
+   */
+  async waitForCondition(page, selector, condition, timeout) {
+    const locator = this.elementLocator(page, selector);
+
+    if (!condition || SELECTOR_WAIT_STATES.has(condition)) {
+      await locator.waitFor({ state: condition || 'visible', timeout });
+      return;
+    }
+
+    await locator.waitFor({ state: 'attached', timeout });
+    const handle = await locator.elementHandle({ timeout });
+    if (!handle) {
+      throw new Error('No element matched selector: ' + selector);
+    }
+    try {
+      await handle.waitForElementState(condition, { timeout });
+    } finally {
+      await handle.dispose();
+    }
+  }
+
+  /**
+   * Give a navigation started by the action that just ran a chance to commit.
+   *
+   * Playwright auto-waits on the element it acts on, but nothing waits on the
+   * *document* a click or keypress may have replaced, so the next action could
+   * run against the outgoing page. A page that never navigated is already past
+   * this state and returns immediately; a page that doesn't settle in time is
+   * not itself an action failure, hence the catch.
+   * @param {Page} page - Playwright page
+   * @param {number} timeout - Timeout in ms
+   * @returns {Promise<void>}
+   */
+  async settleAfterInteraction(page, timeout) {
+    try {
+      await page.waitForLoadState('domcontentloaded', { timeout });
+    } catch {
+      // Ignored on purpose — see above.
     }
   }
 
@@ -567,20 +705,18 @@ export class ActionExecutor extends EventEmitter {
       return { waited: waitTime };
     }
 
+    const timeout = this.actionTimeout(action);
+
     if (action.selector) {
-      const options = {};
-      if (action.condition) {
-        options.state = action.condition;
-      }
-      
-      await page.waitForSelector(action.selector, options);
+      await this.waitForCondition(page, action.selector, action.condition, timeout);
       return { selector: action.selector, condition: action.condition };
     }
 
     if (action.text) {
       await page.waitForFunction(
         text => document.body.innerText.includes(text),
-        action.text
+        action.text,
+        { timeout }
       );
       return { text: action.text };
     }
@@ -595,12 +731,16 @@ export class ActionExecutor extends EventEmitter {
    * @returns {Promise<Object>} Click result
    */
   async executeClickAction(page, action) {
-    const element = await page.waitForSelector(action.selector);
-    
+    const timeout = this.actionTimeout(action);
+    const locator = this.elementLocator(page, action.selector);
+
     // Check if stealth mode is enabled and use human behavior
     const humanBehaviorSimulator = this.browserProcessor.stealthManager?.humanBehaviorSimulator;
     
     if (humanBehaviorSimulator) {
+      // The simulator drives the mouse by selector, so the element still has to
+      // be there before it starts (locator.click() would have waited for it).
+      await locator.waitFor({ state: 'visible', timeout });
       // Use human-like clicking behavior
       await humanBehaviorSimulator.simulateClick(page, action.selector, {
         button: action.button,
@@ -614,16 +754,21 @@ export class ActionExecutor extends EventEmitter {
         button: action.button,
         clickCount: action.clickCount,
         delay: action.delay,
-        force: action.force
+        force: action.force,
+        timeout
       };
 
       if (action.position) {
         clickOptions.position = action.position;
       }
 
-      await element.click(clickOptions);
+      await locator.click(clickOptions);
     }
-    
+
+    // A click can follow a link or submit a form; let that navigation commit
+    // before the next action runs against the outgoing document.
+    await this.settleAfterInteraction(page, timeout);
+
     return {
       selector: action.selector,
       button: action.button,
@@ -639,22 +784,25 @@ export class ActionExecutor extends EventEmitter {
    * @returns {Promise<Object>} Type result
    */
   async executeTypeAction(page, action) {
-    const element = await page.waitForSelector(action.selector);
-    
+    const timeout = this.actionTimeout(action);
+    const locator = this.elementLocator(page, action.selector);
+
     // Check if stealth mode is enabled and use human behavior
     const humanBehaviorSimulator = this.browserProcessor.stealthManager?.humanBehaviorSimulator;
-    
+
     if (action.clear) {
-      await element.selectText();
-      await element.press('Delete');
+      await locator.selectText({ timeout });
+      await locator.press('Delete', { timeout });
     }
 
     if (humanBehaviorSimulator) {
+      // Same as click: the simulator works from the selector, so wait first.
+      await locator.waitFor({ state: 'visible', timeout });
       // Use human-like typing behavior
       await humanBehaviorSimulator.simulateTyping(page, action.selector, action.text);
     } else {
       // Standard typing behavior
-      await element.type(action.text, { delay: action.delay });
+      await locator.pressSequentially(action.text, { delay: action.delay, timeout });
     }
     
     return {
@@ -671,18 +819,21 @@ export class ActionExecutor extends EventEmitter {
    * @returns {Promise<Object>} Press result
    */
   async executePressAction(page, action) {
-    const keyOptions = {};
-    if (action.modifiers.length > 0) {
+    const timeout = this.actionTimeout(action);
+    const keyOptions = { timeout };
+    if (action.modifiers?.length > 0) {
       keyOptions.modifiers = action.modifiers;
     }
 
     if (action.selector) {
-      const element = await page.waitForSelector(action.selector);
-      await element.press(action.key, keyOptions);
+      await this.elementLocator(page, action.selector).press(action.key, keyOptions);
     } else {
       await page.keyboard.press(action.key);
     }
-    
+
+    // Enter on a form field navigates as often as a click does.
+    await this.settleAfterInteraction(page, timeout);
+
     return {
       key: action.key,
       modifiers: action.modifiers,
@@ -697,6 +848,8 @@ export class ActionExecutor extends EventEmitter {
    * @returns {Promise<Object>} Scroll result
    */
   async executeScrollAction(page, action) {
+    const timeout = this.actionTimeout(action);
+
     // Check if stealth mode is enabled and use human behavior
     const humanBehaviorSimulator = this.browserProcessor.stealthManager?.humanBehaviorSimulator;
     
@@ -707,8 +860,11 @@ export class ActionExecutor extends EventEmitter {
           target: action.toElement
         });
       } else {
-        const element = await page.waitForSelector(action.toElement);
-        await element.scrollIntoView();
+        // scrollIntoViewIfNeeded, not scrollIntoView — the latter is a DOM API
+        // that does not exist on a Playwright handle/locator and threw
+        // "scrollIntoView is not a function" every time this branch ran.
+        await this.elementLocator(page, action.toElement)
+          .scrollIntoViewIfNeeded({ timeout });
       }
       return { scrolledToElement: action.toElement };
     }
@@ -753,8 +909,7 @@ export class ActionExecutor extends EventEmitter {
       }
 
       if (action.selector) {
-        const element = await page.waitForSelector(action.selector);
-        await element.hover();
+        await this.elementLocator(page, action.selector).hover({ timeout });
         await page.mouse.wheel(deltaX, deltaY);
       } else {
         await page.mouse.wheel(deltaX, deltaY);
@@ -868,8 +1023,8 @@ export class ActionExecutor extends EventEmitter {
 
     let screenshot;
     if (options.selector) {
-      const element = await page.waitForSelector(options.selector);
-      screenshot = await element.screenshot(screenshotOptions);
+      screenshot = await this.elementLocator(page, options.selector)
+        .screenshot({ ...screenshotOptions, timeout: this.actionTimeout(options) });
     } else {
       screenshot = await page.screenshot(screenshotOptions);
     }
@@ -882,6 +1037,31 @@ export class ActionExecutor extends EventEmitter {
       timestamp: Date.now(),
       description: options.description
     };
+  }
+
+  /**
+   * Navigate an existing page to a URL under the SSRF checks every load needs.
+   * Used for the initial load and again before each chain retry.
+   * @param {Page} page - Playwright page
+   * @param {string} url - URL to navigate to
+   * @returns {Promise<void>}
+   */
+  async navigateToUrl(page, url) {
+    // resolveDns:true because Playwright does its own DNS resolution, so
+    // hostname-based checks alone would miss DNS-rebinding/private-IP targets.
+    await assertUrlAllowed(url, { resolveDns: true });
+
+    await page.goto(url, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000
+    });
+
+    // Re-validate the landed URL: a redirect during navigation could have
+    // taken us into a blocked range even though the original URL was safe.
+    const landedUrl = page.url();
+    if (/^https?:\/\//i.test(landedUrl)) {
+      await assertUrlAllowed(landedUrl, { resolveDns: true });
+    }
   }
 
   /**
@@ -908,18 +1088,10 @@ export class ActionExecutor extends EventEmitter {
         await this.browserProcessor.stealthManager.initializeHumanBehaviorSimulator();
       }
 
-      // Navigate to URL
-      await page.goto(url, {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000
-      });
-
-      // Re-validate the landed URL: a redirect during navigation could have
-      // taken us into a blocked range even though the original URL was safe.
-      const landedUrl = page.url();
-      if (/^https?:\/\//i.test(landedUrl)) {
-        await assertUrlAllowed(landedUrl, { resolveDns: true });
-      }
+      // Navigate to URL. The pre-flight above repeats inside navigateToUrl —
+      // that one is deliberately before page creation so a blocked URL never
+      // launches a browser (tests/unit/phase1-ssrf-paths.test.js pins it).
+      await this.navigateToUrl(page, url);
 
       // Handle CloudFlare challenges and reCAPTCHA if stealth mode is enabled
       if (isStealth && this.browserProcessor.stealthManager) {
@@ -981,8 +1153,12 @@ export class ActionExecutor extends EventEmitter {
    */
   async attemptErrorRecovery(page, action, error, executionContext) {
     const strategies = this.errorRecoveryStrategies.get(action.type) || [];
-    
-    for (const strategy of strategies) {
+    // `retries` caps how many strategies get a turn. Walking all of them
+    // unconditionally would add a second full round of timeouts to every action
+    // that was never going to succeed.
+    const budget = Math.max(0, action.retries ?? 1);
+
+    for (const strategy of strategies.slice(0, budget)) {
       try {
         this.log('info', 'Attempting error recovery with strategy: ' + strategy.name);
         const result = await strategy.recover(page, action, error, executionContext);
@@ -1010,20 +1186,21 @@ export class ActionExecutor extends EventEmitter {
     this.errorRecoveryStrategies.set('click', [
       {
         name: 'waitAndRetry',
-        recover: async (page, action, error) => {
+        recover: async (page, action) => {
           await this.delay(1000);
-          const element = await page.waitForSelector(action.selector, { timeout: 5000 });
-          await element.click({ force: true });
+          await this.elementLocator(page, action.selector)
+            .click({ force: true, timeout: this.recoveryTimeout(action) });
           return { success: true, data: { recovered: true, strategy: 'waitAndRetry' } };
         }
       },
       {
         name: 'scrollIntoView',
-        recover: async (page, action, error) => {
-          const element = await page.waitForSelector(action.selector);
-          await element.scrollIntoView();
+        recover: async (page, action) => {
+          const timeout = this.recoveryTimeout(action);
+          const locator = this.elementLocator(page, action.selector);
+          await locator.scrollIntoViewIfNeeded({ timeout });
           await this.delay(500);
-          await element.click();
+          await locator.click({ timeout });
           return { success: true, data: { recovered: true, strategy: 'scrollIntoView' } };
         }
       }
@@ -1033,11 +1210,12 @@ export class ActionExecutor extends EventEmitter {
     this.errorRecoveryStrategies.set('type', [
       {
         name: 'focusAndRetry',
-        recover: async (page, action, error) => {
-          const element = await page.waitForSelector(action.selector);
-          await element.focus();
+        recover: async (page, action) => {
+          const timeout = this.recoveryTimeout(action);
+          const locator = this.elementLocator(page, action.selector);
+          await locator.focus({ timeout });
           await this.delay(500);
-          await element.type(action.text, { delay: action.delay });
+          await locator.pressSequentially(action.text, { delay: action.delay, timeout });
           return { success: true, data: { recovered: true, strategy: 'focusAndRetry' } };
         }
       }
@@ -1047,13 +1225,15 @@ export class ActionExecutor extends EventEmitter {
     this.errorRecoveryStrategies.set('wait', [
       {
         name: 'extendTimeout',
-        recover: async (page, action, error) => {
-          const extendedTimeout = (action.timeout || this.defaultTimeout) * 2;
-          if (action.selector) {
-            await page.waitForSelector(action.selector, { timeout: extendedTimeout });
-            return { success: true, data: { recovered: true, strategy: 'extendTimeout' } };
-          }
-          return { success: false };
+        recover: async (page, action) => {
+          if (!action.selector) return { success: false };
+          // One more bounded window, not a doubled one: the action has already
+          // waited its full timeout, so doubling made a wait that could never
+          // resolve cost 3x what the caller asked for.
+          await this.waitForCondition(
+            page, action.selector, action.condition, this.recoveryTimeout(action)
+          );
+          return { success: true, data: { recovered: true, strategy: 'extendTimeout' } };
         }
       }
     ]);
