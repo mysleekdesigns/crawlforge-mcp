@@ -92,8 +92,14 @@ export class CrawlDeepTool {
 
     this.userAgent = userAgent;
     this.timeout = timeout;
-    // Per-session result cache: avoids redundant crawls of the same root URL
-    this.cache = cacheEnabled ? new CacheManager({ ttl: cacheTTL }) : null;
+    // Per-session result cache: avoids redundant crawls of the same root URL.
+    // In memory, so "per-session" is true — persisting it meant one process's
+    // crawl was replayed to another an hour later, and crawl payloads grew the
+    // cache directory without bound.
+    this.cacheEnabled = cacheEnabled;
+    this.cache = cacheEnabled
+      ? new CacheManager({ ttl: cacheTTL, enableDiskCache: false })
+      : null;
     // D1.4: Elicitation helper
     this._elicitation = new ElicitationHelper({});
     // Server-configured ceilings/defaults (MAX_CRAWL_DEPTH, MAX_PAGES_PER_CRAWL,
@@ -135,7 +141,9 @@ export class CrawlDeepTool {
           concurrency: effectiveConcurrency
         });
         const cached = await this.cache.get(cacheKey);
-        if (cached) return cached;
+        // A replayed crawl is indistinguishable from a fresh one unless it says
+        // so; crawled_at carries the time the pages were actually fetched.
+        if (cached) return { ...cached, cached: true };
       }
 
       // D1.4: Elicitation — warn when max_pages is very high
@@ -226,7 +234,11 @@ export class CrawlDeepTool {
         domainFilter: domainFilter,
         enableLinkAnalysis: validated.enable_link_analysis,
         linkAnalyzerOptions: validated.link_analysis_options,
-        sessionContext
+        sessionContext,
+        // cacheEnabled:false has to reach the page cache too — the crawler
+        // caches every fetched body, so leaving it on served cached pages to a
+        // caller who explicitly asked for none.
+        cacheEnabled: this.cacheEnabled
       });
 
       // Start crawling
@@ -256,7 +268,9 @@ export class CrawlDeepTool {
           link_analysis: results.linkAnalysis,
           session: sessionContext
             ? { enabled: true, cookies_captured: sessionContext.cookieCount }
-            : { enabled: false }
+            : { enabled: false },
+          crawled_at: new Date().toISOString(),
+          cached: false
         };
 
         // Store in cache before returning

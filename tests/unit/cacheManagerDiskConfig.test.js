@@ -18,25 +18,26 @@
  *
  * The defaults are unchanged ('./cache', enabled). The env vars now work, and
  * the test scripts set CACHE_ENABLE_DISK=false so no suite touches the disk.
+ *
+ * crawl_deep has since been taken off the disk entirely (its result cache and
+ * BFSCrawler's page cache are both memory-only), so the surviving-entry case
+ * below is exercised through CacheManager directly — every other user of it
+ * still defaults to disk.
  */
 
-import { test, describe, before, after } from 'node:test';
+import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
-import http from 'node:http';
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 const tmpCacheDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'crawlforge-cache-'));
 
-process.env.ALLOWED_DOMAINS = '127.0.0.1';
-delete process.env.SSRF_PROTECTION_ENABLED;
 process.env.CACHE_DIR = tmpCacheDir;
 delete process.env.CACHE_ENABLE_DISK; // exercise the enabled-by-default path
 
 const { CacheManager } = await import('../../src/core/cache/CacheManager.js');
 const { config } = await import('../../src/constants/config.js');
-const { CrawlDeepTool } = await import('../../src/tools/crawl/crawlDeep.js');
 
 after(async () => {
   await fsp.rm(tmpCacheDir, { recursive: true, force: true });
@@ -71,87 +72,42 @@ describe('CacheManager disk configuration', () => {
   });
 });
 
-describe('crawl_deep and a recycled ephemeral port', () => {
-  let server;
-  let baseUrl;
-  let requests = 0;
-
-  before(async () => {
-    server = http.createServer((req, res) => {
-      requests++;
-      if (req.url === '/robots.txt') { res.writeHead(404); res.end(); return; }
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end('<html><body>THIS RUN’S REAL PAGE</body></html>');
+describe('a disk entry outlives the process that wrote it', () => {
+  // The mechanism behind the crawlDeep suite flake, at the layer it lives in.
+  // A cached value carries no record of which process, run or server produced
+  // it, so a later CacheManager reading the same directory cannot tell a fresh
+  // entry from one left by a previous tenant of a recycled ephemeral port.
+  //
+  // crawl_deep itself is no longer exposed to this — both its result cache and
+  // BFSCrawler's page cache are memory-only now — but every other CacheManager
+  // user still defaults to disk, which is why the test scripts set
+  // CACHE_ENABLE_DISK=false.
+  test('a fresh instance serves what an earlier instance left behind', async () => {
+    const key = new CacheManager({ ttl: 60000 }).generateKey('crawl_deep', {
+      url: 'http://127.0.0.1:54321/'
     });
-    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+    const earlierRun = new CacheManager({ ttl: 60000 });
+    await earlierRun.set(key, { pages_crawled: 999, note: 'a different site entirely' });
+    earlierRun.destroy();
+
+    // Nothing is shared but the directory on disk.
+    const laterRun = new CacheManager({ ttl: 60000 });
+    assert.equal(laterRun.memoryCache.size, 0, 'the later instance starts empty');
+
+    const served = await laterRun.get(key);
+    assert.deepEqual(served, { pages_crawled: 999, note: 'a different site entirely' });
   });
 
-  after(async () => {
-    await new Promise((resolve) => server.close(resolve));
-  });
-
-  const crawlArgs = {
-    max_depth: 1,
-    max_pages: 5,
-    respect_robots: false,
-    enable_link_analysis: false,
-    extract_content: true
-  };
-
-  test('a leftover disk entry for this URL is served instead of crawling', async () => {
-    // Demonstrates the flake rather than asserting it is acceptable: an entry
-    // written by an earlier process — here, a previous tenant of this port —
-    // is indistinguishable from one this run produced. The key is taken from
-    // the file the tool itself writes, so the test cannot drift from
-    // _buildCacheKey.
-    const first = new CrawlDeepTool({ cacheEnabled: true, timeout: 5000 });
-    const real = await first.execute({ url: baseUrl, ...crawlArgs });
-    assert.ok(real.pages_crawled >= 1, 'the first crawl must be real');
-
-    const written = (await fsp.readdir(tmpCacheDir)).filter((f) => f.endsWith('.json'));
-    const entries = await Promise.all(
-      written.map(async (f) => ({ f, body: JSON.parse(await fsp.readFile(path.join(tmpCacheDir, f), 'utf8')) }))
-    );
-    const crawlEntry = entries.find((e) => e.body.value?.pages_crawled !== undefined);
-    assert.ok(crawlEntry, 'the crawl result must have been persisted to disk');
-
+  test('an expired entry is not served, and is cleaned up', async () => {
+    const cache = new CacheManager({ ttl: 60000 });
+    const key = cache.generateKey('expired', { n: 1 });
     await fsp.writeFile(
-      path.join(tmpCacheDir, crawlEntry.f),
-      JSON.stringify({
-        value: { pages_crawled: 999, results: [{ url: 'http://somewhere-else.example/', content: 'A DIFFERENT SITE' }] },
-        expiry: Date.now() + 60000
-      })
+      path.join(tmpCacheDir, `${key}.json`),
+      JSON.stringify({ value: { stale: true }, expiry: Date.now() - 1000 })
     );
 
-    // A fresh instance: empty memory cache, same disk directory — exactly the
-    // position a later test run is in when the OS hands it a recycled port.
-    const later = new CrawlDeepTool({ cacheEnabled: true, timeout: 5000 });
-    requests = 0;
-    const result = await later.execute({ url: baseUrl, ...crawlArgs });
-
-    assert.equal(result.pages_crawled, 999, 'the poisoned entry is returned verbatim');
-    assert.equal(requests, 0, 'and the server was never contacted');
-  });
-
-  test('with the disk cache off the same crawl reads the live server', async () => {
-    // What every test run now does, via CACHE_ENABLE_DISK=false in the test
-    // scripts: the poisoned file is still on disk and is simply not consulted.
-    //
-    // Only the tool's result cache is switched off here. BFSCrawler builds its
-    // own CacheManager for page bodies, also on disk by default, so the page
-    // fetch may still be served from the earlier crawl in this file — the
-    // assertion is therefore on the result, not on a request count. Setting
-    // CACHE_ENABLE_DISK for the process, as the test scripts do, disables both.
-    const tool = new CrawlDeepTool({ cacheEnabled: true, timeout: 5000 });
-    tool.cache.enableDiskCache = false;
-
-    const result = await tool.execute({ url: baseUrl, ...crawlArgs });
-
-    assert.notEqual(result.pages_crawled, 999, 'must not be the poisoned entry');
-    assert.ok(
-      result.results.every((r) => r.url.startsWith(baseUrl)),
-      `results must come from this run's server, got ${JSON.stringify(result.results.map((r) => r.url))}`
-    );
+    assert.equal(await cache.get(key), null, 'past its expiry it is a miss');
+    await assert.rejects(() => fsp.readFile(path.join(tmpCacheDir, `${key}.json`), 'utf8'), /ENOENT/);
   });
 });
