@@ -4,9 +4,7 @@
  * Used to discover names that can be passed as the `model` parameter to extract_with_llm.
  */
 
-function ollamaBaseUrl() {
-  return (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/$/, '');
-}
+import { ollamaBaseUrl, ollamaHeaders } from '../../utils/ollamaConfig.js';
 
 export class ListOllamaModelsTool {
   async execute() {
@@ -15,7 +13,7 @@ export class ListOllamaModelsTool {
 
     let response;
     try {
-      response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      response = await fetch(url, { headers: ollamaHeaders(), signal: AbortSignal.timeout(10_000) });
     } catch (err) {
       return {
         success: false,

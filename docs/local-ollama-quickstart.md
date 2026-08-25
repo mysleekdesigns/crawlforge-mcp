@@ -64,14 +64,14 @@ Or via CrawlForge:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API endpoint |
-| `OLLAMA_MODEL` | `llama3.2:3b` | Default model for `extract_with_llm` |
-| `OLLAMA_TIMEOUT_MS` | `30000` | Request timeout in milliseconds |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API endpoint — set `https://ollama.com` to use Ollama Cloud as a remote host |
+| `OLLAMA_DEFAULT_MODEL` | `llama3.2` | Default model for `extract_with_llm` and the LLM fallback chain |
+| `OLLAMA_API_KEY` | unset | Bearer token for authenticated endpoints (required by Ollama Cloud; a local instance needs none) |
 
 Set in `.env` or export before starting CrawlForge:
 ```bash
 export OLLAMA_BASE_URL=http://localhost:11434
-export OLLAMA_MODEL=llama3.1:8b
+export OLLAMA_DEFAULT_MODEL=llama3.1:8b
 ```
 
 ---

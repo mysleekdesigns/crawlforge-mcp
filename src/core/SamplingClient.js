@@ -11,8 +11,9 @@
  *   4. Error
  */
 
+import { ollamaBaseUrl as OLLAMA_BASE_URL, ollamaHeaders } from '../utils/ollamaConfig.js';
+
 const OLLAMA_DEFAULT_MODEL = 'llama3.2';
-const OLLAMA_BASE_URL = () => (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/$/, '');
 
 /**
  * Attempt an Ollama completion.
@@ -25,7 +26,7 @@ async function tryOllama(prompt, { model, maxTokens } = {}) {
   const url = `${OLLAMA_BASE_URL()}/api/generate`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: ollamaHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({
       model: ollamaModel,
       prompt,
@@ -178,7 +179,7 @@ export class SamplingClient {
     const result = { ollama: false, openai: false, anthropic: false, sampling: false };
 
     try {
-      const res = await fetch(`${OLLAMA_BASE_URL()}/api/tags`, { signal: AbortSignal.timeout(3000) });
+      const res = await fetch(`${OLLAMA_BASE_URL()}/api/tags`, { headers: ollamaHeaders(), signal: AbortSignal.timeout(3000) });
       result.ollama = res.ok;
     } catch (_) { /* unavailable */ }
 

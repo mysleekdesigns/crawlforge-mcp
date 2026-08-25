@@ -235,8 +235,9 @@ export CRAWLFORGE_API_URL="https://api.crawlforge.dev"
 # As of v3.0.18, this variable is validated against an allow-list of CrawlForge backend hosts.
 
 # Optional: Local LLM (Ollama) overrides — extract_with_llm defaults to Ollama
-export OLLAMA_BASE_URL="http://localhost:11434"   # default
+export OLLAMA_BASE_URL="http://localhost:11434"   # default; set https://ollama.com for Ollama Cloud
 export OLLAMA_DEFAULT_MODEL="llama3.2"             # default; any locally-pulled model name works
+export OLLAMA_API_KEY="..."                        # only for authenticated endpoints (required by Ollama Cloud; a local instance needs none)
 
 # Optional: Cloud LLM keys — only needed when you pass provider: "openai" or "anthropic"
 export OPENAI_API_KEY="sk-..."

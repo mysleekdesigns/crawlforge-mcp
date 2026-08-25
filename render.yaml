@@ -28,3 +28,17 @@ services:
       # match CRAWLFORGE_MCP_INTERNAL_SECRET on Vercel. Set in the dashboard.
       - key: INTERNAL_PROXY_SECRET
         sync: false
+      # Optional: point the LLM tools (extract_with_llm, and the fallback
+      # chain used by agent/summarize_content/track_changes) at any
+      # Ollama-compatible endpoint. For Ollama Cloud: OLLAMA_BASE_URL =
+      # https://ollama.com, OLLAMA_API_KEY = a key from
+      # https://ollama.com/settings/keys, OLLAMA_DEFAULT_MODEL = a cloud
+      # model name from https://ollama.com/search?c=cloud. Leave unset to
+      # keep the localhost default (no Ollama on this box → tools report
+      # an honest failure).
+      - key: OLLAMA_BASE_URL
+        sync: false
+      - key: OLLAMA_API_KEY
+        sync: false
+      - key: OLLAMA_DEFAULT_MODEL
+        sync: false
