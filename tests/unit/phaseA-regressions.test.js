@@ -125,7 +125,7 @@ describe('A1.6 ChangeTracker no-baseline', () => {
 // ── A1.7 scrape_template: HN selectors ──────────────────────────────────────
 describe('A1.7 scrape_template hacker-news-front-page', () => {
   test('score/author/comments are populated from the .subtext row', async () => {
-    const { TemplateRegistry } = await import('../../src/tools/templates/TemplateRegistry.js');
+    const { TemplateRegistry } = await import('crawlforge-extractors');
     const registry = new TemplateRegistry();
     // Minimal HN-shaped markup: athing row + following metadata row with .subtext.
     const html = `<table><tbody>

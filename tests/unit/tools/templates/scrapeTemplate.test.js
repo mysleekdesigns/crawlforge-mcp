@@ -1,5 +1,8 @@
 /**
- * Unit tests: scrape_template (real modules — src/tools/templates/TemplateRegistry.js
+ * Unit tests: scrape_template (real modules — the extractors now live in the
+ * shared crawlforge-extractors package, which both this server and the REST
+ * API run; the per-template unit tests live there too. What is covered here
+ * is the tool around them
  * and src/tools/templates/ScrapeTemplateTool.js)
  * Run: node --test tests/unit/tools/templates/scrapeTemplate.test.js
  *
@@ -15,7 +18,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { TemplateRegistry } from '../../../../src/tools/templates/TemplateRegistry.js';
+import { TemplateRegistry } from 'crawlforge-extractors';
 
 // ---------------------------------------------------------------------------
 // Table-driven fixtures — one entry per registered template, each with
