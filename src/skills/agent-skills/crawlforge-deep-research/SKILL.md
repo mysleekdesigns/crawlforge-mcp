@@ -51,7 +51,7 @@ Returns titles, URLs, snippets. Supports `lang`, `site` (domain filter),
 `enable_ranking`, and `enable_deduplication`. CLI:
 `crawlforge search "MCP server tutorial" --limit 5`.
 
-## reddit_search (cost: 2)
+## reddit_search (cost: 5)
 
 reddit.com 403-blocks direct scraping, so this queries the Arctic Shift and
 PullPush community archives instead (free, no Reddit credentials).

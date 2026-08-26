@@ -283,7 +283,7 @@ Returns titles, URLs, snippets. Supports `lang`, `site` (domain filter),
 `enable_ranking`, and `enable_deduplication`. CLI:
 `crawlforge search "MCP server tutorial" --limit 5`.
 
-## reddit_search (cost: 2)
+## reddit_search (cost: 5)
 
 reddit.com 403-blocks direct scraping, so this queries the Arctic Shift and
 PullPush community archives instead (free, no Reddit credentials).
@@ -592,10 +592,12 @@ before reaching for the LLM tools.
 { "tool": "scrape_template", "params": { "template": "github-repo", "url": "https://github.com/user/repo" } }
 ```
 
-Pass `template:"list"` to enumerate templates. Supports `amazon-product`,
-`linkedin-profile`, `github-repo`, `youtube-video`, `tweet`, `reddit-thread`,
-`hacker-news-front-page`, `producthunt-launch`, `stackoverflow-question`,
-`npm-package`. Full field lists: [templates](references/templates.md).
+Pass `template:"list"` to enumerate templates. Supports `shopify-product`,
+`amazon-product`, `linkedin-profile`, `github-repo`, `youtube-video`, `tweet`,
+`reddit-thread`, `hacker-news-front-page`, `producthunt-launch`,
+`stackoverflow-question`, `npm-package`. Prefer `shopify-product` over scraping
+or LLM extraction on any Shopify storefront — it reads the store's own JSON, so
+prices and stock cannot be misread. Full field lists: [templates](references/templates.md).
 CLI: `crawlforge template github-repo https://github.com/owner/repo`.
 
 ## scrape_structured — CSS selectors (cost: 2)
