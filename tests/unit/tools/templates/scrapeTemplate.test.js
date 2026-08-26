@@ -158,21 +158,36 @@ const CASES = [
     html: `<html><head>
       <meta name="title" content="How CrawlForge Works">
       <link itemprop="name" content="CrawlForge Channel">
-      <meta itemprop="interactionCount" content="98765">
       <meta itemprop="uploadDate" content="2024-02-02">
       <meta property="og:description" content="A walkthrough video.">
       <meta property="og:image" content="https://img.example.com/thumb.jpg">
       <meta itemprop="duration" content="PT8M30S">
       <link rel="canonical" href="/watch?v=abc123">
-    </head><body></body></html>`,
+    </head><body>
+      <div itemprop="interactionStatistic" itemscope itemtype="https://schema.org/InteractionCounter">
+        <meta itemprop="interactionType" content="https://schema.org/LikeAction">
+        <meta itemprop="userInteractionCount" content="4321">
+      </div>
+      <div itemprop="interactionStatistic" itemscope itemtype="https://schema.org/InteractionCounter">
+        <meta itemprop="interactionType" content="https://schema.org/WatchAction">
+        <meta itemprop="userInteractionCount" content="98765">
+      </div>
+    </body></html>`,
     // Reproduction case for the youtube-video crash fix: `link[rel="canonical"]`
     // is a *relative* URL here (as real YouTube pages sometimes serve it),
     // which used to throw uncaught inside `new URL(...)` and abort the whole
     // extraction. It's now wrapped in try/catch and degrades to video_id:null.
+    //
+    // The counters are the markup YouTube actually serves (verified 2026-08-26):
+    // one InteractionCounter block per statistic, LikeAction emitted FIRST, both
+    // using userInteractionCount. This fixture previously carried an invented
+    // `itemprop="interactionCount"` meta that matched the template's selector but
+    // no real page, so views read null in production while this test stayed green.
     assert: (data) => {
       assert.equal(data.title, 'How CrawlForge Works');
       assert.equal(data.channel, 'CrawlForge Channel');
-      assert.equal(data.views, '98765');
+      assert.equal(data.views, 98765, 'views come from WatchAction, not the first counter');
+      assert.equal(data.likes, 4321);
       assert.equal(data.duration, 'PT8M30S');
       assert.equal(data.video_id, null, 'relative canonical URL degrades to null, not a crash');
     }
