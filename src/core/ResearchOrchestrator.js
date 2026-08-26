@@ -1515,12 +1515,22 @@ export class ResearchOrchestrator extends EventEmitter {
       .filter(group => group.avgCredibility >= this.credibilityThreshold)
       .sort((a, b) => b.consensusStrength - a.consensusStrength)
       .slice(0, 10)
-      .map(group => ({
-        finding: group.keywords.join(' '),
-        supportingClaims: group.claims.length,
-        credibility: group.avgCredibility,
-        sources: group.claims.map(c => c.source)
-      }));
+      .map(group => {
+        // Findings must be readable prose. Claims are extractive sentences
+        // from the source content, so surface the most credible one verbatim
+        // — joining the group's keywords here produced stopword-stripped
+        // gibberish ("scraping server model context protocol server that...").
+        const representative = group.claims.reduce(
+          (best, c) => ((c.credibility || 0) > (best.credibility || 0) ? c : best),
+          group.claims[0]
+        );
+        return {
+          finding: representative.claim,
+          supportingClaims: group.claims.length,
+          credibility: group.avgCredibility,
+          sources: group.claims.map(c => c.source)
+        };
+      });
   }
 
   compileSupportingEvidence(sources) {

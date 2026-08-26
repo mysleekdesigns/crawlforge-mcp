@@ -191,6 +191,7 @@ const serpRankTool = new SerpRankTool();
 // provider search_web uses, then reads those posts from the archive.
 const redditSearchTool = new RedditSearchTool({
   searchApiKey: searchWebToolConfig.apiKey,
+  searchApiBaseUrl: searchWebToolConfig.apiBaseUrl,
 });
 const crawlDeepTool = new CrawlDeepTool(getToolConfig('crawl_deep'));
 const mapSiteTool = new MapSiteTool(getToolConfig('map_site'));

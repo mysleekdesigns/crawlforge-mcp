@@ -44,6 +44,21 @@ function truncate(text, maxChars = 8000) {
   return text.slice(0, maxChars) + '\n[...truncated]';
 }
 
+/**
+ * Current-state task gate: prompts about the live "now" ("right now",
+ * "currently", "today", "latest", "#1 … now") go stale through search alone —
+ * dated articles rank for the task's words while the live page does not
+ * (live repro 2026-08-26: "#1 story on Hacker News right now" answered from
+ * a January thread; news.ycombinator.com was never fetched). Detected
+ * deterministically here (never LLM-trusted) so PLAN steers search toward
+ * the live entity page and SHAPE answers from it, not from dated results.
+ */
+const CURRENT_STATE_RE = /\b(right now|currently|today|tonight|at the moment|as of (now|today)|latest|this (week|month|morning))\b|#\d+[^.?!]*\bnow\b/i;
+
+export function isCurrentStateTask(prompt) {
+  return CURRENT_STATE_RE.test(prompt || '');
+}
+
 // ── Orchestrator ──────────────────────────────────────────────────────────────
 
 export class AgentOrchestrator {
@@ -172,10 +187,17 @@ export class AgentOrchestrator {
     }
 
     // ── PLAN ──────────────────────────────────────────────────────────────────
+    const currentState = isCurrentStateTask(prompt);
     let searchQueries = [prompt]; // fallback: use raw prompt as query
     try {
       const planPrompt =
         `Decompose this research task into 1-3 concise web search queries. ` +
+        // Current-state tasks: a query made of the task's words surfaces dated
+        // articles ABOUT the topic; the bare entity name surfaces the live
+        // official page as the top result, which GATHER then prioritizes.
+        (currentState
+          ? `The task asks about a CURRENT live state: the FIRST query must be ONLY the name of the site or thing whose current state is asked, nothing else. `
+          : '') +
         `Output ONLY the queries, one per line, no preamble or numbering:\n\n${prompt}`;
       const { text } = await this._getSamplingClient().complete(planPrompt, { maxTokens: 200 });
       const lines = text.split('\n')
@@ -229,6 +251,38 @@ export class AgentOrchestrator {
           } catch { /* skip failed search */ }
         }
       } catch { /* search tool init failed */ }
+    }
+
+    // Current-state tasks: search results are LEADS, not answers — the answer
+    // must come from the authoritative live page. The raw top result is NOT a
+    // safe proxy (live retest 2026-08-26: CSE ranks thehackernews.com above
+    // news.ycombinator.com for "Hacker News"), so vote by domain across all
+    // results — PLAN's bare entity query makes the official site dominate —
+    // and put that domain's root (its live front page) first in the fetch
+    // queue and first at SHAPE time so synthesis answers from it, never from
+    // a dated article. A wrong root self-heals: it fails the relevance gate
+    // and never enters evidence.
+    if (currentState && searchResults.length > 0) {
+      const originCounts = new Map();
+      for (const s of searchResults) {
+        try {
+          const origin = new URL(s.url).origin;
+          originCounts.set(origin, (originCounts.get(origin) || 0) + 1);
+        } catch { /* unparsable result url */ }
+      }
+      let bestOrigin = null;
+      let bestCount = 0;
+      for (const [origin, count] of originCounts) {
+        // Strict > keeps the earliest-seen (top-ranked) origin on ties.
+        if (count > bestCount) { bestOrigin = origin; bestCount = count; }
+      }
+      if (bestOrigin) {
+        const liveRoot = `${bestOrigin}/`;
+        if (!priorityUrls.includes(liveRoot)) priorityUrls.push(liveRoot);
+        const qi = urlQueue.findIndex(u => u === liveRoot || `${u}/` === liveRoot);
+        if (qi > 0) urlQueue.splice(qi, 1);
+        if (qi !== 0) urlQueue.unshift(liveRoot);
+      }
     }
 
     // ── ACT loop ──────────────────────────────────────────────────────────────
@@ -336,6 +390,11 @@ export class AgentOrchestrator {
         `Task: ${prompt}\n\n` +
         `${combinedText}\n\n` +
         `Rules:\n` +
+        // Short and imperative on purpose: the executing model is a small
+        // local one (gemma3:4b-class) and ignores hedged phrasing.
+        (currentState
+          ? `- The task asks about the CURRENT state. Answer from the FIRST source below (the live page). NEVER present older or dated content as the current answer.\n`
+          : '') +
         `- Answer ONLY from the provided sources; do not use outside knowledge.\n` +
         `- Read the sources carefully before concluding anything is missing from them.\n` +
         `- Cite the exact source URL(s) you used.\n` +

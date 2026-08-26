@@ -48,7 +48,8 @@ export class SearchProviderFactory {
 
     return new CrawlForgeSearchAdapter(
       apiKey,
-      options.apiBaseUrl || 'https://api.crawlforge.dev'
+      // www is the live API host — api.crawlforge.dev does not resolve.
+      options.apiBaseUrl || 'https://www.crawlforge.dev'
     );
   }
 

@@ -20,6 +20,9 @@ const ProcessDocumentSchema = z.object({
     // PDF processing options
     extractText: z.boolean().default(true),
     extractMetadata: z.boolean().default(true),
+    // Detect grid tables in PDFs from the text layer; the result then always
+    // carries a top-level `tables` array (empty when none are found).
+    extractTables: z.boolean().default(false),
     maxPages: z.number().min(1).max(500).default(100),
     // C3: extract a specific 1-based, inclusive page range from a PDF
     pageRange: z.object({
@@ -54,6 +57,10 @@ const ProcessDocumentResult = z.object({
     html: z.string().optional(),
     extractedContent: z.string().optional()
   }),
+  tables: z.array(z.object({
+    page: z.number(),
+    rows: z.array(z.array(z.string()))
+  })).optional(),
   metadata: z.object({
     // Common metadata
     title: z.string().nullable(),
@@ -204,6 +211,7 @@ export class ProcessDocumentTool {
       options: {
         extractText: options.extractText,
         extractMetadata: options.extractMetadata,
+        extractTables: options.extractTables,
         maxPages: options.maxPages,
         ...(options.pageRange ? { pageRange: options.pageRange } : {})
       }
@@ -217,6 +225,12 @@ export class ProcessDocumentTool {
     result.content = {
       text: pdfResult.text || ''
     };
+
+    // When table extraction was requested, always answer with a tables array —
+    // honestly empty when the detector found none.
+    if (options.extractTables) {
+      result.tables = pdfResult.tables || [];
+    }
 
     // Set title
     result.title = pdfResult.metadata?.title || null;
