@@ -5,6 +5,13 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.2.7] - 2026-08-26
+
+Patch release. One defect, found by re-testing the 5.2.6 fixes over the real MCP surface rather than at the function level.
+
+- **An unscoped `reddit_search` failed with a protocol error over MCP.** Since 5.2.3 a Reddit-wide keyword search returns `source: "web_discovery"`, but the tool's declared output schema still enumerated only the two archives — so the tool ran the search successfully and the MCP layer then rejected its own result with `-32602 Invalid enum value … received 'web_discovery'`. Scoped searches passed (they return `source: "arctic_shift"`), which is how the gap survived three releases: pre-ship verification called the tool's `execute()` directly and the REST API has its own implementation, and neither path goes through MCP output validation. The enum now includes `web_discovery`, and the regression test pins the exact rejected shape.
+
+
 ## [5.2.6] - 2026-08-26
 
 Patch release. Seven result-quality defects across the research, analysis and extraction tools, found by pointing the tools at live pages instead of fixtures.
