@@ -3,6 +3,7 @@
  * Applies an AbortController timeout and a default User-Agent.
  */
 
+import { readBody } from 'crawlforge-extractors';
 import { config } from '../../constants/config.js';
 import { createRequire } from 'module';
 import { ssrfGuard, isSsrfError } from '../../utils/ssrfGuard.js';
@@ -12,35 +13,6 @@ import { throttleHost } from '../../utils/hostRateLimiter.js';
 const _require = createRequire(import.meta.url);
 const _pkg = _require('../../../package.json');
 const CRAWLFORGE_UA = `CrawlForge/${_pkg.version} (+https://crawlforge.dev)`;
-
-/**
- * Determine the charset to decode a response body with: Content-Type header
- * first, then a <meta charset> sniff of the first bytes, defaulting to utf-8.
- * @param {Response} response
- * @param {Uint8Array} bytes
- * @returns {string}
- */
-function detectCharset(response, bytes) {
-  const contentType = response.headers?.get?.('content-type') || '';
-  const headerMatch = /charset=["']?([\w-]+)/i.exec(contentType);
-  if (headerMatch) {
-    return headerMatch[1].trim().toLowerCase();
-  }
-
-  // <meta charset> tags must appear within the first 1024 bytes per the
-  // HTML5 spec's prescan algorithm; ASCII-range bytes decode identically
-  // under latin1 regardless of the document's real encoding.
-  const sniffLength = Math.min(bytes.byteLength, 1024);
-  const sniffText = new TextDecoder('latin1').decode(bytes.subarray(0, sniffLength));
-  const metaMatch =
-    /<meta[^>]+charset=["']?([\w-]+)/i.exec(sniffText) ||
-    /<meta[^>]+http-equiv=["']?content-type["']?[^>]*content=["'][^"']*charset=([\w-]+)/i.exec(sniffText);
-  if (metaMatch) {
-    return metaMatch[1].trim().toLowerCase();
-  }
-
-  return 'utf-8';
-}
 
 /**
  * Fetch a URL with a configurable timeout and body-size cap.
@@ -100,46 +72,11 @@ export async function fetchWithTimeout(url, options = {}) {
       throw error;
     }
 
-    // --- Body-size cap ---
-
-    // Early rejection via Content-Length (servers may omit or lie — guard below
-    // handles that case). Optional-chained so non-standard responses (e.g. test
-    // mocks) without a Headers object don't throw.
-    const contentLengthHeader = response.headers?.get?.('content-length') ?? null;
-    if (contentLengthHeader !== null) {
-      const declared = parseInt(contentLengthHeader, 10);
-      if (!isNaN(declared) && declared > maxBodySize) {
-        throw new Error(
-          `Response body too large: Content-Length ${declared} exceeds limit of ${maxBodySize} bytes`
-        );
-      }
-    }
-
-    // Only the streaming byte-count guard requires a readable body. Responses
-    // without a ReadableStream body (already-buffered responses, test mocks)
-    // are returned unchanged so callers' native .text()/.json() still work.
-    if (!response.body || typeof response.body.getReader !== 'function') {
-      return Object.assign(response, { _responseTime: Date.now() - startedAt });
-    }
-
-    // Stream the body and abort if accumulated bytes exceed the cap.
-    const reader = response.body.getReader();
-    const chunks = [];
-    let totalBytes = 0;
-
+    // Reading is delegated to crawlforge-extractors so the REST API applies
+    // the same cap and the same charset handling to the same page.
+    let bodyText;
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        totalBytes += value.byteLength;
-        if (totalBytes > maxBodySize) {
-          reader.cancel();
-          throw new Error(
-            `Response body too large: exceeded limit of ${maxBodySize} bytes`
-          );
-        }
-        chunks.push(value);
-      }
+      bodyText = await readBody(response, { maxBytes: maxBodySize });
     } catch (error) {
       if (error.name === 'AbortError') {
         throw new Error(`Request timeout after ${timeout}ms`);
@@ -147,29 +84,7 @@ export async function fetchWithTimeout(url, options = {}) {
       throw error;
     }
 
-    // Reassemble the raw bytes in a single pass (totalBytes is already known,
-    // so this is one allocation + one copy per chunk, not the O(n^2) cost of
-    // reallocating/copying the whole buffer on every chunk), then decode using
-    // the response's actual charset (Content-Type header, falling back to a
-    // <meta charset> sniff) instead of always assuming UTF-8.
-    const mergedBytes = new Uint8Array(totalBytes);
-    let offset = 0;
-    for (const chunk of chunks) {
-      mergedBytes.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-
-    const charset = detectCharset(response, mergedBytes);
-    let bodyText;
-    try {
-      bodyText = new TextDecoder(charset).decode(mergedBytes);
-    } catch {
-      // Unrecognized charset label — fall back to UTF-8 rather than throwing.
-      bodyText = new TextDecoder().decode(mergedBytes);
-    }
-
     // Attach the pre-read text so callers can call .text() on the result.
-    // We wrap it in a minimal compatible object.
     return Object.assign(response, {
       text: () => Promise.resolve(bodyText),
       json: () => Promise.resolve(JSON.parse(bodyText)),
