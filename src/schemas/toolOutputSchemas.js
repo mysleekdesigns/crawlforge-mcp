@@ -180,7 +180,7 @@ const redditCommentShape = z.object({
 }).passthrough();
 
 const redditSearchShape = {
-  source: z.enum(['arctic_shift', 'pullpush']).optional().describe('Which community archive served this result'),
+  source: z.enum(['arctic_shift', 'pullpush', 'web_discovery']).optional().describe('Which backend served this result — an archive, or web discovery (site-restricted web search hydrated from the archive) for Reddit-wide keyword search'),
   mode: z.string().optional(),
   query: z.string().nullable().optional(),
   subreddit: z.string().nullable().optional(),
