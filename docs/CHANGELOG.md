@@ -5,6 +5,17 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.2.2] - 2026-08-26
+
+Patch release. Two result-quality fixes surfaced by a live regression sweep of all 28 tools against real sites.
+
+- **The `markdown` format returned raw HTML on table-layout pages.** `turndown-plugin-gfm` converts a table only when its first row is entirely `<th>`; every other table goes through the plugin's `keep` filter and is emitted verbatim. Scraped pages are full of layout tables — Hacker News is built out of them — so `scrape` with `formats: ["markdown"]` and `extract_text` with `output_format: "markdown"` handed back `<table>` markup instead of markdown. Rules registered after the plugin now match those tables first (added rules take precedence over keep filters) and flatten them to their cell content, so links and text convert normally. Tables with a real heading row are untouched and still render as GFM pipe tables.
+
+- **Language detection could never return Chinese, Greek, Arabic, Norwegian or Malay.** `ContentAnalyzer` restricted franc to the keys of its `LANGUAGE_NAMES` map, but five of those keys were ISO 639-2/B codes (`chi`, `gre`, `ara`, `nor`, `msa`) that franc, which emits ISO 639-3, never produces. Text in any of those languages fell through to the undetermined branch — a page written entirely in Chinese returned `null`. The codes are now `cmn`, `ell`, `arb`, `nob` and `zlm`/`zsm`.
+
+- **CJK pages carrying English text detected as English.** franc scores whichever script is most common, so a Chinese or Japanese page with the usual run of English product names and code samples was scored as Latin-script prose. Detection now short-circuits on a Han/kana/hangul share of at least 10% of letters, which those scripts only reach in genuine CJK text.
+
+
 ## [5.2.1] - 2026-08-26
 
 Patch release. Two fixes that shipped to the hosted server the day 5.2.0 was published but could not reach anyone installing from npm until now.

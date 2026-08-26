@@ -976,4 +976,77 @@ describe('B1.2 htmlToMarkdown GFM pipe tables', () => {
     assert.ok(md.includes('Name'), 'table header must appear in markdown');
     assert.ok(md.includes('Alice'), 'table row must appear in markdown');
   });
+
+  test('layout table without a <th> heading row is flattened, not kept as raw HTML', async () => {
+    const { htmlToMarkdown } = await import('../../src/utils/htmlToMarkdown.js');
+    // turndown-plugin-gfm keeps a table like this verbatim; Hacker News and
+    // plenty of older pages are built entirely out of them, so the markdown
+    // format used to come back as HTML.
+    const html = `<table id="hnmain"><tbody>
+      <tr><td><a href="https://example.com/story">A Story Title</a></td></tr>
+      <tr><td>120 points by someone</td></tr>
+    </tbody></table>`;
+    const md = htmlToMarkdown(html);
+    assert.ok(!/<table|<\/table>|<tr[ >]|<td[ >]|<tbody/i.test(md),
+      `layout table must not leak raw HTML into markdown, got: ${md}`);
+    assert.ok(md.includes('[A Story Title](https://example.com/story)'),
+      `cell links must still convert to markdown, got: ${md}`);
+    assert.ok(md.includes('120 points by someone'),
+      `cell text must survive flattening, got: ${md}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ContentAnalyzer — language detection whitelist codes and CJK script check
+// ---------------------------------------------------------------------------
+
+describe('ContentAnalyzer language detection', () => {
+  test('detects Chinese, which the ISO 639-2/B whitelist code excluded entirely', async () => {
+    const { ContentAnalyzer } = await import('../../src/core/analysis/ContentAnalyzer.js');
+    const ca = new ContentAnalyzer();
+    // franc emits ISO 639-3 ('cmn'); the whitelist used to say 'chi', so
+    // Chinese could never survive detection and the call returned null.
+    const result = await ca.detectLanguage(
+      '网页抓取是一种从网站上提取数据的技术，通常使用自动化软件来完成。' +
+      '它被广泛应用于价格监控、市场研究以及机器学习数据集的构建。'
+    );
+    assert.ok(result, 'Chinese text must be detected, not returned as null');
+    assert.equal(result.code, 'cmn');
+    assert.equal(result.name, 'Chinese');
+  });
+
+  test('detects Chinese even when English brand names outnumber Han characters', async () => {
+    const { ContentAnalyzer } = await import('../../src/core/analysis/ContentAnalyzer.js');
+    const ca = new ContentAnalyzer();
+    const result = await ca.detectLanguage(
+      'CrawlForge MCP 将任意网站转化为干净数据，赋能 AI Agent。使用 scrape 工具抓取网页，' +
+      '并返回 Markdown 格式的内容。支持 28 个专业工具，包括 deep_research 和 batch_scrape。'
+    );
+    assert.equal(result?.code, 'cmn', 'script share must settle CJK before trigram scoring');
+  });
+
+  test('detects Greek, another whitelist code franc never emits', async () => {
+    const { ContentAnalyzer } = await import('../../src/core/analysis/ContentAnalyzer.js');
+    const ca = new ContentAnalyzer();
+    // The whitelist said 'gre' (ISO 639-2/B) where franc emits 'ell'. Greek is
+    // used here rather than Malay because Malay and Indonesian are close
+    // enough that either is a defensible answer for a short sample.
+    const result = await ca.detectLanguage(
+      'Η εξόρυξη δεδομένων ιστού είναι η διαδικασία εξαγωγής δεδομένων από ιστότοπους ' +
+      'με χρήση αυτοματοποιημένου λογισμικού. Χρησιμοποιείται ευρέως για την ' +
+      'παρακολούθηση τιμών και την έρευνα αγοράς.'
+    );
+    assert.equal(result?.code, 'ell');
+    assert.equal(result?.name, 'Greek');
+  });
+
+  test('still detects Latin-script languages by trigram', async () => {
+    const { ContentAnalyzer } = await import('../../src/core/analysis/ContentAnalyzer.js');
+    const ca = new ContentAnalyzer();
+    const spanish = await ca.detectLanguage(
+      'El scraping web es el proceso de extraer datos de sitios web mediante software ' +
+      'automatizado. Se utiliza para el seguimiento de precios y la investigación.'
+    );
+    assert.equal(spanish?.code, 'spa');
+  });
 });

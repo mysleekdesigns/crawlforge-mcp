@@ -106,24 +106,25 @@ const LANGUAGE_NAMES = {
   'rus': 'Russian',
   'jpn': 'Japanese',
   'kor': 'Korean',
-  'chi': 'Chinese',
-  'ara': 'Arabic',
+  'cmn': 'Chinese',
+  'arb': 'Arabic',
   'hin': 'Hindi',
   'nld': 'Dutch',
   'swe': 'Swedish',
-  'nor': 'Norwegian',
+  'nob': 'Norwegian',
   'dan': 'Danish',
   'fin': 'Finnish',
   'pol': 'Polish',
   'ces': 'Czech',
   'hun': 'Hungarian',
   'tur': 'Turkish',
-  'gre': 'Greek',
+  'ell': 'Greek',
   'heb': 'Hebrew',
   'tha': 'Thai',
   'vie': 'Vietnamese',
   'ind': 'Indonesian',
-  'msa': 'Malay',
+  'zlm': 'Malay',
+  'zsm': 'Malay',
   'tgl': 'Tagalog',
   'ukr': 'Ukrainian',
   'bul': 'Bulgarian',
@@ -282,6 +283,28 @@ export class ContentAnalyzer {
    */
   async detectLanguage(text, options = {}) {
     try {
+      // franc scores the single most common script, so a Chinese, Japanese or
+      // Korean page carrying the usual run of English product names and code
+      // samples is detected as English. Those scripts never appear in
+      // Latin-script prose, so a meaningful share of them settles the question
+      // before trigram scoring gets a say.
+      const letters = (text.match(/\p{L}/gu) || []).length;
+      if (letters > 0) {
+        const han = (text.match(/\p{Script=Han}/gu) || []).length;
+        const kana = (text.match(/[\p{Script=Hiragana}\p{Script=Katakana}]/gu) || []).length;
+        const hangul = (text.match(/\p{Script=Hangul}/gu) || []).length;
+        if ((han + kana + hangul) / letters >= 0.1) {
+          const code = kana > 0 ? 'jpn' : hangul > han ? 'kor' : 'cmn';
+          return {
+            code,
+            name: LANGUAGE_NAMES[code],
+            confidence: 0.9,
+            alternative: [],
+            detectionMethod: 'script'
+          };
+        }
+      }
+
       // Use franc for language detection
       const detected = franc(text, {
         minLength: 10,
