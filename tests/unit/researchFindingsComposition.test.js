@@ -209,3 +209,57 @@ describe('synthesizeFindings — truncation-resistant prompt and retry (2026-08-
     assert.ok(/my topic/.test(result.summary), 'fallback synthesis mentions the topic');
   });
 });
+
+describe('analyzeRelevance — fenced/truncated output parses instead of always falling back (2026-08-26)', () => {
+  // Before the fix this method passed the raw completion to JSON.parse with
+  // no format constraint, so every fenced Ollama response threw and "LLM
+  // relevance analysis failed, using fallback" fired on every run.
+
+  function makeManager(completions) {
+    const mgr = new LLMManager({});
+    let call = 0;
+    const opts = [];
+    mgr.generateCompletion = async (prompt, options) => {
+      opts.push(options);
+      const out = completions[Math.min(call, completions.length - 1)];
+      call++;
+      if (out instanceof Error) throw out;
+      return out;
+    };
+    return { mgr, opts };
+  }
+
+  test('a ```json-fenced response parses and its values are returned', async () => {
+    const fenced = '```json\n{"relevanceScore":0.85,"keyPoints":["about scraping"],"topicAlignment":"strong","credibilityIndicators":["citations"]}\n```';
+    const { mgr, opts } = makeManager([fenced]);
+    const result = await mgr.analyzeRelevance('content about web scraping', 'web scraping');
+    assert.equal(result.relevanceScore, 0.85);
+    assert.deepEqual(result.keyPoints, ['about scraping']);
+    assert.equal(result.topicAlignment, 'strong');
+    assert.ok(opts[0].format, 'completion is schema-constrained');
+  });
+
+  test('a legitimate relevanceScore of 0 is kept, not coerced to 0.5', async () => {
+    const { mgr } = makeManager(['{"relevanceScore":0,"keyPoints":[],"topicAlignment":"none","credibilityIndicators":[]}']);
+    const result = await mgr.analyzeRelevance('unrelated content', 'web scraping');
+    assert.equal(result.relevanceScore, 0);
+  });
+
+  test('a truncated first response is retried once and the retry result returned', async () => {
+    const truncated = '{"relevanceScore":0.7,"keyPoints":["cut off mid';
+    const good = '{"relevanceScore":0.7,"keyPoints":["ok"],"topicAlignment":"fine","credibilityIndicators":[]}';
+    const { mgr, opts } = makeManager([truncated, good]);
+    const result = await mgr.analyzeRelevance('c', 't');
+    assert.equal(opts.length, 2, 'exactly one retry');
+    assert.equal(result.relevanceScore, 0.7);
+    assert.deepEqual(result.keyPoints, ['ok']);
+  });
+
+  test('two failed attempts fall back to the word-overlap analysis', async () => {
+    const { mgr, opts } = makeManager(['not json at all', 'still not json']);
+    const result = await mgr.analyzeRelevance('web scraping content here', 'web scraping');
+    assert.equal(opts.length, 2);
+    assert.ok(result.relevanceScore > 0, 'fallback scores by word overlap');
+    assert.ok(result.keyPoints[0].endsWith('...'), 'fallback keyPoints are a content excerpt');
+  });
+});

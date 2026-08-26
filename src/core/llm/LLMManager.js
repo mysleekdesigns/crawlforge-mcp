@@ -259,7 +259,9 @@ Return a JSON object with:
   "keyPoints": ["point1", "point2", ...],
   "topicAlignment": "description of alignment",
   "credibilityIndicators": ["indicator1", "indicator2", ...]
-}`;
+}
+
+Be brief: at most 5 items per array, one short sentence each.`;
 
     const prompt = `Research Topic: "${topic}"
 
@@ -269,19 +271,48 @@ ${truncatedContent}
 Analyze the relevance of this content to the research topic:`;
 
     try {
-      const response = await this.generateCompletion(prompt, {
-        systemPrompt,
-        maxTokens: 500,
-        temperature: 0.3
-      });
-
-      const analysis = JSON.parse(response);
-      return {
-        relevanceScore: Math.max(0, Math.min(1, analysis.relevanceScore || 0.5)),
-        keyPoints: analysis.keyPoints || [],
-        topicAlignment: analysis.topicAlignment || '',
-        credibilityIndicators: analysis.credibilityIndicators || []
+      // Same discipline as synthesizeFindings: constrain the output shape
+      // (small local models otherwise wrap the JSON in markdown fences —
+      // the raw JSON.parse here failed on every Ollama run), strip fences,
+      // validate the load-bearing field, and retry a truncated response
+      // once before falling back.
+      const relevanceSchema = {
+        type: 'object',
+        properties: {
+          relevanceScore: { type: 'number' },
+          keyPoints: { type: 'array', items: { type: 'string' } },
+          topicAlignment: { type: 'string' },
+          credibilityIndicators: { type: 'array', items: { type: 'string' } }
+        },
+        required: ['relevanceScore']
       };
+
+      let lastError;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await this.generateCompletion(prompt, {
+            systemPrompt,
+            maxTokens: 800,
+            temperature: 0.3,
+            format: relevanceSchema
+          });
+
+          const cleaned = response.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+          const analysis = JSON.parse(cleaned);
+          if (!analysis || typeof analysis.relevanceScore !== 'number') {
+            throw new Error('Relevance response missing relevanceScore');
+          }
+          return {
+            relevanceScore: Math.max(0, Math.min(1, analysis.relevanceScore)),
+            keyPoints: analysis.keyPoints || [],
+            topicAlignment: analysis.topicAlignment || '',
+            credibilityIndicators: analysis.credibilityIndicators || []
+          };
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError;
     } catch (error) {
       this.logger.warn('LLM relevance analysis failed, using fallback', { error: error.message });
       return this.fallbackRelevanceAnalysis(content, topic);

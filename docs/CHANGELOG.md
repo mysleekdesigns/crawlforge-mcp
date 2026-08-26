@@ -5,6 +5,13 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.2.9] - 2026-08-26
+
+Patch release. The last of the small-local-model JSON parsing defects in `deep_research`.
+
+- **Per-source relevance analysis silently degraded to word overlap on every run.** `analyzeRelevance` was the one remaining place that passed a completion straight to `JSON.parse` with no output-format constraint, so the markdown fences small local models wrap JSON in made the parse throw — and the catch quietly substituted the word-overlap fallback, on every source, since the feature shipped. It now uses the same discipline as the synthesis path: schema-constrained output, a brevity instruction, fence stripping, validation of the load-bearing `relevanceScore`, and one retry before the fallback. The rewrite also fixes a falsy-default bug: a legitimate relevance score of 0 was coerced to 0.5 by `|| 0.5`. Live against local Ollama: zero fallbacks in four calls where before every call fell back, and the scores discriminate — 0.95 for on-topic content, 0.1 for off-topic.
+
+
 ## [5.2.8] - 2026-08-26
 
 Patch release. Two leftovers from the 5.2.6 `deep_research` fix, caught by re-running the live repro.
