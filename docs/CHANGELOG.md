@@ -5,6 +5,13 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.2.4] - 2026-08-26
+
+Pricing change.
+
+- **`reddit_search` now costs 5 credits, up from 2.** Since 5.2.3 a Reddit-wide keyword search discovers posts through a site-restricted web search before reading them from the archive — the same upstream call `search_web` makes, at the same price. A subreddit- or author-scoped search still queries the archive directly, but bills the same: the tool has one published price rather than a per-request one. The client-side cost table, the skill credit tiers, and the routing description in `CLAUDE.md` are updated to match.
+
+
 ## [5.2.3] - 2026-08-26
 
 Patch release. The two remaining findings from the live 28-tool sweep.
