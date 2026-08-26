@@ -101,12 +101,15 @@ export class RedditSearchTool {
     // and PullPush stopped serving automated clients in August 2026.
     this.searchAdapter = options.searchAdapter || null;
     this.searchApiKey = options.searchApiKey || null;
+    this.searchApiBaseUrl = options.searchApiBaseUrl || null;
   }
 
   /** The web-search adapter used to discover posts, built once on first use. */
   #search() {
     if (!this.searchAdapter) {
-      this.searchAdapter = SearchProviderFactory.createAdapter(this.searchApiKey);
+      this.searchAdapter = SearchProviderFactory.createAdapter(this.searchApiKey, {
+        apiBaseUrl: this.searchApiBaseUrl,
+      });
     }
     return this.searchAdapter;
   }

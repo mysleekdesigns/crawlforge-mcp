@@ -196,6 +196,55 @@ export class ContentAnalyzer {
   }
 
   /**
+   * Count CJK-script letters and their share of all letters. This is the
+   * script signal language detection uses; the tokenizer reuses it to decide
+   * when whitespace splitting cannot work.
+   * @param {string} text - Text to analyze
+   * @returns {Object} - { letters, han, kana, hangul, share }
+   */
+  cjkScriptCounts(text) {
+    const letters = (text.match(/\p{L}/gu) || []).length;
+    const han = (text.match(/\p{Script=Han}/gu) || []).length;
+    const kana = (text.match(/[\p{Script=Hiragana}\p{Script=Katakana}]/gu) || []).length;
+    const hangul = (text.match(/\p{Script=Hangul}/gu) || []).length;
+    return {
+      letters,
+      han,
+      kana,
+      hangul,
+      share: letters > 0 ? (han + kana + hangul) / letters : 0
+    };
+  }
+
+  /**
+   * True when a meaningful share of the text is in a CJK script, i.e. words
+   * are not whitespace-delimited and must be segmented by dictionary.
+   * @param {string} text - Text to analyze
+   * @returns {boolean}
+   */
+  isCjkText(text) {
+    return this.cjkScriptCounts(text).share >= 0.1;
+  }
+
+  /**
+   * Tokenize text into words with Intl.Segmenter (dictionary-based for CJK
+   * scripts, whitespace/boundary-based otherwise). Only word-like segments
+   * are returned — punctuation and whitespace segments are dropped.
+   * @param {string} text - Text to tokenize
+   * @returns {string[]} - Word tokens
+   */
+  segmentWords(text) {
+    if (!this._wordSegmenter) {
+      this._wordSegmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
+    }
+    const words = [];
+    for (const seg of this._wordSegmenter.segment(text)) {
+      if (seg.isWordLike) words.push(seg.segment);
+    }
+    return words;
+  }
+
+  /**
    * Analyze text content with multiple NLP techniques
    * @param {Object} params - Analysis parameters
    * @param {string} params.text - Text to analyze
@@ -288,12 +337,9 @@ export class ContentAnalyzer {
       // samples is detected as English. Those scripts never appear in
       // Latin-script prose, so a meaningful share of them settles the question
       // before trigram scoring gets a say.
-      const letters = (text.match(/\p{L}/gu) || []).length;
+      const { letters, han, kana, hangul, share } = this.cjkScriptCounts(text);
       if (letters > 0) {
-        const han = (text.match(/\p{Script=Han}/gu) || []).length;
-        const kana = (text.match(/[\p{Script=Hiragana}\p{Script=Katakana}]/gu) || []).length;
-        const hangul = (text.match(/\p{Script=Hangul}/gu) || []).length;
-        if ((han + kana + hangul) / letters >= 0.1) {
+        if (share >= 0.1) {
           const code = kana > 0 ? 'jpn' : hangul > han ? 'kor' : 'cmn';
           return {
             code,
@@ -532,8 +578,25 @@ export class ContentAnalyzer {
    */
   async extractTopics(text, options = {}) {
     try {
+      // compromise noun-phrase matching is English-only: on CJK text it emits
+      // whole multi-sentence runs as one "phrase". Use dictionary-segmented
+      // content words, ranked by RAKE-style relative salience like below.
+      if (this.isCjkText(text)) {
+        const termFreq = this.cjkContentWordFrequencies(text);
+        const maxFreq = Math.max(1, ...Object.values(termFreq));
+        return Object.entries(termFreq)
+          .map(([topic, frequency]) => ({
+            topic,
+            confidence: Math.round((frequency / maxFreq) * 100) / 100,
+            keywords: [topic]
+          }))
+          .filter(topic => topic.confidence >= options.minConfidence)
+          .sort((a, b) => b.confidence - a.confidence)
+          .slice(0, options.maxTopics);
+      }
+
       const doc = nlp(text);
-      
+
       // Extract noun phrases as potential topics
       const nounPhrases = doc.nouns().out('array');
       const adjNounPhrases = doc.match('#Adjective+ #Noun+').out('array');
@@ -700,8 +763,24 @@ export class ContentAnalyzer {
    */
   async extractKeywords(text, options = {}) {
     try {
+      // compromise is English-only: on CJK text it returns whole multi-sentence
+      // runs as single "terms". Rank dictionary-segmented content words instead.
+      if (this.isCjkText(text)) {
+        const termFreq = this.cjkContentWordFrequencies(text);
+        const totalTerms = Object.values(termFreq).reduce((sum, freq) => sum + freq, 0);
+        return Object.entries(termFreq)
+          .map(([keyword, frequency]) => ({
+            keyword,
+            frequency,
+            relevance: totalTerms > 0 ? frequency / totalTerms : 0,
+            type: 'word'
+          }))
+          .sort((a, b) => b.relevance - a.relevance)
+          .slice(0, options.maxKeywords);
+      }
+
       const doc = nlp(text);
-      
+
       // Extract different types of terms
       const nouns = doc.nouns().out('array');
       const verbs = doc.verbs().out('array');
@@ -860,7 +939,10 @@ export class ContentAnalyzer {
   calculateStatistics(text) {
     const characters = text.length;
     const charactersNoSpaces = text.replace(/\s/g, '').length;
-    const words = text.split(/\s+/).filter(w => w.length > 0);
+    // CJK text has no whitespace between words — segment by dictionary instead
+    const words = this.isCjkText(text)
+      ? this.segmentWords(text)
+      : text.split(/\s+/).filter(w => w.length > 0);
     const sentences = splitSentences(text);
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     
@@ -1032,6 +1114,45 @@ export class ContentAnalyzer {
       `\\b(?:Airlines?|Authority|Agency|Association|Bureau|Commission|Committee|Corporation|Company|Council|Court|Foundation|Group|Institute|Institution|Organi[sz]ation|Press|Society|Union|University)\\s*\\(["'“‘]?${acronym}["'”’]?\\)`
     );
     return orgHeadedAlias.test(text);
+  }
+
+  /**
+   * Frequency table of content words for CJK text, built from dictionary
+   * segmentation. Single-character CJK tokens are dropped (overwhelmingly
+   * particles: 的, 是, 了…), as are short/stop-worded Latin tokens mixed in
+   * and common two-character CJK function words.
+   * @param {string} text - Text to analyze
+   * @returns {Object} - Map of word -> frequency
+   */
+  cjkContentWordFrequencies(text) {
+    const freq = {};
+    for (const raw of this.segmentWords(text)) {
+      const word = raw.toLowerCase();
+      const isCjkWord = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(word);
+      const keep = isCjkWord
+        ? word.length >= 2 && !this.isCjkStopWord(word)
+        : word.length > 2 && !this.isStopWord(word);
+      if (keep) {
+        freq[word] = (freq[word] || 0) + 1;
+      }
+    }
+    return freq;
+  }
+
+  /**
+   * Check if a segmented CJK word is a common function word
+   * @param {string} word - Word to check
+   * @returns {boolean} - True if stop word
+   */
+  isCjkStopWord(word) {
+    const cjkStopWords = [
+      '也是', '就是', '我们', '你们', '他们', '她们', '它们', '这个', '那个',
+      '这些', '那些', '一个', '一些', '以及', '或者', '但是', '因为', '所以',
+      '如果', '没有', '可以', '已经', '通过', '由于', '对于', '其中', '并且',
+      '而且', '虽然', '什么', '自己', '这里', '那里'
+    ];
+
+    return cjkStopWords.includes(word);
   }
 
   /**

@@ -320,13 +320,37 @@ ${findingsText}
 Synthesize these findings into a comprehensive analysis:`;
 
     try {
+      // Constrain the output shape (Ollama structured outputs; other providers
+      // ignore `format`). Small local models otherwise wrap the JSON in
+      // markdown fences, drift the key names, or emit an empty object — any of
+      // which blanked the synthesis users see.
+      const synthesisSchema = {
+        type: 'object',
+        properties: {
+          summary: { type: 'string' },
+          keyInsights: { type: 'array', items: { type: 'string' } },
+          themes: { type: 'array', items: { type: 'string' } },
+          confidence: { type: 'number' },
+          gaps: { type: 'array', items: { type: 'string' } },
+          recommendations: { type: 'array', items: { type: 'string' } }
+        },
+        required: ['summary', 'keyInsights', 'themes', 'confidence']
+      };
+
       const response = await this.generateCompletion(prompt, {
         systemPrompt,
         maxTokens: 800,
-        temperature: 0.4
+        temperature: 0.4,
+        format: synthesisSchema
       });
 
-      return JSON.parse(response);
+      // Strip markdown code fences if present
+      const cleaned = response.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+      const parsed = JSON.parse(cleaned);
+      if (!parsed || typeof parsed.summary !== 'string' || parsed.summary.length === 0) {
+        throw new Error('Synthesis response missing summary');
+      }
+      return parsed;
     } catch (error) {
       this.logger.warn('LLM synthesis failed, using fallback', { error: error.message });
       return this.fallbackSynthesis(findings, topic);

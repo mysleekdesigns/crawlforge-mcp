@@ -16,6 +16,8 @@ const PDFProcessorSchema = z.object({
   options: z.object({
     extractMetadata: z.boolean().default(true),
     extractText: z.boolean().default(true),
+    // Detect grid tables from the text layer (positioned text items).
+    extractTables: z.boolean().default(false),
     maxPages: z.number().min(1).max(1000).default(100),
     // For decrypting password-protected PDFs (pdf-parse 2.x / pdfjs-dist honors this).
     password: z.string().optional(),
@@ -36,6 +38,10 @@ const PDFResult = z.object({
   source: z.string(),
   sourceType: z.string(),
   text: z.string().optional(),
+  tables: z.array(z.object({
+    page: z.number(),
+    rows: z.array(z.array(z.string()))
+  })).optional(),
   metadata: z.object({
     title: z.string().nullable(),
     author: z.string().nullable(),
@@ -159,6 +165,16 @@ export class PDFProcessor {
             const textResult = await parser.getText({ first: processingOptions.maxPages, disableNormalization });
             result.text = this.cleanPDFText(textResult.pages.map(p => p.text).join('\n\n'));
           }
+        }
+
+        // Extract tables from the text layer. getInfo() above already loaded
+        // the document, so pdf-parse's parser.doc (a plain property in the
+        // compiled build) holds the pdfjs PDFDocumentProxy — reuse it instead
+        // of parsing the buffer a second time.
+        if (processingOptions.extractTables) {
+          const tableStart = pageRange?.start || 1;
+          const tableEnd = Math.min(pageRange?.end || processingOptions.maxPages, totalPages);
+          result.tables = await this.extractTablesFromDocument(parser.doc, tableStart, tableEnd);
         }
 
         // Extract metadata
@@ -433,6 +449,195 @@ export class PDFProcessor {
       .join('\n')
       // Remove leading/trailing whitespace from entire text
       .trim();
+  }
+
+  /**
+   * Extract tables from a loaded pdfjs document's text layer.
+   * Walks the requested pages (1-based, inclusive), reads positioned text
+   * items via getTextContent(), and runs layout-based table detection on each.
+   * @param {Object} doc - pdfjs PDFDocumentProxy (pdf-parse's parser.doc)
+   * @param {number} startPage - First page to scan
+   * @param {number} endPage - Last page to scan
+   * @returns {Promise<Array>} - Detected tables as {page, rows: [[cell, ...], ...]}
+   */
+  async extractTablesFromDocument(doc, startPage, endPage) {
+    const tables = [];
+    const last = Math.min(endPage, doc.numPages);
+    for (let pageNum = Math.max(1, startPage); pageNum <= last; pageNum++) {
+      const page = await doc.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      tables.push(...this.detectTablesFromTextItems(textContent.items, pageNum));
+    }
+    return tables;
+  }
+
+  /**
+   * Detect grid tables in one page's positioned text items (pdfjs
+   * getTextContent() shape: {str, transform, width, height}; transform[4]/[5]
+   * carry x/y). Pure layout analysis:
+   *   1. cluster items into rows by y proximity (sub/superscripts sit ~0.35em
+   *      off the baseline, so they fold into their base row),
+   *   2. split each row into cell segments wherever the x-gap exceeds a
+   *      threshold well above word spacing,
+   *   3. take runs of >= 3 consecutive multi-cell rows and derive column
+   *      boundaries from x-regions that almost no row's text crosses.
+   * Ordinary paragraphs yield single-segment rows (word gaps stay under the
+   * threshold), so they never form a run; coincidental misaligned gaps leave
+   * no shared low-coverage x-region, so no columns emerge.
+   * @param {Array} items - pdfjs text items for one page
+   * @param {number} pageNumber - 1-based page number for the emitted tables
+   * @returns {Array} - Tables as {page, rows: [[cell, ...], ...]}
+   */
+  detectTablesFromTextItems(items, pageNumber) {
+    const texts = (items || [])
+      .filter(item => item.str && item.str.trim().length > 0 && Array.isArray(item.transform))
+      .map(item => ({
+        str: item.str,
+        x: item.transform[4],
+        y: item.transform[5],
+        width: item.width || 0,
+        height: item.height || 10
+      }));
+    if (texts.length === 0) {
+      return [];
+    }
+
+    const heights = texts.map(t => t.height).sort((a, b) => a - b);
+    const medianHeight = heights[Math.floor(heights.length / 2)] || 10;
+    const yTolerance = Math.max(2, medianHeight * 0.4);
+    const gapThreshold = Math.max(3, medianHeight * 0.5);
+
+    // 1. Cluster items into rows, top to bottom.
+    texts.sort((a, b) => b.y - a.y || a.x - b.x);
+    const rows = [];
+    let currentRow = null;
+    let previousY;
+    for (const t of texts) {
+      if (currentRow && previousY - t.y <= yTolerance) {
+        currentRow.items.push(t);
+      } else {
+        currentRow = { y: t.y, items: [t] };
+        rows.push(currentRow);
+      }
+      previousY = t.y;
+    }
+
+    // 2. Split each row into cell segments on x-gaps. PDF text items are often
+    // fragments ("1", ".", "4", "·", "10"), so fragments closer than the gap
+    // threshold join one segment, with a space when they don't visually touch.
+    const spaceGap = medianHeight * 0.12;
+    const segmentedRows = rows.map(row => {
+      const sorted = [...row.items].sort((a, b) => a.x - b.x);
+      const segments = [];
+      let segment = null;
+      for (const t of sorted) {
+        if (segment && t.x - segment.xEnd < gapThreshold) {
+          if (t.x - segment.xEnd > spaceGap) {
+            segment.text += ' ';
+          }
+          segment.text += t.str;
+          segment.xEnd = Math.max(segment.xEnd, t.x + t.width);
+        } else {
+          segment = { xStart: t.x, xEnd: t.x + t.width, text: t.str };
+          segments.push(segment);
+        }
+      }
+      return { y: row.y, segments };
+    });
+
+    // 3. Collect runs of consecutive multi-cell rows with table-like spacing.
+    const maxRowGap = medianHeight * 2.5;
+    const runs = [];
+    let run = null;
+    for (const row of segmentedRows) {
+      if (row.segments.length >= 2) {
+        const previous = run && run[run.length - 1];
+        if (previous && previous.y - row.y <= maxRowGap) {
+          run.push(row);
+        } else {
+          run = [row];
+          runs.push(run);
+        }
+      } else {
+        run = null;
+      }
+    }
+
+    const tables = [];
+    for (const runRows of runs) {
+      if (runRows.length < 3) {
+        continue;
+      }
+      const tableRows = this.buildTableFromRun(runRows, gapThreshold);
+      if (tableRows) {
+        tables.push({ page: pageNumber, rows: tableRows });
+      }
+    }
+    return tables;
+  }
+
+  /**
+   * Turn a run of multi-cell rows into a rows-of-cells grid, or null when the
+   * rows don't align into at least two shared columns.
+   * Column separators are x-regions at least gapThreshold wide that at most
+   * ~20% of the rows' text crosses — a lone spanning header can't merge two
+   * otherwise-separate columns, while misaligned prose yields no separator at
+   * all (the genuine-alignment requirement).
+   * @param {Array} runRows - Rows of {y, segments: [{xStart, xEnd, text}]}
+   * @param {number} gapThreshold - Minimum column-separator width
+   * @returns {Array|null} - Rows as arrays of cell strings, or null
+   */
+  buildTableFromRun(runRows, gapThreshold) {
+    // Sweep segment x-extents to find low-coverage separator regions.
+    const events = [];
+    for (const row of runRows) {
+      for (const segment of row.segments) {
+        events.push({ x: segment.xStart, delta: 1 });
+        events.push({ x: segment.xEnd, delta: -1 });
+      }
+    }
+    events.sort((a, b) => a.x - b.x);
+
+    const maxBridgingRows = Math.floor(runRows.length * 0.2);
+    const separators = [];
+    let coverage = 0;
+    let openStart = null;
+    let i = 0;
+    while (i < events.length) {
+      const x = events[i].x;
+      while (i < events.length && events[i].x === x) {
+        coverage += events[i].delta;
+        i++;
+      }
+      if (coverage <= maxBridgingRows) {
+        if (openStart === null) {
+          openStart = x;
+        }
+      } else {
+        if (openStart !== null && x - openStart >= gapThreshold) {
+          separators.push((openStart + x) / 2);
+        }
+        openStart = null;
+      }
+    }
+    // A trailing open region past the last segment lies outside the table.
+
+    if (separators.length === 0) {
+      return null;
+    }
+
+    return runRows.map(row => {
+      const cells = new Array(separators.length + 1).fill('');
+      for (const segment of row.segments) {
+        const center = (segment.xStart + segment.xEnd) / 2;
+        let col = 0;
+        while (col < separators.length && center > separators[col]) {
+          col++;
+        }
+        cells[col] = cells[col] ? `${cells[col]} ${segment.text}` : segment.text;
+      }
+      return cells.map(cell => cell.trim());
+    });
   }
 
   /**

@@ -499,6 +499,9 @@ export class DeepResearchTool {
         return {
           ...formatted,
           findings: results.findings,
+          // LLM synthesis (aiSummary/intelligentInsights) — without this the
+          // llmEnhanced flag was true but the LLM output never reached users.
+          insights: results.insights,
           supportingEvidence: results.supportingEvidence,
           consensus: results.consensus,
           conflicts: results.conflicts,
@@ -514,6 +517,7 @@ export class DeepResearchTool {
         return {
           ...formatted,
           keyFindings: results.findings.slice(0, 5),
+          aiSummary: results.insights?.aiSummary,
           topSources: results.supportingEvidence.slice(0, 5),
           mainConflicts: results.conflicts.slice(0, 3),
           primaryRecommendations: results.recommendations.slice(0, 3),

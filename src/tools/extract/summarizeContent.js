@@ -106,10 +106,15 @@ export class SummarizeContentTool {
     
     try {
       const validated = SummarizeContentSchema.parse(params);
-      const { text, options } = validated;
+      const { text: rawText, options } = validated;
+
+      // Page text often opens with navigation chrome ("Jump to content",
+      // "From Wikipedia, the free encyclopedia") that otherwise leads the
+      // summary and key points — strip it before summarizing.
+      const text = this.stripLeadingBoilerplate(rawText);
 
       const result = {
-        originalText: text.substring(0, 500) + (text.length > 500 ? '...' : ''),
+        originalText: rawText.substring(0, 500) + (rawText.length > 500 ? '...' : ''),
         summarizedAt: new Date().toISOString(),
         success: false,
         processingTime: 0
@@ -252,6 +257,48 @@ export class SummarizeContentTool {
       // No sampling/LLM backend available — caller falls back to extractive.
       return null;
     }
+  }
+
+  /**
+   * Strip leading navigation boilerplate from extracted page text.
+   *
+   * Conservative rule: scan only the leading lines, dropping each line that
+   * looks navigation-ish — short (≤ 60 chars), few words (≤ 8), and free of
+   * sentence-ending punctuation (.!?…。！？) — and stop at the first line of
+   * real prose (anything longer, wordier, or punctuated). Prose that starts
+   * mid-sentence survives: it is either punctuated, longer than the caps, or
+   * protected by the size guard — if the strip would remove more than
+   * min(600 chars, 20% of the text), nothing is stripped at all.
+   * @param {string} text - Text to clean
+   * @returns {string} - Text without leading navigation chrome
+   */
+  stripLeadingBoilerplate(text) {
+    const lines = text.split('\n');
+    const maxStrip = Math.min(600, Math.floor(text.length * 0.2));
+    let index = 0;
+    let strippedChars = 0;
+    let strippedLines = 0;
+
+    while (index < lines.length) {
+      const line = lines[index].trim();
+      if (line.length === 0) {
+        index++;
+        continue;
+      }
+      const wordCount = line.split(/\s+/).length;
+      const hasSentencePunctuation = /[.!?…。！？]/.test(line);
+      const isBoilerplate = line.length <= 60 && wordCount <= 8 && !hasSentencePunctuation;
+      if (!isBoilerplate) break;
+
+      strippedChars += line.length;
+      if (strippedChars > maxStrip) {
+        return text; // would eat too much — leave the text untouched
+      }
+      strippedLines++;
+      index++;
+    }
+
+    return strippedLines > 0 ? lines.slice(index).join('\n') : text;
   }
 
   /**

@@ -73,9 +73,10 @@ export async function extractMetadataHandler({ url }) {
     const $ = load(html);
 
     // Stronger title fallback: og:title → <title> → h1
+    // 'head > title' (not bare 'title') so inline <svg><title> elements are not matched
     const title =
       $('meta[property="og:title"]').attr('content') ||
-      $('title').text().trim() ||
+      $('head > title').first().text().trim() ||
       $('h1').first().text().trim() ||
       '';
 
@@ -86,8 +87,9 @@ export async function extractMetadataHandler({ url }) {
     const canonical = $('link[rel="canonical"]').attr('href') || '';
 
     const ogTags = {};
-    $('meta[property^="og:"]').each((_, el) => {
-      const property = $(el).attr('property');
+    // Some sites (e.g. MDN) emit OG tags with name= instead of the standard property=
+    $('meta[property^="og:"], meta[name^="og:"]').each((_, el) => {
+      const property = $(el).attr('property') || $(el).attr('name');
       const content = $(el).attr('content');
       if (property && content) ogTags[property.replace('og:', '')] = content;
     });

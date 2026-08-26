@@ -100,7 +100,7 @@ const taskStore = createTaskStore({ logger });
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "5.2.5",
+  version: "5.2.6",
   description: "Production-ready MCP server with 28 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -191,6 +191,7 @@ const serpRankTool = new SerpRankTool();
 // provider search_web uses, then reads those posts from the archive.
 const redditSearchTool = new RedditSearchTool({
   searchApiKey: searchWebToolConfig.apiKey,
+  searchApiBaseUrl: searchWebToolConfig.apiBaseUrl,
 });
 const crawlDeepTool = new CrawlDeepTool(getToolConfig('crawl_deep'));
 const mapSiteTool = new MapSiteTool(getToolConfig('map_site'));
