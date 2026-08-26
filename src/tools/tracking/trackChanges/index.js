@@ -281,6 +281,7 @@ export class TrackChangesTool extends EventEmitter {
       details: comparisonResult.details,
       metrics: comparisonResult.metrics,
       recommendations: comparisonResult.recommendations,
+      ...(comparisonResult.warnings ? { warnings: comparisonResult.warnings } : {}),
       snapshot: snapshotInfo, timestamp: Date.now()
     };
   }
