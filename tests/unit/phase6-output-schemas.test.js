@@ -205,6 +205,33 @@ describe('OUTPUT_SCHEMAS — realistic samples parse', () => {
     assert.equal(schema.safeParse(thread).success, true, 'thread shape');
   });
 
+  test('reddit_search: web_discovery source parses (live MCP regression, 2026-08-26)', () => {
+    // An unscoped keyword search returns source:'web_discovery' since 5.2.3,
+    // but the output enum only listed the two archives — the tool succeeded
+    // and the MCP layer then rejected its own result with -32602.
+    const schema = z.object(OUTPUT_SCHEMAS.reddit_search);
+    const discovered = {
+      source: 'web_discovery',
+      mode: 'posts',
+      query: 'best web scraping tools',
+      subreddit: null,
+      author: null,
+      count: 1,
+      discovered: 10,
+      results: [{
+        id: '1u0aaaa', title: 'Best web scraping tools I have tried', author: 'someone',
+        subreddit: 'automation', created_utc: 1781575000,
+        created_iso: '2026-06-16T00:00:00.000Z', score: 76, num_comments: 41,
+        selftext: '...', selftext_truncated: false,
+        url: 'https://www.reddit.com/r/automation/comments/1u0aaaa/x/',
+        permalink: 'https://www.reddit.com/r/automation/comments/1u0aaaa/x/'
+      }],
+      notes: ['Posts discovered by site-restricted web search, hydrated from the Arctic Shift archive'],
+      checkedAt: new Date().toISOString()
+    };
+    assert.equal(schema.safeParse(discovered).success, true, 'web_discovery shape');
+  });
+
   test('search_web: standard success result', () => {
     const schema = z.object(OUTPUT_SCHEMAS.search_web);
     const sample = {
