@@ -300,22 +300,35 @@ const CASES = [
   },
 
   {
+    // npmjs.com answers plain HTTP fetches with 403, and its markup carries no
+    // stable hooks, so this template reads the registry API instead. The body
+    // below is a registry document, not a page.
     id: 'npm-package',
     url: 'https://npmjs.com/package/crawlforge-mcp-server',
-    html: `<html><head><meta name="description" content="MCP server for web scraping."></head><body>
-      <h1>crawlforge-mcp-server</h1>
-      <h3 data-testid="package-version-number">4.10.0</h3>
-      <span class="license-badge">MIT</span>
-      <a href="/~someuser">someuser</a>
-      <a href="https://github.com/acme/crawlforge-mcp-server">Repository</a>
-    </body></html>`,
+    html: JSON.stringify({
+      name: 'crawlforge-mcp-server',
+      'dist-tags': { latest: '4.10.0' },
+      maintainers: [{ name: 'someuser' }],
+      time: { '4.10.0': '2026-05-01T00:00:00.000Z' },
+      versions: {
+        '4.10.0': {
+          description: 'MCP server for web scraping.',
+          license: 'MIT',
+          repository: { type: 'git', url: 'git+https://github.com/acme/crawlforge-mcp-server.git' },
+          dependencies: { cheerio: '^1.0.0' }
+        }
+      }
+    }),
     assert: (data) => {
       assert.equal(data.name, 'crawlforge-mcp-server');
       assert.equal(data.version, '4.10.0');
       assert.equal(data.description, 'MCP server for web scraping.');
+      assert.equal(data.license, 'MIT');
       assert.equal(data.install_command, 'npm install crawlforge-mcp-server');
       assert.equal(data.repository, 'https://github.com/acme/crawlforge-mcp-server');
       assert.deepEqual(data.maintainers, ['someuser']);
+      assert.equal(data.dependency_count, 1);
+      assert.equal(data.deprecated, false);
     }
   }
 ];

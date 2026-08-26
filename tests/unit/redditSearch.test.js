@@ -101,10 +101,12 @@ describe('RedditSearchTool — validation & routing', () => {
     await assert.rejects(() => tool.execute({ query: 'x', source: 'reddit' }), isZod);
   });
 
-  test('unscoped keyword post search routes to PullPush (Arctic Shift cannot do it)', async () => {
+  // PullPush is no longer tried automatically (it refuses automated clients as
+  // of August 2026), but source:"pullpush" still reaches it unchanged.
+  test('an explicit PullPush search sends the documented query shape', async () => {
     stubFetch(() => okResponse({ data: [RAW_POST], error: null }));
     const tool = new RedditSearchTool();
-    const res = await tool.execute({ query: 'mechanical keyboard' });
+    const res = await tool.execute({ query: 'mechanical keyboard', source: 'pullpush' });
     assert.equal(res.source, 'pullpush');
     assert.equal(requests.length, 1, 'no Arctic Shift attempt');
     assert.match(requests[0].url.pathname, /\/reddit\/search\/submission\/$/);
@@ -135,23 +137,27 @@ describe('RedditSearchTool — validation & routing', () => {
     assert.equal(res.subreddit, 'keyboards');
   });
 
-  test('Arctic Shift failure falls back to PullPush with fallback_used set', async () => {
+  // PullPush used to be the automatic fallback here. It now refuses automated
+  // clients outright, so falling back to it only spent a request and buried the
+  // real Arctic Shift error behind a second failure.
+  test('Arctic Shift failure surfaces directly rather than falling back to PullPush', async () => {
     stubFetch((url) => String(url).includes('arctic-shift')
       ? errResponse(500, 'Internal Server Error')
       : okResponse({ data: [RAW_POST], error: null }));
     const tool = new RedditSearchTool();
-    const res = await tool.execute({ query: 'switches', subreddit: 'MechanicalKeyboards' });
-    assert.equal(res.source, 'pullpush');
-    assert.match(res.fallback_used, /arctic_shift: HTTP 500/);
-    assert.equal(requests.length, 2);
+    await assert.rejects(
+      () => tool.execute({ query: 'switches', subreddit: 'MechanicalKeyboards' }),
+      /arctic_shift: HTTP 500/,
+    );
+    assert.equal(requests.length, 1, 'no PullPush attempt');
   });
 
-  test('both archives failing surfaces both errors', async () => {
+  test('a failing archive surfaces its own error', async () => {
     stubFetch(() => errResponse(503, 'Service Unavailable'));
     const tool = new RedditSearchTool();
     await assert.rejects(
       () => tool.execute({ query: 'x', subreddit: 'foo' }),
-      /All Reddit sources failed.*arctic_shift.*pullpush/s,
+      /All Reddit sources failed.*arctic_shift.*503/s,
     );
   });
 
@@ -303,7 +309,7 @@ describe('RedditSearchTool — PullPush specifics & errors', () => {
   test('ISO after/before dates are converted to epoch seconds for PullPush', async () => {
     stubFetch(() => okResponse({ data: [], error: null }));
     const tool = new RedditSearchTool();
-    await tool.execute({ query: 'x', after: '2026-01-01T00:00:00.000Z', before: '2026-06-01' });
+    await tool.execute({ query: 'x', after: '2026-01-01T00:00:00.000Z', before: '2026-06-01', source: 'pullpush' });
     const params = requests[0].url.searchParams;
     assert.equal(params.get('after'), String(Math.floor(Date.parse('2026-01-01T00:00:00.000Z') / 1000)));
     assert.equal(params.get('before'), String(Math.floor(Date.parse('2026-06-01') / 1000)));
@@ -312,7 +318,7 @@ describe('RedditSearchTool — PullPush specifics & errors', () => {
   test('epoch and offset date forms pass through untouched to PullPush', async () => {
     stubFetch(() => okResponse({ data: [], error: null }));
     const tool = new RedditSearchTool();
-    await tool.execute({ query: 'x', after: '1780575000', before: '7d' });
+    await tool.execute({ query: 'x', after: '1780575000', before: '7d', source: 'pullpush' });
     assert.equal(requests[0].url.searchParams.get('after'), '1780575000');
     assert.equal(requests[0].url.searchParams.get('before'), '7d');
   });
@@ -329,7 +335,7 @@ describe('RedditSearchTool — PullPush specifics & errors', () => {
     stubFetch(() => okResponse({ data: [], error: null }));
     const tool = new RedditSearchTool();
     await assert.rejects(
-      () => tool.execute({ query: 'x', after: 'not-a-date' }),
+      () => tool.execute({ query: 'x', after: 'not-a-date', source: 'pullpush' }),
       /Unparseable date "not-a-date"/,
     );
   });
@@ -562,3 +568,96 @@ describe('RedditSearchTool — official API path', () => {
     assert.equal(dataCalls, 2, 'one data call per execute');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Reddit-wide keyword search: web discovery + archive hydration
+// ---------------------------------------------------------------------------
+
+/** A stub search adapter standing in for the metered web-search provider. */
+const stubSearchAdapter = (links) => ({
+  calls: [],
+  async search(params) {
+    this.calls.push(params);
+    return { items: links.map(link => ({ link })) };
+  },
+});
+
+describe('reddit_search Reddit-wide keyword search', () => {
+  // PullPush began refusing automated clients in August 2026 ("This website
+  // does not provide free scraping resources for agents"), which left an
+  // unscoped keyword search with no backend: Arctic Shift rejects a keyword
+  // query naming no subreddit or author.
+  test('discovers posts through a web search and reads them from the archive', async () => {
+    const adapter = stubSearchAdapter([
+      'https://www.reddit.com/r/MechanicalKeyboards/comments/1twm1zh/bestselling/',
+      'https://www.reddit.com/r/MechanicalKeyboards/',   // no post id — ignored
+    ]);
+    stubFetch(() => okResponse({ data: [RAW_POST] }));
+    const tool = new RedditSearchTool({ searchAdapter: adapter });
+
+    const result = await tool.execute({ query: 'keyboard switches', mode: 'posts', limit: 10 });
+
+    assert.equal(result.source, 'web_discovery');
+    assert.equal(result.count, 1);
+    assert.equal(result.results[0].id, '1twm1zh');
+    assert.equal(result.results[0].score, 363, 'must be a real archive row, not a search snippet');
+    assert.match(adapter.calls[0].query, /^site:reddit\.com /);
+    // Hydration must hit the archive's by-ID endpoint.
+    assert.match(requests[0].url.pathname, /\/api\/posts\/ids$/);
+  });
+
+  test('returns results in web-search relevance order, not the archive order', async () => {
+    const adapter = stubSearchAdapter([
+      'https://www.reddit.com/r/x/comments/aaa111/first/',
+      'https://www.reddit.com/r/x/comments/bbb222/second/',
+    ]);
+    // Archive answers in its own order — second hit first.
+    stubFetch(() => okResponse({
+      data: [{ ...RAW_POST, id: 'bbb222' }, { ...RAW_POST, id: 'aaa111' }],
+    }));
+    const tool = new RedditSearchTool({ searchAdapter: adapter });
+
+    const result = await tool.execute({ query: 'anything', mode: 'posts', limit: 10 });
+    assert.deepEqual(result.results.map(r => r.id), ['aaa111', 'bbb222']);
+  });
+
+  test('a scoped search still goes straight to the archive', async () => {
+    const adapter = stubSearchAdapter(['https://www.reddit.com/r/x/comments/aaa111/first/']);
+    stubFetch(() => okResponse({ data: [RAW_POST] }));
+    const tool = new RedditSearchTool({ searchAdapter: adapter });
+
+    const result = await tool.execute({
+      query: 'switches', subreddit: 'MechanicalKeyboards', mode: 'posts', limit: 10,
+    });
+
+    assert.equal(result.source, 'arctic_shift');
+    assert.equal(adapter.calls.length, 0, 'a scoped search must not spend a web search');
+  });
+
+  test('an unscoped comment search asks for a scope instead of failing opaquely', async () => {
+    const tool = new RedditSearchTool({ searchAdapter: stubSearchAdapter([]) });
+    await assert.rejects(
+      () => tool.execute({ query: 'switches', mode: 'comments', limit: 10 }),
+      /no available backend.*subreddit or author/s
+    );
+  });
+
+  test('reports zero results rather than erroring when discovery finds no posts', async () => {
+    const adapter = stubSearchAdapter(['https://www.reddit.com/r/MechanicalKeyboards/']);
+    stubFetch(() => okResponse({ data: [RAW_POST] }));
+    const tool = new RedditSearchTool({ searchAdapter: adapter });
+
+    const result = await tool.execute({ query: 'nothing matches', mode: 'posts', limit: 10 });
+    assert.equal(result.count, 0);
+    assert.equal(requests.length, 0, 'nothing to hydrate, so the archive is never called');
+  });
+
+  test('source:"web_discovery" is refused for a scoped search it cannot serve', async () => {
+    const tool = new RedditSearchTool({ searchAdapter: stubSearchAdapter([]) });
+    await assert.rejects(
+      () => tool.execute({ query: 'x', subreddit: 'y', mode: 'posts', source: 'web_discovery', limit: 10 }),
+      /only serves unscoped keyword searches/
+    );
+  });
+});
+
