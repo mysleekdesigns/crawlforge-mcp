@@ -5,7 +5,13 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.2.1] - 2026-08-26
+
+Patch release. Two fixes that shipped to the hosted server the day 5.2.0 was published but could not reach anyone installing from npm until now.
+
 ### Fixed
+
+- **`shopify-product` was missing from the `scrape_template` tool description.** The template shipped in 5.2.0 and was listed in the skill docs and in the REST API's own description, but not in the description registered with the MCP server — which is the copy a client model actually reads when it decides which template to reach for. An agent asked for a Shopify product would fall back to scraping the rendered page, which is the exact failure the template exists to prevent.
 
 - **`track_changes` structural scores could never fall below 0.5.** `structuralSimilarity` averages a tag-vocabulary comparison with a hierarchy comparison, but the hierarchy object was initialised empty and never written to, so that half compared `{}` against `{}`, returned a constant 1, and pinned every score at `(tagSimilarity + 1) / 2`. A page rebuilt from the same tags in a completely different nesting scored a perfect 1.0 — precisely the case the metric exists to catch. The hierarchy is now an element-count-by-depth histogram compared as a weighted Jaccard, so a layout change moves the score.
 
