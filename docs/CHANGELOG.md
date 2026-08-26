@@ -5,6 +5,29 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.2.6] - 2026-08-26
+
+Patch release. Seven result-quality defects across the research, analysis and extraction tools, found by pointing the tools at live pages instead of fixtures.
+
+- **A Reddit-wide keyword search failed with a DNS error from every npm install.** The web-discovery route added in 5.2.3 builds its search adapter lazily, and the adapter factory's default base URL pointed at `api.crawlforge.dev` — a host that does not resolve. `search_web` was unaffected because its config carries the real host; `reddit_search` never received it, so an unscoped search died before reaching the network. The factory default is now the live `www.crawlforge.dev` host and the server passes the configured base URL through explicitly. Subreddit- and author-scoped searches query the archive directly and were unaffected.
+
+- **`agent` answered questions about the current state of things from dated articles.** Asked for the #1 story on Hacker News right now, it searched with the words of the task, fetched the articles that rank for those words — a months-old thread — and answered from them; news.ycombinator.com was never fetched. Prompts about the live "now" ("right now", "currently", "today", "latest") are now detected deterministically; the plan step's first query becomes the bare entity name, the results are voted by origin and the dominant domain's root — the live front page — is promoted to the front of the fetch queue and the synthesis input, and synthesis is instructed to answer from it. The raw top result is not a safe proxy: a search engine ranks thehackernews.com above news.ycombinator.com for "Hacker News".
+
+- **`deep_research` key findings were stopword-stripped gibberish.** A finding was composed by joining a claim cluster's keywords ("scraping server model context protocol server that…"). Each finding is now the cluster's most credible claim verbatim — a complete sentence that actually appears in a source.
+
+- **`deep_research` computed an LLM synthesis and then dropped it.** With an LLM available the response said `llmEnhanced: true`, but the synthesis itself — `aiSummary`, `intelligentInsights` — was never included in any output format. It now is, and the summary format carries `aiSummary`. Relatedly, small local models wrap JSON in markdown fences, the parse threw, and the response silently fell back to the keyword composition above — the completion now pins the output shape with a JSON schema and strips fences before parsing.
+
+- **Chinese, Japanese and Korean text was analyzed as if words were whitespace-delimited.** `analyze_content` on a Chinese page counted the entire text as a handful of "words", and topics/keywords returned whole multi-sentence runs as single terms — compromise's noun-phrase matching is English-only. CJK text is now segmented with `Intl.Segmenter`'s dictionary segmentation: word statistics count real words, and topics and keywords are ranked from segmented content words with a small Chinese function-word stopword list.
+
+- **`summarize_content` led with navigation chrome.** Text extracted from real pages opens with lines like "Jump to content" and "Main menu", and they surfaced as the summary's opening and as key points. Leading short, unpunctuated, navigation-shaped lines are now stripped before summarizing, with a size guard so prose that starts mid-sentence is never eaten.
+
+- **`extract_metadata` titles included inline SVG labels.** cheerio's bare `title` selector also matches `<svg><title>` accessibility labels and `.text()` concatenates every match, so pages built with inline SVG icons returned welded titles ("JavaScript | MDNMDNMDNMozilla"). The selector is now `head > title`. OG tags are also read from `meta[name^="og:"]` — MDN, among others, emits them with `name=` instead of the standard `property=`.
+
+- **`process_document` accepted `extractTables` and silently discarded it.** The options schema stripped the unknown key and no table extraction existed at any layer, so the response simply never carried a tables field. The option is now wired through, and PDF tables are detected from the pdfjs text layer by clustering text items into rows and deriving column separators from x-extent gaps — the Transformer paper's Table 2 comes back with its BLEU scores each in their own cell, and prose-only pages yield none. When requested and nothing is found, `tables` is an honest empty array; when not requested, the field stays absent.
+
+- **`crawlforge-extractors` raised to `^1.2.2`**, which repairs the `github-repo` template against GitHub's logged-out React code view: the About sidebar now ships as embedded JSON, so `license` was the file tree's literal link text "LICENSE" and `homepage`/`open_issues` were null. The template reads the embedded payload (SPDX license id, real homepage, exact issue count). `language` and `last_updated` stay null there honestly: GitHub loads both post-render from JSON endpoints a static fetch cannot reach, and the classic-layout selectors remain for if they return.
+
+
 ## [5.2.5] - 2026-08-26
 
 Patch release. Three `track_changes` defects found while testing price tracking on Zillow and Newegg.
