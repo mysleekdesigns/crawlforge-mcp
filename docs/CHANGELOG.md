@@ -5,6 +5,17 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.2.3] - 2026-08-26
+
+Patch release. The two remaining findings from the live 28-tool sweep.
+
+- **Reddit-wide keyword search failed outright.** PullPush began refusing automated clients in August 2026 — every request returns 429 with "This website does not provide free scraping resources for agents", regardless of user agent, and from some IPs a Cloudflare 403 challenge instead. It was the only backend that could keyword-search across all of Reddit, because Arctic Shift rejects a keyword query that names no subreddit or author (verified live: HTTP 400). `reddit_search` now serves that search in two steps: find matching posts with a site-restricted web search, then read those posts out of the Arctic Shift archive by ID. The rows returned are real archive rows — score, comment count, subreddit, selftext — in web-search relevance order, not scraped snippets. `after`/`before` cannot be applied on that route, so the response says so rather than silently dropping them.
+
+- **PullPush is no longer tried automatically.** That includes its role as the fallback for a scoped search, where it could only spend a request and bury the real Arctic Shift error behind a second failure. `source: "pullpush"` still reaches it unchanged for whenever it returns. An unscoped comment search, which no backend can serve now, returns a message asking for a subreddit or author scope instead of a generic archive failure.
+
+- **The `npm-package` template returned almost nothing.** npmjs.com answers plain HTTP fetches with 403, and where a body did arrive the selectors keyed off class-name fragments that no longer match — version and weekly downloads came back null, and "repository" pointed at the stargazers link. The template now reads the package's registry document, the way `shopify-product` reads `/products/<handle>.json`, and returns version, license, repository, homepage, maintainers, keywords, dependencies and any deprecation notice. Weekly downloads are omitted rather than null: they live on a separate endpoint, and the registry search endpoint that carries them is a search — asked for "left-pad" it answers "pad-left" — so it cannot be trusted for exact package data.
+
+
 ## [5.2.2] - 2026-08-26
 
 Patch release. Two result-quality fixes surfaced by a live regression sweep of all 28 tools against real sites.

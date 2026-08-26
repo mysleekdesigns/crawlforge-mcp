@@ -38,6 +38,7 @@ import {
   stripNamePrefix,
 } from './redditNormalize.js';
 import { RedditOfficialApiAdapter } from './adapters/redditOfficialApi.js';
+import { SearchProviderFactory } from './adapters/searchProviderFactory.js';
 
 const ARCTIC_SHIFT_BASE = 'https://arctic-shift.photon-reddit.com';
 const PULLPUSH_BASE = 'https://api.pullpush.io';
@@ -59,7 +60,7 @@ const RedditSearchSchema = z.object({
   before: z.string().min(1).optional(),
   limit: z.number().int().min(1).max(100).optional().default(25),
   sort: z.enum(['asc', 'desc']).optional().default('desc'),
-  source: z.enum(['auto', 'arctic_shift', 'pullpush', 'reddit_api']).optional().default('auto'),
+  source: z.enum(['auto', 'arctic_shift', 'pullpush', 'reddit_api', 'web_discovery']).optional().default('auto'),
 });
 
 /**
@@ -94,6 +95,20 @@ export class RedditSearchTool {
     this.officialConfigured = Boolean(this.redditClientId && this.redditClientSecret);
     // Lazily constructed on first official-path use; overridable for tests.
     this._officialAdapter = options.officialAdapter || null;
+
+    // Web discovery serves the one shape no archive can: a keyword search
+    // across all of Reddit. Arctic Shift requires a subreddit or author scope,
+    // and PullPush stopped serving automated clients in August 2026.
+    this.searchAdapter = options.searchAdapter || null;
+    this.searchApiKey = options.searchApiKey || null;
+  }
+
+  /** The web-search adapter used to discover posts, built once on first use. */
+  #search() {
+    if (!this.searchAdapter) {
+      this.searchAdapter = SearchProviderFactory.createAdapter(this.searchApiKey);
+    }
+    return this.searchAdapter;
   }
 
   /** The official-API adapter, built once from the configured credentials. */
@@ -127,8 +142,17 @@ export class RedditSearchTool {
     // comment full-text search, so `comments` mode always uses the archives.
     const officialPossible = this.officialConfigured && (v.mode === 'thread' || v.mode === 'posts');
 
+    // A Reddit-wide keyword search for posts can be discovered through a web
+    // search and then read out of the archive by ID.
+    const discoveryPossible = v.mode === 'posts' && Boolean(v.query) && !subreddit && !author;
+
     let order; // backends to try, in order
-    if (v.source === 'reddit_api') {
+    if (v.source === 'web_discovery') {
+      if (!discoveryPossible) {
+        throw new Error('web_discovery only serves unscoped keyword searches in posts mode — it finds posts through a web search and then reads them from the archive');
+      }
+      order = ['web_discovery'];
+    } else if (v.source === 'reddit_api') {
       if (!this.officialConfigured) {
         throw new Error('source:"reddit_api" needs Reddit app credentials — set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET (create a "script" app at https://www.reddit.com/prefs/apps)');
       }
@@ -147,10 +171,22 @@ export class RedditSearchTool {
     } else {
       // auto: prefer the user's own official API (live, authoritative) when it
       // can serve this request, then fall back to the community archives.
+      // PullPush is no longer tried automatically: every request now returns
+      // 429 "This website does not provide free scraping resources for agents",
+      // or a Cloudflare 403 challenge. It stays available on explicit request.
       const archives = v.mode === 'thread' ? ['arctic_shift']
-        : arcticPossible ? ['arctic_shift', 'pullpush']
-        : ['pullpush'];
+        : arcticPossible ? ['arctic_shift']
+        : discoveryPossible ? ['web_discovery']
+        : [];
       order = officialPossible ? ['reddit_api', ...archives] : archives;
+    }
+
+    if (order.length === 0) {
+      // Unscoped comment search was PullPush-only, and PullPush no longer
+      // serves automated clients. Web discovery identifies posts, not comments.
+      throw new Error(
+        `An unscoped keyword search of ${v.mode} has no available backend: Arctic Shift requires a subreddit or author scope, and PullPush no longer serves automated clients. Add a subreddit or author filter, or search mode:"posts", which finds posts through a web search and reads them from the archive.`
+      );
     }
 
     const errors = [];
@@ -161,6 +197,8 @@ export class RedditSearchTool {
           result = v.mode === 'thread'
             ? await this.#official().getThread(v)
             : await this.#official().searchPosts(v, { subreddit, author });
+        } else if (source === 'web_discovery') {
+          result = await this.#searchWebDiscovery(v);
         } else if (source === 'arctic_shift') {
           result = await this.#searchArcticShift(v, { subreddit, author });
         } else {
@@ -172,12 +210,76 @@ export class RedditSearchTool {
         errors.push(`${source}: ${error.message}`);
       }
     }
-    // Unscoped keyword searches have no Arctic Shift fallback (it requires a
-    // scope — verified live: HTTP 400 without one), so point at the fix.
-    const hint = order.length === 1 && order[0] === 'pullpush' && v.source === 'auto'
-      ? ' Tip: add a subreddit or author filter to route to the more reliable Arctic Shift archive.'
+    // Arctic Shift requires a scope (verified live: HTTP 400 without one), so an
+    // unscoped query that got this far has exhausted its only route.
+    const hint = order.includes('web_discovery')
+      ? ' Tip: add a subreddit or author filter to search the Arctic Shift archive directly.'
       : '';
     throw new Error(`All Reddit sources failed — ${errors.join('; ')}.${hint}`);
+  }
+
+  /**
+   * Reddit-wide keyword search, in two steps: find matching posts with a
+   * site-restricted web search, then read those posts out of the Arctic Shift
+   * archive by ID. Arctic Shift cannot keyword-search across all of Reddit and
+   * reddit.com blocks scrapers, so discovery has to come from somewhere else —
+   * but what comes back are real archive rows, the same shape a scoped search
+   * returns, not scraped search-engine snippets.
+   */
+  async #searchWebDiscovery(v) {
+    let found;
+    try {
+      found = await this.#search().search({
+        query: `site:reddit.com ${v.query}`,
+        num: Math.min(Math.max(v.limit, 1), 10), // one call caps at 10 results
+        start: 1,
+      });
+    } catch (error) {
+      throw new Error(`web search failed: ${error.message}`);
+    }
+
+    // /r/<sub>/comments/<id>/<slug> is the only Reddit URL shape naming a post.
+    const ids = [];
+    for (const item of found?.items ?? []) {
+      const id = /\/comments\/([a-z0-9]+)/i.exec(item?.link ?? item?.url ?? '')?.[1];
+      if (id && !ids.includes(id)) ids.push(id);
+    }
+
+    const notes = [
+      'Reddit-wide keyword search: posts were found with a site-restricted web search, then read from the Arctic Shift archive by ID.',
+      'Results are ordered by web-search relevance, not by score or date.',
+      'Arctic Shift cannot keyword-search across all of Reddit, and PullPush no longer serves automated clients — scope the search to a subreddit or author to query the archive directly.',
+    ];
+    if (v.after || v.before) {
+      // Silently dropping a date filter would return results the caller
+      // believes were filtered.
+      notes.push('after/before were NOT applied: discovery runs through a web search, which cannot filter by post date. Scope the search to a subreddit or author to use date filters.');
+    }
+
+    if (ids.length === 0) {
+      return {
+        source: 'web_discovery', mode: 'posts',
+        query: v.query ?? null, subreddit: null, author: null,
+        count: 0, results: [],
+        notes, checkedAt: new Date().toISOString(),
+      };
+    }
+
+    const data = await this.#get(`${this.arcticBaseUrl}/api/posts/ids`, {
+      ids: ids.slice(0, v.limit).join(','),
+    });
+    const rows = Array.isArray(data.data) ? data.data : [];
+    // Restore the web-search ordering; the archive answers in its own order.
+    const byId = new Map(rows.map(row => [stripIdPrefix(String(row.id ?? '')), row]));
+    const ordered = ids.map(id => byId.get(id)).filter(Boolean);
+
+    return {
+      source: 'web_discovery', mode: 'posts',
+      query: v.query ?? null, subreddit: null, author: null,
+      count: ordered.length, results: ordered.map(normalizePost),
+      discovered: ids.length,
+      notes, checkedAt: new Date().toISOString(),
+    };
   }
 
   async #searchArcticShift(v, { subreddit, author }) {

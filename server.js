@@ -100,7 +100,7 @@ const taskStore = createTaskStore({ logger });
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "5.2.2",
+  version: "5.2.3",
   description: "Production-ready MCP server with 28 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -185,9 +185,13 @@ const searchWebTool = new SearchWebTool(searchWebToolConfig);
 // separate from CrawlForge billing — no getToolConfig needed. Degrades gracefully
 // when unconfigured (returns { configured: false } instead of throwing).
 const serpRankTool = new SerpRankTool();
-// reddit_search queries free community archives (Arctic Shift / PullPush) —
-// no credentials, no getToolConfig needed. reddit.com itself blocks scrapers.
-const redditSearchTool = new RedditSearchTool();
+// reddit_search reads the free Arctic Shift community archive — reddit.com
+// itself blocks scrapers. Arctic Shift cannot keyword-search across all of
+// Reddit, so a Reddit-wide search discovers posts through the same search
+// provider search_web uses, then reads those posts from the archive.
+const redditSearchTool = new RedditSearchTool({
+  searchApiKey: searchWebToolConfig.apiKey,
+});
 const crawlDeepTool = new CrawlDeepTool(getToolConfig('crawl_deep'));
 const mapSiteTool = new MapSiteTool(getToolConfig('map_site'));
 const extractContentTool = new ExtractContentTool();
@@ -450,7 +454,7 @@ registerToolIfEnabled("serp_rank", {
 
 // Tool: reddit_search — search Reddit posts/comments or read a full thread (via community archives)
 registerToolIfEnabled("reddit_search", {
-  description: "Use this to search Reddit posts or comments, or read a full comment thread — reddit.com blocks direct scraping, so this queries the Arctic Shift and PullPush community archives instead (free, no Reddit credentials). Modes: 'posts' (default) and 'comments' search; 'thread' returns a post plus its nested comment tree by link_id. Keyword search across ALL of Reddit routes to PullPush; subreddit/author-scoped searches use Arctic Shift (near-real-time) with PullPush fallback. Example: reddit_search({query: \"best mechanical keyboard\", subreddit: \"MechanicalKeyboards\", limit: 10})",
+  description: "Use this to search Reddit posts or comments, or read a full comment thread — reddit.com blocks direct scraping, so this reads the Arctic Shift community archive instead (free, no Reddit credentials). Modes: 'posts' (default) and 'comments' search; 'thread' returns a post plus its nested comment tree by link_id. A subreddit/author-scoped search queries the archive directly. A keyword search across ALL of Reddit finds posts with a site-restricted web search and then reads those posts from the archive, because Arctic Shift can only keyword-search within a scope; results come back as real archive rows, ordered by search relevance. An unscoped COMMENT search has no backend — scope it or search posts. Example: reddit_search({query: \"best mechanical keyboard\", subreddit: \"MechanicalKeyboards\", limit: 10})",
   annotations: { title: "Reddit Search", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     query: z.string().optional().describe("Keyword search. Posts: matches title+selftext; comments: matches body. Supports \"quoted phrases\", OR, -exclusion"),
@@ -1402,7 +1406,7 @@ registerToolIfEnabled("localization", {
 
 // Tool: scrape_template (D3.3 — pre-built site templates)
 registerToolIfEnabled("scrape_template", {
-  description: "Use this when you want structured data from a well-known site without writing custom selectors. Pass template:\"list\" to see all available templates. Supports: shopify-product (any Shopify storefront, read from the store's own /products/<handle>.json rather than the rendered page), amazon-product, linkedin-profile, github-repo, youtube-video, tweet, reddit-thread, hacker-news-front-page, producthunt-launch, stackoverflow-question, npm-package. Example: scrape_template({template:\"github-repo\", url:\"https://github.com/user/repo\"})",
+  description: "Use this when you want structured data from a well-known site without writing custom selectors. Pass template:\"list\" to see all available templates. Supports: shopify-product (any Shopify storefront, read from the store's own /products/<handle>.json rather than the rendered page), amazon-product, linkedin-profile, github-repo, youtube-video, tweet, reddit-thread, hacker-news-front-page, producthunt-launch, stackoverflow-question, npm-package (read from the npm registry API rather than the npmjs.com page, which blocks plain fetches). Example: scrape_template({template:\"github-repo\", url:\"https://github.com/user/repo\"})",
   annotations: { title: "Scrape Template", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     template: z.string().describe("Template ID (e.g. github-repo) or list to enumerate available templates"),
