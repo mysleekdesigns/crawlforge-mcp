@@ -62,7 +62,7 @@ These guidelines are working if: fewer unnecessary changes in diffs, fewer rewri
 
 CrawlForge MCP Server - A professional MCP (Model Context Protocol) server providing 28 web scraping, crawling, and content processing tools (5 inline + 23 advanced).
 
-**Current Version:** 5.2.4
+**Current Version:** 5.2.5
 
 ## Development Commands
 

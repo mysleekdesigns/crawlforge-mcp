@@ -5,6 +5,21 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.2.5] - 2026-08-26
+
+Patch release. Three `track_changes` defects found while testing price tracking on Zillow and Newegg.
+
+- **`customSelectors` targeting any tag outside a fixed allowlist indexed zero elements.** Element-level analysis only indexed `h1`-`h6`, `p`, `div`, `span` and `a`, so scoping a monitor to `address`, `td`, `li`, `tr` or `dd` built a baseline of nothing and no element-level change could ever be reported — a Zillow page scoped to `['address']` built a baseline of 0 elements from 9 matching nodes. Matches for tags outside the allowlist are now hashed as `custom_<sel>_<idx>`; allowlisted tags are skipped, so div-scoped counts are unchanged.
+
+- **A scoped compare silently ran unscoped.** `compareWithBaseline` discards the caller's `trackingOptions` in favour of the baseline's, which is required for a valid diff — both sides must be analyzed identically, and a scoped baseline no longer holds the full document to re-scope — but doing it silently let a scoped compare return results identical to an unscoped run with nothing saying so. The ignored options are now reported through a `warnings` array on the compare result.
+
+- **"Text content changed" was reported on compares that found no changes.** Sub-threshold token noise still populates `textChanges`, so the summary said the text had changed while `hasChanges` was `false`. The description now defers to significance.
+
+Verified live against the Zillow page that exposed them: baseline 0 → 9 elements, and a compare that had reported `true`/"moderate"/28 modified now reports `false`/"none"/0 modified at 100% similarity.
+
+- **`crawlforge-extractors` raised to `^1.2.1`**, which reads YouTube view counts from the `WatchAction` interaction counter rather than an attribute that appears nowhere on a watch page, and adds the `likes` field the `youtube-video` template already described.
+
+
 ## [5.2.4] - 2026-08-26
 
 Pricing change.
