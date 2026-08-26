@@ -5,6 +5,15 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.2.8] - 2026-08-26
+
+Patch release. Two leftovers from the 5.2.6 `deep_research` fix, caught by re-running the live repro.
+
+- **The LLM synthesis fell back to the extractive stub about two runs in three.** With the output shape schema-constrained, the remaining failure was simpler than it looked: small local models fill all six fields verbosely and overran the 800-token budget, truncating the JSON mid-string — and findings were fed to the prompt whole, including flattened sitemap dumps over 1,500 characters. Each finding is now capped at 300 characters in the prompt, the model is asked to be brief, the budget is 1,600 tokens, and a parse failure is retried once before falling back. After the fix, five live syntheses out of five parsed — and ran about twice as fast, since the prompt is smaller.
+
+- **`researchGaps`, `consensus` and the gap-filling recommendation were still keyword-join gibberish.** The 5.2.6 fix cured `findings` of composing text from `group.keywords.join(' ')`, but three sibling sites kept the pattern ("have more real options than year most them good very"). All three now quote the group's most credible claim — a real sentence from a real source — truncated at a word break.
+
+
 ## [5.2.7] - 2026-08-26
 
 Patch release. One defect, found by re-testing the 5.2.6 fixes over the real MCP surface rather than at the function level.
