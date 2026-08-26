@@ -82,7 +82,7 @@ Minor release. One new `scrape_template` template, two tools that now report fac
 
 ### Changed
 
-- **The `scrape_template` extractors moved to [`crawlforge-extractors`](https://www.npmjs.com/package/crawlforge-extractors).** This server and the CrawlForge REST API each carried their own copy, in two languages, with nothing detecting divergence — and it diverged twice in two days. There is now one implementation. `TemplateRegistry` is re-exported from the package with an unchanged API; nothing about the `scrape_template` tool changes for callers.
+- **The `scrape_template` extractors moved to [`crawlforge-extractors`](https://www.npmjs.com/package/crawlforge-extractors).** This server and the CrawlForge REST API each carried their own copy, in two languages, with nothing detecting divergence — and it diverged twice in two days. There is now one implementation. `TemplateRegistry` is re-exported from the package with an unchanged API; nothing about the `scrape_template` tool changes for callers. It is a runtime dependency of this package, not a peer dependency, so `npm install -g crawlforge-mcp-server` and `npx crawlforge-mcp-server` pull it in automatically — there is nothing extra to install.
 
 ### Tests
 
