@@ -6,7 +6,7 @@
  *   const result = await tool.execute({ template: "github-repo", url: "https://github.com/user/repo" });
  */
 
-import { TemplateRegistry } from './TemplateRegistry.js';
+import { TemplateRegistry } from 'crawlforge-extractors';
 import { safeFetch } from '../../utils/ssrfGuard.js';
 
 export class ScrapeTemplateTool {
