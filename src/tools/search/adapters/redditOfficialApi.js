@@ -27,7 +27,7 @@ const TOKEN_URL = 'https://www.reddit.com/api/v1/access_token';
 const API_BASE = 'https://oauth.reddit.com';
 
 /** Reddit requires a descriptive, unique User-Agent; generic ones are throttled. */
-const DEFAULT_USER_AGENT = 'CrawlForge-MCP/5.2.0 (+https://www.crawlforge.dev)';
+const DEFAULT_USER_AGENT = 'CrawlForge-MCP/5.2.1 (+https://www.crawlforge.dev)';
 
 /** Our sort is asc/desc by post date; Reddit listings/search only go newest-first. */
 const REDDIT_SORT = 'new';
