@@ -5,6 +5,15 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Fixed
+
+- **`track_changes` structural scores could never fall below 0.5.** `structuralSimilarity` averages a tag-vocabulary comparison with a hierarchy comparison, but the hierarchy object was initialised empty and never written to, so that half compared `{}` against `{}`, returned a constant 1, and pinned every score at `(tagSimilarity + 1) / 2`. A page rebuilt from the same tags in a completely different nesting scored a perfect 1.0 — precisely the case the metric exists to catch. The hierarchy is now an element-count-by-depth histogram compared as a weighted Jaccard, so a layout change moves the score.
+
+### Changed
+
+- **Body reading and structural scoring moved to `crawlforge-extractors` (≥1.1.0).** `fetchWithTimeout`'s charset detection and body-size cap, and the structural signature `track_changes` compares, now have one implementation shared with the CrawlForge REST API instead of a copy on each side. Behaviour here is unchanged apart from the hierarchy fix above. The per-unit tests for both moved into the package.
+
+
 ## [5.2.0] - 2026-08-26
 
 Minor release. One new `scrape_template` template, two tools that now report facts they always had but never returned, and a long run of fixes to things that were silently wrong — several of which passed their own tests because the fixtures had been written to match the code rather than the world.

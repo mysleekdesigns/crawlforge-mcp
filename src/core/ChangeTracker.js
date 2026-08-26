@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { EventEmitter } from 'events';
 import { load } from 'cheerio';
 import { diffWords, diffLines, diffChars } from 'diff';
+import { structureSignature, structuralSimilarity } from 'crawlforge-extractors';
 import { calculateSimilarity as calculateContentSimilarity } from '../tools/tracking/trackChanges/differ.js';
 
 const ChangeTrackingSchema = z.object({
@@ -720,7 +721,10 @@ export class ChangeTracker extends EventEmitter {
   extractStructure($, options) {
     const structure = {
       elements: [],
-      hierarchy: {},
+      // Element count per nesting depth. This used to be an empty object that
+      // nothing ever wrote to, which made the hierarchy half of the structural
+      // score a constant.
+      hierarchy: structureSignature($).depths,
       semanticStructure: {}
     };
     
@@ -1094,38 +1098,13 @@ export class ChangeTracker extends EventEmitter {
   
   calculateStructuralSimilarity(baseline, current) {
     if (!baseline || !current) return 0;
-    
-    const baselineElements = baseline.elements || [];
-    const currentElements = current.elements || [];
-    
-    if (baselineElements.length === 0 && currentElements.length === 0) return 1;
-    if (baselineElements.length === 0 || currentElements.length === 0) return 0;
-    
-    const tagSimilarity = this.calculateTagSimilarity(baselineElements, currentElements);
-    const hierarchySimilarity = this.calculateHierarchySimilarity(baseline.hierarchy, current.hierarchy);
 
-    // Clamp defensively — this is a 0-1 metric and must never leave that range.
-    return Math.max(0, Math.min(1, (tagSimilarity + hierarchySimilarity) / 2));
-  }
-
-  calculateTagSimilarity(baselineElements, currentElements) {
-    // Jaccard similarity: intersection and union must both operate on SETS.
-    // The old code intersected the raw (duplicate-laden) tag list against a
-    // set union, so repeated tags (div, p, ...) inflated the numerator and
-    // produced impossible scores > 1 (e.g. the observed 1.05).
-    const baselineTags = new Set(baselineElements.map(el => el.tag));
-    const currentTags = new Set(currentElements.map(el => el.tag));
-
-    const intersection = [...baselineTags].filter(tag => currentTags.has(tag));
-    const union = new Set([...baselineTags, ...currentTags]);
-
-    return union.size === 0 ? 1 : intersection.length / union.size;
-  }
-  
-  calculateHierarchySimilarity(baseline, current) {
-    // Simple structural comparison - can be enhanced
-    if (!baseline || !current) return 0;
-    return Object.keys(baseline).length === Object.keys(current).length ? 1 : 0.5;
+    // Scored in crawlforge-extractors so the REST API's track_changes reports
+    // the same number for the same pair of pages.
+    return structuralSimilarity(
+      { tags: (baseline.elements || []).map(el => el.tag), depths: baseline.hierarchy },
+      { tags: (current.elements || []).map(el => el.tag), depths: current.hierarchy }
+    );
   }
   
   hammingDistance(str1, str2) {

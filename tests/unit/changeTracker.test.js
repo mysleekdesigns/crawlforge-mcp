@@ -258,21 +258,25 @@ test('ChangeTracker: compareWithBaseline on genuinely changed content still repo
 
 // ── structuralSimilarity: 0-1 metric, never out of range ─────────────────────
 
-test('ChangeTracker: calculateTagSimilarity stays within [0,1] despite duplicate tags', () => {
-  const ct = new ChangeTracker();
-  // Duplicate-laden lists made the old bag-vs-set Jaccard exceed 1 (3/2 = 1.5 here).
-  const dupSim = ct.calculateTagSimilarity(
-    [{ tag: 'div' }, { tag: 'div' }, { tag: 'p' }],
-    [{ tag: 'div' }, { tag: 'p' }]
-  );
-  assert.equal(dupSim, 1);
+// The scoring itself now lives in crawlforge-extractors (tests/structure.test.js
+// there covers the tag/depth maths). These pin what ChangeTracker promises
+// through its own surface.
 
-  const partialSim = ct.calculateTagSimilarity(
-    [{ tag: 'div' }, { tag: 'div' }, { tag: 'span' }],
-    [{ tag: 'div' }, { tag: 'p' }]
-  );
-  assert.ok(partialSim >= 0 && partialSim <= 1, `expected [0,1], got ${partialSim}`);
-  assert.ok(Math.abs(partialSim - 1 / 3) < 1e-9);
+test('ChangeTracker: structuralSimilarity notices a rebuilt layout that kept its tags', async () => {
+  // Regression (2026-08-26): the hierarchy half of the score compared an object
+  // that was never populated, so it returned a constant 1 and this pair — same
+  // tags, completely different nesting — scored a perfect 1.0.
+  const ct = new ChangeTracker();
+  const nested = '<html><body><div><div><div><p>a</p><p>b</p><p>c</p></div></div></div></body></html>';
+  const flat = '<html><body><div></div><div></div><div></div><p>a</p><p>b</p><p>c</p></body></html>';
+  const opts = { trackStructure: true };
+
+  await ct.createBaseline(VALID_URL, nested, opts);
+  const result = await ct.compareWithBaseline(VALID_URL, flat, opts);
+
+  const s = result.metrics.structuralSimilarity;
+  assert.ok(s < 1, `a rebuilt layout should not score 1, got ${s}`);
+  assert.ok(s >= 0, `out of range: ${s}`);
 });
 
 test('ChangeTracker: compareWithBaseline reports structuralSimilarity within [0,1] for duplicate-heavy HTML', async () => {
