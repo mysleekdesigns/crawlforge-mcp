@@ -1254,7 +1254,7 @@ export class ResearchOrchestrator extends EventEmitter {
     return claimGroups
       .filter(group => group.sourceCount >= 2 && group.avgCredibility >= 0.6)
       .map(group => ({
-        topic: group.keywords.join(' '),
+        topic: this.claimGroupLabel(group),
         supportingClaims: group.claims.length,
         supportingSources: group.sourceCount,
         averageCredibility: group.avgCredibility,
@@ -1510,27 +1510,37 @@ export class ResearchOrchestrator extends EventEmitter {
     });
   }
 
+  // A claim group rendered for humans is its most credible claim. Claims are
+  // extractive sentences from source content, so this is readable prose —
+  // joining the group's keywords produces stopword-stripped gibberish
+  // ("scraping server model context protocol server that...").
+  mostCredibleClaim(group) {
+    return group.claims.reduce(
+      (best, c) => ((c.credibility || 0) > (best.credibility || 0) ? c : best),
+      group.claims[0]
+    );
+  }
+
+  // Compact label for a claim group: its best claim, cut at a word break.
+  claimGroupLabel(group, maxChars = 120) {
+    const claim = this.mostCredibleClaim(group)?.claim || '';
+    if (claim.length <= maxChars) return claim;
+    const cut = claim.slice(0, maxChars);
+    const lastSpace = cut.lastIndexOf(' ');
+    return (lastSpace > 40 ? cut.slice(0, lastSpace) : cut) + '…';
+  }
+
   generateKeyFindings(claimGroups, sources) {
     return claimGroups
       .filter(group => group.avgCredibility >= this.credibilityThreshold)
       .sort((a, b) => b.consensusStrength - a.consensusStrength)
       .slice(0, 10)
-      .map(group => {
-        // Findings must be readable prose. Claims are extractive sentences
-        // from the source content, so surface the most credible one verbatim
-        // — joining the group's keywords here produced stopword-stripped
-        // gibberish ("scraping server model context protocol server that...").
-        const representative = group.claims.reduce(
-          (best, c) => ((c.credibility || 0) > (best.credibility || 0) ? c : best),
-          group.claims[0]
-        );
-        return {
-          finding: representative.claim,
-          supportingClaims: group.claims.length,
-          credibility: group.avgCredibility,
-          sources: group.claims.map(c => c.source)
-        };
-      });
+      .map(group => ({
+        finding: this.mostCredibleClaim(group).claim,
+        supportingClaims: group.claims.length,
+        credibility: group.avgCredibility,
+        sources: group.claims.map(c => c.source)
+      }));
   }
 
   compileSupportingEvidence(sources) {
@@ -1584,10 +1594,11 @@ export class ResearchOrchestrator extends EventEmitter {
     );
     
     weakAreas.forEach(area => {
+      const label = this.claimGroupLabel(area);
       gaps.push({
-        area: area.keywords.join(' '),
+        area: label,
         issue: 'Limited reliable sources',
-        suggestion: `More research needed on ${area.keywords.join(' ')} related to ${topic}`
+        suggestion: `Corroborate with additional sources: "${label}"`
       });
     });
     
@@ -1609,7 +1620,7 @@ export class ResearchOrchestrator extends EventEmitter {
       recommendations.push({
         type: 'gap_filling',
         priority: 'medium',
-        description: `Address research gaps in ${synthesis.gaps.map(g => g.area).join(', ')}`
+        description: `Address ${synthesis.gaps.length} under-sourced claim(s) — see researchGaps, e.g. "${synthesis.gaps[0].area}"`
       });
     }
     

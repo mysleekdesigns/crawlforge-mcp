@@ -306,10 +306,18 @@ Generate a JSON response with:
   "confidence": 0.0-1.0,
   "gaps": ["gap1", "gap2", ...],
   "recommendations": ["rec1", "rec2", ...]
-}`;
+}
+
+Be brief: summary at most 3 sentences; each array at most 5 items, one short sentence each.`;
 
     const findingsText = limitedFindings
-      .map((finding, index) => `${index + 1}. ${finding.finding || finding.text || finding}`)
+      .map((finding, index) => {
+        // A finding can be a whole flattened page section (sitemap dumps run
+        // 1500+ chars). Passing it whole bloats the prompt and pulls a long
+        // answer that overruns the token budget, truncating the JSON.
+        const text = String(finding.finding || finding.text || finding);
+        return `${index + 1}. ${text.length > 300 ? text.slice(0, 300) + '…' : text}`;
+      })
       .join('\n');
 
     const prompt = `Research Topic: "${topic}"
@@ -337,20 +345,32 @@ Synthesize these findings into a comprehensive analysis:`;
         required: ['summary', 'keyInsights', 'themes', 'confidence']
       };
 
-      const response = await this.generateCompletion(prompt, {
-        systemPrompt,
-        maxTokens: 800,
-        temperature: 0.4,
-        format: synthesisSchema
-      });
+      // Two attempts: small local models occasionally overrun the token
+      // budget mid-string, and a truncated response cannot be parsed. 1600
+      // tokens gives the brevity-capped answer ~2x headroom (800 truncated
+      // roughly two runs in three on real findings).
+      let lastError;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await this.generateCompletion(prompt, {
+            systemPrompt,
+            maxTokens: 1600,
+            temperature: 0.4,
+            format: synthesisSchema
+          });
 
-      // Strip markdown code fences if present
-      const cleaned = response.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
-      const parsed = JSON.parse(cleaned);
-      if (!parsed || typeof parsed.summary !== 'string' || parsed.summary.length === 0) {
-        throw new Error('Synthesis response missing summary');
+          // Strip markdown code fences if present
+          const cleaned = response.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+          const parsed = JSON.parse(cleaned);
+          if (!parsed || typeof parsed.summary !== 'string' || parsed.summary.length === 0) {
+            throw new Error('Synthesis response missing summary');
+          }
+          return parsed;
+        } catch (error) {
+          lastError = error;
+        }
       }
-      return parsed;
+      throw lastError;
     } catch (error) {
       this.logger.warn('LLM synthesis failed, using fallback', { error: error.message });
       return this.fallbackSynthesis(findings, topic);
