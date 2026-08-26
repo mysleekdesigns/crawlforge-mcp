@@ -1402,7 +1402,7 @@ registerToolIfEnabled("localization", {
 
 // Tool: scrape_template (D3.3 — pre-built site templates)
 registerToolIfEnabled("scrape_template", {
-  description: "Use this when you want structured data from a well-known site without writing custom selectors. Pass template:\"list\" to see all available templates. Supports: amazon-product, linkedin-profile, github-repo, youtube-video, tweet, reddit-thread, hacker-news-front-page, producthunt-launch, stackoverflow-question, npm-package. Example: scrape_template({template:\"github-repo\", url:\"https://github.com/user/repo\"})",
+  description: "Use this when you want structured data from a well-known site without writing custom selectors. Pass template:\"list\" to see all available templates. Supports: shopify-product (any Shopify storefront, read from the store's own /products/<handle>.json rather than the rendered page), amazon-product, linkedin-profile, github-repo, youtube-video, tweet, reddit-thread, hacker-news-front-page, producthunt-launch, stackoverflow-question, npm-package. Example: scrape_template({template:\"github-repo\", url:\"https://github.com/user/repo\"})",
   annotations: { title: "Scrape Template", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     template: z.string().describe("Template ID (e.g. github-repo) or list to enumerate available templates"),
