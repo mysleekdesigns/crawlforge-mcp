@@ -312,20 +312,49 @@ export class ChangeTracker extends EventEmitter {
       
       this.emit('changeDetected', changeRecord);
       
+      const ignoredOptions = this.findIgnoredCompareOptions(options, baseline.options);
+
       return {
         hasChanges: significance !== 'none',
         significance,
         changeType: changeRecord.changeType,
-        summary: this.generateChangeSummary(changeAnalysis),
+        summary: this.generateChangeSummary(changeAnalysis, significance),
         details: changeAnalysis,
         metrics: changeRecord.metrics,
-        recommendations: this.generateChangeRecommendations(changeRecord)
+        recommendations: this.generateChangeRecommendations(changeRecord),
+        ...(ignoredOptions.length ? {
+          warnings: [
+            `${ignoredOptions.join(', ')} passed to this compare ${ignoredOptions.length === 1 ? 'was' : 'were'} ignored — ` +
+            `the baseline's options are applied to both sides of the diff. Recreate the baseline to change them.`
+          ]
+        } : {})
       };
       
     } catch (error) {
       this.emit('error', { operation: 'compareWithBaseline', url, error: error.message });
       throw new Error(`Failed to compare content for ${url}: ${error.message}`);
     }
+  }
+  
+  /**
+   * Report analysis options supplied at compare time that differ from the
+   * baseline's and were therefore not applied.
+   *
+   * Ignoring them is deliberate — both sides of a diff have to be analyzed
+   * identically, and once customSelectors scoped the baseline it no longer
+   * holds the full document to re-scope. But doing it silently let a caller
+   * scope a compare and read the resulting whole-page churn as real change:
+   * the result is byte-identical to an unscoped run, with nothing saying so.
+   *
+   * @param {Object} callerOptions - trackingOptions passed to this compare
+   * @param {Object} baselineOptions - options stored with the baseline
+   * @returns {string[]} - names of the ignored options
+   */
+  findIgnoredCompareOptions(callerOptions = {}, baselineOptions = {}) {
+    return ['granularity', 'customSelectors', 'excludeSelectors'].filter(key => {
+      if (callerOptions[key] === undefined) return false;
+      return JSON.stringify(callerOptions[key]) !== JSON.stringify(baselineOptions[key]);
+    });
   }
   
   /**
@@ -701,6 +730,29 @@ export class ChangeTracker extends EventEmitter {
         }
       });
     });
+
+    // Scoping to a tag outside that list (address, td, li, tr, dd) otherwise
+    // indexes ZERO elements: the scoped document is hashed, but nothing in it
+    // matches the allowlist, so every compare sees an empty element map and
+    // can never report an element-level change. Hash the scoped elements
+    // themselves for any tag the loop above does not already cover.
+    if (options.customSelectors?.length) {
+      const alreadyHashed = new Set(importantElements);
+      options.customSelectors.forEach((selector, selectorIndex) => {
+        $(selector).each((index, element) => {
+          const tag = element.tagName?.toLowerCase();
+          if (!tag || alreadyHashed.has(tag)) return;
+
+          const elementKey = `custom_${selectorIndex}_${index}`;
+          analysis.hashes.elements[elementKey] = this.hashContent($(element).html() || '');
+
+          if (options.trackAttributes) {
+            const attributes = element.attribs || {};
+            analysis.hashes.elements[`${elementKey}_attr`] = this.hashContent(JSON.stringify(attributes));
+          }
+        });
+      });
+    }
   }
   
   async analyzeTextLevel($, analysis, options) {
@@ -1160,7 +1212,7 @@ export class ChangeTracker extends EventEmitter {
     return 'text_change';
   }
   
-  generateChangeSummary(changeAnalysis) {
+  generateChangeSummary(changeAnalysis, significance) {
     const { addedElements, removedElements, modifiedElements, similarity } = changeAnalysis;
     
     const total = addedElements.length + removedElements.length + modifiedElements.length;
@@ -1171,7 +1223,13 @@ export class ChangeTracker extends EventEmitter {
       added: addedElements.length,
       removed: removedElements.length,
       modified: modifiedElements.length,
-      changeDescription: this.generateChangeDescription(changeAnalysis)
+      // Sub-threshold text noise (a rotating session token, a base64 timestamp)
+      // still lands in textChanges, so the description read "Text content
+      // changed" on a compare that reported hasChanges:false and
+      // totalChanges:0. Defer to the verdict the caller is given.
+      changeDescription: significance === 'none'
+        ? 'No significant changes detected'
+        : this.generateChangeDescription(changeAnalysis)
     };
   }
   
