@@ -47,7 +47,7 @@ const PULLPUSH_BASE = 'https://api.pullpush.io';
  * into a shared bucket (422 "Timeout. Maybe slow down a bit" while curl got
  * 200 for the same URL); with a descriptive UA it answers instantly.
  */
-const USER_AGENT = 'CrawlForge-MCP/5.1.0 (+https://www.crawlforge.dev)';
+const USER_AGENT = 'CrawlForge-MCP/5.2.0 (+https://www.crawlforge.dev)';
 
 const RedditSearchSchema = z.object({
   query: z.string().min(1).optional(),
