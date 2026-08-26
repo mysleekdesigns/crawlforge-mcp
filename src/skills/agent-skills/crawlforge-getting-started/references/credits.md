@@ -25,7 +25,6 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
 | `map_site` | URL discovery / sitemap. |
 | `process_document` | PDF / DOCX / TXT parsing. |
 | `localization` | Locale / geo emulation. |
-| `reddit_search` | Reddit posts/comments/threads via community archives. |
 
 ## 3 credits
 
@@ -51,6 +50,7 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
 | `scrape_with_actions` | Browser automation then scrape. |
 | `batch_scrape` | Many URLs; projection scales with URL count. |
 | `search_web` | Web search. |
+| `reddit_search` | Reddit posts/comments/threads; a Reddit-wide search spends a web search to discover posts. |
 | `generate_llms_txt` | AI-compliance file. |
 
 ## 8 credits
