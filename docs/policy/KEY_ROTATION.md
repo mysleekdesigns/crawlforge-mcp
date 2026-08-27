@@ -117,7 +117,7 @@ key and its own directory entry — not a share of this one.
 
 | Date | Key id | Event |
 |---|---|---|
-| 2026-08-27 | `WNp5-QxDvkyOegclqd03Dc8E-yk6aHonCZWNimy_TLE` | First key generated and deployed. Public half live at the directory (verified 200, correct media type, `max-age=86400`); private half set on Render. |
+| 2026-08-27 | `WNp5-QxDvkyOegclqd03Dc8E-yk6aHonCZWNimy_TLE` | First key generated and deployed. Public half live at the directory (verified 200, correct media type, `max-age=86400`); private half set on Render. End-to-end verified the same day: the deployed server signs, and the signature validates against the published key. |
 
 Two earlier key pairs were generated and discarded the same day without ever being deployed:
 one printed into a chat transcript, one generated while testing the script. Neither was ever
