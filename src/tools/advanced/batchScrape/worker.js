@@ -7,33 +7,37 @@
 import { load } from 'cheerio';
 import { config as appConfig } from '../../../constants/config.js';
 import { ssrfGuard, isSsrfError } from '../../../utils/ssrfGuard.js';
-import { throttleHost } from '../../../utils/hostRateLimiter.js';
+import { noteRetryAfter } from '../../../utils/hostRateLimiter.js';
+import { preflightFetch } from '../../../utils/robotsGate.js';
 import { htmlToMarkdown } from '../../../utils/htmlToMarkdown.js';
-
-const USER_AGENT = 'MCP-WebScraper-BatchTool/1.0.0';
 
 /**
  * Fetch a URL with AbortController timeout (SSRF-guarded + per-host throttled).
  * The timeout stays live through the body read (not just until headers
  * arrive), and the body is size-capped, so a server that sends headers then
  * drips the body can't hold a semaphore slot indefinitely or exhaust memory.
- * Returns { response, html } rather than the raw Response.
+ * Returns { response, html, warnings } rather than the raw Response.
  */
 export async function fetchUrl(url, options = {}) {
-  const { timeout = 15000, headers = {} } = options;
+  const { timeout = 15000, headers = {}, userAgent, respectRobots, apiKey } = options;
   const maxBodySize = appConfig.fetch.maxBodySize;
   const guard = ssrfGuard(url); // SSRF pre-flight (throws before connecting)
-  await throttleHost(url);
+  // robots.txt / blocklist gate + per-host throttle. Throws if it refuses,
+  // which scrapeUrl turns into a failure for this URL alone.
+  const gate = await preflightFetch(url, { userAgent, respectRobots, apiKey, tool: 'batch_scrape' });
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   try {
     const response = await fetch(url, {
       signal: controller.signal,
-      headers: { 'User-Agent': USER_AGENT, ...headers },
+      headers: { ...gate.headers, ...headers },
       ...guard
     });
+    if (response.status === 429 || response.status === 503) {
+      noteRetryAfter(url, response.headers?.get?.('retry-after'));
+    }
     const html = await readBodyCapped(response, maxBodySize);
-    return { response, html };
+    return { response, html, warnings: gate.warnings };
   } catch (error) {
     if (isSsrfError(error)) throw new Error(error.cause?.message || error.message);
     if (error.name === 'AbortError') throw new Error(`Request timeout after ${timeout}ms`);
@@ -93,9 +97,12 @@ async function readBodyCapped(response, maxBodySize) {
 export async function scrapeUrl(config, options, defaultTimeout) {
   const startTime = Date.now();
   try {
-    const { response, html } = await fetchUrl(config.url, {
+    const { response, html, warnings } = await fetchUrl(config.url, {
       headers: config.headers,
-      timeout: config.timeout || defaultTimeout
+      timeout: config.timeout || defaultTimeout,
+      userAgent: options.user_agent,
+      respectRobots: options.respect_robots,
+      apiKey: options.apiKey
     });
 
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -114,6 +121,8 @@ export async function scrapeUrl(config, options, defaultTimeout) {
         ...(config.metadata || {})
       }
     };
+
+    if (warnings.length > 0) result.warnings = warnings;
 
     if (options.extractionSchema || config.selectors) {
       result.extracted = extractStructuredData($, { ...config.selectors, ...options.extractionSchema });

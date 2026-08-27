@@ -16,6 +16,7 @@
  */
 
 import { safeFetch } from '../../utils/ssrfGuard.js';
+import { preflightFetch } from '../../utils/robotsGate.js';
 
 /**
  * Parse a single Set-Cookie header value into a cookie object.
@@ -201,13 +202,20 @@ export class SessionContext {
    * any cookies it sets into the jar. Returns the response body text.
    *
    * @param {{ url: string, method?: string, headers?: Record<string,string>, body?: string }} req
+   * @param {{ userAgent?: string, respectRobots?: boolean }} [options]
    * @returns {Promise<{ status: number, body: string }>}
    */
-  async performInitialRequest(req) {
+  async performInitialRequest(req, options = {}) {
     const { url, method = 'GET', headers: extraHeaders = {}, body } = req;
 
+    const gate = await preflightFetch(url, {
+      respectRobots: options.respectRobots,
+      userAgent: options.userAgent,
+      tool: 'crawl_deep'
+    });
+
     const requestHeaders = this.applyToHeaders(url, {
-      'User-Agent': 'MCP-WebScraper/1.0',
+      ...gate.headers,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       ...extraHeaders
     });

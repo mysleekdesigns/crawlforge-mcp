@@ -363,7 +363,7 @@ describe('RedditSearchTool — PullPush specifics & errors', () => {
     stubFetch(() => okResponse({ data: [] }));
     const tool = new RedditSearchTool();
     await tool.execute({ subreddit: 'foo' });
-    assert.match(requests[0].opts.headers['User-Agent'], /^CrawlForge-MCP\//);
+    assert.match(requests[0].opts.headers['User-Agent'], /^CrawlForge\//);
   });
 
   test('a 429 body message (e.g. PullPush policy text) is passed through verbatim', async () => {
@@ -505,7 +505,7 @@ describe('RedditSearchTool — official API path', () => {
     await tool.execute({ subreddit: 'foo' });
     const call = requests.find((r) => isOauth(r.url));
     assert.equal(call.opts.headers.Authorization, 'Bearer tok');
-    assert.match(call.opts.headers['User-Agent'], /^CrawlForge-MCP\//);
+    assert.match(call.opts.headers['User-Agent'], /^CrawlForge\/.*; reddit\)$/);
   });
 
   test('auto: official-API failure falls back to the archive with fallback_used set', async () => {

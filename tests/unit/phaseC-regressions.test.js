@@ -179,7 +179,9 @@ describe('C3.1 version-derived User-Agent', () => {
 
   test('the UA string embeds the package version', async () => {
     const pkg = JSON.parse(readSrc('package.json'));
-    const src = readSrc('src/tools/basic/_fetch.js');
+    // The UA moved out of _fetch.js into the shared fetchIdentity module
+    // (one identity for every tool); it is still derived from the version.
+    const src = readSrc('src/utils/fetchIdentity.js');
     assert.ok(src.includes('_pkg.version'), 'UA derived from package.json version');
     assert.ok(typeof pkg.version === 'string');
   });

@@ -152,7 +152,8 @@ describe('D1.2 AgentOrchestrator terminates at maxUrls', async () => {
 
     let urlsFetchedByNetwork = 0;
     globalThis.fetch = async (url) => {
-      urlsFetchedByNetwork++;
+      // The robots gate fetches one robots.txt per host; count pages only.
+      if (!String(url).endsWith('/robots.txt')) urlsFetchedByNetwork++;
       return {
         ok: true,
         status: 200,
@@ -198,7 +199,8 @@ describe('D1.3 AgentOrchestrator clamps maxSteps to hard ceiling of 10', async (
 
     let stepsFetched = 0;
     globalThis.fetch = async (url) => {
-      stepsFetched++;
+      // The robots gate fetches one robots.txt per host; count pages only.
+      if (!String(url).endsWith('/robots.txt')) stepsFetched++;
       return {
         ok: true,
         status: 200,

@@ -22,12 +22,10 @@
  */
 
 import { normalizePost, normalizeTreeNodes, stripIdPrefix, stripNamePrefix } from '../redditNormalize.js';
+import { identityHeaders, resolveUserAgent } from '../../../utils/fetchIdentity.js';
 
 const TOKEN_URL = 'https://www.reddit.com/api/v1/access_token';
 const API_BASE = 'https://oauth.reddit.com';
-
-/** Reddit requires a descriptive, unique User-Agent; generic ones are throttled. */
-const DEFAULT_USER_AGENT = 'CrawlForge-MCP/5.2.1 (+https://www.crawlforge.dev)';
 
 /** Our sort is asc/desc by post date; Reddit listings/search only go newest-first. */
 const REDDIT_SORT = 'new';
@@ -39,7 +37,10 @@ export class RedditOfficialApiAdapter {
     }
     this.clientId = clientId;
     this.clientSecret = clientSecret;
-    this.userAgent = options.userAgent || process.env.REDDIT_USER_AGENT || DEFAULT_USER_AGENT;
+    // Reddit requires a descriptive, unique User-Agent; generic ones are
+    // throttled. The canonical identity qualifies, role-suffixed so Reddit's
+    // side can tell this traffic apart from a page crawl.
+    this.userAgent = resolveUserAgent(options.userAgent || process.env.REDDIT_USER_AGENT, 'reddit');
     this.tokenUrl = options.tokenUrl || TOKEN_URL;
     this.apiBaseUrl = options.apiBaseUrl || API_BASE;
     this.timeoutMs = options.timeoutMs ?? 30000;
@@ -60,7 +61,7 @@ export class RedditOfficialApiAdapter {
         headers: {
           Authorization: this.authHeader,
           'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': this.userAgent,
+          ...identityHeaders({ userAgent: this.userAgent }),
         },
         body: 'grant_type=client_credentials',
         signal: AbortSignal.timeout(this.timeoutMs),
@@ -93,7 +94,7 @@ export class RedditOfficialApiAdapter {
       let response;
       try {
         response = await fetch(url, {
-          headers: { Authorization: `Bearer ${token}`, 'User-Agent': this.userAgent },
+          headers: { Authorization: `Bearer ${token}`, ...identityHeaders({ userAgent: this.userAgent }) },
           signal: AbortSignal.timeout(this.timeoutMs),
         });
       } catch (error) {

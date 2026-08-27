@@ -9,6 +9,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import RetryManager from '../utils/RetryManager.js';
 import { safeFetch } from '../utils/ssrfGuard.js';
+import { identityHeaders } from '../utils/fetchIdentity.js';
 
 export class WebhookDispatcher extends EventEmitter {
   constructor(options = {}) {
@@ -374,7 +375,7 @@ export class WebhookDispatcher extends EventEmitter {
     
     // Add standard headers
     headers['Content-Type'] = 'application/json';
-    headers['User-Agent'] = 'WebhookDispatcher/1.0';
+    Object.assign(headers, identityHeaders({ role: 'webhook' }));
     headers['X-Webhook-Event'] = event.type;
     headers['X-Webhook-ID'] = event.id;
     headers['X-Webhook-Timestamp'] = event.timestamp.toString();
@@ -550,9 +551,7 @@ export class WebhookDispatcher extends EventEmitter {
       const response = await safeFetch(url, {
         method: 'HEAD',
         signal: AbortSignal.timeout(config.timeout / 2), // Use half timeout for health checks
-        headers: {
-          'User-Agent': 'WebhookDispatcher-HealthCheck/1.0'
-        }
+        headers: identityHeaders({ role: 'health-check' })
       });
 
       const duration = Date.now() - startTime;

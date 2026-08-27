@@ -2,12 +2,14 @@ import { load } from 'cheerio';
 import { QueueManager } from '../queue/QueueManager.js';
 import { CacheManager } from '../cache/CacheManager.js';
 import { RateLimiter } from '../../utils/rateLimiter.js';
-import { RobotsChecker } from '../../utils/robotsChecker.js';
 import { DomainFilter } from '../../utils/domainFilter.js';
 import { LinkAnalyzer } from '../analysis/LinkAnalyzer.js';
 import { normalizeUrl, extractLinks, isValidUrl } from '../../utils/urlNormalizer.js';
 import { Logger } from '../../utils/Logger.js';
 import { safeFetch } from '../../utils/ssrfGuard.js';
+import { robotsPreflight } from '../../utils/robotsGate.js';
+import { throttleHost } from '../../utils/hostRateLimiter.js';
+import { CRAWLFORGE_USER_AGENT, identityHeaders } from '../../utils/fetchIdentity.js';
 
 const logger = new Logger('BFSCrawler');
 
@@ -18,7 +20,7 @@ export class BFSCrawler {
       maxPages = 100,
       followExternal = false,
       respectRobots = true,
-      userAgent = 'MCP-WebScraper/1.0',
+      userAgent = CRAWLFORGE_USER_AGENT,
       timeout = 30000,
       concurrency = 10,
       domainFilter = null,
@@ -59,7 +61,6 @@ export class BFSCrawler {
     // effectiveRateLimit hasn't changed, rather than recreating it on every URL.
     this.rateLimiter = new RateLimiter({ requestsPerSecond: 10 });
     this._domainRateLimiters = new Map();
-    this.robotsChecker = respectRobots ? new RobotsChecker(userAgent) : null;
     
     // Initialize domain filter (create new if not provided)
     this.domainFilter = domainFilter || new DomainFilter({
@@ -167,13 +168,17 @@ export class BFSCrawler {
       return;
     }
 
-    // Check robots.txt
-    if (this.respectRobots && this.robotsChecker) {
-      const canFetch = await this.robotsChecker.canFetch(normalizedUrl);
-      if (!canFetch) {
-        logger.debug(`Robots.txt blocks: ${normalizedUrl}`);
-        return;
-      }
+    // Check robots.txt through the shared gate, so this crawl reuses the same
+    // cached robots.txt every other tool fetched (and honours the platform
+    // blocklist, which no per-request flag can switch off).
+    const gate = await robotsPreflight(normalizedUrl, {
+      respectRobots: this.respectRobots,
+      userAgent: this.userAgent,
+      tool: 'crawl_deep'
+    });
+    if (!gate.allowed) {
+      logger.debug(`Robots.txt blocks: ${normalizedUrl}`);
+      return;
     }
 
     // Mark as visited. Re-check the cap and dedupe first: the checks at the
@@ -208,6 +213,12 @@ export class BFSCrawler {
         }
 
         await this._domainRateLimiters.get(domain).checkLimit(normalizedUrl);
+
+        // The host's own Crawl-delay, on top of our per-domain limit. Only
+        // when it asked for one — otherwise the domain limiter above stands.
+        if (gate.crawlDelayMs > 0) {
+          await throttleHost(normalizedUrl, { crawlDelayMs: gate.crawlDelayMs });
+        }
 
         // Fetch the page
         pageData = await this.fetchPage(normalizedUrl);
@@ -292,7 +303,7 @@ export class BFSCrawler {
       const domainRules = this.domainFilter.getDomainRules(urlObj.hostname);
       
       const defaultHeaders = {
-        'User-Agent': this.userAgent,
+        ...identityHeaders({ userAgent: this.userAgent }),
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
         'Accept-Encoding': 'gzip, deflate',

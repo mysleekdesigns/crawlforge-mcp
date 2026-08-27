@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { resolveApiEndpoint } from '../core/endpointGuard.js';
+import { CRAWLFORGE_USER_AGENT } from '../utils/fetchIdentity.js';
 
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
@@ -42,7 +43,7 @@ export const config = {
     maxDepth: parseInt(process.env.MAX_CRAWL_DEPTH || '5'),
     maxPages: parseInt(process.env.MAX_PAGES_PER_CRAWL || '100'),
     respectRobots: process.env.RESPECT_ROBOTS_TXT !== 'false',
-    userAgent: process.env.USER_AGENT || 'CrawlForge/1.0',
+    userAgent: process.env.USER_AGENT || CRAWLFORGE_USER_AGENT,
     timeout: parseInt(process.env.CRAWL_TIMEOUT || '30000'),
     followExternal: process.env.FOLLOW_EXTERNAL_LINKS === 'true'
   },

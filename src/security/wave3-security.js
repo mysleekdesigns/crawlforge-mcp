@@ -9,6 +9,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import path from 'path';
 import { URL } from 'url';
 import DOMPurify from 'isomorphic-dompurify';
+import { identityHeaders } from '../utils/fetchIdentity.js';
 
 // Security configuration
 const SECURITY_CONFIG = {
@@ -125,7 +126,7 @@ export class SSRFProtection {
     const fetchOptions = {
       timeout: options.timeout || 30000,
       headers: {
-        'User-Agent': 'CrawlForge/3.0 (Security-Hardened)',
+        ...identityHeaders({ role: 'health-check' }),
         ...options.headers
       },
       ...options

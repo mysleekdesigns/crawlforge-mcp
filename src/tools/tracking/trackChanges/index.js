@@ -185,15 +185,17 @@ export class TrackChangesTool extends EventEmitter {
   }
 
   async createBaseline(params) {
-    const { url, content, html, trackingOptions, storageOptions = {} } = params;
+    const { url, content, html, trackingOptions, storageOptions = {}, respect_robots, user_agent } = params;
     const enableSnapshots = storageOptions.enableSnapshots !== false;
 
     let sourceContent = content || html;
     let fetchMeta = {};
+    let warnings = [];
     if (!sourceContent) {
-      const r = await fetchContent(url);
+      const r = await fetchContent(url, { respectRobots: respect_robots, userAgent: user_agent });
       sourceContent = r.content;
       fetchMeta = r.metadata;
+      warnings = r.warnings;
     }
     if (!sourceContent || typeof sourceContent !== 'string') throw new Error('Invalid content');
 
@@ -217,6 +219,7 @@ export class TrackChangesTool extends EventEmitter {
         createdAt: baseline.createdAt,
         options: trackingOptions
       },
+      ...(warnings.length ? { warnings } : {}),
       snapshot: snapshotInfo, timestamp: Date.now()
     };
   }
@@ -246,16 +249,18 @@ export class TrackChangesTool extends EventEmitter {
   }
 
   async compareWithBaseline(params) {
-    const { url, content, html, trackingOptions, storageOptions = {}, notificationOptions } = params;
+    const { url, content, html, trackingOptions, storageOptions = {}, notificationOptions, respect_robots, user_agent } = params;
     const enableSnapshots = storageOptions.enableSnapshots !== false;
     await this.rehydrateBaseline(url, trackingOptions);
 
     let currentContent = content || html;
     let fetchMeta = {};
+    let fetchWarnings = [];
     if (!currentContent) {
-      const r = await fetchContent(url);
+      const r = await fetchContent(url, { respectRobots: respect_robots, userAgent: user_agent });
       currentContent = r.content;
       fetchMeta = r.metadata;
+      fetchWarnings = r.warnings;
     }
     if (!currentContent || typeof currentContent !== 'string') throw new Error('Invalid content');
 
@@ -281,7 +286,9 @@ export class TrackChangesTool extends EventEmitter {
       details: comparisonResult.details,
       metrics: comparisonResult.metrics,
       recommendations: comparisonResult.recommendations,
-      ...(comparisonResult.warnings ? { warnings: comparisonResult.warnings } : {}),
+      ...(comparisonResult.warnings || fetchWarnings.length
+        ? { warnings: [...(comparisonResult.warnings || []), ...fetchWarnings] }
+        : {}),
       snapshot: snapshotInfo, timestamp: Date.now()
     };
   }

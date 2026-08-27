@@ -27,6 +27,9 @@ export const TrackChangesSchema = z.object({
   content: z.string().optional(),
   html: z.string().optional(),
 
+  respect_robots: z.boolean().optional(),
+  user_agent: z.string().optional(),
+
   trackingOptions: z.object({
     granularity: z.enum(['page', 'section', 'element', 'text']).default('section'),
     trackText: z.boolean().default(true),

@@ -8,6 +8,8 @@
 
 import { TemplateRegistry } from 'crawlforge-extractors';
 import { safeFetch } from '../../utils/ssrfGuard.js';
+import { preflightFetch } from '../../utils/robotsGate.js';
+import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
 
 export class ScrapeTemplateTool {
   constructor() {
@@ -16,10 +18,11 @@ export class ScrapeTemplateTool {
 
   /**
    * Execute the scrape_template tool.
-   * @param {{ template: string, url: string, timeout?: number }} params
+   * @param {{ template: string, url: string, timeout?: number,
+   *          user_agent?: string, respect_robots?: boolean }} params
    * @returns {Promise<object>}
    */
-  async execute({ template, url, timeout = 15000 }) {
+  async execute({ template, url, timeout = 15000, user_agent, respect_robots }) {
     // list mode — return available templates without scraping
     if (template === 'list' || !url) {
       return {
@@ -40,6 +43,13 @@ export class ScrapeTemplateTool {
     // so the SSRF guard below still applies.
     const fetchUrl = template === 'list' ? url : (tpl.resolveUrl ? tpl.resolveUrl(url) : url);
 
+    // Robots gate + per-host politeness before any request to the target.
+    const gate = await preflightFetch(fetchUrl, {
+      respectRobots: respect_robots,
+      userAgent: user_agent,
+      tool: 'scrape_template'
+    });
+
     // Fetch the page
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -47,13 +57,14 @@ export class ScrapeTemplateTool {
     try {
       const response = await safeFetch(fetchUrl, {
         signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; CrawlForge-TemplateScraper/4.0)'
-        }
+        headers: { ...gate.headers }
       });
       clearTimeout(timeoutId);
 
       if (!response.ok) {
+        if (response.status === 429 || response.status === 503) {
+          noteRetryAfter(fetchUrl, response.headers.get('retry-after'));
+        }
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       html = await response.text();
@@ -67,7 +78,7 @@ export class ScrapeTemplateTool {
 
     // Run the template extractor
     const result = await this.registry.run(template, html, url, fetchUrl);
-    return result;
+    return gate.warnings.length > 0 ? { ...result, warnings: gate.warnings } : result;
   }
 }
 

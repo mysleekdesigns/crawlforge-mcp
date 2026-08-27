@@ -60,11 +60,15 @@ function parseMicrodata($) {
 }
 
 /**
- * @param {{ url: string }} params
+ * @param {{ url: string, user_agent?: string, respect_robots?: boolean }} params
  */
-export async function extractMetadataHandler({ url }) {
+export async function extractMetadataHandler({ url, user_agent, respect_robots }) {
   try {
-    const response = await fetchWithTimeout(url);
+    const response = await fetchWithTimeout(url, {
+      userAgent: user_agent,
+      respectRobots: respect_robots,
+      tool: 'extract_metadata'
+    });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }

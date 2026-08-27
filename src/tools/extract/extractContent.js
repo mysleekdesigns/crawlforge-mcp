@@ -9,6 +9,8 @@ import { BrowserProcessor } from '../../core/processing/BrowserProcessor.js';
 import { HTMLCleaner, ContentQualityAssessor } from '../../utils/contentUtils.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js'; // D3.1
 import { safeFetch } from '../../utils/ssrfGuard.js';
+import { preflightFetch } from '../../utils/robotsGate.js';
+import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
 
 const ExtractContentSchema = z.object({
   url: z.string().url(),
@@ -17,6 +19,8 @@ const ExtractContentSchema = z.object({
   // deep_research). Without this field Zod stripped it and the tool always
   // re-fetched the URL — silently defeating any pre-fetched-HTML caller.
   html: z.string().optional(),
+  respect_robots: z.boolean().optional(),
+  user_agent: z.string().optional(),
   options: z.object({
     // Content extraction options
     useReadability: z.boolean().default(true),
@@ -130,7 +134,7 @@ export class ExtractContentTool {
     
     try {
       const validated = ExtractContentSchema.parse(params);
-      const { url, html: providedHtml, options } = validated;
+      const { url, html: providedHtml, options, respect_robots, user_agent } = validated;
 
       const result = {
         url,
@@ -147,6 +151,15 @@ export class ExtractContentTool {
         html = providedHtml;
         pageTitle = this.extractTitleFromHTML(html);
       } else {
+      // Robots gate before either fetch path — the browser render is a request
+      // to the target too.
+      const gate = await preflightFetch(url, {
+        respectRobots: respect_robots,
+        userAgent: user_agent,
+        tool: 'extract_content'
+      });
+      if (gate.warnings.length > 0) result.warnings = gate.warnings;
+
       const shouldUseJavaScript = options.requiresJavaScript || await this.shouldUseJavaScript(url);
 
       if (shouldUseJavaScript) {
@@ -171,13 +184,14 @@ export class ExtractContentTool {
       } else {
         // Simple HTTP fetch
         const response = await safeFetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; MCP-WebScraper/3.0; Enhanced-Content-Extractor)'
-          },
+          headers: { ...gate.headers },
           signal: AbortSignal.timeout(15000)
         });
 
         if (!response.ok) {
+          if (response.status === 429 || response.status === 503) {
+            noteRetryAfter(url, response.headers.get('retry-after'));
+          }
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 

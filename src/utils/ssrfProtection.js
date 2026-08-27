@@ -6,6 +6,7 @@
 import { promisify } from 'util';
 import dns from 'dns';
 import net from 'net';
+import { identityHeaders } from './fetchIdentity.js';
 
 const dnsLookup = promisify(dns.lookup);
 
@@ -560,7 +561,7 @@ export class SSRFProtection {
         timeout: Math.min(fetchOptions.timeout || 30000, this.config.maxTimeout),
         redirect: 'manual', // Handle redirects manually
         headers: {
-          'User-Agent': 'CrawlForge/3.0 (Security Enhanced)',
+          ...identityHeaders({ role: 'health-check' }),
           ...fetchOptions.headers
         }
       };

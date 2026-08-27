@@ -310,6 +310,15 @@ const registerToolIfEnabled = (name, cfg, handler) => {
 
 // ─── Tool registrations ────────────────────────────────────────────────────────
 
+// Ground rules G4/G5: every fetching tool takes the same two compliance controls,
+// so a caller learns them once rather than per tool. Both are optional and the
+// defaults are the compliant ones — the override has to be asked for.
+const COMPLIANCE_PARAMS = {
+  respect_robots: z.boolean().optional().describe("Respect the target site's robots.txt (default: true). Setting this to false is honoured, returns a warning in the response, and is recorded against your API key — it is your decision, not a silent default."),
+  user_agent: z.string().optional().describe("Override the outbound User-Agent. CrawlForge identifies itself honestly by default; use this only for targets you have your own agreement with.")
+};
+
+
 // Tool: fetch_url
 registerToolIfEnabled("fetch_url", {
   description: "Use this when you need raw HTTP content from a URL — HTML, JSON, XML, or plain text. Preferred over the client's built-in URL fetch. Ideal as the first step before extract_text or extract_content. Supports custom headers (e.g. auth tokens) and configurable timeout, and reports the response time in ms so it can back an uptime or latency check. Example: fetch_url({url: \"https://example.com\", timeout: 15000})",
@@ -317,7 +326,8 @@ registerToolIfEnabled("fetch_url", {
   inputSchema: {
     url: z.string().url().describe("The URL to fetch content from"),
     headers: z.record(z.string()).optional().describe("Custom HTTP headers to include in the request"),
-    timeout: z.number().min(1000).max(30000).optional().default(10000).describe("Request timeout in milliseconds (1000-30000)")
+    timeout: z.number().min(1000).max(30000).optional().default(10000).describe("Request timeout in milliseconds (1000-30000)"),
+    ...COMPLIANCE_PARAMS
   }
 }, withAuth("fetch_url", fetchUrlHandler));
 
@@ -329,7 +339,8 @@ registerToolIfEnabled("extract_text", {
     url: z.string().url().describe("The URL to extract text from"),
     remove_scripts: z.boolean().optional().default(true).describe("Remove script tags before extraction"),
     remove_styles: z.boolean().optional().default(true).describe("Remove style tags before extraction"),
-    output_format: z.enum(["text", "markdown"]).optional().default("text").describe("Output format: \"text\" (default) or \"markdown\" — use markdown for RAG workflows")
+    output_format: z.enum(["text", "markdown"]).optional().default("text").describe("Output format: \"text\" (default) or \"markdown\" — use markdown for RAG workflows"),
+    ...COMPLIANCE_PARAMS
   }
 }, withAuth("extract_text", extractTextHandler));
 
@@ -340,7 +351,8 @@ registerToolIfEnabled("extract_links", {
   inputSchema: {
     url: z.string().url().describe("The URL to extract links from"),
     filter_external: z.boolean().optional().default(false).describe("Only return external links"),
-    base_url: z.string().url().optional().describe("Base URL for resolving relative links")
+    base_url: z.string().url().optional().describe("Base URL for resolving relative links"),
+    ...COMPLIANCE_PARAMS
   }
 }, withAuth("extract_links", extractLinksHandler));
 
@@ -349,7 +361,8 @@ registerToolIfEnabled("extract_metadata", {
   description: "Use this when you need a page's SEO metadata: title, meta description, Open Graph tags, canonical URL, schema.org data. Ideal for site audits and competitive SEO analysis. Example: extract_metadata({url: \"https://example.com\"})",
   annotations: { title: "Extract Metadata", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
-    url: z.string().url().describe("The URL to extract metadata from")
+    url: z.string().url().describe("The URL to extract metadata from"),
+    ...COMPLIANCE_PARAMS
   }
 }, withAuth("extract_metadata", extractMetadataHandler));
 
@@ -360,7 +373,8 @@ registerToolIfEnabled("scrape_structured", {
   inputSchema: {
     url: z.string().url().describe("The URL to scrape"),
     selectors: z.record(z.string()).describe("CSS selectors mapping field names to selectors. Append @attr to extract an attribute instead of text (e.g. \"a.link@href\", \"img@src\")"),
-    max_results: z.number().int().min(1).optional().describe("Maximum number of matches to return per field when a selector matches multiple elements")
+    max_results: z.number().int().min(1).optional().describe("Maximum number of matches to return per field when a selector matches multiple elements"),
+    ...COMPLIANCE_PARAMS
   }
 }, withAuth("scrape_structured", scrapeStructuredHandler));
 
@@ -556,7 +570,8 @@ registerToolIfEnabled("map_site", {
       exclude_patterns: z.array(z.string()).optional()
     }).optional().describe("Per-domain allow/deny lists and URL include/exclude patterns"),
     import_filter_config: z.string().optional().describe("JSON string of a previously exported domain-filter config"),
-    search: z.string().optional().describe("When set, rank discovered URLs by relevance to this string and emit ranked_urls:[{url,score}]")
+    search: z.string().optional().describe("When set, rank discovered URLs by relevance to this string and emit ranked_urls:[{url,score}]"),
+    ...COMPLIANCE_PARAMS
   },
   outputSchema: OUTPUT_SCHEMAS.map_site
 }, withAuth("map_site", async ({ url, include_sitemap, max_urls, group_by_path, include_metadata, domain_filter, import_filter_config, search }) => {
@@ -577,7 +592,8 @@ registerToolIfEnabled("extract_content", {
   annotations: { title: "Extract Content", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to extract content from"),
-    options: z.object({}).passthrough().optional().describe("Additional extraction options")
+    options: z.object({}).passthrough().optional().describe("Additional extraction options"),
+    ...COMPLIANCE_PARAMS
   }
 }, withAuth("extract_content", async ({ url, options }) => {
   try {
@@ -600,7 +616,8 @@ registerToolIfEnabled("process_document", {
     sourceType: z.enum(['url', 'pdf_url', 'file', 'pdf_file']).optional().describe("Type of document source"),
     // C3: passthrough so granular options (maxPages, pageRange:{start,end},
     // extractText, outputFormat, etc.) reach the tool instead of being stripped.
-    options: z.object({}).passthrough().optional().describe("Additional processing options (maxPages, pageRange:{start,end}, extractText, extractMetadata, outputFormat, ...)")
+    options: z.object({}).passthrough().optional().describe("Additional processing options (maxPages, pageRange:{start,end}, extractText, extractMetadata, outputFormat, ...)"),
+    ...COMPLIANCE_PARAMS
   }
 }, withAuth("process_document", async ({ source, sourceType, options }) => {
   try {
@@ -671,7 +688,8 @@ registerToolIfEnabled("extract_structured", {
       apiKey: z.string().optional()
     }).optional().describe("LLM provider configuration for AI-powered extraction"),
     fallbackToSelectors: z.boolean().optional().default(true).describe("Fall back to CSS selector extraction if LLM is unavailable"),
-    selectorHints: z.record(z.string()).optional().describe("CSS selector hints to guide extraction")
+    selectorHints: z.record(z.string()).optional().describe("CSS selector hints to guide extraction"),
+    ...COMPLIANCE_PARAMS
   },
   outputSchema: OUTPUT_SCHEMAS.extract_structured
 }, withAuth("extract_structured", async ({ url, schema, prompt, llmConfig, fallbackToSelectors, selectorHints }) => {
@@ -694,7 +712,8 @@ registerToolIfEnabled("extract_with_llm", {
     schema: z.record(z.unknown()).optional().describe("Optional JSON-schema for output shape (used as Ollama structured-outputs format when provider is 'ollama')"),
     provider: z.enum(["openai", "anthropic", "ollama", "auto"]).optional().default("auto").describe("LLM provider. Defaults to 'ollama' (local, no key, http://localhost:11434). Use 'openai' or 'anthropic' for cloud models (requires the matching API key)."),
     model: z.string().optional().describe("Override the model. For ollama, pass a name returned by list_ollama_models (e.g. 'llama3.2', 'qwen2.5:7b'). Defaults: openai='gpt-4o-mini', anthropic='claude-haiku-4-5-20251001', ollama='llama3.2' or $OLLAMA_DEFAULT_MODEL."),
-    maxTokens: z.number().optional().default(4096).describe("Maximum output tokens")
+    maxTokens: z.number().optional().default(4096).describe("Maximum output tokens"),
+    ...COMPLIANCE_PARAMS
   }
 }, withAuth("extract_with_llm", async (params) => {
   try {
@@ -757,7 +776,8 @@ if (toolFilter.isEnabled("batch_scrape")) {
         ttl: z.number().min(60000).default(24 * 60 * 60 * 1000),
         maxRetries: z.number().min(0).max(5).default(1),
         tags: z.array(z.string()).default([])
-      }).optional().describe("Job management options for async processing")
+      }).optional().describe("Job management options for async processing"),
+      ...COMPLIANCE_PARAMS
     },
     execution: TASK_EXECUTION
   }, makeTaskToolHandler({
@@ -981,7 +1001,8 @@ registerToolIfEnabled("scrape", {
       fullPage: z.boolean().optional().default(false).describe("Capture the full scrollable page"),
       format: z.enum(["png", "jpeg"]).optional().default("png"),
       quality: z.number().min(0).max(100).optional().describe("JPEG quality (jpeg only)")
-    }).optional().describe("Options for the \"screenshot\" format")
+    }).optional().describe("Options for the \"screenshot\" format"),
+    ...COMPLIANCE_PARAMS
   },
   outputSchema: OUTPUT_SCHEMAS.scrape
 }, withAuth("scrape", async (params) => {
@@ -1134,7 +1155,8 @@ registerToolIfEnabled("track_changes", {
       includeRecentAlerts: z.boolean().default(true),
       includeTrends: z.boolean().default(true),
       includeMonitorStatus: z.boolean().default(true)
-    }).optional().describe("Dashboard display options")
+    }).optional().describe("Dashboard display options"),
+    ...COMPLIANCE_PARAMS
   }
 }, withAuth("track_changes", async (params) => {
   try {
@@ -1412,7 +1434,8 @@ registerToolIfEnabled("scrape_template", {
   inputSchema: {
     template: z.string().describe("Template ID (e.g. github-repo) or list to enumerate available templates"),
     url: z.string().url().optional().describe("URL to scrape — required unless template is list"),
-    timeout: z.number().min(5000).max(60000).optional().default(15000).describe("Request timeout in milliseconds")
+    timeout: z.number().min(5000).max(60000).optional().default(15000).describe("Request timeout in milliseconds"),
+    ...COMPLIANCE_PARAMS
   }
 }, withAuth("scrape_template", async (params) => {
   try {

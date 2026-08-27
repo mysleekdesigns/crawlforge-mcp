@@ -4,13 +4,16 @@ import { promisify } from 'util';
 import { CacheManager } from '../core/cache/CacheManager.js';
 import { normalizeUrl } from './urlNormalizer.js';
 import { safeFetch } from './ssrfGuard.js';
+import { CRAWLFORGE_USER_AGENT } from './fetchIdentity.js';
+import { preflightFetch } from './robotsGate.js';
+import { noteRetryAfter } from './hostRateLimiter.js';
 
 const gunzip = promisify(zlib.gunzip);
 
 export class SitemapParser {
   constructor(options = {}) {
     const {
-      userAgent = 'CrawlForge/1.0',
+      userAgent = CRAWLFORGE_USER_AGENT,
       timeout = 10000,
       maxRecursionDepth = 3,
       maxUrlsPerSitemap = 50000,
@@ -50,13 +53,17 @@ export class SitemapParser {
    * Parse a sitemap from a URL with full feature support
    * @param {string} url - Sitemap URL
    * @param {Object} options - Parsing options
+   * @param {boolean} [options.respectRobots] - Per-request robots override.
+   *   Per call, not per instance: MapSiteTool builds one SitemapParser and
+   *   reuses it, so a flag stored on the instance would leak between requests.
    * @returns {Promise<Object>} Parsed sitemap data
    */
   async parseSitemap(url, options = {}) {
     const {
       includeMetadata = true,
       followIndexes = true,
-      maxDepth = this.maxRecursionDepth
+      maxDepth = this.maxRecursionDepth,
+      respectRobots
     } = options;
 
     // Reset stats for new parsing session
@@ -72,7 +79,8 @@ export class SitemapParser {
     try {
       const result = await this._parseSitemapRecursive(url, 0, maxDepth, {
         includeMetadata,
-        followIndexes
+        followIndexes,
+        respectRobots
       });
 
       return {
@@ -99,11 +107,12 @@ export class SitemapParser {
   /**
    * Parse sitemap index files and return all contained sitemaps
    * @param {string} indexUrl - Sitemap index URL
+   * @param {boolean} [respectRobots] - Per-request robots override
    * @returns {Promise<Array>} Array of sitemap URLs with metadata
    */
-  async parseSitemapIndex(indexUrl) {
+  async parseSitemapIndex(indexUrl, respectRobots) {
     try {
-      const content = await this._fetchSitemapContent(indexUrl);
+      const content = await this._fetchSitemapContent(indexUrl, respectRobots);
       if (!content) return [];
 
       const $ = load(content, { xmlMode: true });
@@ -260,9 +269,10 @@ export class SitemapParser {
    * Discover sitemap URLs from various sources
    * @param {string} baseUrl - Base URL of the website
    * @param {Object} sources - Sources to check
+   * @param {boolean} [respectRobots] - Per-request robots override
    * @returns {Promise<Array>} Array of discovered sitemap URLs
    */
-  async discoverSitemaps(baseUrl, sources = {}) {
+  async discoverSitemaps(baseUrl, sources = {}, respectRobots) {
     const {
       checkRobotsTxt = true,
       checkCommonPaths = true,
@@ -277,7 +287,7 @@ export class SitemapParser {
     if (checkRobotsTxt) {
       try {
         const robotsUrl = `${baseOrigin}/robots.txt`;
-        const robotsContent = await this._fetchWithTimeout(robotsUrl);
+        const robotsContent = await this._fetchWithTimeout(robotsUrl, respectRobots);
         if (robotsContent) {
           const sitemapMatches = robotsContent.match(/^Sitemap:\s*(.+)$/gmi);
           if (sitemapMatches) {
@@ -308,7 +318,7 @@ export class SitemapParser {
       for (const path of commonPaths) {
         const sitemapUrl = `${baseOrigin}${path}`;
         try {
-          const response = await this._fetchWithTimeoutResponse(sitemapUrl);
+          const response = await this._fetchWithTimeoutResponse(sitemapUrl, respectRobots);
           if (response && response.ok) {
             discovered.add(sitemapUrl);
           }
@@ -344,7 +354,7 @@ export class SitemapParser {
     }
 
     try {
-      const content = await this._fetchSitemapContent(url);
+      const content = await this._fetchSitemapContent(url, options.respectRobots);
       if (!content) {
         throw new Error(`Failed to fetch sitemap content from ${url}`);
       }
@@ -385,9 +395,9 @@ export class SitemapParser {
    * Fetch and decompress sitemap content
    * @private
    */
-  async _fetchSitemapContent(url) {
+  async _fetchSitemapContent(url, respectRobots) {
     try {
-      const response = await this._fetchWithTimeoutResponse(url);
+      const response = await this._fetchWithTimeoutResponse(url, respectRobots);
       if (!response || !response.ok) {
         return null;
       }
@@ -621,8 +631,8 @@ export class SitemapParser {
    * Fetch with timeout
    * @private
    */
-  async _fetchWithTimeout(url) {
-    const response = await this._fetchWithTimeoutResponse(url);
+  async _fetchWithTimeout(url, respectRobots) {
+    const response = await this._fetchWithTimeoutResponse(url, respectRobots);
     return response ? await response.text() : null;
   }
 
@@ -630,7 +640,12 @@ export class SitemapParser {
    * Fetch with timeout returning response object
    * @private
    */
-  async _fetchWithTimeoutResponse(url) {
+  async _fetchWithTimeoutResponse(url, respectRobots) {
+    const gate = await preflightFetch(url, {
+      respectRobots,
+      userAgent: this.userAgent,
+      tool: 'sitemap'
+    });
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -638,12 +653,15 @@ export class SitemapParser {
       const response = await safeFetch(url, {
         signal: controller.signal,
         headers: {
-          'User-Agent': this.userAgent,
+          ...gate.headers,
           'Accept': 'application/xml,text/xml,text/plain,*/*',
           'Accept-Encoding': 'gzip, deflate'
         }
       });
       clearTimeout(timeoutId);
+      if (response.status === 429 || response.status === 503) {
+        noteRetryAfter(url, response.headers.get('retry-after'));
+      }
       return response;
     } catch (error) {
       clearTimeout(timeoutId);

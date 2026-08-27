@@ -4,6 +4,8 @@
  * Used by monitor.js and the main TrackChangesTool class.
  */
 
+import { identityHeaders } from '../../../utils/fetchIdentity.js';
+
 /**
  * Send all enabled notifications for a detected change.
  * @param {string} url
@@ -43,7 +45,7 @@ export async function sendWebhookNotification(url, changeResult, webhookConfig, 
       method: webhookConfig.method || 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'MCP-WebScraper-ChangeTracker/3.0',
+        ...identityHeaders({ role: 'webhook' }),
         ...webhookConfig.headers
       },
       body: JSON.stringify(payload)

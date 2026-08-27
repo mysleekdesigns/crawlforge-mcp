@@ -5,6 +5,9 @@ import { CrawlDeepTool } from '../tools/crawl/crawlDeep.js';
 import { normalizeUrl, getBaseUrl } from '../utils/urlNormalizer.js';
 import { Logger } from '../utils/Logger.js';
 import { safeFetch } from '../utils/ssrfGuard.js';
+import { resolveUserAgent } from '../utils/fetchIdentity.js';
+import { preflightFetch } from '../utils/robotsGate.js';
+import { noteRetryAfter } from '../utils/hostRateLimiter.js';
 
 const logger = new Logger('LLMsTxtAnalyzer');
 
@@ -25,7 +28,7 @@ export class LLMsTxtAnalyzer {
       maxDepth: options.maxDepth || 3,
       maxPages: options.maxPages || 100,
       timeout: options.timeout || 30000,
-      userAgent: options.userAgent || 'LLMs.txt-Analyzer/1.0',
+      userAgent: resolveUserAgent(options.userAgent),
       respectRobots: options.respectRobots !== false,
       detectAPIs: options.detectAPIs !== false,
       analyzeContent: options.analyzeContent !== false,
@@ -441,18 +444,24 @@ export class LLMsTxtAnalyzer {
 
   async fetchWithTimeout(url, options = {}) {
     const { timeout = this.options.timeout } = options;
+    const gate = await preflightFetch(url, {
+      respectRobots: this.options.respectRobots,
+      userAgent: this.options.userAgent,
+      tool: 'generate_llms_txt'
+    });
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {
       const response = await safeFetch(url, {
         signal: controller.signal,
-        headers: {
-          'User-Agent': this.options.userAgent
-        },
+        headers: { ...gate.headers },
         ...options
       });
       clearTimeout(timeoutId);
+      if (response.status === 429 || response.status === 503) {
+        noteRetryAfter(url, response.headers.get('retry-after'));
+      }
       return response;
     } catch (error) {
       clearTimeout(timeoutId);

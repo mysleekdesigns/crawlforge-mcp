@@ -64,9 +64,21 @@ function urlFor(server, path = '/') {
   return `http://127.0.0.1:${server.address().port}${path}`;
 }
 
-/** Sends 200 + headers + a small first chunk, then never calls res.end(). */
+/**
+ * Sends 200 + headers + a small first chunk, then never calls res.end().
+ *
+ * robots.txt is answered normally (404 -> allow all): these tests measure the
+ * tool's own body-read timeout, and a trickling robots.txt would add the
+ * gate's separate 5s budget to every elapsed-time bound below. That case has
+ * its own regression test in tests/unit/robotsGate.test.js.
+ */
 function trickleServer(extraHeaders = {}) {
   return http.createServer((req, res) => {
+    if (req.url.split('?')[0] === '/robots.txt') {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'text/html', ...extraHeaders });
     res.write('<html><body>partial content that never finishes...');
     // deliberately never end the response

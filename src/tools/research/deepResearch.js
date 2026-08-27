@@ -5,6 +5,7 @@ import { ResearchOrchestrator } from '../../core/ResearchOrchestrator.js';
 import { getToolConfig } from '../../constants/config.js';
 import { Logger } from '../../utils/Logger.js';
 import { safeFetch } from '../../utils/ssrfGuard.js';
+import { identityHeaders } from '../../utils/fetchIdentity.js';
 
 /**
  * DeepResearchTool - MCP tool for conducting comprehensive multi-stage research
@@ -735,7 +736,7 @@ export class DeepResearchTool {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'User-Agent': 'MCP-WebScraper-DeepResearch/1.0',
+          ...identityHeaders({ role: 'webhook' }),
           ...webhook.headers
         },
         body: JSON.stringify(payload),

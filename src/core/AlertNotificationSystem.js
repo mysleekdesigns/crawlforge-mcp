@@ -6,6 +6,7 @@
 import { EventEmitter } from 'events';
 // Using native fetch (Node.js 18+)
 import crypto from 'crypto';
+import { identityHeaders } from '../utils/fetchIdentity.js';
 
 export class AlertNotificationSystem extends EventEmitter {
   constructor(options = {}) {
@@ -125,7 +126,7 @@ export class AlertNotificationSystem extends EventEmitter {
       // Generate signature if secret provided
       const requestHeaders = {
         'Content-Type': 'application/json',
-        'User-Agent': 'CrawlForge-AlertSystem/3.0',
+        ...identityHeaders({ role: 'alerts' }),
         ...headers
       };
       
