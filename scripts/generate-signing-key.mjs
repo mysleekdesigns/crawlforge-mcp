@@ -32,32 +32,38 @@ const b64 = Buffer.from(privatePem, 'utf8').toString('base64');
 console.log(`
 Web Bot Auth signing key — generated ${new Date().toISOString()}
 
-  Key ID (public, this is the "kid" / "keyid"):
+════════════════════════════════════════════════════════════════════════
+SAFE TO SHARE — this is public information.
+
+  Key ID (the "kid" / "keyid"):
     ${kid}
 
-────────────────────────────────────────────────────────────────────────
-SECRET — set on the MCP server only (Render). Never commit this.
-
-  CRAWLFORGE_SIGNING_KEY (base64 of the PEM, safe for single-line secret stores):
-
-${b64}
-
-────────────────────────────────────────────────────────────────────────
-PUBLIC — set on the website (Vercel). This is what gets published.
-
-  WEB_BOT_AUTH_PUBLIC_KEYS:
+  WEB_BOT_AUTH_PUBLIC_KEYS  → set on the website (Vercel):
 
 ${publicPem.trim()}
 
-────────────────────────────────────────────────────────────────────────
+════════════════════════════════════════════════════════════════════════
 Next:
-  1. Set both variables, website first, so the key is published before
-     anything signs with it. A verifier that sees an unknown keyid may
-     cache the failure.
-  2. Confirm https://crawlforge.dev/.well-known/http-message-signatures-directory
-     lists the key id above.
-  3. Only then set CRAWLFORGE_SIGNING_KEY and redeploy the MCP server.
+  1. Set WEB_BOT_AUTH_PUBLIC_KEYS on Vercel and redeploy — website FIRST.
+  2. Confirm the key id above appears at
+     https://crawlforge.dev/.well-known/http-message-signatures-directory
+     (signing before it is published risks a verifier caching the failure
+     for the directory's 24h max-age).
+  3. Only then set CRAWLFORGE_SIGNING_KEY below on Render and redeploy.
   4. Record the generation date in docs/policy/KEY_ROTATION.md.
 
-This output is the only copy. It was not written to disk.
+════════════════════════════════════════════════════════════════════════
+  ⚠  SECRET BELOW — everything past this line is the private key.
+
+  Do NOT paste it into a chat, an issue, a PR, or any terminal that is
+  being recorded. Copy it straight into Render's environment settings.
+  Anything that sees it can sign requests as CrawlForge; if that happens,
+  discard the pair and generate a new one.
+
+  CRAWLFORGE_SIGNING_KEY (base64 PEM, for single-line secret stores):
+
+${b64}
+
+  ⚠  END SECRET. This output is the only copy — it was not written to disk.
+════════════════════════════════════════════════════════════════════════
 `);

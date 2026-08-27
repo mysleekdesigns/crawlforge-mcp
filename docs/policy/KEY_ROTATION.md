@@ -31,8 +31,16 @@ node scripts/generate-signing-key.mjs
 It prints the key id, the private key (base64 PEM) and the public key (PEM). That output
 is the only copy.
 
-Run it in a normal terminal. Do not run it through an assistant or anything that records
-its output — the private key would end up in a transcript.
+The public half (key id and PEM) prints first, under a "safe to share" heading; the
+private key prints last, behind a warning banner. That ordering is deliberate — the secret
+used to sit in the middle, where a partial copy-paste still caught it.
+
+Run it in a normal terminal. Do not run it through an assistant, and do not paste its
+output into a chat, issue or PR — anything that sees the private key can sign requests as
+CrawlForge, and the key must then be discarded. Copy the secret straight into Render.
+
+A key that has been exposed is burned even if it was never deployed. Generate a new pair;
+there is no partial recovery.
 
 ## Order of operations — publish before you sign
 
