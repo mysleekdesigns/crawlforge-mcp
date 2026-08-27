@@ -57,8 +57,15 @@ requests being treated as unsigned.
    ```bash
    curl -s https://crawlforge.dev/.well-known/http-message-signatures-directory | jq '.keys[].kid'
    ```
-3. Set `CRAWLFORGE_SIGNING_KEY` on Render; redeploy.
-4. Confirm requests carry `Signature` and `Signature-Input` headers.
+3. Set `CRAWLFORGE_SIGNING_KEY` **and** `WEB_BOT_AUTH_DIRECTORY=https://crawlforge.dev`
+   on Render; redeploy.
+
+   Both, not just the key. `WEB_BOT_AUTH_DIRECTORY` is what puts the `Signature-Agent`
+   header on outbound requests, and that header is how a site that has never heard of us
+   finds the directory to verify against. Without it we sign with a `keyid` that only
+   someone who already knows us can resolve, which defeats the purpose.
+4. Confirm requests carry `Signature`, `Signature-Input` and `Signature-Agent` headers —
+   e.g. point a `fetch_url` at a header-echo endpoint and read them back.
 5. Record the date in the log at the bottom of this file.
 
 ## Rotate
