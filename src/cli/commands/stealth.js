@@ -2,6 +2,7 @@
  * stealth command — scrape a URL using stealth mode.
  */
 import { StealthBrowserManager } from '../../core/StealthBrowserManager.js';
+import { browserPreflight } from '../../utils/robotsGate.js';
 import { getToolConfig } from '../../constants/config.js';
 import { runTool } from '../lib/runTool.js';
 
@@ -17,7 +18,12 @@ export function register(program) {
       const cliFlags = { json: globals.json, pretty: globals.pretty, quiet: globals.quiet };
       const mgr = new StealthBrowserManager(getToolConfig('stealth_mode'));
       const wrapperTool = {
-        execute: (p) => mgr.scrapeWithStealth(p)
+        // Same gate the stealth_mode tool runs. The CLI reaches the browser by
+        // a different door, not by a different set of rules.
+        execute: async (p) => {
+          await browserPreflight(p.url, { tool: 'stealth_mode' });
+          return mgr.scrapeWithStealth(p);
+        }
       };
       await runTool(wrapperTool, {
         url,

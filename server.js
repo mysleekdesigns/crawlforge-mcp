@@ -33,8 +33,7 @@ import { LocalizationManager } from "./src/core/LocalizationManager.js";
 // Stealth scrape: format conversion + the pre-fetch compliance gate (G5/G6/G7)
 import * as cheerio from "cheerio";
 import { htmlToMarkdown } from "./src/utils/htmlToMarkdown.js";
-import { robotsPreflight, RobotsDisallowedError } from "./src/utils/robotsGate.js";
-import { throttleHost } from "./src/utils/hostRateLimiter.js";
+import { browserPreflight } from "./src/utils/robotsGate.js";
 import { memoryMonitor } from "./src/utils/MemoryMonitor.js";
 import { config, validateConfig, getToolConfig } from "./src/constants/config.js";
 import AuthManager from "./src/core/AuthManager.js";
@@ -1223,22 +1222,15 @@ registerToolIfEnabled("generate_llms_txt", {
  * G5/G6/G7 gate for the stealth browser entry points, run BEFORE any browser
  * work so a disallowed URL never opens a context.
  *
- * `robotsPreflight` rather than `preflightFetch`: preflightFetch also hands back
- * identity and Web Bot Auth headers built for HTTP fetches, and injecting those
- * into a stealth browser request would fight the browser's own identity.
- *
- * The robots match is deliberately made as the canonical CrawlForge product
- * token — no userAgent override is passed — even though the browser presents a
- * randomized UA. Matching robots against the disguise would let stealth traffic
- * walk past our own robots rules, which is the G5 hole this must not open.
+ * Delegates to `browserPreflight`, which every browser entry point shares —
+ * the stealth tool, scrape_with_actions, deep_research's stealth fallback and
+ * the CLI. See that function for why the robots match is made as the canonical
+ * CrawlForge product token rather than the UA the browser presents.
  *
  * @returns {Promise<string[]>} warnings to surface on the response
  */
 async function stealthComplianceGate(url, respectRobots) {
-  const decision = await robotsPreflight(url, { respectRobots, tool: 'stealth_mode' });
-  if (!decision.allowed) throw new RobotsDisallowedError(url);
-  await throttleHost(url, { crawlDelayMs: decision.crawlDelayMs });
-  return decision.warnings;
+  return browserPreflight(url, { respectRobots, tool: 'stealth_mode' });
 }
 
 /**

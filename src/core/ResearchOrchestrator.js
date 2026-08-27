@@ -9,7 +9,7 @@ import { CacheManager } from './cache/CacheManager.js';
 import { Logger } from '../utils/Logger.js';
 import { LLMManager } from './llm/LLMManager.js';
 import { safeFetch } from '../utils/ssrfGuard.js';
-import { preflightFetch } from '../utils/robotsGate.js';
+import { preflightFetch, browserPreflight } from '../utils/robotsGate.js';
 import { noteRetryAfter } from '../utils/hostRateLimiter.js';
 
 /**
@@ -905,6 +905,12 @@ export class ResearchOrchestrator extends EventEmitter {
    * (proven), so it gets a single attempt to avoid burning the time budget.
    */
   async _stealthFetchHtml(url) {
+    // The HTTP path gates at the fetch; this fallback drives a browser
+    // straight past it, so it has to gate too — otherwise "the page blocked
+    // us" becomes a route around robots.txt. Before _getStealthBrowser(), so
+    // a disallowed URL never launches one.
+    await browserPreflight(url, { tool: 'deep_research' });
+
     await this._getStealthBrowser();
     const attempts = this._stealthEngineActive === 'camoufox' ? 3 : 1;
     for (let i = 0; i < attempts; i++) {
