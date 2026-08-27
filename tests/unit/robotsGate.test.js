@@ -80,6 +80,10 @@ before(async () => {
 });
 
 beforeEach(() => {
+  // The robots cache is module-level and keyed by origin, so a test that
+  // served one set of rules would otherwise decide the next one's outcome.
+  // Reset it here and these tests stay order-independent.
+  _resetRobotsGate();
   _resetHostRateLimiter();
   seenUserAgents = [];
   auditRows = [];
