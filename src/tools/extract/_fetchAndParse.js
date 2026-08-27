@@ -6,15 +6,16 @@
  *   extractContent.js      (uses native fetch directly but can adopt this)
  *   processDocument.js     (URL sources)
  *
- * Returns { html, $, textContent, finalUrl } so callers don't repeat
+ * Returns { html, $, textContent, finalUrl, warnings } so callers don't repeat
  * the same fetch/cheerio/cleanup boilerplate.
  */
 
 import { load } from 'cheerio';
 import { safeFetch } from '../../utils/ssrfGuard.js';
 import { config } from '../../constants/config.js';
+import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
+import { preflightFetch } from '../../utils/robotsGate.js';
 
-const DEFAULT_USER_AGENT = 'Mozilla/5.0 (compatible; CrawlForge-MCP/3.0)';
 const DEFAULT_TIMEOUT_MS = 15000;
 
 /**
@@ -132,27 +133,41 @@ export function flattenBodyText($) {
  *
  * @param {string} url
  * @param {Object} [options]
- * @param {string}   [options.userAgent]
+ * @param {string}   [options.userAgent]      — per-request identity override
+ * @param {boolean}  [options.respectRobots]  — false = explicit, audited override
+ * @param {string}   [options.tool]           — tool name, for the audit row
+ * @param {string}   [options.apiKey]         — hashed into the audit row
  * @param {number}   [options.timeoutMs]
  * @param {string[]} [options.stripTags]   — additional tags to strip (default: script, style, noscript, iframe, svg)
- * @returns {Promise<{ html: string, $: import('cheerio').CheerioAPI, textContent: string, finalUrl: string }>}
+ * @returns {Promise<{ html: string, $: import('cheerio').CheerioAPI, textContent: string, finalUrl: string, warnings: string[] }>}
  */
 export async function fetchAndParse(url, options = {}) {
   const {
-    userAgent = DEFAULT_USER_AGENT,
+    userAgent,
+    respectRobots,
+    tool,
+    apiKey,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     stripTags = ['script', 'style', 'noscript', 'iframe', 'svg']
   } = options;
 
+  // robots.txt / blocklist gate + per-host throttle. Throws if it refuses.
+  const gate = await preflightFetch(url, { userAgent, respectRobots, tool, apiKey });
+  const warnings = gate.warnings;
+
   const response = await safeFetch(url, {
     headers: {
-      'User-Agent': userAgent,
+      ...gate.headers,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
     },
     signal: AbortSignal.timeout(timeoutMs)
   });
 
   if (!response.ok) {
+    // Honour a back-off the host asked for before giving up on this request.
+    if (response.status === 429 || response.status === 503) {
+      noteRetryAfter(url, response.headers?.get?.('retry-after'));
+    }
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
 
@@ -171,7 +186,7 @@ export async function fetchAndParse(url, options = {}) {
   // HTML parser risks misinterpreting substrings (e.g. a "<script>" value
   // inside a JSON string) as real tags and stripping/mangling content.
   if (classification === 'text') {
-    return { html, $: load(''), textContent: html.trim(), finalUrl: response.url };
+    return { html, $: load(''), textContent: html.trim(), finalUrl: response.url, warnings };
   }
 
   const $ = load(html);
@@ -182,5 +197,5 @@ export async function fetchAndParse(url, options = {}) {
 
   const textContent = flattenBodyText($);
 
-  return { html, $, textContent, finalUrl: response.url };
+  return { html, $, textContent, finalUrl: response.url, warnings };
 }

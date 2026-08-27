@@ -9,6 +9,8 @@ import { CacheManager } from './cache/CacheManager.js';
 import { Logger } from '../utils/Logger.js';
 import { LLMManager } from './llm/LLMManager.js';
 import { safeFetch } from '../utils/ssrfGuard.js';
+import { preflightFetch } from '../utils/robotsGate.js';
+import { noteRetryAfter } from '../utils/hostRateLimiter.js';
 
 /**
  * ResearchOrchestrator - Multi-stage research orchestration engine with LLM integration
@@ -677,10 +679,16 @@ export class ResearchOrchestrator extends EventEmitter {
               });
               // Fallback: use fetch + basic text extraction
               try {
+                // Same gate the primary extract path goes through — the
+                // fallback must not become a way around robots.txt.
+                const gate = await preflightFetch(source.link, { tool: 'deep_research' });
                 const fetchResponse = await safeFetch(source.link, {
-                  headers: { 'User-Agent': 'CrawlForge-Research/1.0' },
+                  headers: { ...gate.headers },
                   signal: AbortSignal.timeout(10000)
                 });
+                if (fetchResponse.status === 429 || fetchResponse.status === 503) {
+                  noteRetryAfter(source.link, fetchResponse.headers.get('retry-after'));
+                }
                 if (fetchResponse.ok) {
                   const html = await fetchResponse.text();
                   // Strip HTML tags for basic text content

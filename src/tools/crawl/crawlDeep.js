@@ -4,6 +4,7 @@ import { BFSCrawler } from '../../core/crawlers/BFSCrawler.js';
 import { DomainFilter } from '../../utils/domainFilter.js';
 import { CacheManager } from '../../core/cache/CacheManager.js';
 import { SessionContext } from './_sessionContext.js';
+import { CRAWLFORGE_USER_AGENT } from '../../utils/fetchIdentity.js';
 
 const CrawlDeepSchema = z.object({
   url: z.string().url(),
@@ -79,7 +80,7 @@ const CrawlDeepSchema = z.object({
 export class CrawlDeepTool {
   constructor(options = {}) {
     const {
-      userAgent = 'MCP-WebScraper/1.0',
+      userAgent = CRAWLFORGE_USER_AGENT,
       timeout = 30000,
       cacheEnabled = true,
       cacheTTL = 3600000,
@@ -218,7 +219,10 @@ export class CrawlDeepTool {
 
         // Perform optional login / pre-crawl request
         if (validated.session.initialRequest) {
-          await sessionContext.performInitialRequest(validated.session.initialRequest);
+          await sessionContext.performInitialRequest(validated.session.initialRequest, {
+            userAgent: this.userAgent,
+            respectRobots: effectiveRespectRobots
+          });
         }
       }
 

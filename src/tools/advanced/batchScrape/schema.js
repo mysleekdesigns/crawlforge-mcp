@@ -23,6 +23,10 @@ export const BatchScrapeSchema = z.object({
     signingSecret: z.string().optional()
   }).optional(),
   extractionSchema: z.record(z.string()).optional(),
+  // Compliance overrides, per request: identify as yourself for a target you
+  // have your own agreement with, and take responsibility for ignoring robots.
+  user_agent: z.string().optional(),
+  respect_robots: z.boolean().optional(),
   maxConcurrency: z.number().min(1).max(20).default(10),
   delayBetweenRequests: z.number().min(0).max(10000).default(100),
   includeMetadata: z.boolean().default(true),

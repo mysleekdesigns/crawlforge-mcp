@@ -12,10 +12,14 @@ import { BrowserProcessor } from '../../core/processing/BrowserProcessor.js';
 import { HTMLCleaner, ContentQualityAssessor } from '../../utils/contentUtils.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js'; // D3.1
 import { safeFetch } from '../../utils/ssrfGuard.js';
+import { preflightFetch } from '../../utils/robotsGate.js';
+import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
 
 const ProcessDocumentSchema = z.object({
   source: z.string().min(1),
   sourceType: z.enum(['url', 'pdf_url', 'file', 'pdf_file']).default('url'),
+  respect_robots: z.boolean().optional(),
+  user_agent: z.string().optional(),
   options: z.object({
     // PDF processing options
     extractText: z.boolean().default(true),
@@ -142,7 +146,7 @@ export class ProcessDocumentTool {
     
     try {
       const validated = ProcessDocumentSchema.parse(params);
-      const { source, sourceType, options } = validated;
+      const { source, sourceType, options, respect_robots, user_agent } = validated;
 
       const result = {
         source,
@@ -155,13 +159,13 @@ export class ProcessDocumentTool {
       // Determine document type and processing method
       if (sourceType.includes('pdf')) {
         result.documentType = 'pdf';
-        await this.processPDFDocument(result, source, sourceType, options);
+        await this.processPDFDocument(result, source, sourceType, options, { respect_robots, user_agent });
       } else if (sourceType === 'file') {
         result.documentType = 'file';
         await this.processLocalFileDocument(result, source, options);
       } else {
         result.documentType = 'web';
-        await this.processWebDocument(result, source, options);
+        await this.processWebDocument(result, source, options, { respect_robots, user_agent });
       }
 
       // Add statistics if requested
@@ -204,7 +208,17 @@ export class ProcessDocumentTool {
    * @param {Object} options - Processing options
    * @returns {Promise<void>}
    */
-  async processPDFDocument(result, source, sourceType, options) {
+  async processPDFDocument(result, source, sourceType, options, identity = {}) {
+    // A remote PDF is a fetch of the target like any other; a local file is not.
+    if (sourceType === 'pdf_url') {
+      const gate = await preflightFetch(source, {
+        respectRobots: identity.respect_robots,
+        userAgent: identity.user_agent,
+        tool: 'process_document'
+      });
+      if (gate.warnings.length > 0) result.warnings = gate.warnings;
+    }
+
     const pdfResult = await this.pdfProcessor.processPDF({
       source,
       sourceType: sourceType.replace('pdf_', ''),
@@ -268,11 +282,18 @@ export class ProcessDocumentTool {
    * @param {Object} options - Processing options
    * @returns {Promise<void>}
    */
-  async processWebDocument(result, source, options) {
-    // Step 1: Fetch content (with or without JavaScript rendering)
+  async processWebDocument(result, source, options, identity = {}) {
+    // Step 1: Fetch content (with or without JavaScript rendering).
+    // Robots gate before either path — the browser render is a request too.
     let html, pageTitle;
+    const gate = await preflightFetch(source, {
+      respectRobots: identity.respect_robots,
+      userAgent: identity.user_agent,
+      tool: 'process_document'
+    });
+    if (gate.warnings.length > 0) result.warnings = gate.warnings;
     const shouldUseJavaScript = options.requiresJavaScript || await this.shouldUseJavaScript(source);
-    
+
     if (shouldUseJavaScript) {
       console.error('Using browser rendering for JavaScript content...');
       const browserResult = await this.browserProcessor.processURL({
@@ -294,13 +315,14 @@ export class ProcessDocumentTool {
     } else {
       // Simple HTTP fetch
       const response = await safeFetch(source, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; MCP-WebScraper/3.0; Document-Processor)'
-        },
+        headers: { ...gate.headers },
         signal: AbortSignal.timeout(15000)
       });
 
       if (!response.ok) {
+        if (response.status === 429 || response.status === 503) {
+          noteRetryAfter(source, response.headers.get('retry-after'));
+        }
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 

@@ -7,11 +7,16 @@ import { load } from 'cheerio';
 import { fetchWithTimeout } from './_fetch.js';
 
 /**
- * @param {{ url: string, filter_external?: boolean, base_url?: string }} params
+ * @param {{ url: string, filter_external?: boolean, base_url?: string,
+ *   user_agent?: string, respect_robots?: boolean }} params
  */
-export async function extractLinksHandler({ url, filter_external, base_url }) {
+export async function extractLinksHandler({ url, filter_external, base_url, user_agent, respect_robots }) {
   try {
-    const response = await fetchWithTimeout(url);
+    const response = await fetchWithTimeout(url, {
+      userAgent: user_agent,
+      respectRobots: respect_robots,
+      tool: 'extract_links'
+    });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }

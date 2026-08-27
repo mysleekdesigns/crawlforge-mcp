@@ -6,13 +6,17 @@
 import { fetchWithTimeout } from './_fetch.js';
 
 /**
- * @param {{ url: string, headers?: Record<string,string>, timeout?: number }} params
+ * @param {{ url: string, headers?: Record<string,string>, timeout?: number,
+ *   user_agent?: string, respect_robots?: boolean }} params
  */
-export async function fetchUrlHandler({ url, headers, timeout }) {
+export async function fetchUrlHandler({ url, headers, timeout, user_agent, respect_robots }) {
   try {
     const response = await fetchWithTimeout(url, {
       timeout: timeout || 10000,
-      headers: headers || {}
+      headers: headers || {},
+      userAgent: user_agent,
+      respectRobots: respect_robots,
+      tool: 'fetch_url'
     });
 
     const body = await response.text();

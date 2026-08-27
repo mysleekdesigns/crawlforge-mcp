@@ -8,11 +8,7 @@ import { z } from 'zod';
 import { ElicitationHelper } from '../../core/ElicitationHelper.js'; // D1.4
 import { load } from 'cheerio';
 import { LLMManager } from '../../core/llm/LLMManager.js';
-import { createRequire } from 'module';
-
-const _require = createRequire(import.meta.url);
-const _pkg = _require('../../../package.json');
-const CRAWLFORGE_UA = `CrawlForge/${_pkg.version} (+https://crawlforge.dev)`;
+import { CRAWLFORGE_USER_AGENT } from '../../utils/fetchIdentity.js';
 import { fetchAndParse } from './_fetchAndParse.js';
 
 // Semantic element selectors for well-known field names, tried as a last
@@ -45,14 +41,16 @@ const ExtractStructuredSchema = z.object({
     apiKey: z.string().optional()
   }).optional(),
   fallbackToSelectors: z.boolean().optional().default(true),
-  selectorHints: z.record(z.string()).optional()
+  selectorHints: z.record(z.string()).optional(),
+  respect_robots: z.boolean().optional(),
+  user_agent: z.string().optional()
 });
 
 export class ExtractStructuredTool {
   constructor(options = {}) {
     this.llmManager = null;
     this.llmConfig = options.llmConfig || {};
-    this.userAgent = CRAWLFORGE_UA;
+    this.userAgent = CRAWLFORGE_USER_AGENT;
     // D1.4: Elicitation helper
     this._elicitation = new ElicitationHelper({});
   }
@@ -102,10 +100,14 @@ export class ExtractStructuredTool {
 
     try {
       const validated = ExtractStructuredSchema.parse(params);
-      const { url, schema, prompt, llmConfig, fallbackToSelectors, selectorHints } = validated;
+      const { url, schema, prompt, llmConfig, fallbackToSelectors, selectorHints, respect_robots, user_agent } = validated;
 
       // Step 1: Fetch and parse — shared helper strips scripts/styles/iframes/svgs
-      const { html, $, textContent } = await fetchAndParse(url, { userAgent: this.userAgent });
+      const { html, $, textContent, warnings } = await fetchAndParse(url, {
+        userAgent: user_agent || this.userAgent,
+        respectRobots: respect_robots,
+        tool: 'extract_structured'
+      });
 
       // Step 3: Try LLM extraction first
       let extractionResult = null;
@@ -196,7 +198,8 @@ export class ExtractStructuredTool {
           valid: extractionResult.valid || false,
           errors: extractionResult.validationErrors || []
         },
-        extractionNotes
+        extractionNotes,
+        ...(warnings?.length ? { warnings } : {})
       };
 
     } catch (error) {

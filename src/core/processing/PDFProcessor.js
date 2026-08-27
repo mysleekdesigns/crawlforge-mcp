@@ -9,6 +9,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { safeFetch } from '../../utils/ssrfGuard.js';
 import { config } from '../../constants/config.js';
+import { identityHeaders } from '../../utils/fetchIdentity.js';
 
 const PDFProcessorSchema = z.object({
   source: z.string().min(1),
@@ -237,9 +238,7 @@ export class PDFProcessor {
       // ignores unknown properties, so only `signal` actually enforces a
       // deadline here.
       const response = await safeFetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; MCP-WebScraper/2.0; PDF-Processor)'
-        },
+        headers: identityHeaders(),
         signal: AbortSignal.timeout(30000)
       });
 

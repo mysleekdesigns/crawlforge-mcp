@@ -462,6 +462,8 @@ export class ExtractWithLlm {
    * @param {string}  [params.provider]  - 'openai' | 'anthropic' | 'auto'
    * @param {string}  [params.model]     - Override default model
    * @param {number}  [params.maxTokens] - Max output tokens (default 4096)
+   * @param {boolean} [params.respect_robots] - Per-request robots.txt override
+   * @param {string}  [params.user_agent]     - Per-request identity override
    * @returns {Promise<Object>}
    */
   async execute(params) {
@@ -472,7 +474,9 @@ export class ExtractWithLlm {
       schema,
       provider: providerParam = 'auto',
       model: modelParam,
-      maxTokens = 4096
+      maxTokens = 4096,
+      respect_robots,
+      user_agent
     } = params;
 
     // Validate: exactly one of url or content must be provided
@@ -505,10 +509,16 @@ export class ExtractWithLlm {
 
     // Step 1: Get text to extract from
     let text;
+    let fetchWarnings = [];
     try {
       if (url) {
-        const { textContent } = await fetchAndParse(url);
+        const { textContent, warnings } = await fetchAndParse(url, {
+          respectRobots: respect_robots,
+          userAgent: user_agent,
+          tool: 'extract_with_llm'
+        });
         text = textContent;
+        fetchWarnings = warnings || [];
       } else {
         text = content;
       }
@@ -620,6 +630,7 @@ export class ExtractWithLlm {
       result.truncated = true;
       result.original_length = original_length;
     }
+    if (fetchWarnings.length > 0) result.warnings = fetchWarnings;
     // C3: validate output against the schema hint (zod). Non-fatal — the data
     // is still returned; callers can inspect `valid`/`validationErrors`.
     if (schema && Object.keys(schema).length > 0) {

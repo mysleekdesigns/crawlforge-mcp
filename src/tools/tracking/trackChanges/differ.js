@@ -4,6 +4,8 @@
  */
 
 import { safeFetch } from '../../../utils/ssrfGuard.js';
+import { preflightFetch } from '../../../utils/robotsGate.js';
+import { noteRetryAfter } from '../../../utils/hostRateLimiter.js';
 
 /**
  * Default Jaccard similarity threshold below which a change is considered
@@ -39,14 +41,31 @@ export function calculateSimilarity(text1, text2) {
 
 /**
  * Fetch the HTML/text content of a URL with change-tracking headers.
+ *
+ * Sends the same identity as every other fetching tool: a baseline captured
+ * under one UA and compared under another reports the difference between two
+ * server-side renderings as a content change.
+ *
  * @param {string} url
- * @returns {Promise<{ content: string, metadata: Object }>}
+ * @param {object} [options]
+ * @param {string}  [options.userAgent]     per-request identity override
+ * @param {boolean} [options.respectRobots] per-request robots override
+ * @param {string}  [options.tool]          tool name, for the audit row
+ * @param {string}  [options.apiKey]        hashed into the audit row
+ * @returns {Promise<{ content: string, metadata: Object, warnings: string[] }>}
  */
-export async function fetchContent(url) {
+export async function fetchContent(url, options = {}) {
+  const gate = await preflightFetch(url, {
+    respectRobots: options.respectRobots,
+    userAgent: options.userAgent,
+    tool: options.tool || 'track_changes',
+    apiKey: options.apiKey
+  });
+
   try {
     const response = await safeFetch(url, {
       headers: {
-        'User-Agent': 'MCP-WebScraper-ChangeTracker/3.0',
+        ...gate.headers,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
         'Accept-Encoding': 'gzip, deflate',
@@ -56,6 +75,9 @@ export async function fetchContent(url) {
     });
 
     if (!response.ok) {
+      if (response.status === 429 || response.status === 503) {
+        noteRetryAfter(url, response.headers.get('retry-after'));
+      }
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
@@ -63,6 +85,7 @@ export async function fetchContent(url) {
 
     return {
       content,
+      warnings: gate.warnings,
       metadata: {
         statusCode: response.status,
         contentType: response.headers.get('content-type'),

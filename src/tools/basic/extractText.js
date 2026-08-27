@@ -74,11 +74,16 @@ export function readabilityToMarkdown(html, pageUrl) {
 }
 
 /**
- * @param {{ url: string, remove_scripts?: boolean, remove_styles?: boolean, output_format?: "text"|"markdown" }} params
+ * @param {{ url: string, remove_scripts?: boolean, remove_styles?: boolean,
+ *   output_format?: "text"|"markdown", user_agent?: string, respect_robots?: boolean }} params
  */
-export async function extractTextHandler({ url, remove_scripts, remove_styles, output_format }) {
+export async function extractTextHandler({ url, remove_scripts, remove_styles, output_format, user_agent, respect_robots }) {
   try {
-    const response = await fetchWithTimeout(url);
+    const response = await fetchWithTimeout(url, {
+      userAgent: user_agent,
+      respectRobots: respect_robots,
+      tool: 'extract_text'
+    });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }

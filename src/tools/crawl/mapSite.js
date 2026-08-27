@@ -6,6 +6,8 @@ import { CacheManager } from '../../core/cache/CacheManager.js';
 import { SitemapParser } from '../../utils/sitemapParser.js';
 import { ResultRanker } from '../search/ranking/ResultRanker.js';
 import { safeFetch } from '../../utils/ssrfGuard.js';
+import { CRAWLFORGE_USER_AGENT } from '../../utils/fetchIdentity.js';
+import { preflightFetch } from '../../utils/robotsGate.js';
 
 // Lazy singleton — avoids creating a CacheManager timer per request
 let _ranker = null;
@@ -28,13 +30,17 @@ const MapSiteSchema = z.object({
     exclude_patterns: z.array(z.string()).optional().default([])
   }).optional(),
   import_filter_config: z.string().optional(), // JSON string of exported config
-  search: z.string().optional() // when set, rank URLs by relevance and emit ranked_urls
+  search: z.string().optional(), // when set, rank URLs by relevance and emit ranked_urls
+  // Compliance overrides, per request: identify as yourself for a target you
+  // have your own agreement with, and take responsibility for ignoring robots.
+  user_agent: z.string().optional(),
+  respect_robots: z.boolean().optional()
 });
 
 export class MapSiteTool {
   constructor(options = {}) {
     const {
-      userAgent = 'MCP-WebScraper/1.0',
+      userAgent = CRAWLFORGE_USER_AGENT,
       timeout = 10000,
       cacheEnabled = true,
       cacheTTL = 3600000
@@ -61,6 +67,14 @@ export class MapSiteTool {
       const baseUrl = getBaseUrl(validated.url);
       const urls = new Set();
       const metadata = new Map();
+
+      // Per-request identity/robots overrides, carried to every fetch this
+      // call makes. Not stored on the instance: one tool object serves
+      // concurrent requests.
+      const identity = {
+        userAgent: validated.user_agent,
+        respectRobots: validated.respect_robots
+      };
 
       // Create domain filter if configuration provided
       let domainFilter = null;
@@ -99,7 +113,7 @@ export class MapSiteTool {
       }
 
       // Fetch and parse the main page for additional URLs
-      const pageUrls = await this.fetchPageUrls(validated.url, domainFilter);
+      const pageUrls = await this.fetchPageUrls(validated.url, domainFilter, identity);
       pageUrls.forEach(url => {
         if (urls.size < validated.max_urls) {
           urls.add(normalizeUrl(url));
@@ -111,7 +125,7 @@ export class MapSiteTool {
 
       // Fetch metadata if requested
       if (validated.include_metadata) {
-        await this.fetchMetadata(urlArray.slice(0, 50), metadata); // Limit metadata fetching
+        await this.fetchMetadata(urlArray.slice(0, 50), metadata, identity); // Limit metadata fetching
       }
 
       // Organize results
@@ -172,7 +186,9 @@ export class MapSiteTool {
       domainFilter: validated.domain_filter ?? null,
       importFilterConfig: validated.import_filter_config ?? null,
       includeMetadata: validated.include_metadata,
-      groupByPath: validated.group_by_path
+      groupByPath: validated.group_by_path,
+      userAgent: validated.user_agent ?? null,
+      respectRobots: validated.respect_robots ?? null
     });
   }
 
@@ -212,9 +228,9 @@ export class MapSiteTool {
     return Array.from(urls);
   }
 
-  async fetchPageUrls(url, domainFilter = null) {
+  async fetchPageUrls(url, domainFilter = null, identity = {}) {
     try {
-      const response = await this.fetchWithTimeout(url);
+      const response = await this.fetchWithTimeout(url, identity);
       if (!response.ok) {
         return [];
       }
@@ -246,15 +262,19 @@ export class MapSiteTool {
       });
 
       return Array.from(urls);
-    } catch {
+    } catch (error) {
+      // A gate refusal is the answer to the request, not a page we failed to
+      // read: surface it instead of returning an emptier map than the caller
+      // would notice.
+      if (error.code === 'ROBOTS_DISALLOWED' || error.code === 'HOST_BLOCKED') throw error;
       return [];
     }
   }
 
-  async fetchMetadata(urls, metadataMap) {
+  async fetchMetadata(urls, metadataMap, identity = {}) {
     const promises = urls.slice(0, 10).map(async (url) => {
       try {
-        const response = await this.fetchWithTimeout(url);
+        const response = await this.fetchWithTimeout(url, identity);
         if (response.ok) {
           const html = await response.text();
           const $ = load(html);
@@ -275,16 +295,21 @@ export class MapSiteTool {
     await Promise.allSettled(promises);
   }
 
-  async fetchWithTimeout(url) {
+  async fetchWithTimeout(url, { userAgent, respectRobots } = {}) {
+    // robots.txt / blocklist gate + per-host throttle. Throws if it refuses.
+    const gate = await preflightFetch(url, {
+      userAgent: userAgent || this.userAgent,
+      respectRobots,
+      tool: 'map_site'
+    });
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
       const response = await safeFetch(url, {
         signal: controller.signal,
-        headers: {
-          'User-Agent': this.userAgent
-        }
+        headers: gate.headers
       });
       clearTimeout(timeoutId);
       return response;

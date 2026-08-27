@@ -42,6 +42,10 @@ export const UnifiedScrapeSchema = z.object({
   resolveHiddenContent: z.enum(['linked', 'inline', 'off']).optional().default('linked'),
   // Pass-through to fetchAndParse
   timeoutMs: z.number().min(1000).max(60000).optional().default(15000),
+  // Compliance overrides, per request: identify as yourself for a target you
+  // have your own agreement with, and take responsibility for ignoring robots.
+  user_agent: z.string().optional(),
+  respect_robots: z.boolean().optional(),
   // Optional, additive: only consulted when 'branding' / 'screenshot' is requested.
   brandingOptions: z.object({
     fetchLinkedCss: z.boolean().optional().default(true),
@@ -201,10 +205,13 @@ export class UnifiedScrapeTool {
     const { url, formats, onlyMainContent, timeoutMs, brandingOptions, screenshotOptions, resolveHiddenContent } = validated;
 
     // Single fetch
-    let html, $, finalUrl;
+    let html, $, finalUrl, fetchWarnings;
     try {
-      ({ html, $, finalUrl } = await fetchAndParse(url, {
+      ({ html, $, finalUrl, warnings: fetchWarnings } = await fetchAndParse(url, {
         timeoutMs,
+        userAgent: validated.user_agent,
+        respectRobots: validated.respect_robots,
+        tool: 'scrape',
         stripTags: [] // we handle boilerplate ourselves
       }));
     } catch (err) {
@@ -235,7 +242,9 @@ export class UnifiedScrapeTool {
     }
 
     const content = {};
-    const warnings = [];
+    // The gate's warnings (e.g. a respect_robots override) travel with the
+    // per-format ones, so the caller sees the decision in the response.
+    const warnings = [...fetchWarnings];
 
     // Kept for the rawHtml format, which must survive the strip below.
     const pristineHtml = html;

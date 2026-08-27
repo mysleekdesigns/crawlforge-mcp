@@ -39,11 +39,16 @@ function parseSelectorSpec(raw) {
 }
 
 /**
- * @param {{ url: string, selectors: Record<string, string>, max_results?: number }} params
+ * @param {{ url: string, selectors: Record<string, string>, max_results?: number,
+ *   user_agent?: string, respect_robots?: boolean }} params
  */
-export async function scrapeStructuredHandler({ url, selectors, max_results }) {
+export async function scrapeStructuredHandler({ url, selectors, max_results, user_agent, respect_robots }) {
   try {
-    const response = await fetchWithTimeout(url);
+    const response = await fetchWithTimeout(url, {
+      userAgent: user_agent,
+      respectRobots: respect_robots,
+      tool: 'scrape_structured'
+    });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }

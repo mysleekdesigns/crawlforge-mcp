@@ -6,6 +6,7 @@
 
 import { z } from 'zod';
 import { EventEmitter } from 'events';
+import { identityHeaders } from '../utils/fetchIdentity.js';
 
 // ISO 3166-1 alpha-2 country codes with associated settings (Expanded to 15+ countries)
 const SUPPORTED_COUNTRIES = {
@@ -1058,7 +1059,7 @@ export class LocalizationManager extends EventEmitter {
       const start = Date.now();
       const response = await fetch('http://httpbin.org/ip', {
         method: 'GET',
-        headers: { 'User-Agent': 'Health-Check/1.0' },
+        headers: identityHeaders({ role: 'health-check' }),
         // Proxy configuration would go here
         timeout: 10000
       });

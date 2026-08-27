@@ -39,6 +39,7 @@ import {
 } from './redditNormalize.js';
 import { RedditOfficialApiAdapter } from './adapters/redditOfficialApi.js';
 import { SearchProviderFactory } from './adapters/searchProviderFactory.js';
+import { identityHeaders } from '../../utils/fetchIdentity.js';
 
 const ARCTIC_SHIFT_BASE = 'https://arctic-shift.photon-reddit.com';
 const PULLPUSH_BASE = 'https://api.pullpush.io';
@@ -46,9 +47,11 @@ const PULLPUSH_BASE = 'https://api.pullpush.io';
 /**
  * Identify ourselves. Verified live: Arctic Shift throttles UA-less clients
  * into a shared bucket (422 "Timeout. Maybe slow down a bit" while curl got
- * 200 for the same URL); with a descriptive UA it answers instantly.
+ * 200 for the same URL); with a descriptive UA it answers instantly. The
+ * canonical identity is descriptive, so the archives get the same one
+ * everything else sends.
  */
-const USER_AGENT = 'CrawlForge-MCP/5.2.1 (+https://www.crawlforge.dev)';
+const ARCHIVE_IDENTITY = identityHeaders();
 
 const RedditSearchSchema = z.object({
   query: z.string().min(1).optional(),
@@ -389,7 +392,7 @@ export class RedditSearchTool {
     let response;
     try {
       response = await fetch(url, {
-        headers: { Accept: 'application/json', 'User-Agent': USER_AGENT },
+        headers: { Accept: 'application/json', ...ARCHIVE_IDENTITY },
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (error) {

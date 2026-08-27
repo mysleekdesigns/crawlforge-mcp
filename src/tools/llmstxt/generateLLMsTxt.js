@@ -4,6 +4,8 @@ import { LLMsTxtAnalyzer } from '../../core/LLMsTxtAnalyzer.js';
 import { Logger } from '../../utils/Logger.js';
 import { getBaseUrl } from '../../utils/urlNormalizer.js';
 import { safeFetch } from '../../utils/ssrfGuard.js';
+import { resolveUserAgent } from '../../utils/fetchIdentity.js';
+import { preflightFetch } from '../../utils/robotsGate.js';
 
 const logger = new Logger('GenerateLLMsTxtTool');
 
@@ -52,7 +54,7 @@ export class GenerateLLMsTxtTool {
   constructor(options = {}) {
     this.options = {
       timeout: options.timeout || 30000,
-      userAgent: options.userAgent || 'LLMs.txt-Generator/1.0',
+      userAgent: resolveUserAgent(options.userAgent),
       ...options
     };
   }
@@ -86,7 +88,7 @@ export class GenerateLLMsTxtTool {
       // link (llmstxt.org) instead of boilerplate. Best-effort: null on
       // failure, in which case the generic fallbacks below apply.
       if (!outputOptions.robotsStyle) {
-        analysis.homePage = await this.fetchHomePageMetadata(baseUrl);
+        analysis.homePage = await this.fetchHomePageMetadata(baseUrl, analysisOptions.respectRobots);
       }
 
       // Step 2: Generate LLMs.txt Content
@@ -355,13 +357,18 @@ export class GenerateLLMsTxtTool {
    * Fetch the site's homepage once and extract naming metadata for the spec
    * output. Best-effort: returns null on any failure.
    */
-  async fetchHomePageMetadata(baseUrl) {
+  async fetchHomePageMetadata(baseUrl, respectRobots) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), Math.min(this.options.timeout, 10000));
     try {
+      const gate = await preflightFetch(baseUrl, {
+        respectRobots,
+        userAgent: this.options.userAgent,
+        tool: 'generate_llms_txt'
+      });
       const response = await safeFetch(baseUrl, {
         signal: controller.signal,
-        headers: { 'User-Agent': this.options.userAgent }
+        headers: { ...gate.headers }
       });
       if (!response.ok) return null;
       return this.extractHomePageMetadata(await response.text());
