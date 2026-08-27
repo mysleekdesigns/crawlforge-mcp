@@ -117,4 +117,9 @@ key and its own directory entry — not a share of this one.
 
 | Date | Key id | Event |
 |---|---|---|
-| _(none yet)_ | | Key not generated — 0.10 is pending the owner running the script. |
+| 2026-08-27 | `WNp5-QxDvkyOegclqd03Dc8E-yk6aHonCZWNimy_TLE` | First key generated and deployed. Public half live at the directory (verified 200, correct media type, `max-age=86400`); private half set on Render. |
+
+Two earlier key pairs were generated and discarded the same day without ever being deployed:
+one printed into a chat transcript, one generated while testing the script. Neither was ever
+published or used to sign. Recorded because "generated but discarded" is worth distinguishing
+from "never existed" if a stray key id ever turns up.
