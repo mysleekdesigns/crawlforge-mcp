@@ -2,6 +2,12 @@ import robotsParser from 'robots-parser';
 import { safeFetch } from './ssrfGuard.js';
 import { identityHeaders, CRAWLFORGE_USER_AGENT } from './fetchIdentity.js';
 
+/**
+ * The token this crawler used to identify as, honoured as a source of disallow
+ * only so that robots.txt rules written against the old name keep working.
+ */
+const LEGACY_PRODUCT_TOKEN = 'CrawlForge-Bot';
+
 /** How long a parsed robots.txt stays good for. */
 const DEFAULT_TTL_MS = parseInt(process.env.ROBOTS_CACHE_TTL_MS || '3600000', 10); // 1h
 
@@ -54,7 +60,13 @@ export class RobotsChecker {
     try {
       const robots = await this.getRobots(url);
       // robots-parser returns undefined when it has no opinion — that is "allowed".
-      return robots.isAllowed(url, this.userAgent) !== false;
+      // The legacy token is consulted as a source of disallow only: unifying on
+      // CrawlForge would otherwise silently un-block every site owner who had
+      // already written `User-agent: CrawlForge-Bot`, discarding a decision they
+      // made about us (G7). Where a file names neither token both fall through to
+      // the same `*` group, so this is a no-op.
+      const allowedFor = (ua) => robots.isAllowed(url, ua) !== false;
+      return allowedFor(this.userAgent) && allowedFor(LEGACY_PRODUCT_TOKEN);
     } catch (error) {
       // A robots.txt we cannot read is not a disallow. Standard practice, and
       // the alternative (fail closed on a network blip) blocks legitimate work.
