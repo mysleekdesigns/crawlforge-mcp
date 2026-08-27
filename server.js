@@ -30,6 +30,11 @@ import { UnifiedScrapeTool } from "./src/tools/scrape/unifiedScrape.js"; // D4 D
 import { AgentTool } from "./src/tools/agent/agent.js"; // D4 D2
 import { StealthBrowserManager } from "./src/core/StealthBrowserManager.js";
 import { LocalizationManager } from "./src/core/LocalizationManager.js";
+// Stealth scrape: format conversion + the pre-fetch compliance gate (G5/G6/G7)
+import * as cheerio from "cheerio";
+import { htmlToMarkdown } from "./src/utils/htmlToMarkdown.js";
+import { robotsPreflight, RobotsDisallowedError } from "./src/utils/robotsGate.js";
+import { throttleHost } from "./src/utils/hostRateLimiter.js";
 import { memoryMonitor } from "./src/utils/MemoryMonitor.js";
 import { config, validateConfig, getToolConfig } from "./src/constants/config.js";
 import AuthManager from "./src/core/AuthManager.js";
@@ -818,12 +823,12 @@ registerToolIfEnabled("get_batch_results", {
 
 // Tool: scrape_with_actions
 registerToolIfEnabled("scrape_with_actions", {
-  description: "Use this when you need to interact with a page before scraping — login, click buttons, fill forms, scroll, or wait for dynamic content to load. Use for SPAs, login-gated content, or multi-step flows. Screenshots from this tool are stored as crawlforge://screenshot/{actionId} resources. Example: scrape_with_actions({url: \"https://app.com/dashboard\", actions: [{type:\"click\",selector:\"#login\"},{type:\"type\",selector:\"#email\",text:\"user@a.com\"}]})",
+  description: "Use this when you need to interact with a page before scraping — login, click buttons, fill forms, scroll, or wait for dynamic content to load. Use for SPAs, login-gated content, or multi-step flows. Actions: wait, click, type, press, scroll, screenshot, executeJavaScript, select (dropdowns), hover, navigate. Set browserOptions.stealth:true to run the chain in the stealth browser. robots.txt is respected on every navigation. Screenshots from this tool are stored as crawlforge://screenshot/{actionId} resources. Example: scrape_with_actions({url: \"https://app.com/dashboard\", actions: [{type:\"click\",selector:\"#login\"},{type:\"type\",selector:\"#email\",text:\"user@a.com\"}]})",
   annotations: { title: "Scrape with Browser Actions", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to scrape"),
     actions: z.array(z.object({
-      type: z.enum(['wait', 'click', 'type', 'press', 'scroll', 'screenshot', 'executeJavaScript']),
+      type: z.enum(['wait', 'click', 'type', 'press', 'scroll', 'screenshot', 'executeJavaScript', 'select', 'hover', 'navigate']),
       selector: z.string().optional(),
       text: z.string().optional(),
       key: z.string().optional(),
@@ -859,7 +864,14 @@ registerToolIfEnabled("scrape_with_actions", {
       format: z.enum(['png', 'jpeg']).optional().describe("screenshot: image format"),
       // executeJavaScript
       args: z.array(z.any()).optional().describe("executeJavaScript: arguments passed to the script"),
-      returnResult: z.boolean().optional().describe("executeJavaScript: return the script result")
+      returnResult: z.boolean().optional().describe("executeJavaScript: return the script result"),
+      // select
+      value: z.string().optional().describe("select: option to choose, matched by value or label"),
+      values: z.array(z.string()).optional().describe("select: options to choose in a multi-select, matched by value or label"),
+      // hover reuses click's `force` and `position`
+      // navigate
+      url: z.string().url().optional().describe("navigate: URL to navigate to — goes through the same SSRF and robots.txt gate as the initial URL"),
+      waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle', 'commit']).optional().describe("navigate: when to consider navigation complete")
     })).min(1).max(20).describe("Browser actions to perform before scraping"),
     formats: z.array(z.enum(['markdown', 'html', 'json', 'text', 'screenshots'])).default(['json']).describe("Output formats for scraped content"),
     captureIntermediateStates: z.boolean().default(false).describe("Capture page state after each action"),
@@ -879,7 +891,8 @@ registerToolIfEnabled("scrape_with_actions", {
       userAgent: z.string().optional(),
       viewportWidth: z.number().min(800).max(1920).default(1280),
       viewportHeight: z.number().min(600).max(1080).default(720),
-      timeout: z.number().min(10000).max(120000).default(30000)
+      timeout: z.number().min(10000).max(120000).default(30000),
+      stealth: z.boolean().default(false).describe("Run the action chain in the stealth browser (randomized fingerprint, WebRTC/canvas spoofing) instead of the standard browser pool. Renders JavaScript; it does not solve challenges.")
     }).optional().describe("Browser configuration options"),
     extractionOptions: z.object({
       selectors: z.record(z.string()).optional(),
@@ -889,7 +902,8 @@ registerToolIfEnabled("scrape_with_actions", {
     }).optional().describe("Content extraction options"),
     continueOnActionError: z.boolean().default(false).describe("Continue executing actions if one fails"),
     maxRetries: z.number().min(0).max(3).default(1).describe("Maximum retry attempts on failure"),
-    screenshotOnError: z.boolean().default(true).describe("Capture screenshot when an error occurs")
+    screenshotOnError: z.boolean().default(true).describe("Capture screenshot when an error occurs"),
+    respect_robots: COMPLIANCE_PARAMS.respect_robots
   }
 }, withAuth("scrape_with_actions", async (params) => {
   try {
@@ -1203,12 +1217,79 @@ registerToolIfEnabled("generate_llms_txt", {
   }
 }));
 
+// ─── stealth_mode helpers ──────────────────────────────────────────────────────
+
+/**
+ * G5/G6/G7 gate for the stealth browser entry points, run BEFORE any browser
+ * work so a disallowed URL never opens a context.
+ *
+ * `robotsPreflight` rather than `preflightFetch`: preflightFetch also hands back
+ * identity and Web Bot Auth headers built for HTTP fetches, and injecting those
+ * into a stealth browser request would fight the browser's own identity.
+ *
+ * The robots match is deliberately made as the canonical CrawlForge product
+ * token — no userAgent override is passed — even though the browser presents a
+ * randomized UA. Matching robots against the disguise would let stealth traffic
+ * walk past our own robots rules, which is the G5 hole this must not open.
+ *
+ * @returns {Promise<string[]>} warnings to surface on the response
+ */
+async function stealthComplianceGate(url, respectRobots) {
+  const decision = await robotsPreflight(url, { respectRobots, tool: 'stealth_mode' });
+  if (!decision.allowed) throw new RobotsDisallowedError(url);
+  await throttleHost(url, { crawlDelayMs: decision.crawlDelayMs });
+  return decision.warnings;
+}
+
+/**
+ * Build the requested formats from one stealth render. The browser already
+ * returned the rendered HTML and visible text, so nothing here refetches;
+ * markdown goes through the same Turndown helper the `scrape` tool uses.
+ */
+function stealthScrapeFormats(formats, scraped) {
+  const content = {};
+  const needsDom = formats.includes('links') || formats.includes('metadata');
+  const $ = needsDom ? cheerio.load(scraped.html || '') : null;
+
+  if (formats.includes('markdown')) content.markdown = htmlToMarkdown(scraped.html);
+  if (formats.includes('html')) content.html = scraped.html;
+  if (formats.includes('text')) content.text = scraped.text;
+
+  if (formats.includes('links')) {
+    const seen = new Set();
+    const links = [];
+    $('a[href]').each((_, el) => {
+      const href = $(el).attr('href');
+      if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+      try {
+        const absolute = new URL(href, scraped.url).toString();
+        if (seen.has(absolute)) return;
+        seen.add(absolute);
+        links.push({ href: absolute, text: $(el).text().trim() });
+      } catch { /* unresolvable href */ }
+    });
+    content.links = links;
+  }
+
+  if (formats.includes('metadata')) {
+    content.metadata = {
+      title: scraped.title || $('title').text().trim() || null,
+      description: $('meta[name="description"]').attr('content')
+        || $('meta[property="og:description"]').attr('content') || null,
+      canonical: $('link[rel="canonical"]').attr('href') || null,
+      language: $('html').attr('lang') || null
+    };
+  }
+
+  return content;
+}
+
 // Tool: stealth_mode
 registerToolIfEnabled("stealth_mode", {
-  description: "Use this when a site blocks normal scraping — Cloudflare, Datadome, or other bot-detection systems. Manages a Playwright browser with randomized fingerprints, human behavior simulation, WebRTC/canvas spoofing. Start with operation:\"create_context\" then use the contextId. Example: stealth_mode({operation:\"create_context\", stealthConfig:{level:\"advanced\", simulateHumanBehavior:true}})",
+  description: "Use this when a site blocks normal scraping — Cloudflare, Datadome, or other bot-detection systems. Renders in a Playwright browser with randomized fingerprints, human behavior simulation, WebRTC/canvas spoofing. operation:\"scrape\" is the one-shot path: it creates a context, navigates, returns the requested formats and tears down. The create_context → create_page → cleanup operations remain for multi-step work. robots.txt is respected on every navigation. Example: stealth_mode({operation:\"scrape\", url:\"https://example.com\", formats:[\"markdown\",\"links\"]})",
   annotations: { title: "Stealth Mode", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
-    operation: z.enum(['configure', 'enable', 'disable', 'create_context', 'create_page', 'get_stats', 'cleanup']).default('configure').describe("Stealth operation to perform"),
+    operation: z.enum(['scrape', 'configure', 'enable', 'disable', 'create_context', 'create_page', 'get_stats', 'cleanup']).default('configure').describe("Stealth operation to perform"),
     stealthConfig: z.object({
       level: z.enum(['basic', 'medium', 'advanced']).default('medium'),
       randomizeFingerprint: z.boolean().default(true),
@@ -1249,12 +1330,51 @@ registerToolIfEnabled("stealth_mode", {
     }).optional().describe("Stealth browser configuration with anti-detection settings"),
     engine: z.enum(["playwright", "camoufox"]).optional().default("playwright").describe("Browser engine: \"playwright\" (Chromium, default) or \"camoufox\" (Firefox-based, higher anti-detect score — install with npm install camoufox)"),
     contextId: z.string().optional().describe("Browser context ID for page operations"),
-    urlToTest: z.string().url().optional().describe("URL to navigate to when creating a page")
+    urlToTest: z.string().url().optional().describe("URL to navigate to when creating a page"),
+    url: z.string().url().optional().describe("URL to scrape — required for operation:\"scrape\""),
+    formats: z.array(z.enum(["markdown", "html", "text", "links", "metadata", "screenshot"])).optional().default(["markdown"]).describe("Formats to return from operation:\"scrape\" (default: [\"markdown\"]). \"screenshot\" returns a crawlforge://screenshot/{id} resource URI."),
+    wait_for: z.number().min(0).max(30000).optional().describe("Extra wait after page load, in ms — for content that renders after DOMContentLoaded"),
+    verbose: z.boolean().optional().default(false).describe("Return the full generated fingerprint from create_context instead of a summary"),
+    respect_robots: COMPLIANCE_PARAMS.respect_robots
   }
-}, withAuth("stealth_mode", async ({ operation, stealthConfig, contextId, urlToTest }) => {
+}, withAuth("stealth_mode", async ({ operation, stealthConfig, contextId, urlToTest, url, formats, wait_for, verbose, engine, respect_robots }) => {
   try {
     let result;
     switch (operation) {
+      case 'scrape': {
+        if (!url) throw new Error('url is required for scrape operation');
+        // Gate first: a disallowed URL must never launch a browser.
+        const warnings = await stealthComplianceGate(url, respect_robots);
+
+        const wantsScreenshot = formats.includes('screenshot');
+        const scraped = await stealthBrowserManager.scrapeWithStealth({
+          url,
+          // "playwright" is this tool's public name for the chromium engine
+          // (the manager and the CLI both call it chromium).
+          engine: engine === 'camoufox' ? 'camoufox' : 'chromium',
+          wait_for: wait_for || 0,
+          screenshot: wantsScreenshot,
+          stealthConfig
+        });
+
+        result = {
+          success: true,
+          url: scraped.url,
+          title: scraped.title,
+          content: stealthScrapeFormats(formats, scraped)
+        };
+
+        // Screenshots follow the same crawlforge://screenshot/{id} pattern as
+        // scrape and scrape_with_actions, so the base64 never bloats the result.
+        if (wantsScreenshot && scraped.screenshot) {
+          const screenshotId = `stealth_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+          resourceRegistry.storeScreenshot(screenshotId, scraped.screenshot);
+          result.content.screenshot = { resourceUri: `crawlforge://screenshot/${screenshotId}` };
+        }
+
+        if (warnings.length > 0) result.warnings = warnings;
+        break;
+      }
       case 'configure':
         if (stealthConfig) {
           const validated = stealthBrowserManager.validateConfig(stealthConfig);
@@ -1273,11 +1393,23 @@ registerToolIfEnabled("stealth_mode", {
         break;
       case 'create_context': {
         const contextData = await stealthBrowserManager.createStealthContext(stealthConfig);
-        result = { contextId: contextData.contextId, fingerprint: contextData.fingerprint, created: true };
+        // The full fingerprint is ~4 KB of canvas noise arrays and WebGL
+        // extension lists no caller acts on. Summarise by default; verbose:true
+        // still returns all of it for debugging a detection failure.
+        result = {
+          contextId: contextData.contextId,
+          created: true,
+          fingerprint: verbose
+            ? contextData.fingerprint
+            : stealthBrowserManager.summarizeFingerprint(contextData.fingerprint)
+        };
         break;
       }
       case 'create_page': {
         if (!contextId) throw new Error('contextId is required for create_page operation');
+        // Gate before the page exists: a disallowed URL must never reach the
+        // browser, and the throttle has to run before navigation, not after.
+        const navWarnings = urlToTest ? await stealthComplianceGate(urlToTest, respect_robots) : [];
         const page = await stealthBrowserManager.createStealthPage(contextId);
         let navigation = null;
         try {
@@ -1301,6 +1433,7 @@ registerToolIfEnabled("stealth_mode", {
           await page.close().catch(() => {});
         }
         result = { pageCreated: true, contextId, navigation };
+        if (navWarnings.length > 0) result.warnings = navWarnings;
         break;
       }
       case 'get_stats':
