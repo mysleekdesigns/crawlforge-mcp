@@ -149,6 +149,36 @@ export async function preflightFetch(url, options = {}) {
   };
 }
 
+/**
+ * The gate for browser paths. Same decision as {@link preflightFetch}, minus
+ * the identity and signature headers — those belong on an HTTP fetch, not on a
+ * browser context that presents its own identity.
+ *
+ * Deliberately takes no `userAgent`: robots.txt is matched against our
+ * canonical product token even when the browser presents another UA. Matching
+ * on the presented UA would let browser traffic walk past the rules our own
+ * token is bound by, which is the G5 hole this gate exists to close.
+ *
+ * @param {string} url
+ * @param {object} [options]
+ * @param {boolean} [options.respectRobots] per-request override
+ * @param {string}  [options.tool] tool name, for the audit row
+ * @param {string}  [options.apiKey] hashed into the audit row, never stored raw
+ * @returns {Promise<string[]>} warnings to surface on the response
+ * @throws {BlockedHostError|RobotsDisallowedError}
+ */
+export async function browserPreflight(url, options = {}) {
+  const decision = await robotsPreflight(url, {
+    respectRobots: options.respectRobots,
+    tool: options.tool,
+    apiKey: options.apiKey
+  });
+  if (!decision.allowed) throw new RobotsDisallowedError(url);
+
+  await throttleHost(url, { crawlDelayMs: decision.crawlDelayMs });
+  return decision.warnings;
+}
+
 /** Test/diagnostic hook: drop every cached robots.txt. */
 export function _resetRobotsGate() {
   checkers.clear();

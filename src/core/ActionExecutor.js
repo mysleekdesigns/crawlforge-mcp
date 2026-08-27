@@ -8,8 +8,7 @@ import BrowserProcessor from './processing/BrowserProcessor.js';
 import { EventEmitter } from 'events';
 import { createHash } from 'node:crypto';
 import { assertUrlAllowed } from '../utils/ssrfGuard.js';
-import { robotsPreflight, RobotsDisallowedError } from '../utils/robotsGate.js';
-import { throttleHost } from '../utils/hostRateLimiter.js';
+import { browserPreflight } from '../utils/robotsGate.js';
 
 // executeJavaScript hardening limits (only relevant when the deploy-time flag
 // ALLOW_JAVASCRIPT_EXECUTION=true is set; JS execution stays off by default).
@@ -1201,13 +1200,10 @@ export class ActionExecutor extends EventEmitter {
    * @throws {BlockedHostError|RobotsDisallowedError}
    */
   async assertRobotsAllowed(url, browserOptions = {}) {
-    const gate = await robotsPreflight(url, {
+    await browserPreflight(url, {
       respectRobots: browserOptions?.respectRobots,
       tool: 'scrape_with_actions'
     });
-    if (!gate.allowed) throw new RobotsDisallowedError(url);
-
-    await throttleHost(url, { crawlDelayMs: gate.crawlDelayMs });
   }
 
   /**
