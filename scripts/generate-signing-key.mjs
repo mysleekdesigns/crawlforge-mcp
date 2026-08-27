@@ -46,7 +46,7 @@ ${publicPem.trim()}
 Next:
   1. Set WEB_BOT_AUTH_PUBLIC_KEYS on Vercel and redeploy — website FIRST.
   2. Confirm the key id above appears at
-     https://crawlforge.dev/.well-known/http-message-signatures-directory
+     https://www.crawlforge.dev/.well-known/http-message-signatures-directory
      (signing before it is published risks a verifier caching the failure
      for the directory's 24h max-age).
   3. Only then set CRAWLFORGE_SIGNING_KEY below on Render and redeploy.
