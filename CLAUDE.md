@@ -223,7 +223,19 @@ RATE_LIMIT_REQUESTS_PER_SECOND=10
 MAX_CRAWL_DEPTH=5
 MAX_PAGES_PER_CRAWL=100
 RESPECT_ROBOTS_TXT=true
+ROBOTS_CACHE_TTL_MS=3600000          # how long a parsed robots.txt stays good for
+CRAWLFORGE_BLOCKED_HOSTS=            # comma-separated; extends the permanent opt-out blocklist
 ```
+
+Web Bot Auth (optional, off by default — requests go out unsigned when unset):
+
+```bash
+CRAWLFORGE_SIGNING_KEY=              # Ed25519 PKCS#8 PEM, or base64 of it. SECRET — never commit.
+WEB_BOT_AUTH_DIRECTORY=              # e.g. https://crawlforge.dev — advertised in Signature-Agent
+```
+
+Generate the pair with `node scripts/generate-signing-key.mjs`; publish the public half
+before setting the private one. Procedure and compromise response: `docs/policy/KEY_ROTATION.md`.
 
 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` are optional. They only affect `deep_research`: when set, it produces a fully synthesized report internally; when unset, it returns raw evidence for the calling LLM (e.g. Claude Code) to synthesize.
 
