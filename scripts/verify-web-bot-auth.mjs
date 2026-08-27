@@ -9,7 +9,11 @@
  * It asks the server to fetch a header-echo endpoint, reads back the headers it
  * actually sent, and checks the signature against the published JWKS.
  *
- *   CRAWLFORGE_API_KEY=cf_live_... node scripts/verify-web-bot-auth.mjs
+ *   CRAWLFORGE_API_KEY=<the key set on the SERVER> node scripts/verify-web-bot-auth.mjs
+ *   INTERNAL_SECRET=<the deployment's INTERNAL_PROXY_SECRET> node scripts/verify-web-bot-auth.mjs
+ *
+ * The MCP endpoint is single-tenant: it authenticates against its own configured
+ * key, not against customer API keys, so a valid dashboard key will not work.
  *
  * Optional:
  *   MCP_URL=https://crawlforge-mcp.onrender.com     (server under test)
@@ -25,6 +29,7 @@ const MCP_URL = process.env.MCP_URL || 'https://crawlforge-mcp.onrender.com';
 const DIRECTORY = process.env.DIRECTORY || 'https://www.crawlforge.dev';
 const ECHO_URL = process.env.ECHO_URL || 'https://postman-echo.com/headers';
 const API_KEY = process.env.CRAWLFORGE_API_KEY;
+const INTERNAL_SECRET = process.env.INTERNAL_SECRET;
 
 const results = [];
 /** `detail` explains a failure, so it is only worth printing when one happens. */
@@ -57,9 +62,12 @@ async function getDirectory() {
 async function mcpCall(name, args) {
   const headers = {
     'Content-Type': 'application/json',
-    Accept: 'application/json, text/event-stream',
-    'X-API-Key': API_KEY
+    Accept: 'application/json, text/event-stream'
   };
+  // Two ways in, because this endpoint is single-tenant: its own static API key,
+  // or the internal proxy secret the website uses to reach it.
+  if (INTERNAL_SECRET) headers['X-Internal-Secret'] = INTERNAL_SECRET;
+  else headers['X-API-Key'] = API_KEY;
 
   const init = await fetch(MCP_URL, {
     method: 'POST',
@@ -75,10 +83,12 @@ async function mcpCall(name, args) {
   });
   if (init.status === 401) {
     throw new Error(
-      `${MCP_URL} rejected the API key.\n` +
-      `        Check CRAWLFORGE_API_KEY is a live key for this account ` +
-      `(Dashboard → Settings → API Keys). This is the key being used to call the\n` +
-      `        server, not the signing key — those are unrelated.`
+      `${MCP_URL} rejected the credential.\n` +
+      `        This endpoint is single-tenant: it compares what you send against the\n` +
+      `        CRAWLFORGE_API_KEY set in ITS OWN environment (Render), not against customer\n` +
+      `        keys in the database. A perfectly valid dashboard key will be rejected here.\n` +
+      `        Use the CRAWLFORGE_API_KEY value from the Render service's env vars, or set\n` +
+      `        INTERNAL_SECRET to the deployment's INTERNAL_PROXY_SECRET instead.`
     );
   }
   if (!init.ok) throw new Error(`initialize failed: HTTP ${init.status} ${await init.text()}`);
@@ -124,14 +134,14 @@ async function main() {
 
   const keys = await getDirectory();
 
-  if (!API_KEY) {
-    console.log('\nSigning — SKIPPED (set CRAWLFORGE_API_KEY to check the deployed signer)');
+  if (!API_KEY && !INTERNAL_SECRET) {
+    console.log('\nSigning — SKIPPED (set CRAWLFORGE_API_KEY or INTERNAL_SECRET to check the deployed signer)');
     process.exit(results.every(Boolean) ? 0 : 1);
   }
 
   // The documented invocation carries a placeholder, and a placeholder pasted
   // verbatim comes back as a bare 401 that reads like a real auth failure.
-  if (/YOUR_KEY|YOUR_API_KEY|xxx+|\.\.\./i.test(API_KEY)) {
+  if (API_KEY && /YOUR_KEY|YOUR_API_KEY|xxx+|\.\.\./i.test(API_KEY)) {
     console.error(
       `\nCRAWLFORGE_API_KEY is still the placeholder ("${API_KEY}").\n` +
       `Substitute your real key — Dashboard → Settings → API Keys.`
