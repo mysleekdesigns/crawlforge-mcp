@@ -2,7 +2,7 @@
 
 The Ed25519 key that signs CrawlForge's outbound requests (RFC 9421, `web-bot-auth`
 profile). The private half signs; the public half is published at
-`https://crawlforge.dev/.well-known/http-message-signatures-directory` so a site owner
+`https://www.crawlforge.dev/.well-known/http-message-signatures-directory` so a site owner
 can verify a request really came from us.
 
 Item 0.10 of `VERTICAL_COVERAGE_PLAN.md`.
@@ -55,10 +55,15 @@ requests being treated as unsigned.
 1. Set `WEB_BOT_AUTH_PUBLIC_KEYS` on Vercel; redeploy.
 2. Confirm the key id appears:
    ```bash
-   curl -s https://crawlforge.dev/.well-known/http-message-signatures-directory | jq '.keys[].kid'
+   curl -s https://www.crawlforge.dev/.well-known/http-message-signatures-directory | jq '.keys[].kid'
    ```
-3. Set `CRAWLFORGE_SIGNING_KEY` **and** `WEB_BOT_AUTH_DIRECTORY=https://crawlforge.dev`
+3. Set `CRAWLFORGE_SIGNING_KEY` **and** `WEB_BOT_AUTH_DIRECTORY=https://www.crawlforge.dev`
    on Render; redeploy.
+
+   Use the **www** host. The bare apex 308-redirects to it (a domain-level Vercel
+   redirect), and the draft does not require a verifier to follow redirects when
+   fetching a directory — advertising the host that actually serves it removes the
+   question.
 
    Both, not just the key. `WEB_BOT_AUTH_DIRECTORY` is what puts the `Signature-Agent`
    header on outbound requests, and that header is how a site that has never heard of us

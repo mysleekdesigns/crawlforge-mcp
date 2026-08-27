@@ -231,7 +231,7 @@ Web Bot Auth (optional, off by default — requests go out unsigned when unset):
 
 ```bash
 CRAWLFORGE_SIGNING_KEY=              # Ed25519 PKCS#8 PEM, or base64 of it. SECRET — never commit.
-WEB_BOT_AUTH_DIRECTORY=              # e.g. https://crawlforge.dev — advertised in Signature-Agent
+WEB_BOT_AUTH_DIRECTORY=              # https://www.crawlforge.dev — advertised in Signature-Agent
 ```
 
 Generate the pair with `node scripts/generate-signing-key.mjs`; publish the public half
