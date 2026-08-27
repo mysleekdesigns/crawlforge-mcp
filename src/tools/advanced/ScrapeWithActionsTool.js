@@ -83,6 +83,33 @@ const ScrollActionSchema = BaseActionSchema.extend({
   y: z.number().min(0).optional()
 });
 
+const SelectActionSchema = BaseActionSchema.extend({
+  type: z.literal('select'),
+  selector: z.string(),
+  // A plain string matches an <option> by value OR label — see ActionExecutor's
+  // SelectActionSchema.
+  value: z.string().optional(),
+  values: z.array(z.string()).optional()
+}).refine(data => data.value !== undefined || (data.values && data.values.length > 0), {
+  message: 'Select action requires value or values'
+});
+
+const HoverActionSchema = BaseActionSchema.extend({
+  type: z.literal('hover'),
+  selector: z.string(),
+  force: z.boolean().default(false),
+  position: z.object({
+    x: z.number(),
+    y: z.number()
+  }).optional()
+});
+
+const NavigateActionSchema = BaseActionSchema.extend({
+  type: z.literal('navigate'),
+  url: z.string().url(),
+  waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle', 'commit']).optional()
+});
+
 const ScreenshotActionSchema = BaseActionSchema.extend({
   type: z.literal('screenshot'),
   selector: z.string().optional(),
@@ -104,6 +131,9 @@ const ActionSchema = z.union([
   TypeActionSchema,
   PressActionSchema,
   ScrollActionSchema,
+  SelectActionSchema,
+  HoverActionSchema,
+  NavigateActionSchema,
   ScreenshotActionSchema,
   ExecuteJavaScriptActionSchema
 ]);
@@ -145,7 +175,11 @@ const ScrapeWithActionsSchema = z.object({
     userAgent: z.string().optional(),
     viewportWidth: z.number().min(800).max(1920).default(1280),
     viewportHeight: z.number().min(600).max(1080).default(720),
-    timeout: z.number().min(10000).max(120000).default(30000)
+    timeout: z.number().min(10000).max(120000).default(30000),
+    // Run the chain in the stealth browser (StealthBrowserManager) instead of
+    // the standard pool. executeSession turns this into the stealthMode object
+    // ActionExecutor/BrowserProcessor read.
+    stealth: z.boolean().default(false)
   }).optional(),
 
   // Content extraction options
@@ -155,6 +189,10 @@ const ScrapeWithActionsSchema = z.object({
     includeLinks: z.boolean().default(true),
     includeImages: z.boolean().default(true)
   }).optional(),
+
+  // Per-request robots.txt override (G5). Undefined leaves the configured
+  // default in force; false is honoured, warned about and audited by the gate.
+  respect_robots: z.boolean().optional(),
 
   // Error handling
   continueOnActionError: z.boolean().default(false),
@@ -340,6 +378,16 @@ export class ScrapeWithActionsTool extends EventEmitter {
       ...this.defaultBrowserOptions,
       ...params.browserOptions
     };
+
+    // `stealth: true` is the caller-facing switch; everything downstream reads
+    // browserOptions.stealthMode.
+    if (browserOptions.stealth) {
+      browserOptions.stealthMode = { enabled: true };
+    }
+
+    // The robots override rides with the browser options so ActionExecutor's
+    // gate sees it on the initial load and on every `navigate` action.
+    browserOptions.respectRobots = params.respect_robots;
 
     // Build action chain with form auto-fill if provided
     let actionChain = [...params.actions];

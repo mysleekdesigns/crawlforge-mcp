@@ -541,8 +541,10 @@ class AuthManager {
    * (crawlforge-website/src/lib/credits.ts TOOL_CREDIT_COSTS).
    *
    * @param {string} tool
+   * @param {object} [params] — the call's params; only consulted by the tools
+   *   whose cost depends on what was asked for (see stealth_mode below)
    */
-  getToolCost(tool) {
+  getToolCost(tool, params) {
     const costs = {
       // 1 credit
       fetch_url: 1,
@@ -598,6 +600,17 @@ class AuthManager {
       return 0;
     }
 
+    // stealth_mode bills per operation, and only some of its operations launch
+    // a browser. At a flat 5 the ordinary create_context → create_page →
+    // cleanup sequence cost 15 credits to render one page. Browser work keeps
+    // the published price; the bookkeeping operations, which touch no browser,
+    // cost 1. An unknown or absent operation falls through to the flat 5 — the
+    // published price is the ceiling, never the floor.
+    if (tool === 'stealth_mode') {
+      const bookkeepingOps = new Set(['configure', 'enable', 'disable', 'get_stats', 'cleanup']);
+      if (bookkeepingOps.has(params?.operation)) return 1;
+    }
+
     return costs[tool] ?? 1;
   }
 
@@ -641,6 +654,11 @@ class AuthManager {
       }
       case 'extract_with_llm':
         note = 'External LLM API call billed by your LLM provider, separate from the credit cost.';
+        break;
+      case 'stealth_mode':
+        note = projected === 1
+          ? 'Bookkeeping operation — launches no browser.'
+          : 'Browser operation. configure/enable/disable/get_stats/cleanup cost 1 credit each.';
         break;
       case 'serp_rank':
         note = projected === 0

@@ -386,6 +386,33 @@ export class BrowserProcessor {
   }
 
   /**
+   * Release a stealth page and hand its context slot back to the pool.
+   *
+   * createStealthPage() registers every context in activeContexts and in
+   * StealthBrowserManager's capped pool (MAX_BROWSER_CONTEXTS, default 10).
+   * Nothing reuses a context after the call that created it, so a caller that
+   * only closes the page keeps the slot: after 10 stealth runs the next
+   * createStealthContext() waits for a free slot and then throws. Going
+   * through the manager's closeContext() returns the slot and the renderer.
+   * @param {Page} page - Stealth page returned by initializePage()
+   * @returns {Promise<void>}
+   */
+  async releaseStealthPage(page) {
+    try { await page.close(); } catch (_) { /* ignore close errors */ }
+
+    for (const [contextId, contextData] of this.activeContexts.entries()) {
+      if (contextData.page !== page) continue;
+      this.activeContexts.delete(contextId);
+      try {
+        await this.stealthManager?.closeContext(contextId);
+      } catch (error) {
+        console.warn(`Failed to close stealth context ${contextId}:`, error.message);
+      }
+      return;
+    }
+  }
+
+  /**
    * Apply additional stealth middleware to page
    * @param {Page} page - Playwright page
    * @param {Object} options - Processing options

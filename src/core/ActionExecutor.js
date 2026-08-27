@@ -8,6 +8,8 @@ import BrowserProcessor from './processing/BrowserProcessor.js';
 import { EventEmitter } from 'events';
 import { createHash } from 'node:crypto';
 import { assertUrlAllowed } from '../utils/ssrfGuard.js';
+import { robotsPreflight, RobotsDisallowedError } from '../utils/robotsGate.js';
+import { throttleHost } from '../utils/hostRateLimiter.js';
 
 // executeJavaScript hardening limits (only relevant when the deploy-time flag
 // ALLOW_JAVASCRIPT_EXECUTION=true is set; JS execution stays off by default).
@@ -104,6 +106,34 @@ const ScrollActionSchema = BaseActionSchema.extend({
   y: z.number().min(0).optional()
 });
 
+const SelectActionSchema = BaseActionSchema.extend({
+  type: z.literal('select'),
+  selector: z.string(),
+  // Playwright's string form of selectOption matches an <option> by its `value`
+  // OR its visible label, so one field covers both and the caller doesn't have
+  // to know which one the page uses. `values` selects several in a multi-select.
+  value: z.string().optional(),
+  values: z.array(z.string()).optional()
+}).refine(data => data.value !== undefined || (data.values && data.values.length > 0), {
+  message: 'Select action requires value or values'
+});
+
+const HoverActionSchema = BaseActionSchema.extend({
+  type: z.literal('hover'),
+  selector: z.string(),
+  force: z.boolean().default(false),
+  position: z.object({
+    x: z.number(),
+    y: z.number()
+  }).optional()
+});
+
+const NavigateActionSchema = BaseActionSchema.extend({
+  type: z.literal('navigate'),
+  url: z.string().url(),
+  waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle', 'commit']).optional()
+});
+
 const ScreenshotActionSchema = BaseActionSchema.extend({
   type: z.literal('screenshot'),
   selector: z.string().optional(),
@@ -125,6 +155,9 @@ const ActionSchema = z.union([
   TypeActionSchema,
   PressActionSchema,
   ScrollActionSchema,
+  SelectActionSchema,
+  HoverActionSchema,
+  NavigateActionSchema,
   ScreenshotActionSchema,
   ExecuteJavaScriptActionSchema
 ]);
@@ -294,12 +327,14 @@ export class ActionExecutor extends EventEmitter {
         // context for non-stealth pages — createPage() gives each call its
         // own dedicated BrowserContext that is never tracked/closed
         // elsewhere, so leaving it open here leaks it until server shutdown.
-        // Stealth contexts are pooled/reused (see StealthBrowserManager) and
-        // must not be closed here.
+        // A stealth context belongs to StealthBrowserManager's pool, so it is
+        // released through the manager instead of closed directly here.
         if (page) {
-          const ctx = !browserOptions.stealthMode?.enabled ? page.context() : null;
-          try { await page.close(); } catch (_) { /* ignore close errors */ }
-          if (ctx) {
+          if (browserOptions.stealthMode?.enabled) {
+            await this.browserProcessor.releaseStealthPage(page);
+          } else {
+            const ctx = page.context();
+            try { await page.close(); } catch (_) { /* ignore close errors */ }
             try { await ctx.close(); } catch (_) { /* ignore close errors */ }
           }
         }
@@ -512,7 +547,7 @@ export class ActionExecutor extends EventEmitter {
       // "Action timeout".
       const backstopMs = timeout + ACTION_TIMEOUT_GRACE_MS;
       let backstopTimer;
-      const executionPromise = this.executeActionByType(page, action);
+      const executionPromise = this.executeActionByType(page, action, executionContext);
       const timeoutPromise = new Promise((_, reject) => {
         backstopTimer = setTimeout(
           () => reject(new Error(
@@ -665,9 +700,10 @@ export class ActionExecutor extends EventEmitter {
    * Execute action based on its type
    * @param {Page} page - Playwright page
    * @param {Object} action - Action configuration
+   * @param {Object} [executionContext] - Execution context (navigate reads its browserOptions)
    * @returns {Promise<any>} Action result
    */
-  async executeActionByType(page, action) {
+  async executeActionByType(page, action, executionContext) {
     switch (action.type) {
       case 'wait':
         return await this.executeWaitAction(page, action);
@@ -679,6 +715,12 @@ export class ActionExecutor extends EventEmitter {
         return await this.executePressAction(page, action);
       case 'scroll':
         return await this.executeScrollAction(page, action);
+      case 'select':
+        return await this.executeSelectAction(page, action);
+      case 'hover':
+        return await this.executeHoverAction(page, action);
+      case 'navigate':
+        return await this.executeNavigateAction(page, action, executionContext);
       case 'screenshot':
         return await this.executeScreenshotAction(page, action);
       case 'executeJavaScript':
@@ -924,6 +966,83 @@ export class ActionExecutor extends EventEmitter {
   }
 
   /**
+   * Execute select action on a <select> dropdown
+   * @param {Page} page - Playwright page
+   * @param {Object} action - Select action
+   * @returns {Promise<Object>} Select result
+   */
+  async executeSelectAction(page, action) {
+    const timeout = this.actionTimeout(action);
+    const values = action.values?.length ? action.values : [action.value];
+
+    const selected = await this.elementLocator(page, action.selector)
+      .selectOption(values, { timeout });
+
+    // Faceted-search dropdowns commonly submit the form on change, so let any
+    // navigation commit before the next action runs.
+    await this.settleAfterInteraction(page, timeout);
+
+    return {
+      selector: action.selector,
+      requested: values,
+      selected
+    };
+  }
+
+  /**
+   * Execute hover action
+   * @param {Page} page - Playwright page
+   * @param {Object} action - Hover action
+   * @returns {Promise<Object>} Hover result
+   */
+  async executeHoverAction(page, action) {
+    const timeout = this.actionTimeout(action);
+    const hoverOptions = { force: action.force, timeout };
+    if (action.position) {
+      hoverOptions.position = action.position;
+    }
+
+    await this.elementLocator(page, action.selector).hover(hoverOptions);
+
+    // No settle: a hover reveals a menu, it does not replace the document.
+    return {
+      selector: action.selector,
+      position: action.position
+    };
+  }
+
+  /**
+   * Execute navigate action - load a new URL in the running page.
+   *
+   * A navigate action is a fetch of a new URL, so it goes through the same gate
+   * order as the chain's initial load: SSRF, then blocklist/robots, then the
+   * navigation itself. Routing it here rather than straight at page.goto() is
+   * what stops a chain from using `navigate` to reach a URL the gate would have
+   * refused at initializePage.
+   * @param {Page} page - Playwright page
+   * @param {Object} action - Navigate action
+   * @param {Object} [executionContext] - Execution context (for browserOptions)
+   * @returns {Promise<Object>} Navigate result
+   */
+  async executeNavigateAction(page, action, executionContext) {
+    const timeout = this.actionTimeout(action);
+
+    await assertUrlAllowed(action.url, { resolveDns: true });
+    await this.assertRobotsAllowed(action.url, executionContext?.browserOptions);
+
+    await this.navigateToUrl(page, action.url, {
+      waitUntil: action.waitUntil,
+      timeout
+    });
+
+    return {
+      url: action.url,
+      finalUrl: page.url(),
+      waitUntil: action.waitUntil || 'domcontentloaded'
+    };
+  }
+
+  /**
    * Execute screenshot action
    * @param {Page} page - Playwright page
    * @param {Object} action - Screenshot action
@@ -1041,19 +1160,21 @@ export class ActionExecutor extends EventEmitter {
 
   /**
    * Navigate an existing page to a URL under the SSRF checks every load needs.
-   * Used for the initial load and again before each chain retry.
+   * Used for the initial load, again before each chain retry, and by the
+   * `navigate` action.
    * @param {Page} page - Playwright page
    * @param {string} url - URL to navigate to
+   * @param {{ waitUntil?: string, timeout?: number }} [options] - Navigation options
    * @returns {Promise<void>}
    */
-  async navigateToUrl(page, url) {
+  async navigateToUrl(page, url, options = {}) {
     // resolveDns:true because Playwright does its own DNS resolution, so
     // hostname-based checks alone would miss DNS-rebinding/private-IP targets.
     await assertUrlAllowed(url, { resolveDns: true });
 
     await page.goto(url, {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000
+      waitUntil: options.waitUntil || 'domcontentloaded',
+      timeout: options.timeout || 30000
     });
 
     // Re-validate the landed URL: a redirect during navigation could have
@@ -1062,6 +1183,31 @@ export class ActionExecutor extends EventEmitter {
     if (/^https?:\/\//i.test(landedUrl)) {
       await assertUrlAllowed(landedUrl, { resolveDns: true });
     }
+  }
+
+  /**
+   * Platform blocklist (G7), robots.txt (G5) and politeness (G6) gate for a URL
+   * this executor is about to load.
+   *
+   * The gate is deliberately asked about the canonical CrawlForge product
+   * token: no `userAgent` is passed through, so a caller setting
+   * browserOptions.userAgent — or a stealth context presenting a randomized
+   * UA — still matches the same robots rules our own token is bound by.
+   * Matching robots as whatever identity the caller asked us to wear would let
+   * browser traffic slip our own rules, which is the hole this gate closes.
+   * @param {string} url - URL about to be loaded
+   * @param {Object} [browserOptions] - Browser options (`respectRobots` override)
+   * @returns {Promise<void>}
+   * @throws {BlockedHostError|RobotsDisallowedError}
+   */
+  async assertRobotsAllowed(url, browserOptions = {}) {
+    const gate = await robotsPreflight(url, {
+      respectRobots: browserOptions?.respectRobots,
+      tool: 'scrape_with_actions'
+    });
+    if (!gate.allowed) throw new RobotsDisallowedError(url);
+
+    await throttleHost(url, { crawlDelayMs: gate.crawlDelayMs });
   }
 
   /**
@@ -1075,6 +1221,12 @@ export class ActionExecutor extends EventEmitter {
     // resolveDns:true because Playwright does its own DNS resolution, so
     // hostname-based checks alone would miss DNS-rebinding/private-IP targets.
     await assertUrlAllowed(url, { resolveDns: true });
+
+    // Then the compliance gate — before the browser launches, so a blocked host
+    // or a disallowed path never costs a Chromium process. preflightFetch is
+    // deliberately not used here: its identity/signature headers belong on an
+    // HTTP fetch, not on a browser context.
+    await this.assertRobotsAllowed(url, browserOptions);
 
     const isStealth = !!browserOptions.stealthMode?.enabled;
 
@@ -1109,11 +1261,15 @@ export class ActionExecutor extends EventEmitter {
       // Any failure between page creation and return (navigation, SSRF
       // re-check, stealth challenge handling) must not leak the page it
       // already created — close it, and its dedicated context for
-      // non-stealth pages (stealth contexts are pooled/reused elsewhere),
-      // before rethrowing.
-      const ctx = !isStealth ? page.context() : null;
-      await page.close().catch(() => {});
-      if (ctx) await ctx.close().catch(() => {});
+      // non-stealth pages, before rethrowing. A stealth context goes back to
+      // the manager's pool the same way it does after a successful chain.
+      if (isStealth) {
+        await this.browserProcessor.releaseStealthPage(page);
+      } else {
+        const ctx = page.context();
+        await page.close().catch(() => {});
+        await ctx.close().catch(() => {});
+      }
       throw error;
     }
   }

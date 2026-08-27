@@ -199,21 +199,23 @@ export class StealthBrowserManager {
       { width: 320, height: 568, weight: 0.05 }  // iPhone 5s (legacy)
     ];
 
-    // Timezone options
-    this.timezones = [
-      'America/New_York',
-      'America/Los_Angeles',
-      'America/Chicago',
-      'America/Denver',
-      'Europe/London',
-      'Europe/Berlin',
-      'Europe/Paris',
-      'Europe/Madrid',
-      'Asia/Tokyo',
-      'Asia/Shanghai',
-      'Asia/Seoul',
-      'Australia/Sydney',
-      'Australia/Melbourne'
+    // Locale personas: timezone, country and a plausible city centre drawn
+    // together, so one fingerprint cannot claim Asia/Tokyo, a Beijing
+    // geolocation and en-US at the same time. A self-contradicting fingerprint
+    // is a stronger detection signal than no spoofing at all — these are picked
+    // once per fingerprint and threaded through timezone, geolocation and
+    // Accept-Language.
+    this.localePersonas = [
+      { locale: 'en-US', timezone: 'America/New_York',    country: 'US', latitude: 40.7128,  longitude: -74.0060 },
+      { locale: 'en-US', timezone: 'America/Chicago',     country: 'US', latitude: 41.8781,  longitude: -87.6298 },
+      { locale: 'en-US', timezone: 'America/Denver',      country: 'US', latitude: 39.7392,  longitude: -104.9903 },
+      { locale: 'en-US', timezone: 'America/Los_Angeles', country: 'US', latitude: 34.0522,  longitude: -118.2437 },
+      { locale: 'en-GB', timezone: 'Europe/London',       country: 'GB', latitude: 51.5074,  longitude: -0.1278 },
+      { locale: 'de-DE', timezone: 'Europe/Berlin',       country: 'DE', latitude: 52.5200,  longitude: 13.4050 },
+      { locale: 'fr-FR', timezone: 'Europe/Paris',        country: 'FR', latitude: 48.8566,  longitude: 2.3522 },
+      { locale: 'es-ES', timezone: 'Europe/Madrid',       country: 'ES', latitude: 40.4168,  longitude: -3.7038 },
+      { locale: 'ja-JP', timezone: 'Asia/Tokyo',          country: 'JP', latitude: 35.6762,  longitude: 139.6503 },
+      { locale: 'en-AU', timezone: 'Australia/Sydney',    country: 'AU', latitude: -33.8688, longitude: 151.2093 }
     ];
 
     // WebRTC leak prevention IPs
@@ -479,34 +481,75 @@ export class StealthBrowserManager {
    * Generate advanced browser fingerprint with enhanced randomization
    */
   generateAdvancedFingerprint(config = {}) {
-    // Select the OS once and thread it through UA, headers, and hardware so
-    // navigator.platform / sec-ch-ua-platform / userAgent stay consistent.
+    // Select the OS and the locale persona once, then thread both through every
+    // generator. The OS drives UA, headers, hardware, device labels, fonts and
+    // WebGL; the persona drives timezone, geolocation and Accept-Language. The
+    // user agent is resolved here rather than twice, so sec-ch-ua cannot report
+    // a different Chrome version than the User-Agent header.
     const selectedOS = this.selectOS(config);
+    const persona = this.selectLocalePersona(config);
+    const userAgent = this.selectRealisticUserAgent(config, selectedOS);
     const fingerprint = {
-      userAgent: this.selectRealisticUserAgent(config, selectedOS),
+      userAgent,
+      locale: persona.locale,
       viewport: config.customViewport || this.selectWeightedViewport(),
-      timezone: config.timezone || this.selectTimezone(),
+      timezone: config.timezone || persona.timezone,
       deviceScaleFactor: this.randomFloat(1, 2, 1),
       isMobile: Math.random() < 0.1, // 10% mobile
       hasTouch: Math.random() < 0.15, // 15% touch
       colorScheme: Math.random() < 0.3 ? 'dark' : 'light',
       reducedMotion: Math.random() < 0.1 ? 'reduce' : 'no-preference',
       forcedColors: Math.random() < 0.05 ? 'active' : 'none',
-      headers: this.generateAdvancedHeaders(config, selectedOS),
+      headers: this.generateAdvancedHeaders(config, selectedOS, persona, userAgent),
       webRTC: this.generateWebRTCConfig(config),
       canvas: this.generateAdvancedCanvasFingerprint(),
-      webGL: this.generateAdvancedWebGLFingerprint(),
+      webGL: this.generateAdvancedWebGLFingerprint(selectedOS),
       audioContext: this.generateAudioContextFingerprint(),
-      mediaDevices: this.generateMediaDevicesFingerprint(),
+      mediaDevices: this.generateMediaDevicesFingerprint(selectedOS),
       hardware: this.generateHardwareFingerprint(selectedOS),
-      fonts: this.generateAdvancedFontList(),
+      fonts: this.generateAdvancedFontList(selectedOS),
       plugins: this.generateAdvancedPluginList(),
-      geolocation: this.generateRealisticGeolocation(),
+      geolocation: this.generateRealisticGeolocation(persona),
       screen: this.generateAdvancedScreenProperties(),
       battery: this.generateBatteryFingerprint()
     };
 
     return fingerprint;
+  }
+
+  /**
+   * The parts of a fingerprint a caller can act on. The full object is ~4 KB of
+   * canvas noise arrays and WebGL extension lists that no caller reads, so
+   * create_context returns this by default and the full object only on request.
+   */
+  summarizeFingerprint(fingerprint) {
+    return {
+      userAgent: fingerprint.userAgent,
+      platform: fingerprint.hardware.platform,
+      locale: fingerprint.locale,
+      timezone: fingerprint.timezone,
+      // width/height only — the pool's selection weight is an internal.
+      viewport: { width: fingerprint.viewport.width, height: fingerprint.viewport.height }
+    };
+  }
+
+  /**
+   * Pick the locale persona (timezone + country + city) for a fingerprint.
+   * The caller's `locale` stays authoritative — it only narrows which personas
+   * are eligible, so a caller asking for de-DE gets a Berlin timezone and
+   * geolocation rather than a Denver one.
+   */
+  selectLocalePersona(config = {}) {
+    const requested = String(config.locale || 'en-US');
+    const language = requested.toLowerCase().split('-')[0];
+
+    const exact = this.localePersonas.filter(p => p.locale.toLowerCase() === requested.toLowerCase());
+    const sameLanguage = this.localePersonas.filter(p => p.locale.toLowerCase().startsWith(`${language}-`));
+    // An unmodelled locale still gets a coherent timezone/geolocation pair.
+    const pool = exact.length ? exact : (sameLanguage.length ? sameLanguage : this.localePersonas);
+
+    const persona = pool[Math.floor(Math.random() * pool.length)];
+    return { ...persona, locale: requested };
   }
 
   /**
@@ -577,29 +620,29 @@ export class StealthBrowserManager {
   }
 
   /**
-   * Select timezone
+   * Generate advanced HTTP headers with realistic patterns.
+   * @param {Object} config
+   * @param {string} selectedOS  — the OS chosen for this fingerprint
+   * @param {Object} persona     — the locale persona chosen for this fingerprint
+   * @param {string} resolvedUA  — the UA already chosen for this fingerprint
    */
-  selectTimezone() {
-    return this.timezones[Math.floor(Math.random() * this.timezones.length)];
-  }
-
-  /**
-   * Generate advanced HTTP headers with realistic patterns
-   */
-  generateAdvancedHeaders(config, selectedOS) {
-    // Resolve the UA first so sec-ch-ua brand version can match.
-    const resolvedUA = this.selectRealisticUserAgent(config, selectedOS);
+  generateAdvancedHeaders(config, selectedOS, persona, resolvedUA) {
+    // Accept-Language follows the persona, so the header and navigator.language
+    // agree with the timezone and geolocation the same persona picked.
+    const language = persona.locale.split('-')[0];
 
     const headers = {
-      'Accept-Language': `${(config.locale || 'en-US').toLowerCase()},en;q=0.9`,
+      'Accept-Language': `${persona.locale},${language};q=0.9`,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
       'Accept-Encoding': 'gzip, deflate, br',
       'Cache-Control': 'max-age=0',
       'Upgrade-Insecure-Requests': '1',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'none',
-      'Sec-Fetch-User': '?1',
+      // No Sec-Fetch-* here. They are per-request values the browser computes
+      // itself (a stylesheet is Sec-Fetch-Dest: style, not document), and
+      // forcing navigation values onto every request through
+      // setExtraHTTPHeaders made Chromium reject each subresource with
+      // ERR_INVALID_ARGUMENT — jQuery never loaded, so a JS-rendered page came
+      // back as a title and an empty body.
       'sec-ch-ua-mobile': '?0',
       'sec-ch-ua-platform': this.generateSecChUaPlatform(selectedOS)
     };
@@ -666,12 +709,27 @@ export class StealthBrowserManager {
    */
   generateWebRTCConfig(config) {
     return {
-      publicIP: config.webRTCPublicIP || '192.168.1.' + Math.floor(Math.random() * 255),
+      // A "public" IP inside RFC1918 space is a contradiction any WebRTC probe
+      // can spot — the local candidates are the private ones, the public one
+      // has to be routable.
+      publicIP: config.webRTCPublicIP || this.generatePublicIPv4(),
       localIPs: config.webRTCLocalIPs || [
         '192.168.1.' + Math.floor(Math.random() * 255),
         '10.0.0.' + Math.floor(Math.random() * 255)
       ]
     };
+  }
+
+  /**
+   * Random routable IPv4 address, drawn from /8s that carry ordinary
+   * residential traffic (no RFC1918, loopback, link-local, CGNAT, multicast or
+   * documentation ranges).
+   */
+  generatePublicIPv4() {
+    const residentialPrefixes = [24, 47, 62, 71, 73, 86, 90, 92, 108, 176];
+    const first = residentialPrefixes[Math.floor(Math.random() * residentialPrefixes.length)];
+    const octet = () => Math.floor(Math.random() * 254) + 1;
+    return `${first}.${octet()}.${Math.floor(Math.random() * 256)}.${octet()}`;
   }
 
   /**
@@ -725,17 +783,32 @@ export class StealthBrowserManager {
   /**
    * Enhanced WebGL fingerprinting with realistic spoofing
    */
-  generateAdvancedWebGLFingerprint() {
-    const gpuVendors = [
-      { vendor: 'Google Inc. (NVIDIA)', renderer: 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 6GB Direct3D11 vs_5_0 ps_5_0, D3D11)' },
-      { vendor: 'Google Inc. (NVIDIA)', renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0, D3D11)' },
-      { vendor: 'Google Inc. (Intel)', renderer: 'ANGLE (Intel, Intel(R) HD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)' },
-      { vendor: 'Google Inc. (AMD)', renderer: 'ANGLE (AMD, AMD Radeon RX 580 Series Direct3D11 vs_5_0 ps_5_0, D3D11)' },
-      { vendor: 'Google Inc. (Intel)', renderer: 'ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)' }
-    ];
-    
+  generateAdvancedWebGLFingerprint(selectedOS) {
+    // A Direct3D11 renderer on a Mac user agent is a contradiction, so the GPU
+    // string follows the OS: D3D11 on Windows, Metal on macOS, OpenGL on Linux.
+    const gpuVendorsByOS = {
+      windows: [
+        { vendor: 'Google Inc. (NVIDIA)', renderer: 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 6GB Direct3D11 vs_5_0 ps_5_0, D3D11)' },
+        { vendor: 'Google Inc. (NVIDIA)', renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0, D3D11)' },
+        { vendor: 'Google Inc. (Intel)', renderer: 'ANGLE (Intel, Intel(R) HD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)' },
+        { vendor: 'Google Inc. (AMD)', renderer: 'ANGLE (AMD, AMD Radeon RX 580 Series Direct3D11 vs_5_0 ps_5_0, D3D11)' },
+        { vendor: 'Google Inc. (Intel)', renderer: 'ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)' }
+      ],
+      macos: [
+        { vendor: 'Google Inc. (Apple)', renderer: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)' },
+        { vendor: 'Google Inc. (Apple)', renderer: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Pro, Unspecified Version)' },
+        { vendor: 'Google Inc. (Intel)', renderer: 'ANGLE (Intel, ANGLE Metal Renderer: Intel(R) Iris(TM) Plus Graphics 640, Unspecified Version)' }
+      ],
+      linux: [
+        { vendor: 'Google Inc. (Intel)', renderer: 'ANGLE (Intel, Mesa Intel(R) UHD Graphics 620 (KBL GT2), OpenGL 4.6)' },
+        { vendor: 'Google Inc. (AMD)', renderer: 'ANGLE (AMD, AMD Radeon RX 6600 (radeonsi, navi23, LLVM 15.0.7), OpenGL 4.6)' },
+        { vendor: 'Google Inc. (NVIDIA)', renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.6)' }
+      ]
+    };
+
+    const gpuVendors = gpuVendorsByOS[selectedOS] || gpuVendorsByOS.windows;
     const selectedGpu = gpuVendors[Math.floor(Math.random() * gpuVendors.length)];
-    
+
     return {
       vendor: selectedGpu.vendor,
       renderer: selectedGpu.renderer,
@@ -850,24 +923,41 @@ export class StealthBrowserManager {
   /**
    * Enhanced media devices spoofing
    */
-  generateMediaDevicesFingerprint() {
-    const videoDevices = [
-      { deviceId: crypto.randomUUID(), kind: 'videoinput', label: 'HD Pro Webcam C920 (046d:082d)', groupId: crypto.randomUUID() },
-      { deviceId: crypto.randomUUID(), kind: 'videoinput', label: 'FaceTime HD Camera', groupId: crypto.randomUUID() },
-      { deviceId: crypto.randomUUID(), kind: 'videoinput', label: 'Integrated Camera', groupId: crypto.randomUUID() }
-    ];
-    
-    const audioDevices = [
-      { deviceId: crypto.randomUUID(), kind: 'audioinput', label: 'Default - Internal Microphone', groupId: crypto.randomUUID() },
-      { deviceId: crypto.randomUUID(), kind: 'audiooutput', label: 'Default - Internal Speakers', groupId: crypto.randomUUID() },
-      { deviceId: crypto.randomUUID(), kind: 'audioinput', label: 'Communications - Internal Microphone', groupId: crypto.randomUUID() }
-    ];
-    
-    // Randomly select devices
+  generateMediaDevicesFingerprint(selectedOS) {
+    // Device labels are OS-specific strings: a FaceTime HD Camera on a Win32
+    // navigator.platform is a giveaway, so the labels follow the chosen OS.
+    const labelsByOS = {
+      windows: {
+        video: ['HD Pro Webcam C920 (046d:082d)', 'Integrated Camera (04f2:b6d9)'],
+        audioinput: ['Microphone (Realtek(R) Audio)', 'Microphone Array (Intel® Smart Sound Technology)'],
+        audiooutput: ['Speakers (Realtek(R) Audio)', 'Headphones (Realtek(R) Audio)']
+      },
+      macos: {
+        video: ['FaceTime HD Camera', 'FaceTime HD Camera (Built-in)'],
+        audioinput: ['MacBook Pro Microphone', 'External Microphone'],
+        audiooutput: ['MacBook Pro Speakers', 'External Headphones']
+      },
+      linux: {
+        video: ['Integrated Camera: Integrated C', 'USB2.0 HD UVC WebCam'],
+        audioinput: ['Built-in Audio Analog Stereo', 'Monitor of Built-in Audio Analog Stereo'],
+        audiooutput: ['Built-in Audio Analog Stereo', 'HDMI / DisplayPort']
+      }
+    };
+
+    const labels = labelsByOS[selectedOS] || labelsByOS.windows;
+    const pick = (list) => list[Math.floor(Math.random() * list.length)];
+    const device = (kind, label) => ({
+      deviceId: crypto.randomUUID(),
+      kind,
+      label,
+      groupId: crypto.randomUUID()
+    });
+
     const selectedDevices = [];
-    if (Math.random() < 0.8) selectedDevices.push(videoDevices[Math.floor(Math.random() * videoDevices.length)]);
-    if (Math.random() < 0.9) selectedDevices.push(...audioDevices.slice(0, Math.floor(Math.random() * audioDevices.length) + 1));
-    
+    if (Math.random() < 0.8) selectedDevices.push(device('videoinput', pick(labels.video)));
+    selectedDevices.push(device('audioinput', pick(labels.audioinput)));
+    if (Math.random() < 0.9) selectedDevices.push(device('audiooutput', pick(labels.audiooutput)));
+
     return selectedDevices;
   }
 
@@ -917,7 +1007,7 @@ export class StealthBrowserManager {
   /**
    * Generate advanced font list with realistic variation
    */
-  generateAdvancedFontList() {
+  generateAdvancedFontList(selectedOS) {
     const baseFonts = [
       'Arial', 'Helvetica', 'Times New Roman', 'Courier New', 'Verdana',
       'Georgia', 'Palatino', 'Garamond', 'Bookman', 'Tahoma', 'Geneva'
@@ -937,12 +1027,11 @@ export class StealthBrowserManager {
     // Start with base fonts
     const fonts = [...baseFonts];
     
-    // Add system-specific fonts based on platform
-    const platform = this.selectRealisticPlatform();
-    let osKey = 'windows';
-    if (platform.includes('Mac')) osKey = 'macos';
-    else if (platform.includes('Linux')) osKey = 'linux';
-    
+    // Add system-specific fonts for the OS this fingerprint claims to run.
+    // (This used to call selectRealisticPlatform() with no OS, which always
+    // returned Win32 — so a macOS persona shipped a Windows-only font list.)
+    const osKey = systemFonts[selectedOS] ? selectedOS : 'windows';
+
     systemFonts[osKey].forEach(font => {
       if (Math.random() < 0.8) { // 80% chance to include
         fonts.push(font);
@@ -999,32 +1088,16 @@ export class StealthBrowserManager {
   }
 
   /**
-   * Generate realistic geolocation data
+   * Generate realistic geolocation data for a locale persona.
+   * The city comes from the persona (not a second independent draw), so the
+   * coordinates always sit in the country whose timezone the fingerprint
+   * reports.
+   * @param {{latitude:number, longitude:number}} persona
    */
-  generateRealisticGeolocation() {
-    // Random coordinates in major cities with realistic distribution
-    const cities = [
-      { latitude: 40.7128, longitude: -74.0060, weight: 0.15 }, // New York
-      { latitude: 34.0522, longitude: -118.2437, weight: 0.12 }, // Los Angeles
-      { latitude: 51.5074, longitude: -0.1278, weight: 0.10 }, // London
-      { latitude: 48.8566, longitude: 2.3522, weight: 0.08 }, // Paris
-      { latitude: 35.6762, longitude: 139.6503, weight: 0.07 }, // Tokyo
-      { latitude: -33.8688, longitude: 151.2093, weight: 0.05 }, // Sydney
-      { latitude: 52.5200, longitude: 13.4050, weight: 0.05 }, // Berlin
-      { latitude: 37.7749, longitude: -122.4194, weight: 0.08 }, // San Francisco
-      { latitude: 41.8781, longitude: -87.6298, weight: 0.06 }, // Chicago
-      { latitude: 55.7558, longitude: 37.6176, weight: 0.04 }, // Moscow
-      { latitude: 39.9042, longitude: 116.4074, weight: 0.06 }, // Beijing
-      { latitude: 28.6139, longitude: 77.2090, weight: 0.05 }, // Delhi
-      { latitude: -23.5505, longitude: -46.6333, weight: 0.04 }, // São Paulo
-      { latitude: 19.4326, longitude: -99.1332, weight: 0.05 } // Mexico City
-    ];
-
-    const city = this.weightedRandomFromArray(cities);
-    
+  generateRealisticGeolocation(persona) {
     return {
-      latitude: city.latitude + (Math.random() - 0.5) * 0.05, // ±0.025 degrees (~2.8km)
-      longitude: city.longitude + (Math.random() - 0.5) * 0.05,
+      latitude: persona.latitude + (Math.random() - 0.5) * 0.05, // ±0.025 degrees (~2.8km)
+      longitude: persona.longitude + (Math.random() - 0.5) * 0.05,
       accuracy: Math.floor(Math.random() * 50) + 20 // 20-70m accuracy
     };
   }
@@ -1066,7 +1139,7 @@ export class StealthBrowserManager {
    */
   async applyAdvancedStealthConfigurations(context, config, fingerprint) {
     // Enhanced initialization script with comprehensive stealth measures
-    await context.addInitScript(() => {
+    await context.addInitScript((locale) => {
       // Remove webdriver property completely
       Object.defineProperty(navigator, 'webdriver', {
         get: () => undefined,
@@ -1100,9 +1173,14 @@ export class StealthBrowserManager {
           originalQuery(parameters)
       );
 
-      // Hide headless indicators
+      // Hide headless indicators. configurable: true because the hardware
+      // spoofing script below redefines this with the fingerprint's own core
+      // count — without it that redefinition throws "Cannot redefine property"
+      // and takes navigator.platform and deviceMemory down with it, so the
+      // page saw a Win32 platform on every persona.
       Object.defineProperty(navigator, 'hardwareConcurrency', {
-        get: () => 4
+        get: () => 4,
+        configurable: true
       });
 
       // Spoof connection
@@ -1139,10 +1217,13 @@ export class StealthBrowserManager {
         }
       });
 
-      // Override languages with realistic patterns
+      // Override languages with the fingerprint's own locale — a hardcoded
+      // en-US here contradicts navigator.language and Accept-Language whenever
+      // the persona is not American.
       Object.defineProperty(navigator, 'languages', {
         get: function() {
-          return ['en-US', 'en'];
+          const primary = locale.split('-')[0];
+          return primary === locale ? [locale] : [locale, primary];
         }
       });
 
@@ -1188,7 +1269,7 @@ export class StealthBrowserManager {
           return originalPrepareStackTrace.call(this, error, filteredStack);
         };
       }
-    });
+    }, fingerprint.locale || config.locale || 'en-US');
 
     // WebRTC leak prevention with advanced spoofing
     if (config.blockWebRTC) {
