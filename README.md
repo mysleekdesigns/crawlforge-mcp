@@ -36,7 +36,7 @@
 ## 🎯 Why CrawlForge?
 
 - **28 MCP-native tools** — scraping, crawling, search, real Google SERP rank tracking, deep research, an autonomous `agent`, a unified multi-format `scrape`, document processing, stealth browsing, and more, callable directly from your AI assistant.
-- **Generous free tier** — 1,000 credits to start instantly, no credit card. Credits never expire and roll over month-to-month.
+- **Generous free tier** — 1,000 credits to start instantly, no credit card. The grant is one-time rather than monthly, and the credits never expire.
 - **Local-LLM by default** — `extract_with_llm` runs against a local **Ollama** model out of the box: no LLM API key, no per-token cost, and your data never leaves your machine. Cloud (OpenAI/Anthropic) is opt-in.
 - **LLM-ready output** — clean Markdown, structured JSON (schema-driven), screenshots, links, and metadata from a single fetch.
 - **Autonomous `agent`** — describe what you need in natural language; it plans, gathers, and shapes an answer under orchestrator-enforced hard stops (max steps/URLs/wall-clock) — no URLs required.
@@ -208,16 +208,16 @@ For the full canonical capabilities reference (all tools, CLI commands, stealth 
 
 **Every tool is metered and requires an API key.** New accounts get 1,000 free trial credits — no credit card required to start.
 
-| Plan | Credits/Month | Best For |
-|------|---------------|----------|
-| **Free** | 1,000 | Testing & personal projects |
-| **Hobby** ($19) | 5,000 | Small projects & development |
-| **Professional** ($99) | 50,000 | Professional use & production |
-| **Business** ($399) | 250,000 | Large scale operations |
+| Plan | Credits | Best For |
+|------|---------|----------|
+| **Free** | 1,000 one-time | Testing & personal projects |
+| **Hobby** ($19) | 5,000 / month | Small projects & development |
+| **Professional** ($99) | 50,000 / month | Professional use & production |
+| **Business** ($399) | 250,000 / month | Large scale operations |
 
 **All plans include:**
 - Access to all 28 tools
-- Credits never expire and roll over month-to-month
+- Credits never expire; paid-plan credits roll over month to month
 - API access and webhook notifications
 
 [View full pricing](https://www.crawlforge.dev/pricing)
