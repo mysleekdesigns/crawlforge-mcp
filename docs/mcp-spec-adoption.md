@@ -190,15 +190,15 @@ runtime is unbounded by page count, source count, or step count.
 **Exchange (task-augmented `tools/call`, `crawl_deep`):**
 
 ```json
-// 1. Client calls the tool and opts into task mode
+// 1. Client calls the tool and opts into task mode with a top-level `task` param
 {
   "jsonrpc": "2.0",
   "id": 20,
   "method": "tools/call",
   "params": {
     "name": "crawl_deep",
-    "arguments": { "url": "https://example.com", "maxDepth": 3, "maxPages": 200 },
-    "_meta": { "io.modelcontextprotocol/task": { "enabled": true } }
+    "arguments": { "url": "https://example.com", "max_depth": 1, "max_pages": 2 },
+    "task": { "ttl": 600000 }
   }
 }
 ```
@@ -209,49 +209,78 @@ runtime is unbounded by page count, source count, or step count.
   "jsonrpc": "2.0",
   "id": 20,
   "result": {
-    "content": [{ "type": "text", "text": "Crawl started as a background task." }],
-    "_meta": {
-      "io.modelcontextprotocol/task": { "taskId": "task_9f2c9e", "status": "working" }
+    "task": {
+      "taskId": "90224d52-d28a-4995-b861-d8a7ed7d3c52",
+      "status": "working",
+      "ttl": 600000,
+      "createdAt": "2026-08-27T17:12:46.352Z",
+      "lastUpdatedAt": "2026-08-27T17:12:46.352Z",
+      "pollInterval": 200
     }
   }
 }
 ```
 
 ```json
-// 3. Client polls
-{ "jsonrpc": "2.0", "id": 21, "method": "tasks/get", "params": { "taskId": "task_9f2c9e" } }
+// 3. Client polls (honour `pollInterval`, in ms)
+{ "jsonrpc": "2.0", "id": 21, "method": "tasks/get", "params": { "taskId": "90224d52-d28a-4995-b861-d8a7ed7d3c52" } }
 ```
 
 ```json
 {
   "jsonrpc": "2.0",
   "id": 21,
-  "result": { "taskId": "task_9f2c9e", "status": "working", "progress": { "pagesCrawled": 42 } }
-}
-```
-
-```json
-// 4. Once status is "completed", the client fetches the result
-{ "jsonrpc": "2.0", "id": 22, "method": "tasks/result", "params": { "taskId": "task_9f2c9e" } }
-```
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 22,
   "result": {
-    "content": [{ "type": "text", "text": "{ \"pages\": [ ... ] }" }],
-    "structuredContent": { "pages": [ "..." ] }
+    "taskId": "90224d52-d28a-4995-b861-d8a7ed7d3c52",
+    "status": "working",
+    "ttl": 600000,
+    "createdAt": "2026-08-27T17:12:46.352Z",
+    "lastUpdatedAt": "2026-08-27T17:12:46.352Z",
+    "pollInterval": 200
   }
 }
 ```
 
-`tasks/list` (enumerate in-flight/completed tasks) and `tasks/cancel` (`{ "taskId": "..." }`,
-stops the underlying job) are also implemented for the same four tools.
+There is no incremental progress payload — `status` moves `working` → `completed` / `failed` /
+`cancelled`, and `lastUpdatedAt` is the only other field that changes. Over a transport that
+supports server-initiated messages the same transitions also arrive as
+`notifications/tasks/status`, so polling is a fallback, not a requirement.
 
-**Client compatibility:** Clients that don't send `_meta["io.modelcontextprotocol/task"].enabled`
-never see a task handle — the tool call blocks and returns the normal synchronous result, exactly
-as it did before this feature existed.
+```json
+// 4. Once status is "completed", the client fetches the result
+{ "jsonrpc": "2.0", "id": 22, "method": "tasks/result", "params": { "taskId": "90224d52-d28a-4995-b861-d8a7ed7d3c52" } }
+```
+
+```json
+// The stored CallToolResult, identical to what a synchronous call would have returned
+{
+  "jsonrpc": "2.0",
+  "id": 22,
+  "result": {
+    "structuredContent": { "url": "https://example.com", "pages_crawled": 1, "results": ["..."] },
+    "content": [{ "type": "text", "text": "{ \"pages_crawled\": 1, ... }" }]
+  }
+}
+```
+
+**TTL:** the requested `task.ttl` (ms) is honoured up to a 30-minute ceiling; omit it and the
+task gets 10 minutes. Every task expires — the server never keeps one indefinitely — and a
+`tasks/get` or `tasks/result` after expiry fails with "Task not found". A task's TTL clock
+restarts when it reaches a terminal status, so a completed result stays fetchable for the full
+window.
+
+`tasks/list` (enumerate in-flight/completed tasks) and `tasks/cancel` (`{ "taskId": "..." }`) are
+also implemented for the same four tools. Note what cancel does and does not do: it moves the
+task to `cancelled` and discards whatever the run eventually produces, but it does **not** abort
+the work already in flight — an in-progress crawl or research run continues to completion in the
+background and its result is dropped. Cancelling frees you from waiting; it does not free the
+resources. Cancelling an already-terminal task is an error.
+
+**Client compatibility:** Clients that don't send a `task` param never see a task handle — the
+tool call blocks and returns the normal synchronous result, exactly as it did before this feature
+existed. This is a silent fallback, not an error: a client that opts in with the wrong shape
+(for example the pre-SDK-1.30 `_meta["io.modelcontextprotocol/task"]` form) simply gets the
+synchronous result with no indication that task mode was ignored.
 
 ---
 
