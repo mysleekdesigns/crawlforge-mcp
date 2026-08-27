@@ -22,6 +22,7 @@ import { assertHostAllowed } from './hostBlocklist.js';
 import { identityHeaders, resolveUserAgent } from './fetchIdentity.js';
 import { throttleHost } from './hostRateLimiter.js';
 import { recordComplianceEvent, apiKeyId } from './complianceAudit.js';
+import { signRequestHeaders } from './webBotAuth.js';
 import { config } from '../constants/config.js';
 
 export class RobotsDisallowedError extends Error {
@@ -132,8 +133,16 @@ export async function preflightFetch(url, options = {}) {
 
   await throttleHost(url, { crawlDelayMs: decision.crawlDelayMs });
 
+  // Web Bot Auth: when a signing key is configured, every request also carries
+  // a signature a site owner can verify against our published key. No key
+  // configured means no headers and no behaviour change. Requests with a
+  // caller-supplied userAgent override are still signed — the signature covers
+  // @authority, not the UA, and it identifies the operator (us), not the
+  // identity the caller asked us to present.
+  const signature = signRequestHeaders(url) || {};
+
   return {
-    headers: identityHeaders({ userAgent: decision.userAgent }),
+    headers: { ...identityHeaders({ userAgent: decision.userAgent }), ...signature },
     userAgent: decision.userAgent,
     warnings: decision.warnings,
     overridden: decision.overridden
