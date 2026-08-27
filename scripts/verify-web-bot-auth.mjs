@@ -118,14 +118,55 @@ async function mcpCall(name, args) {
   return parsed.result;
 }
 
-/** Pull the headers the server sent out of whatever the echo service returned. */
+/**
+ * Pull the headers the server sent out of whatever the echo service returned.
+ *
+ * The payload arrives doubly wrapped: an MCP tool result whose content is text,
+ * whose text is the echo service's JSON, sometimes itself re-encoded. Regexing
+ * the stringified blob does not work, because the inner quotes are escaped by
+ * then — that produced a run where even "the server sent a User-Agent" failed,
+ * which is impossible and was a parser bug reading as a signing failure. So
+ * decode properly and search the structure.
+ */
 function echoedHeaders(result) {
-  const blob = JSON.stringify(result);
+  const seen = new Set();
   const found = {};
-  for (const h of ['signature-input', 'signature', 'signature-agent', 'user-agent']) {
-    const m = new RegExp(`"${h}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`, 'i').exec(blob);
-    if (m) found[h] = JSON.parse(`"${m[1]}"`);
-  }
+  const WANTED = ['signature-input', 'signature', 'signature-agent', 'user-agent'];
+
+  const absorb = (obj) => {
+    for (const [k, v] of Object.entries(obj)) {
+      const key = k.toLowerCase();
+      if (WANTED.includes(key) && typeof v === 'string' && !found[key]) found[key] = v;
+    }
+  };
+
+  const walk = (node, depth = 0) => {
+    if (node === null || depth > 12) return;
+
+    if (typeof node === 'string') {
+      const t = node.trim();
+      // A leading quote means a JSON-encoded string: parsing it yields another
+      // string, which may itself be the JSON we are after. Bodies come back
+      // double-encoded often enough that skipping this loses the headers.
+      if (!/^[{["]/.test(t)) return;
+      if (seen.has(t)) return;
+      seen.add(t);
+      try { walk(JSON.parse(t), depth + 1); } catch { /* not JSON, fine */ }
+      return;
+    }
+
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, depth + 1);
+      return;
+    }
+
+    if (typeof node === 'object') {
+      absorb(node);
+      for (const v of Object.values(node)) walk(v, depth + 1);
+    }
+  };
+
+  walk(result);
   return found;
 }
 
@@ -153,7 +194,15 @@ async function main() {
   const result = await mcpCall('fetch_url', { url: ECHO_URL });
   const sent = echoedHeaders(result);
 
-  check(Boolean(sent['user-agent']), 'the server sent a User-Agent');
+  if (Object.keys(sent).length === 0) {
+    console.log('\n  Could not find any headers in the response. Raw result, truncated:');
+    console.log(JSON.stringify(result).slice(0, 1200));
+    console.log('\n  (If a User-Agent is visible above, this is a parsing bug in this script,');
+    console.log('   not a signing failure — every request carries one.)');
+  }
+
+  check(Boolean(sent['user-agent']), 'the server sent a User-Agent',
+    'not found in the response — likely a parsing problem here, since every request sends one');
   if (sent['user-agent']) info(sent['user-agent']);
   check(Boolean(sent['signature-input']), 'the server sent Signature-Input', sent['signature-input'] || 'absent — is the signing key set, and does this build carry the signing commit?');
   check(Boolean(sent['signature']), 'the server sent Signature');
