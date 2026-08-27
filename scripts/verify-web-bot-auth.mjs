@@ -73,6 +73,14 @@ async function mcpCall(name, args) {
       }
     })
   });
+  if (init.status === 401) {
+    throw new Error(
+      `${MCP_URL} rejected the API key.\n` +
+      `        Check CRAWLFORGE_API_KEY is a live key for this account ` +
+      `(Dashboard → Settings → API Keys). This is the key being used to call the\n` +
+      `        server, not the signing key — those are unrelated.`
+    );
+  }
   if (!init.ok) throw new Error(`initialize failed: HTTP ${init.status} ${await init.text()}`);
 
   const session = init.headers.get('mcp-session-id');
@@ -119,6 +127,16 @@ async function main() {
   if (!API_KEY) {
     console.log('\nSigning — SKIPPED (set CRAWLFORGE_API_KEY to check the deployed signer)');
     process.exit(results.every(Boolean) ? 0 : 1);
+  }
+
+  // The documented invocation carries a placeholder, and a placeholder pasted
+  // verbatim comes back as a bare 401 that reads like a real auth failure.
+  if (/YOUR_KEY|YOUR_API_KEY|xxx+|\.\.\./i.test(API_KEY)) {
+    console.error(
+      `\nCRAWLFORGE_API_KEY is still the placeholder ("${API_KEY}").\n` +
+      `Substitute your real key — Dashboard → Settings → API Keys.`
+    );
+    process.exit(1);
   }
 
   console.log(`\nSigning — asking ${MCP_URL} to fetch ${ECHO_URL}`);
