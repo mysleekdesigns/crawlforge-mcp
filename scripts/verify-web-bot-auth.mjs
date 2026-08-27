@@ -9,11 +9,14 @@
  * It asks the server to fetch a header-echo endpoint, reads back the headers it
  * actually sent, and checks the signature against the published JWKS.
  *
- *   CRAWLFORGE_API_KEY=<the key set on the SERVER> node scripts/verify-web-bot-auth.mjs
- *   INTERNAL_SECRET=<the deployment's INTERNAL_PROXY_SECRET> node scripts/verify-web-bot-auth.mjs
+ * The two surfaces take DIFFERENT credentials, and either can be checked alone:
+ *
+ *   CRAWLFORGE_API_KEY=<a customer key>   -> checks the REST surface (crawlforge.dev)
+ *   INTERNAL_SECRET=<INTERNAL_PROXY_SECRET>  -> checks the MCP surface (Render)
+ *   MCP_API_KEY=<the key set ON the server>  -> also checks the MCP surface
  *
  * The MCP endpoint is single-tenant: it authenticates against its own configured
- * key, not against customer API keys, so a valid dashboard key will not work.
+ * key, not against customer API keys, so a valid dashboard key will not work there.
  *
  * Optional:
  *   MCP_URL=https://crawlforge-mcp.onrender.com     (server under test)
@@ -28,8 +31,12 @@ import { createPublicKey, verify } from 'crypto';
 const MCP_URL = process.env.MCP_URL || 'https://crawlforge-mcp.onrender.com';
 const DIRECTORY = process.env.DIRECTORY || 'https://www.crawlforge.dev';
 const ECHO_URL = process.env.ECHO_URL || 'https://postman-echo.com/headers';
-const API_KEY = process.env.CRAWLFORGE_API_KEY;
+// Deliberately NOT falling back to CRAWLFORGE_API_KEY: the two surfaces take
+// different credentials, and quietly reusing one produced a confusing 401.
+const API_KEY = process.env.MCP_API_KEY;
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET;
+const REST_KEY = process.env.CRAWLFORGE_API_KEY;   // a customer key, for the REST surface
+const REST_BASE = process.env.REST_BASE || 'https://www.crawlforge.dev';
 
 const results = [];
 /** `detail` explains a failure, so it is only worth printing when one happens. */
@@ -170,15 +177,63 @@ function echoedHeaders(result) {
   return found;
 }
 
+/**
+ * Verify an observed header set against the published directory. This is the
+ * check that matters: rebuild the signature base from the headers alone, the
+ * way a site owner's verifier would, and check it against the key they fetched.
+ */
+function verifyObserved(sent, keys, authority, label) {
+  check(Boolean(sent['user-agent']), `${label}: sent a User-Agent`,
+    'not found — likely a parsing problem here, since every request sends one');
+  if (sent['user-agent']) info(sent['user-agent']);
+  check(Boolean(sent['signature-input']), `${label}: sent Signature-Input`,
+    'absent — is the signing key set on this surface, and does the build carry the signing commit?');
+  check(Boolean(sent['signature']), `${label}: sent Signature`);
+  check(Boolean(sent['signature-agent']), `${label}: sent Signature-Agent`,
+    'absent — set WEB_BOT_AUTH_DIRECTORY, or a stranger cannot find the directory');
+  if (sent['signature-agent']) info(sent['signature-agent']);
+
+  if (!sent['signature-input'] || !sent['signature'] || !keys?.length) return;
+
+  const params = sent['signature-input'].replace(/^[^=]+=/, '');
+  const keyid = /keyid="([^"]+)"/.exec(params)?.[1];
+  const published = keys.find((k) => k.kid === keyid);
+  check(Boolean(published), `${label}: signed keyid resolves against the directory`,
+    `signed keyid ${keyid} is not published`);
+  if (!published) return;
+
+  const covered = /^\(([^)]*)\)/.exec(params)?.[1] || '';
+  const lines = [`"@authority": ${authority}`];
+  if (covered.includes('"signature-agent"')) lines.push(`"signature-agent": ${sent['signature-agent']}`);
+  lines.push(`"@signature-params": ${params}`);
+
+  const pub = createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x: published.x }, format: 'jwk' });
+  const raw = Buffer.from(sent['signature'].replace(/^[^=]+=:/, '').replace(/:$/, ''), 'base64');
+  check(
+    verify(null, Buffer.from(lines.join('\n'), 'utf8'), pub, raw),
+    `${label}: signature VERIFIES against the published key`
+  );
+}
+
+/** Ask the REST API to fetch the echo endpoint and read back what it sent. */
+async function checkRest(keys) {
+  console.log(`\nREST surface — ${REST_BASE} fetching ${ECHO_URL}`);
+  const res = await fetch(`${REST_BASE}/api/v1/tools/fetch_url`, {
+    method: 'POST',
+    headers: { 'X-API-Key': REST_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: ECHO_URL })
+  });
+  if (!res.ok) {
+    check(false, 'REST: call succeeded', `HTTP ${res.status} — is CRAWLFORGE_API_KEY a valid customer key?`);
+    return;
+  }
+  verifyObserved(echoedHeaders(await res.json()), keys, new URL(ECHO_URL).host, 'REST');
+}
+
 async function main() {
   console.log('Web Bot Auth — production verification');
 
   const keys = await getDirectory();
-
-  if (!API_KEY && !INTERNAL_SECRET) {
-    console.log('\nSigning — SKIPPED (set CRAWLFORGE_API_KEY or INTERNAL_SECRET to check the deployed signer)');
-    process.exit(results.every(Boolean) ? 0 : 1);
-  }
 
   // The documented invocation carries a placeholder, and a placeholder pasted
   // verbatim comes back as a bare 401 that reads like a real auth failure.
@@ -190,56 +245,45 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`\nSigning — asking ${MCP_URL} to fetch ${ECHO_URL}`);
-  const result = await mcpCall('fetch_url', { url: ECHO_URL });
-  const sent = echoedHeaders(result);
-
-  if (Object.keys(sent).length === 0) {
-    console.log('\n  Could not find any headers in the response. Raw result, truncated:');
-    console.log(JSON.stringify(result).slice(0, 1200));
-    console.log('\n  (If a User-Agent is visible above, this is a parsing bug in this script,');
-    console.log('   not a signing failure — every request carries one.)');
+  if (INTERNAL_SECRET || API_KEY) {
+    console.log(`\nMCP surface — ${MCP_URL} fetching ${ECHO_URL}`);
+    try {
+      await checkMcp(keys);
+    } catch (err) {
+      // One surface failing must not hide the other's result.
+      check(false, 'MCP: call succeeded', err.message);
+    }
+  } else {
+    console.log('\nMCP surface — SKIPPED (set INTERNAL_SECRET or MCP_API_KEY)');
   }
 
-  check(Boolean(sent['user-agent']), 'the server sent a User-Agent',
-    'not found in the response — likely a parsing problem here, since every request sends one');
-  if (sent['user-agent']) info(sent['user-agent']);
-  check(Boolean(sent['signature-input']), 'the server sent Signature-Input', sent['signature-input'] || 'absent — is the signing key set, and does this build carry the signing commit?');
-  check(Boolean(sent['signature']), 'the server sent Signature');
-  check(
-    Boolean(sent['signature-agent']),
-    'the server sent Signature-Agent',
-    'absent — set WEB_BOT_AUTH_DIRECTORY, or a stranger cannot find the directory'
-  );
-  if (sent['signature-agent']) info(sent['signature-agent']);
-
-  if (!sent['signature-input'] || !sent['signature'] || !keys?.length) {
-    process.exit(1);
+  if (REST_KEY) {
+    try {
+      await checkRest(keys);
+    } catch (err) {
+      check(false, 'REST: call succeeded', err.message);
+    }
+  } else {
+    console.log('\nREST surface — SKIPPED (set CRAWLFORGE_API_KEY to a customer key)');
   }
-
-  const keyid = /keyid="([^"]+)"/.exec(sent['signature-input'])?.[1];
-  const published = keys.find((k) => k.kid === keyid);
-  check(Boolean(published), 'the signed keyid resolves against the published directory', `signed keyid ${keyid} is not in the directory`);
-  if (published) info(`keyid ${keyid}`);
-  if (!published) process.exit(1);
-
-  // Rebuild the signature base exactly as a verifier would, from the headers alone.
-  const params = sent['signature-input'].replace(/^[^=]+=/, '');
-  const covered = /^\(([^)]*)\)/.exec(params)?.[1] || '';
-  const authority = new URL(ECHO_URL).host;
-  const lines = [`"@authority": ${authority}`];
-  if (covered.includes('"signature-agent"')) lines.push(`"signature-agent": ${sent['signature-agent']}`);
-  lines.push(`"@signature-params": ${params}`);
-
-  const pub = createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x: published.x }, format: 'jwk' });
-  const raw = Buffer.from(sent['signature'].replace(/^[^=]+=:/, '').replace(/:$/, ''), 'base64');
-  check(
-    verify(null, Buffer.from(lines.join('\n'), 'utf8'), pub, raw),
-    'the signature verifies against the PUBLISHED key'
-  );
 
   console.log(`\n${results.every(Boolean) ? 'ALL CHECKS PASSED' : 'SOME CHECKS FAILED'}`);
   process.exit(results.every(Boolean) ? 0 : 1);
+}
+
+/** Ask the MCP server to fetch the echo endpoint and read back what it sent. */
+async function checkMcp(keys) {
+  {
+    const result = await mcpCall('fetch_url', { url: ECHO_URL });
+    const sent = echoedHeaders(result);
+    if (Object.keys(sent).length === 0) {
+      console.log('\n  Could not find any headers in the response. Raw result, truncated:');
+      console.log(JSON.stringify(result).slice(0, 1200));
+      console.log('\n  (If a User-Agent is visible above, this is a parsing bug in this script,');
+      console.log('   not a signing failure — every request carries one.)');
+    }
+    verifyObserved(sent, keys, new URL(ECHO_URL).host, 'MCP');
+  }
 }
 
 main().catch((err) => {
