@@ -21,12 +21,18 @@ disk for exactly this reason.
 
 ## Generate
 
+From the **crawlforge-mcp-server** repo (the script lives here, not in the website repo):
+
 ```bash
+cd path/to/mcp-server/crawlforge-mcp-server
 node scripts/generate-signing-key.mjs
 ```
 
 It prints the key id, the private key (base64 PEM) and the public key (PEM). That output
 is the only copy.
+
+Run it in a normal terminal. Do not run it through an assistant or anything that records
+its output — the private key would end up in a transcript.
 
 ## Order of operations — publish before you sign
 
