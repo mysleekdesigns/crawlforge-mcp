@@ -232,3 +232,4 @@ export function isProductRecommendation(text) {
   return NAMED_OFFERING_PATTERNS.some(pattern => pattern.test(text)) &&
     PITCH_PREDICATE_PATTERNS.some(pattern => pattern.test(text));
 }
+

@@ -48,9 +48,9 @@ function makeClaims() {
 describe('generateKeyFindings — findings are verbatim extractive sentences', () => {
   const ro = new ResearchOrchestrator({ searchConfig: { apiKey: 'test-key' } });
 
-  test('each finding is a complete sentence present verbatim in the source text', () => {
+  test('each finding is a complete sentence present verbatim in the source text', async () => {
     const claims = makeClaims();
-    const groups = ro.groupRelatedClaims(claims);
+    const groups = await ro.groupRelatedClaims(claims);
     const findings = ro.generateKeyFindings(groups, []);
 
     assert.ok(findings.length > 0, 'fixture claims must produce findings');
@@ -69,9 +69,9 @@ describe('generateKeyFindings — findings are verbatim extractive sentences', (
     }
   });
 
-  test('findings are not the stopword-stripped keyword join of the claim', () => {
+  test('findings are not the stopword-stripped keyword join of the claim', async () => {
     const claims = makeClaims();
-    const groups = ro.groupRelatedClaims(claims);
+    const groups = await ro.groupRelatedClaims(claims);
     const findings = ro.generateKeyFindings(groups, []);
 
     for (const group of groups) {

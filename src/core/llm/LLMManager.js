@@ -409,6 +409,479 @@ Synthesize these findings into a comprehensive analysis:`;
   }
 
   /**
+   * Score how much each claim sentence states something about the research topic.
+   *
+   * Exists because sentence-shape and genre heuristics cannot answer the
+   * question that matters here. Two of them were built for deep_research and
+   * reverted: both had to read the publisher rather than the sentence, and one
+   * source still produced five distinct registers of the same off-topic
+   * sentence — pitch, ranking, offering, feature list, comparison — each of
+   * which was synthesized into a research conclusion. What separates
+   * "automated browsers are detected by TLS fingerprinting" from "our platform
+   * handles fingerprinting for you" is not vocabulary, which they share; it is
+   * whether the sentence asserts something about the subject or describes a
+   * thing built around it. That is a semantic judgement, so it is made here.
+   *
+   * The response is index-keyed rather than positional because a positional
+   * one made the whole gate inert. Requiring exactly N scores in order looked
+   * safe and was not: a small local model asked for 35 scores returned 39,
+   * both attempts failed the length check, the method returned [], and no
+   * claim was ever scored in production. Carrying the index with each score
+   * removes the failure mode — a miscount now costs the extra entries, not
+   * the run.
+   *
+   * @param {string[]} claims - Claim sentences.
+   * @param {string} topic - The research topic.
+   * @returns {Promise<number[]|Array<number|null>>} An array of exactly
+   *   `claims.length` entries in input order: a score in [0,1] where the model
+   *   scored the claim, `null` where it did not. Callers treat a non-number as
+   *   "unscored, never filter", so a partial result is worth more than none.
+   *   Empty array only on hard failure — unparseable output, no scores array,
+   *   or nothing usable anywhere in the run.
+   */
+  async scoreClaimRelevance(claims, topic, options = {}) {
+    // Small batches deliberately: a 4B model tracks ten-odd sentences far more
+    // reliably than forty, and several small calls degrade better than one
+    // large one — a batch that fails now costs its own claims, not all of them.
+    const { maxClaimLength = 240, batchSize = 12 } = options;
+
+    if (!Array.isArray(claims) || claims.length === 0) {
+      return [];
+    }
+
+    const systemPrompt = `You rate how strongly each numbered sentence states something about a research topic.
+
+Return a JSON object:
+{"scores": [{"i": 0, "score": 0.8}, {"i": 1, "score": 0.2}]}
+
+"i" is the sentence number exactly as shown; the first sentence is 0. Include one entry for every sentence.
+
+Rate high when the sentence asserts something about the topic itself — how it works, what it does, a mechanism, a measurement, a cause or an effect.
+Rate low when the sentence describes a commercial offering rather than the subject — its features, plans, pricing, coverage or why to choose it — even when it uses the topic's vocabulary. A product built around a subject is not a statement about that subject.
+Rate low for navigation text, boilerplate, author or publication metadata.
+
+Return the entries and nothing else.`;
+
+    const scoreSchema = {
+      type: 'object',
+      properties: {
+        scores: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { i: { type: 'integer' }, score: { type: 'number' } },
+            required: ['i', 'score']
+          }
+        }
+      },
+      required: ['scores']
+    };
+
+    const scores = new Array(claims.length).fill(null);
+    let anyScored = false;
+
+    for (let start = 0; start < claims.length; start += batchSize) {
+      const batch = claims.slice(start, start + batchSize).map(claim => {
+        const text = String(claim ?? '');
+        return text.length > maxClaimLength ? text.slice(0, maxClaimLength) + '…' : text;
+      });
+
+      const prompt = `Research topic: "${topic}"
+
+Sentences (numbered from 0):
+${batch.map((text, index) => `${index}. ${text}`).join('\n')}
+
+Rate these ${batch.length} sentences:`;
+
+      // Same discipline as analyzeRelevance: constrain the output shape,
+      // strip fences, validate the load-bearing field, retry once.
+      let batchScores = null;
+      let lastError;
+      for (let attempt = 0; attempt < 2 && !batchScores; attempt++) {
+        try {
+          const response = await this.generateCompletion(prompt, {
+            systemPrompt,
+            maxTokens: 100 + batch.length * 20,
+            temperature: 0.1,
+            format: scoreSchema
+          });
+
+          const cleaned = response.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+          const parsed = JSON.parse(cleaned);
+          if (!Array.isArray(parsed?.scores)) {
+            throw new Error('Relevance response missing scores');
+          }
+
+          const mapped = new Array(batch.length).fill(null);
+          let usable = 0;
+          for (const entry of parsed.scores) {
+            if (!entry || typeof entry !== 'object') continue;
+            // Strictly a real integer: Number(null) is 0 and Number(true) is 1,
+            // either of which would land a score on a claim it does not belong
+            // to. An unusable entry is skipped, never realigned.
+            const index = entry.i;
+            if (typeof index !== 'number' || !Number.isInteger(index)) continue;
+            if (index < 0 || index >= batch.length || mapped[index] !== null) continue;
+
+            const value = entry.score;
+            const score = typeof value === 'number' ? value
+              : (typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN);
+            if (!Number.isFinite(score)) continue;
+
+            mapped[index] = Math.max(0, Math.min(1, score));
+            usable++;
+          }
+          if (usable === 0) {
+            throw new Error('No usable scores in response');
+          }
+          batchScores = mapped;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+
+      if (batchScores) {
+        for (let i = 0; i < batch.length; i++) scores[start + i] = batchScores[i];
+        anyScored = true;
+      } else {
+        // This batch stays null and the run continues. Unscored claims are
+        // never filtered, so losing one batch costs less than losing the gate.
+        this.logger.warn('LLM claim relevance batch unscored', { error: lastError.message });
+      }
+    }
+
+    if (!anyScored) {
+      this.logger.warn('LLM claim relevance scoring failed; gate skipped');
+      return [];
+    }
+
+    return scores;
+  }
+
+  /**
+   * Group claim sentences that assert the same thing about the topic.
+   *
+   * Exists because the lexical key it replaces (a claim's own first three
+   * sorted keywords) splits paraphrases: "an edge network uses TLS
+   * fingerprinting to detect automated browsers" and "automated browsers are
+   * detected by an edge network through TLS fingerprinting" keyed
+   * differently, so 27 real claims produced 27 groups and conflict/consensus
+   * detection — which needs
+   * a group of 2+ from 2+ sources — was structurally unreachable. A
+   * keyword-overlap threshold sweep did not fix it: at every setting it found
+   * at most one cross-source merge, and that merge was spurious (two unrelated
+   * sentences sharing {best, scrapers, 2026}). Same-meaning is semantic, so it
+   * is judged here.
+   *
+   * @param {string[]} claims - Claim sentences.
+   * @param {string} topic - The research topic.
+   * @returns {Promise<number[][]>} Groups of indices into `claims`. Every index
+   *   in 0..claims.length-1 appears exactly once — the caller treats this as a
+   *   partition and does not re-check it. Empty array on any failure, which is
+   *   the caller's signal to fall back to keyword grouping.
+   */
+  async groupClaimsBySimilarity(claims, topic, options = {}) {
+    const { maxClaimLength = 240, maxClaims = 60 } = options;
+
+    // Nothing to group below two claims, and the caller's keyword fallback
+    // reaches the same answer without a round trip.
+    if (!Array.isArray(claims) || claims.length < 2) {
+      return [];
+    }
+
+    // One call, always: claims past the cap are left out of the prompt and the
+    // normalization below appends them as singletons. Chunking would be worse
+    // than useless here — a paraphrase pair split across two calls can never
+    // be found.
+    const batch = claims.slice(0, maxClaims).map(claim => {
+      const text = String(claim ?? '');
+      return text.length > maxClaimLength ? text.slice(0, maxClaimLength) + '…' : text;
+    });
+
+    const systemPrompt = `You group sentences that assert the same thing about a research topic.
+
+Return a JSON object:
+{"groups": [[0, 3], [1], [2, 4]]}
+
+Each number is a sentence number. Every sentence number appears exactly once across all groups.
+Group two sentences together only when they assert the same fact however differently worded — a restatement, a reversed subject and object, or a paraphrase sharing no words still belongs with its original.
+Keep sentences apart when they describe different mechanisms, different subjects or different measurements. A shared word is not a shared claim.
+Most sentences belong in a group of their own.
+
+Return the groups and nothing else.`;
+
+    const groupSchema = {
+      type: 'object',
+      properties: {
+        groups: { type: 'array', items: { type: 'array', items: { type: 'integer' } } }
+      },
+      required: ['groups']
+    };
+
+    const prompt = `Research topic: "${topic}"
+
+Sentences (numbered from 0):
+${batch.map((text, index) => `${index}. ${text}`).join('\n')}
+
+Group these ${batch.length} sentences:`;
+
+    try {
+      let lastError;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await this.generateCompletion(prompt, {
+            systemPrompt,
+            maxTokens: 200 + batch.length * 10,
+            temperature: 0.1,
+            format: groupSchema
+          });
+
+          const cleaned = response.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+          const parsed = JSON.parse(cleaned);
+          if (!Array.isArray(parsed?.groups) || parsed.groups.length === 0) {
+            throw new Error('Grouping response missing groups');
+          }
+          return this.partitionClaimIndices(parsed.groups, claims.length);
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError;
+    } catch (error) {
+      this.logger.warn('LLM claim grouping failed, using fallback', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Force a model's group list into a true partition of 0..count-1.
+   *
+   * The caller consumes these indices directly, so a duplicated index would
+   * double-count a claim's support and a missing one would drop a finding
+   * outright. A model that renumbers from 1, repeats an index or invents one
+   * is normal and must not corrupt the result, so the guarantee is enforced
+   * here rather than trusted from the response.
+   */
+  partitionClaimIndices(groups, count) {
+    const seen = new Set();
+    const partition = [];
+
+    for (const group of groups) {
+      if (!Array.isArray(group)) continue;
+      const cleaned = [];
+      for (const value of group) {
+        // Strictly a real integer: Number(null) is 0 and Number(true) is 1, so
+        // coercing would attach claim 0 or 1 to a group the model never put it
+        // in, inventing corroboration that consensus then counts.
+        if (typeof value !== 'number' || !Number.isInteger(value)) continue;
+        if (value < 0 || value >= count || seen.has(value)) continue;
+        seen.add(value);
+        cleaned.push(value);
+      }
+      if (cleaned.length > 0) partition.push(cleaned);
+    }
+
+    for (let index = 0; index < count; index++) {
+      if (!seen.has(index)) partition.push([index]);
+    }
+
+    return partition;
+  }
+
+  /**
+   * Decide which claim pairs genuinely contradict each other.
+   *
+   * Exists because the lexical detector it replaces reported 42 conflicts on a
+   * live run and none of the sampled six were real. Its premise — one claim
+   * carries a negative word and the other a positive one, therefore they
+   * disagree — cannot be made to work: real claims are long multi-sentence
+   * blobs, so nearly every pair contains both. It paired "modern anti-bot
+   * systems do not just block IP addresses, they fingerprint the TLS
+   * handshake" against a claim that such systems match known signatures — two
+   * sentences that agree, split only by the token "not" — and paired an
+   * article's own table of contents against its prose. Contradiction is a
+   * relation between propositions, not between words, so it is judged here.
+   *
+   * @param {Array<{a: string, b: string}>} pairs - Claim pairs already judged
+   *   to be about the same assertion.
+   * @param {string} topic - The research topic.
+   * @returns {Promise<number[]>} Indices into `pairs` that contradict, ascending
+   *   and deduplicated. An empty array means either "none contradict" or "the
+   *   check could not run" — deliberately the same value, because the caller
+   *   fails closed and reports no conflicts either way. Nothing downstream
+   *   needs to tell the two apart, and reporting a conflict that was never
+   *   established is the failure mode this method exists to remove.
+   */
+  async findContradictions(pairs, topic, options = {}) {
+    const { maxClaimLength = 240, maxPairs = 30, batchSize = 8 } = options;
+
+    if (!Array.isArray(pairs) || pairs.length === 0) {
+      return [];
+    }
+
+    // Batched in small chunks, and deliberately not in one call. Measured
+    // 2026-08-28: this same prompt judged 7 pairs with zero false positives on
+    // three consecutive runs, but judging a live run's ~30 pairs in one call
+    // returned 29 "contradictions" of which none were real. A 4B local model
+    // loses the thread across a long pair list exactly as it loses count on a
+    // long score list. Pairs past the cap go unexamined rather than costing
+    // more round trips — under-reporting a conflict is the same direction as
+    // every other failure here, and the caller already fails closed.
+    const truncate = value => {
+      const text = String(value ?? '');
+      return text.length > maxClaimLength ? text.slice(0, maxClaimLength) + '…' : text;
+    };
+    const capped = pairs.slice(0, maxPairs).map(pair => ({
+      a: truncate(pair?.a),
+      b: truncate(pair?.b)
+    }));
+
+    const systemPrompt = `You decide which numbered pairs of sentences genuinely contradict each other.
+
+Return a JSON object:
+{"contradictions": [0, 4]}
+
+List a pair only when both sentences cannot be true at the same time — the same proposition asserted with opposite polarity, or incompatible values for the same quantity.
+
+These are not contradictions:
+- two sentences about the same subject that emphasise different aspects
+- one sentence adding scope, detail or an example the other leaves out
+- a heading or table-of-contents line beside prose from the same document
+- a negative word in one sentence and a positive word in the other; wording is not polarity
+
+Most pairs contradict nothing, and an empty list is the correct answer for most inputs.
+
+Return the list and nothing else.`;
+
+    const contradictionSchema = {
+      type: 'object',
+      properties: {
+        contradictions: { type: 'array', items: { type: 'integer' } }
+      },
+      required: ['contradictions']
+    };
+
+    // Ask in BOTH polarities and keep only what survives both.
+    //
+    // Asking "which pairs contradict?" alone does not work at any batch size,
+    // measured 2026-08-28 against a live run's claims: 30 pairs in one call
+    // gave 29 false positives, chunks of 8 gave 13, and one pair per call gave
+    // 28 — worst of all, because with nothing to compare against the model
+    // affirms whatever it is shown. That is acquiescence ("yes") bias, a
+    // documented and general LLM failure mode, not a defect of this prompt.
+    //
+    // The fix is the standard control for it: put the question the other way
+    // round as well. A pair is reported only when the model calls it
+    // contradictory AND does not also call it consistent. Because the bias
+    // pushes toward "yes" in both passes, a pair named in both is one the
+    // model is not actually discriminating, and it is dropped. This is the
+    // same bidirectional-agreement idea that semantic-entropy work uses for
+    // equivalence, applied to opposition.
+    const judgeChunks = async (systemPrompt, question, key) => {
+      const named = new Set();
+
+      for (let offset = 0; offset < capped.length; offset += batchSize) {
+        const batch = capped.slice(offset, offset + batchSize);
+
+        const schema = {
+          type: 'object',
+          properties: { [key]: { type: 'array', items: { type: 'integer' } } },
+          required: [key]
+        };
+
+        const prompt = `Research topic: "${topic}"
+
+Sentence pairs (numbered from 0):
+${batch.map((pair, index) => `${index}.\nA: ${pair.a}\nB: ${pair.b}`).join('\n\n')}
+
+${question.replace('${n}', String(batch.length))}`;
+
+        try {
+          let judged = null;
+          let lastError;
+          for (let attempt = 0; attempt < 2 && !judged; attempt++) {
+            try {
+              const response = await this.generateCompletion(prompt, {
+                systemPrompt,
+                maxTokens: 100 + batch.length * 6,
+                temperature: 0.1,
+                format: schema
+              });
+
+              const cleaned = response.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+              const parsed = JSON.parse(cleaned);
+              // An empty array is a real answer and the expected one here — it
+              // must not be retried as though it were malformed.
+              if (!Array.isArray(parsed?.[key])) {
+                throw new Error(`Response missing ${key}`);
+              }
+              judged = parsed[key];
+            } catch (error) {
+              lastError = error;
+            }
+          }
+          if (!judged) throw lastError;
+
+          for (const value of judged) {
+            // Strictly a real integer: Number(null) is 0 and Number(true) is 1,
+            // so coercing here would name pair 0 or pair 1 the model never did.
+            if (typeof value !== 'number' || !Number.isInteger(value)) continue;
+            if (value < 0 || value >= batch.length) continue;
+            named.add(offset + value);
+          }
+        } catch (error) {
+          // Fail closed for this chunk only. On the contradiction pass that
+          // means no conflicts from it; on the consistency pass it means no
+          // vetoes, so a chunk that fails there cannot manufacture one.
+          this.logger.warn('LLM pairwise judgement failed for a batch', {
+            pass: key,
+            error: error.message
+          });
+        }
+      }
+
+      return named;
+    };
+
+    const contradicts = await judgeChunks(
+      systemPrompt,
+      'Which of these ${n} pairs contradict?',
+      'contradictions'
+    );
+
+    // Nothing survived the first pass, so the veto pass cannot change the
+    // answer — skip its calls entirely.
+    if (contradicts.size === 0) return [];
+
+    const consistentSystemPrompt = `You decide which numbered pairs of sentences are consistent with each other.
+
+Return a JSON object:
+{"consistent": [0, 4]}
+
+List a pair when both sentences could be true at the same time.
+
+These ARE consistent:
+- two sentences about the same subject that emphasise different aspects
+- one sentence adding scope, detail or an example the other leaves out
+- a heading or table-of-contents line beside prose from the same document
+- two sentences about entirely different subjects
+
+Only a pair asserting the same thing with opposite polarity, or incompatible
+values for the same quantity, is inconsistent.
+
+Return the list and nothing else.`;
+
+    const consistent = await judgeChunks(
+      consistentSystemPrompt,
+      'Which of these ${n} pairs are consistent?',
+      'consistent'
+    );
+
+    const found = [...contradicts].filter(index => !consistent.has(index));
+    return found.sort((a, b) => a - b);
+  }
+
+  /**
    * Extract structured data from content using LLM and a JSON Schema
    * Follows the same pattern as analyzeRelevance()
    */

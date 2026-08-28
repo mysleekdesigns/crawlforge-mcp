@@ -24,6 +24,19 @@ import {
 // ones a search phrase matched but the content does not discuss.
 const MIN_CLAIM_RELEVANCE = 0.3;
 
+// Minimum per-CLAIM topical relevance, from LLMManager.scoreClaimRelevance.
+// Distinct from MIN_CLAIM_RELEVANCE above, which gates on the score of the
+// whole source page: a page can be squarely on topic and still carry sentences
+// that are not. Low, because admission is destructive — a rejected claim leaves
+// the run entirely. Unscored claims are never filtered.
+const MIN_CLAIM_TOPIC_RELEVANCE = 0.3;
+
+// Higher bar for the findings that feed aiSummary. A claim can be worth
+// reporting as evidence without being solid enough to draw a conclusion from,
+// which is how a vendor's description of its own product ends up synthesized
+// as a recommendation.
+const MIN_SYNTHESIS_TOPIC_RELEVANCE = 0.5;
+
 // A vendor's promotional claim about itself keeps its place in the evidence but
 // stops competing with third-party analysis for a finding slot.
 const VENDOR_PROMO_CREDIBILITY_FACTOR = 0.5;
@@ -35,6 +48,33 @@ const MAX_FINDING_SHARE_PER_SOURCE = 0.4;
 // deepResearch.js re-slices findings to 5 for outputFormat 'summary', so this
 // many findings have to be diverse before depth matters.
 const SUMMARY_SLICE = 5;
+
+// Pairwise contradiction judgement is OFF, and the reason is measured rather
+// than assumed. Against a live run's own claims (2026-08-28) the default local
+// model returned 29, 13 and 28 false contradictions at batch sizes 30, 8 and 1
+// — one pair per call being the worst, because with nothing to compare against
+// it affirms whatever it is shown. That is acquiescence bias, a documented and
+// general LLM failure mode. Adding the standard control for it (asking which
+// pairs are CONSISTENT and vetoing anything named by both passes) cut false
+// positives to 7 but then missed a direct negation pair outright — "X does not
+// use Y" against "X uses Y" was called consistent. At that point the signal is
+// anti-correlated with the truth.
+//
+// Zero conflicts is the honest answer: a research tool that invents
+// contradictions between sources that agree is worse than one that reports
+// none. Semantic grouping (which this replaced the lexical key with) DID make
+// detection structurally reachable — that half of the question is answered —
+// and consensus, which needed the same grouping, now works. The judgement
+// itself lives in LLMManager.findContradictions, is unit-tested, and becomes
+// useful the moment a model that can do natural-language inference is wired
+// in; a purpose-built NLI cross-encoder is the documented next step.
+const ENABLE_LLM_CONFLICT_DETECTION = false;
+
+// Contradiction checking is quadratic in a group's size, and every candidate
+// pair costs prompt tokens in the one batched call. Compare a group's most
+// credible claims only, and cap the batch.
+const MAX_CONFLICT_CLAIMS_PER_GROUP = 6;
+const MAX_CONFLICT_PAIRS = 40;
 
 /**
  * ResearchOrchestrator - Multi-stage research orchestration engine with LLM integration
@@ -1079,14 +1119,14 @@ export class ResearchOrchestrator extends EventEmitter {
       }
 
       // Extract key claims and facts from each source
-      const extractedClaims = await this.extractKeyClaims(sources);
-      
+      const extractedClaims = await this.extractKeyClaims(sources, topic);
+
       // Group related claims
-      const claimGroups = this.groupRelatedClaims(extractedClaims);
+      const claimGroups = await this.groupRelatedClaims(extractedClaims, topic);
       
       // Detect conflicts between claims
       if (this.enableConflictDetection) {
-        synthesis.conflicts = this.detectInformationConflicts(claimGroups);
+        synthesis.conflicts = await this.detectInformationConflicts(claimGroups, topic);
         this.metrics.conflictsDetected = synthesis.conflicts.length;
       }
       
@@ -1112,10 +1152,17 @@ export class ResearchOrchestrator extends EventEmitter {
           
           // Prepare findings for LLM analysis. A vendor's promotional claim
           // about its own product is not a research conclusion — the synthesis
-          // otherwise recommends whichever vendor's page ranked best. Only
-          // withheld while something else remains to synthesize.
-          const nonPromotional = synthesis.keyFindings.filter(finding => !finding.promotional);
-          const findingsForLLM = (nonPromotional.length > 0 ? nonPromotional : synthesis.keyFindings)
+          // otherwise recommends whichever vendor's page ranked best. A finding
+          // the LLM scored as only loosely about the topic is withheld for the
+          // same reason: it stays in the reported evidence, but it is not
+          // material to conclude from. Only withheld while something else
+          // remains to synthesize.
+          const conclusive = synthesis.keyFindings.filter(finding =>
+            !finding.promotional &&
+            (typeof finding.topicRelevance !== 'number' ||
+              finding.topicRelevance >= MIN_SYNTHESIS_TOPIC_RELEVANCE)
+          );
+          const findingsForLLM = (conclusive.length > 0 ? conclusive : synthesis.keyFindings)
             .map(finding => ({
               finding: finding.finding,
               credibility: finding.credibility,
@@ -1167,7 +1214,7 @@ export class ResearchOrchestrator extends EventEmitter {
   /**
    * Extract key claims from source content
    */
-  async extractKeyClaims(sources) {
+  async extractKeyClaims(sources, topic) {
     const claims = [];
     
     for (const source of sources) {
@@ -1218,7 +1265,44 @@ export class ResearchOrchestrator extends EventEmitter {
       }
     }
 
+    await this.scoreClaimTopicRelevance(claims, topic);
+
     return this.admitClaims(claims);
+  }
+
+  /**
+   * Record how much each individual claim is about the research topic.
+   *
+   * One batched LLM call for the whole run. The score lands on a separate
+   * `topicRelevance` field, and only when the model actually scored it: an
+   * entry may be null for a claim it skipped, which leaves that claim
+   * unscored and therefore unfiltered. `relevance` is the source page's and
+   * means something different. Claims are left unscored — and therefore
+   * unfiltered — whenever the LLM cannot answer, so a failure here reproduces
+   * the behaviour of not having asked.
+   */
+  async scoreClaimTopicRelevance(claims, topic) {
+    if (!this.enableLLMFeatures || !topic || claims.length === 0) return;
+
+    try {
+      const scores = await this.llmManager.scoreClaimRelevance(
+        claims.map(claim => claim.claim),
+        topic
+      );
+      this.metrics.llmAnalysisCalls++;
+
+      if (!Array.isArray(scores) || scores.length !== claims.length) return;
+
+      claims.forEach((claim, index) => {
+        // null marks a claim the model did not score, and stays unscored —
+        // never 0, which would drop it. Number.isFinite rather than a typeof
+        // check because typeof NaN is 'number', and a recorded NaN fails every
+        // >= comparison below, silently rejecting a good claim.
+        if (Number.isFinite(scores[index])) claim.topicRelevance = scores[index];
+      });
+    } catch (error) {
+      this.logger.warn('Claim relevance scoring failed', { error: error.message });
+    }
   }
 
   /**
@@ -1233,9 +1317,10 @@ export class ResearchOrchestrator extends EventEmitter {
   /**
    * Keep only claims that can be research findings: prose about the topic, not
    * document front matter (author/affiliation blocks, DOI stubs, "Retrieved
-   * from" lines) and not from a source the relevance analysis scored below
-   * MIN_CLAIM_RELEVANCE. Each gate falls back to the previous claim set rather
-   * than returning nothing — no claims means no findings at all.
+   * from" lines), not from a source the relevance analysis scored below
+   * MIN_CLAIM_RELEVANCE, and not a sentence the LLM scored as barely about the
+   * topic. Each gate falls back to the previous claim set rather than returning
+   * nothing — no claims means no findings at all.
    */
   admitClaims(claims) {
     if (claims.length === 0) return claims;
@@ -1244,15 +1329,20 @@ export class ResearchOrchestrator extends EventEmitter {
     const relevant = substantive.filter(
       claim => typeof claim.relevance !== 'number' || claim.relevance >= MIN_CLAIM_RELEVANCE
     );
+    const onTopic = relevant.filter(
+      claim => typeof claim.topicRelevance !== 'number' ||
+        claim.topicRelevance >= MIN_CLAIM_TOPIC_RELEVANCE
+    );
 
-    const admitted = relevant.length > 0
-      ? relevant
-      : (substantive.length > 0 ? substantive : claims);
+    const admitted = onTopic.length > 0
+      ? onTopic
+      : (relevant.length > 0 ? relevant : (substantive.length > 0 ? substantive : claims));
 
     this.logger.debug('Claim admission', {
       candidates: claims.length,
       substantive: substantive.length,
       relevant: relevant.length,
+      onTopic: onTopic.length,
       admitted: admitted.length
     });
 
@@ -1260,89 +1350,167 @@ export class ResearchOrchestrator extends EventEmitter {
   }
 
   /**
-   * Group related claims for analysis
+   * Group related claims for analysis.
+   *
+   * Semantically when the LLM can partition them, otherwise by the claim's own
+   * first-three-sorted keywords. The keyword key splits paraphrases — measured
+   * on 27 claims from a live run it produced 27 groups, none with more than one
+   * claim, which makes consensus (needs sourceCount >= 2) and conflict
+   * detection (needs two claims in a group) structurally unreachable.
    */
-  groupRelatedClaims(claims) {
-    const groups = new Map();
+  async groupRelatedClaims(claims, topic) {
+    const semantic = await this.semanticClaimGroups(claims, topic);
+    if (semantic) return semantic;
+
+    const byKeywordKey = new Map();
 
     for (const claim of claims) {
-      const keywords = this.extractKeywords(claim.claim);
-      const groupKey = keywords.slice(0, 3).sort().join('_');
-
-      if (!groups.has(groupKey)) {
-        groups.set(groupKey, {
-          id: groupKey,
-          keywords,
-          claims: [],
-          avgCredibility: 0,
-          sourceCount: 0
-        });
-      }
-
-      groups.get(groupKey).claims.push(claim);
+      const groupKey = this.extractKeywords(claim.claim).slice(0, 3).sort().join('_');
+      if (!byKeywordKey.has(groupKey)) byKeywordKey.set(groupKey, []);
+      byKeywordKey.get(groupKey).push(claim);
     }
 
-    // Calculate group statistics
-    groups.forEach(group => {
-      group.sourceCount = new Set(group.claims.map(c => c.source)).size;
-      group.avgCredibility = group.claims.reduce((sum, c) => sum + c.credibility, 0) / group.claims.length;
-    });
-
-    return Array.from(groups.values());
+    return Array.from(byKeywordKey, ([key, grouped]) => this.buildClaimGroup(key, grouped));
   }
 
   /**
-   * Detect conflicts between information claims
+   * Groups from the LLM's semantic partition, or null to use the keyword key.
+   *
+   * Null on every path the contract calls a failure: LLM features off, no
+   * topic, an empty partition. A partition that does not cover the claims
+   * exactly once would silently drop evidence from the run, so that falls back
+   * too rather than being trusted.
    */
-  detectInformationConflicts(claimGroups) {
-    const conflicts = [];
-    
+  async semanticClaimGroups(claims, topic) {
+    if (!this.enableLLMFeatures || !topic || claims.length === 0) return null;
+
+    let partition;
+    try {
+      partition = await this.llmManager.groupClaimsBySimilarity(
+        claims.map(claim => claim.claim),
+        topic
+      );
+      this.metrics.llmAnalysisCalls++;
+    } catch (error) {
+      this.logger.warn('Semantic claim grouping failed', { error: error.message });
+      return null;
+    }
+
+    if (!Array.isArray(partition)) return null;
+    if (!partition.every(group => Array.isArray(group) && group.length > 0)) return null;
+
+    const indices = partition.flat();
+    const isPartition = indices.length === claims.length &&
+      new Set(indices).size === claims.length &&
+      indices.every(i => Number.isInteger(i) && i >= 0 && i < claims.length);
+    if (!isPartition) return null;
+
+    return partition.map((group, index) =>
+      this.buildClaimGroup(`semantic_${index}`, group.map(i => claims[i]))
+    );
+  }
+
+  /**
+   * A claim group and its statistics. Both grouping paths build groups here so
+   * sourceCount and avgCredibility cannot diverge between them.
+   */
+  buildClaimGroup(id, claims) {
+    return {
+      id,
+      keywords: this.extractKeywords(claims[0].claim),
+      claims,
+      sourceCount: new Set(claims.map(c => c.source)).size,
+      avgCredibility: claims.reduce((sum, c) => sum + c.credibility, 0) / claims.length
+    };
+  }
+
+  /**
+   * Detect conflicts between information claims.
+   *
+   * Only the LLM decides. Candidate pairs are drawn from within a semantic
+   * group — claims already judged to be about the same thing — and the whole
+   * batch goes to the model in one call; a pair becomes a conflict only if the
+   * model names it.
+   *
+   * Fails CLOSED, in every sense: no LLM, an error, an unusable answer, or
+   * nothing found all report zero conflicts. Zero is an honest answer. Two
+   * lexical detectors have now been tried and both produced pure noise — the
+   * second reported 42 conflicts on a live run, none of them real, because
+   * extractive claims are long multi-sentence blobs and nearly every pair
+   * contains both a negation and an affirmation somewhere. There is no
+   * sentence-shape repair for that, so there is no fallback path here.
+   */
+  async detectInformationConflicts(claimGroups, topic) {
+    if (!ENABLE_LLM_CONFLICT_DETECTION) return [];
+    if (!this.enableLLMFeatures) return [];
+
+    const pairs = [];
     for (const group of claimGroups) {
       if (group.claims.length < 2) continue;
-      
-      // Simple conflict detection based on contradictory terms
-      const conflictIndicators = [
-        ['not', 'is'], ['false', 'true'], ['incorrect', 'correct'],
-        ['impossible', 'possible'], ['never', 'always'], ['no', 'yes']
-      ];
-      
-      for (let i = 0; i < group.claims.length; i++) {
-        for (let j = i + 1; j < group.claims.length; j++) {
-          const claim1 = group.claims[i];
-          const claim2 = group.claims[j];
-          
-          const text1 = claim1.claim.toLowerCase();
-          const text2 = claim2.claim.toLowerCase();
-          
-          for (const [neg, pos] of conflictIndicators) {
-            if ((text1.includes(neg) && text2.includes(pos)) ||
-                (text1.includes(pos) && text2.includes(neg))) {
-              
-              conflicts.push({
-                id: `conflict_${conflicts.length}`,
-                type: 'contradiction',
-                claim1: claim1,
-                claim2: claim2,
-                severity: this.calculateConflictSeverity(claim1, claim2),
-                detectedAt: new Date().toISOString()
-              });
-              
-              break;
-            }
-          }
+
+      // Pairs grow quadratically, so compare only a group's most credible
+      // claims and bound the batch overall — this runs inside the tool's
+      // wall-clock limit.
+      const claims = [...group.claims]
+        .sort((a, b) => (b.credibility || 0) - (a.credibility || 0))
+        .slice(0, MAX_CONFLICT_CLAIMS_PER_GROUP);
+
+      for (let i = 0; i < claims.length; i++) {
+        for (let j = i + 1; j < claims.length; j++) {
+          pairs.push({ a: claims[i], b: claims[j] });
         }
       }
     }
 
-    return conflicts;
+    const candidates = pairs.slice(0, MAX_CONFLICT_PAIRS);
+    if (candidates.length === 0) return [];
+
+    let contradicting;
+    try {
+      contradicting = await this.llmManager.findContradictions(
+        candidates.map(({ a, b }) => ({ a: a.claim, b: b.claim })),
+        topic
+      );
+      this.metrics.llmAnalysisCalls++;
+    } catch (error) {
+      this.logger.warn('Contradiction detection failed', { error: error.message });
+      return [];
+    }
+
+    if (!Array.isArray(contradicting)) return [];
+
+    return contradicting
+      .filter(index => Number.isInteger(index) && index >= 0 && index < candidates.length)
+      .map((pairIndex, position) => {
+        const { a, b } = candidates[pairIndex];
+        return {
+          id: `conflict_${position}`,
+          type: 'contradiction',
+          claim1: a,
+          claim2: b,
+          severity: this.calculateConflictSeverity(a, b),
+          detectedAt: new Date().toISOString()
+        };
+      });
   }
 
   /**
-   * Identify areas of consensus
+   * Identify areas of consensus.
+   *
+   * Corroboration is the load-bearing requirement: two independent sources
+   * saying the same thing. The credibility floor is the tool's own
+   * `credibilityThreshold` (default 0.3, caller-settable, and already what
+   * generateKeyFindings and compileSupportingEvidence use) rather than a
+   * separate hardcoded 0.6, which gated consensus out entirely on real
+   * sources. Measured on the live 2026-08-28 run: source credibility spanned
+   * 0.496-0.630 (n=7, avg 0.567) and only one of four findings cleared 0.6,
+   * with VENDOR_PROMO_CREDIBILITY_FACTOR pulling promotional groups lower
+   * still. The floor now only excludes what the caller already considers too
+   * weak to be a finding at all.
    */
   identifyConsensus(claimGroups) {
     return claimGroups
-      .filter(group => group.sourceCount >= 2 && group.avgCredibility >= 0.6)
+      .filter(group => group.sourceCount >= 2 && group.avgCredibility >= this.credibilityThreshold)
       .map(group => ({
         topic: this.claimGroupLabel(group),
         supportingClaims: group.claims.length,
@@ -1680,7 +1848,10 @@ export class ResearchOrchestrator extends EventEmitter {
             supportingClaims: group.claims.length,
             credibility: group.avgCredibility,
             sources: group.claims.map(c => c.source),
-            ...(claim.promotional ? { promotional: true } : {})
+            ...(claim.promotional ? { promotional: true } : {}),
+            ...(typeof claim.topicRelevance === 'number'
+              ? { topicRelevance: claim.topicRelevance }
+              : {})
           });
 
           if (findings.length >= limit) break;

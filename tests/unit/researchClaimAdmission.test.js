@@ -46,6 +46,15 @@ function withKeypoints(ro, keypointsByContent) {
   return ro;
 }
 
+// These tests are about claim admission, not about the LLM's semantic passes.
+// Both return their documented "no answer" value, which is the behaviour the
+// assertions below were written against.
+function withoutSemanticPasses(ro) {
+  ro.llmManager.scoreClaimRelevance = async () => [];
+  ro.llmManager.groupClaimsBySimilarity = async () => [];
+  return ro;
+}
+
 function source(overrides = {}) {
   return {
     link: 'https://example.com/a',
@@ -342,6 +351,7 @@ describe('4.4 vendor self-description is not a research conclusion', () => {
     });
     ro.initializeResearchSession('s2', 'anti-bot systems', Date.now());
     ro.enableLLMFeatures = true;
+    withoutSemanticPasses(ro);
 
     let sentToLLM = null;
     ro.llmManager.synthesizeFindings = async findings => {
@@ -442,6 +452,7 @@ describe('4.4 vendor self-description is not a research conclusion', () => {
     });
     ro.initializeResearchSession('s3', 'anti-bot systems', Date.now());
     ro.enableLLMFeatures = true;
+    withoutSemanticPasses(ro);
 
     let sentToLLM = null;
     ro.llmManager.synthesizeFindings = async findings => {
