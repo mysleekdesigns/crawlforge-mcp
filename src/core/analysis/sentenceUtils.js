@@ -3,6 +3,11 @@
  * domain names, and other common patterns that contain periods.
  */
 
+// CJK / fullwidth sentence terminators. Unlike the ASCII '.' these are
+// unambiguous — no abbreviation, decimal or initial uses them — and CJK text
+// puts no whitespace after them, so they split on a zero-width boundary.
+const CJK_TERMINATORS = '。．！？；';
+
 // Common abbreviations that should not trigger sentence splits
 const ABBREVIATIONS = new Set([
   'mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'st', 'ave', 'blvd',
@@ -26,17 +31,18 @@ export function splitSentences(text) {
   const sentences = [];
   let current = '';
 
-  // Split by potential sentence boundaries: . ! ?
+  // Split by potential sentence boundaries: . ! ? and the CJK terminators
   // But be smart about abbreviations, numbers, and domain-like patterns
-  const tokens = text.split(/(?<=[.!?])\s+/);
+  const tokens = text.split(/(?<=[.!?])\s+|(?<=[。．！？；])\s*/);
 
   for (const token of tokens) {
     const combined = current ? current + ' ' + token : token;
 
     // Check if the current chunk ends with something that looks like a sentence end
-    if (/[.!?]\s*$/.test(combined)) {
+    const endMatch = combined.match(/([.!?。．！？；])\s*$/);
+    if (endMatch) {
       // Check if the period is likely NOT a sentence boundary
-      const beforePeriod = combined.replace(/[.!?]\s*$/, '');
+      const beforePeriod = combined.replace(/[.!?。．！？；]\s*$/, '');
       const lastWord = beforePeriod.split(/\s+/).pop() || '';
       const lastWordLower = lastWord.toLowerCase().replace(/[^a-z]/g, '');
 
@@ -48,7 +54,12 @@ export function splitSentences(text) {
       // Single letter followed by period (initials like "A. Smith")
       const isInitial = /^[A-Z]\.$/.test(lastWord);
 
-      if (isAbbreviation || hasInternalPeriods || isDecimal || isInitial) {
+      // Those four checks are ASCII-oriented (they strip anything outside
+      // [a-z]), so a CJK terminator must never be judged by them — otherwise
+      // "使用Node.js开发。" is swallowed by hasInternalPeriods.
+      const isAmbiguous = !CJK_TERMINATORS.includes(endMatch[1]);
+
+      if (isAmbiguous && (isAbbreviation || hasInternalPeriods || isDecimal || isInitial)) {
         // Not a real sentence boundary — accumulate
         current = combined;
       } else {

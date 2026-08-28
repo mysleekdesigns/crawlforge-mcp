@@ -65,8 +65,10 @@ const AnalysisResult = z.object({
     type: z.string()
   })).optional(),
   readability: z.object({
-    score: z.number(),
-    level: z.string(),
+    // score/level are absent when Flesch does not apply (CJK) — see notApplicable
+    score: z.number().optional(),
+    level: z.string().optional(),
+    notApplicable: z.string().optional(),
     metrics: z.object({
       sentences: z.number(),
       words: z.number(),
@@ -242,6 +244,19 @@ export class ContentAnalyzer {
       if (seg.isWordLike) words.push(seg.segment);
     }
     return words;
+  }
+
+  /**
+   * Split text into words: dictionary segmentation for CJK, whitespace
+   * elsewhere. Shared by the statistics and readability blocks so the two
+   * cannot report different word counts for the same text.
+   * @param {string} text - Text to tokenize
+   * @returns {string[]} - Word tokens
+   */
+  tokenizeWords(text) {
+    return this.isCjkText(text)
+      ? this.segmentWords(text)
+      : text.split(/\s+/).filter(w => w.length > 0);
   }
 
   /**
@@ -833,7 +848,8 @@ export class ContentAnalyzer {
   async calculateReadability(text) {
     try {
       const sentences = splitSentences(text);
-      const words = text.split(/\s+/).filter(w => w.length > 0);
+      const isCjk = this.isCjkText(text);
+      const words = this.tokenizeWords(text);
       const characters = text.length;
       const charactersNoSpaces = text.replace(/\s/g, '').length;
       
@@ -851,21 +867,33 @@ export class ContentAnalyzer {
       const avgCharsPerWord = charactersNoSpaces / Math.max(words.length, 1);
       const avgSyllablesPerWord = totalSyllables / Math.max(words.length, 1);
 
+      const metrics = {
+        sentences: sentences.length,
+        words: words.length,
+        characters,
+        avgWordsPerSentence: Math.round(avgWordsPerSentence * 100) / 100,
+        avgCharsPerWord: Math.round(avgCharsPerWord * 100) / 100,
+        complexWords,
+        syllables: totalSyllables
+      };
+
+      // Flesch is syllable-based and says nothing about CJK scripts. Report the
+      // metrics with an explicit reason instead of a fabricated score — a null
+      // return above already means "failed", so the two stay distinguishable.
+      if (isCjk) {
+        return {
+          notApplicable: 'flesch-requires-syllable-based-language',
+          metrics
+        };
+      }
+
       // Flesch Reading Ease Score
       const fleschScore = 206.835 - (1.015 * avgWordsPerSentence) - (84.6 * avgSyllablesPerWord);
 
       return {
         score: Math.round(Math.max(0, Math.min(100, fleschScore)) * 100) / 100,
         level: this.getReadabilityLevel(fleschScore),
-        metrics: {
-          sentences: sentences.length,
-          words: words.length,
-          characters,
-          avgWordsPerSentence: Math.round(avgWordsPerSentence * 100) / 100,
-          avgCharsPerWord: Math.round(avgCharsPerWord * 100) / 100,
-          complexWords,
-          syllables: totalSyllables
-        }
+        metrics
       };
 
     } catch (error) {
@@ -940,9 +968,7 @@ export class ContentAnalyzer {
     const characters = text.length;
     const charactersNoSpaces = text.replace(/\s/g, '').length;
     // CJK text has no whitespace between words — segment by dictionary instead
-    const words = this.isCjkText(text)
-      ? this.segmentWords(text)
-      : text.split(/\s+/).filter(w => w.length > 0);
+    const words = this.tokenizeWords(text);
     const sentences = splitSentences(text);
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     

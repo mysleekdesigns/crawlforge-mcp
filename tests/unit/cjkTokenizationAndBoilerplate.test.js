@@ -15,11 +15,21 @@
  *    free encyclopedia". Leading navigation-ish lines (short, few words, no
  *    sentence-ending punctuation) are now stripped before summarizing, with a
  *    size guard so real prose is never eaten.
+ *
+ * Regression (TOOL_QUALITY_PLAN item 5.2):
+ * 3. analyze_content reported readability.metrics.words = 1 and
+ *    avgCharsPerWord = 174 on the same Chinese paragraph statistics.words
+ *    counted as 96 — calculateReadability split on whitespace while
+ *    calculateStatistics segmented. Both now go through tokenizeWords.
+ *    splitSentences also had no CJK terminators, so both blocks reported
+ *    sentences: 1; 。．！？； now end a sentence, and Flesch (syllable-based,
+ *    meaningless for CJK) is withheld instead of fabricated.
  */
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { ContentAnalyzer } from '../../src/core/analysis/ContentAnalyzer.js';
+import { splitSentences } from '../../src/core/analysis/sentenceUtils.js';
 import { SummarizeContentTool } from '../../src/tools/extract/summarizeContent.js';
 
 const CJK_RUN = /[一-鿿]{8,}/; // 8+ Han chars in one token = sentence run
@@ -183,5 +193,107 @@ describe('SummarizeContentTool leading boilerplate stripping', () => {
     // Not on the list, so the punctuation test still protects it.
     const prose = 'Jump to it.\nShe had been waiting for that signal for most of the morning.';
     assert.equal(tool.stripLeadingBoilerplate(prose), prose);
+  });
+});
+
+// A single Chinese paragraph: 5 sentences, 174 characters, 96 segmented words.
+// The exact input reproduced item 5.2 over real MCP stdio (readability said
+// words: 1 / avgCharsPerWord: 174 / sentences: 1 while statistics said 96 / 1).
+const CHINESE_PARAGRAPH = [
+  '北京市是中华人民共和国的首都，也是全国的政治、文化、教育与国际交往中心。',
+  '这座城市位于华北平原的北部边缘，西面和北面环绕着连绵起伏的燕山山脉。',
+  '故宫、天坛和颐和园等世界文化遗产每年吸引着数以千万计的国内外游客前来参观。',
+  '中关村聚集了大量的高科技企业和研究机构，被人们称为中国的硅谷。',
+  '密集的地铁网络与两座国际机场共同支撑着这座超大城市的日常通勤和对外联系。'
+].join('');
+
+describe('splitSentences CJK terminators', () => {
+  test('。！？；．each end a sentence without needing whitespace', () => {
+    assert.equal(splitSentences('第一句。第二句！第三句？第四句；第五句．').length, 5);
+  });
+
+  test('a CJK terminator is not swallowed by the ASCII internal-period check', () => {
+    // "使用Node.js开发" has no whitespace, so lastWord is the whole chunk and
+    // hasInternalPeriods matches "e.j" — the boundary must survive it anyway.
+    const sentences = splitSentences('我们使用Node.js开发后端。前端由另一个团队负责。');
+    assert.equal(sentences.length, 2);
+    assert.ok(sentences[0].endsWith('。'));
+  });
+
+  test('CONTROL (passes pre-fix): English abbreviations and decimals still do not split', () => {
+    assert.equal(
+      splitSentences('Dr. Smith measured 3.14 units. The result held.').length,
+      2
+    );
+  });
+});
+
+describe('analyze_content readability agrees with statistics', () => {
+  const analyzer = new ContentAnalyzer();
+
+  test('Chinese: both blocks report the same word and sentence counts', async () => {
+    const readability = await analyzer.calculateReadability(CHINESE_PARAGRAPH);
+    const stats = analyzer.calculateStatistics(CHINESE_PARAGRAPH);
+
+    assert.equal(readability.metrics.words, stats.words);
+    assert.equal(readability.metrics.sentences, stats.sentences);
+    assert.equal(stats.sentences, 5, 'the paragraph has 5 。-terminated sentences');
+    assert.ok(stats.words > 90, `words=${stats.words}, expected ~96 not the whitespace count`);
+    // The bug's signature: one "word" the length of the whole paragraph.
+    assert.ok(
+      readability.metrics.avgCharsPerWord < 3,
+      `avgCharsPerWord=${readability.metrics.avgCharsPerWord}, expected ~1.8`
+    );
+  });
+
+  test('Chinese: Flesch is withheld with a reason, not fabricated', async () => {
+    const readability = await analyzer.calculateReadability(CHINESE_PARAGRAPH);
+
+    assert.equal(readability.score, undefined);
+    assert.equal(readability.level, undefined);
+    assert.equal(readability.notApplicable, 'flesch-requires-syllable-based-language');
+    // "not applicable" must stay distinguishable from "failed" (a null return).
+    assert.ok(readability.metrics, 'metrics are still reported for CJK');
+  });
+
+  test('English: score and level are still reported and the blocks agree', async () => {
+    const english =
+      'Machine learning systems process large volumes of data efficiently. ' +
+      'Dr. Smith reported that accuracy improved by 3.14 percent after tuning. ' +
+      'The framework, written in Node.js, handles datasets without manual work.';
+
+    const readability = await analyzer.calculateReadability(english);
+    const stats = analyzer.calculateStatistics(english);
+
+    assert.equal(typeof readability.score, 'number');
+    assert.equal(typeof readability.level, 'string');
+    assert.equal(readability.notApplicable, undefined);
+    assert.equal(readability.metrics.words, stats.words);
+    assert.equal(readability.metrics.words, english.split(/\s+/).filter(w => w.length > 0).length);
+    assert.equal(readability.metrics.sentences, stats.sentences);
+    assert.equal(stats.sentences, 3, 'Dr. and 3.14 and Node.js must not split');
+  });
+});
+
+describe('summarize_content ripple from the CJK terminators', () => {
+  const tool = new SummarizeContentTool();
+
+  test('a Chinese paragraph summarizes to a subset of its sentences', async () => {
+    const result = await tool.execute({ text: CHINESE_PARAGRAPH });
+
+    assert.equal(result.success, true);
+    // Pre-fix the whole paragraph was one "sentence", so the summary was the
+    // input verbatim at compressionRatio 1.
+    assert.ok(
+      result.summary.sentences.length >= 1 && result.summary.sentences.length < 5,
+      `summary picked ${result.summary.sentences.length} of 5 sentences`
+    );
+    assert.ok(
+      result.summary.compressionRatio < 1,
+      `compressionRatio=${result.summary.compressionRatio}, expected < 1`
+    );
+    for (const sentence of result.summary.sentences) {
+      assert.ok(sentence.endsWith('。'), `summary sentence is not one sentence: ${sentence}`);
+    }
   });
 });
