@@ -539,8 +539,13 @@ describe('D2.2 UnifiedScrapeTool partial failure yields warnings but not full fa
 describe('D2.3 UnifiedScrapeTool onlyMainContent toggles Readability branch', async () => {
   test('onlyMainContent:true invokes Readability path (branch present in source)', () => {
     const src = readSrc('src/tools/scrape/unifiedScrape.js');
-    // Readability is imported at top
-    assert.ok(src.includes("from '@mozilla/readability'"), 'Readability import should be present');
+    // Readability now lives behind _mainContent.js, which also re-attaches the
+    // data tables Readability drops (shared with extract_structured).
+    assert.ok(src.includes("from './_mainContent.js'"), 'main-content helper import should be present');
+    assert.ok(
+      readSrc('src/tools/scrape/_mainContent.js').includes("from '@mozilla/readability'"),
+      'the main-content helper should be the one importing Readability'
+    );
     // onlyMainContent guard exists for at least one format
     assert.ok(src.includes('onlyMainContent'), 'onlyMainContent should appear in the source');
     assert.ok(src.includes('getMainHtml()'), 'getMainHtml helper must be used when onlyMainContent is on');

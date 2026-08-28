@@ -11,12 +11,11 @@
  */
 
 import { z } from 'zod';
-import { JSDOM } from 'jsdom';
-import { Readability } from '@mozilla/readability';
 import { fetchAndParse } from '../extract/_fetchAndParse.js';
+import { extractMainContent } from './_mainContent.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 import { stripHiddenFromDom } from '../../utils/hiddenContent.js';
-import { extractBlockText, readabilityToMarkdown } from '../basic/extractText.js';
+import { extractBlockText } from '../basic/extractText.js';
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
@@ -230,13 +229,12 @@ export class UnifiedScrapeTool {
     let mainHtml = null;
     function getMainHtml() {
       if (mainHtml !== null) return mainHtml;
-      try {
-        const dom = new JSDOM(html, { url: finalUrl });
-        const reader = new Readability(dom.window.document);
-        const article = reader.parse();
-        mainHtml = article ? article.content : html;
-      } catch {
-        mainHtml = html;
+      const main = extractMainContent(html, finalUrl);
+      mainHtml = main.html ?? html;
+      if (main.tablesRecovered > 0) {
+        warnings.push(
+          `mainContent: re-attached ${main.tablesRecovered} data table(s) that main-content extraction had dropped`
+        );
       }
       return mainHtml;
     }
@@ -334,7 +332,7 @@ export class UnifiedScrapeTool {
         case 'markdown':
           try {
             content.markdown = onlyMainContent
-              ? readabilityToMarkdown(html, finalUrl)
+              ? htmlToMarkdown(getMainHtml())
               : htmlToMarkdown($.html('body') || html);
           } catch (err) {
             content.markdown = '';

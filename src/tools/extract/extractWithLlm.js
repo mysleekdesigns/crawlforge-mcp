@@ -256,6 +256,27 @@ function looksLikeSchemaEcho(parsed, schema) {
 }
 
 /**
+ * Detect output that parsed cleanly but carries nothing taken from the page —
+ * `{}`, `[]`, or a structure whose every leaf is null/blank. A small model that
+ * loses the instruction on a long input answers with `{}` and 2 output tokens,
+ * which would otherwise reach the caller as a successful extraction of nothing.
+ *
+ * Recurses through objects and arrays. Numbers and booleans are data at any
+ * depth, so `{count: 0}` and `{found: false}` are real results, not emptiness.
+ *
+ * @param {*} parsed - Parsed LLM output (or any value inside it)
+ * @returns {boolean}
+ */
+function hasNoExtractableData(parsed) {
+  if (parsed === null || parsed === undefined) return true;
+  if (typeof parsed === 'string') return parsed.trim() === '';
+  if (typeof parsed !== 'object') return false;
+  // Object.values covers arrays too; an empty object/array vacuously satisfies
+  // every(), which is the answer we want.
+  return Object.values(parsed).every(hasNoExtractableData);
+}
+
+/**
  * Validate parsed output against the schema hint.
  * @returns {{ valid: boolean, errors: string[] }}
  */
@@ -560,8 +581,8 @@ export class ExtractWithLlm {
     }
 
     // Step 3: Parse JSON; retry once with a stricter prompt if the response is
-    // unusable. "Unusable" covers both unparseable output and a schema echo —
-    // the latter parses cleanly but contains no page data at all.
+    // unusable. "Unusable" covers unparseable output, a schema echo and an
+    // empty result — the latter two parse cleanly but contain no page data.
     let parsed = null;
     let unusableReason = null;
     try {
@@ -569,6 +590,9 @@ export class ExtractWithLlm {
       if (looksLikeSchemaEcho(parsed, schema)) {
         parsed = null;
         unusableReason = 'echoed the output schema instead of extracting data from the page';
+      } else if (hasNoExtractableData(parsed)) {
+        parsed = null;
+        unusableReason = 'contained no data from the page — every field was empty';
       }
     } catch (_parseErr) {
       unusableReason = 'was not valid JSON';
@@ -611,6 +635,18 @@ export class ExtractWithLlm {
         return {
           success: false,
           error: 'LLM echoed the output schema instead of extracting data, after retry. ' +
+                 'The page text is likely too long or too noisy for this model — try a larger model ' +
+                 '(OLLAMA_DEFAULT_MODEL) or narrow the input with onlyMainContent.',
+          raw: JSON.stringify(parsed).slice(0, 500)
+        };
+      }
+
+      if (hasNoExtractableData(parsed)) {
+        // Same failure mode as the echo: well-formed JSON with nothing from the
+        // page in it. Returning it would read as a successful extraction.
+        return {
+          success: false,
+          error: `LLM (${model}) returned no data from the page after retry — every field was empty. ` +
                  'The page text is likely too long or too noisy for this model — try a larger model ' +
                  '(OLLAMA_DEFAULT_MODEL) or narrow the input with onlyMainContent.',
           raw: JSON.stringify(parsed).slice(0, 500)

@@ -9,7 +9,8 @@ import { ElicitationHelper } from '../../core/ElicitationHelper.js'; // D1.4
 import { load } from 'cheerio';
 import { LLMManager } from '../../core/llm/LLMManager.js';
 import { CRAWLFORGE_USER_AGENT } from '../../utils/fetchIdentity.js';
-import { fetchAndParse } from './_fetchAndParse.js';
+import { fetchAndParse, flattenBodyText } from './_fetchAndParse.js';
+import { extractMainContent } from '../scrape/_mainContent.js';
 
 // Semantic element selectors for well-known field names, tried as a last
 // resort in the CSS fallback so common fields (e.g. "title") still resolve when
@@ -27,6 +28,41 @@ const SEMANTIC_FIELD_SELECTORS = {
   published: ['time', '.published', '.date'],
   price: ['[itemprop="price"]', '[class*="price"]']
 };
+
+/**
+ * Main-content text for the LLM, or '' when there is none to fall back from.
+ *
+ * Whole-body text hands the model the page chrome, and it answers from the
+ * first heading-shaped string it sees: the Cloudflare blog post returned
+ * headline "Skip to content". This is the same Readability pass `scrape` runs.
+ *
+ * @param {import('cheerio').CheerioAPI} $ - parsed document from fetchAndParse
+ * @param {string} html
+ * @param {string} url
+ * @returns {string}
+ */
+function mainContentText($, html, url) {
+  // fetchAndParse returns an empty $ for text/plain and JSON bodies. Those are
+  // not markup and must not go through Readability.
+  if ($('body').children().length === 0) return '';
+  const { html: mainHtml, title } = extractMainContent(html, url);
+  if (!mainHtml) return '';
+  // Readability strips the article's own heading out of the content it
+  // returns, so the title has to be put back: without it the IANA page's main
+  // text never says "Example Domains" and the model answers from the body.
+  return [title, flattenBodyText(load(mainHtml))].filter(Boolean).join('\n');
+}
+
+/**
+ * Missing, null, blank string or empty array — what "the extraction did not
+ * fill this field in" looks like across every extraction method.
+ */
+function isEmptyValue(value) {
+  if (value === undefined || value === null) return true;
+  if (typeof value === 'string') return value.trim() === '';
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
 
 const ExtractStructuredSchema = z.object({
   url: z.string().url(),
@@ -122,7 +158,7 @@ export class ExtractStructuredTool {
         // local Ollama was never used.
         llmAvailable = await llm.ready();
         if (llmAvailable) {
-          const result = await llm.extractStructured(textContent, schema, {
+          const result = await llm.extractStructured(mainContentText($, html, url) || textContent, schema, {
             prompt: prompt || '',
             maxContentLength: 6000
           });
@@ -157,6 +193,7 @@ export class ExtractStructuredTool {
           );
           if (!proceed) {
             return {
+              success: false,
               url,
               data: {},
               extraction_method: 'none',
@@ -187,13 +224,26 @@ export class ExtractStructuredTool {
         extractionNotes.push(`LLM extraction failed: ${llmErrorMessage}`);
       }
 
+      // A required field that came back missing or empty is a failed
+      // extraction, not a successful one carrying a note: surface it at the
+      // top level so a caller checking `success` sees it without reaching
+      // into `validation`.
+      const missingRequired = (schema.required || []).filter(
+        (field) => isEmptyValue((extractionResult.data || {})[field])
+      );
+      const failedRequired = extractionResult.valid !== true && missingRequired.length > 0;
+
       return {
+        success: !failedRequired,
         url,
         data: extractionResult.data || {},
         extraction_method: extractionMethod,
         confidence,
         schema_used: schema,
         processingTime: Date.now() - startTime,
+        ...(failedRequired
+          ? { error: `Required field(s) missing or empty: ${missingRequired.join(', ')}` }
+          : {}),
         validation: {
           valid: extractionResult.valid || false,
           errors: extractionResult.validationErrors || []
@@ -204,6 +254,7 @@ export class ExtractStructuredTool {
 
     } catch (error) {
       return {
+        success: false,
         url: params.url || 'unknown',
         data: {},
         extraction_method: 'none',
