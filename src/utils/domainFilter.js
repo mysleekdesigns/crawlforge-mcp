@@ -209,24 +209,36 @@ export class DomainFilter {
   /**
    * Check if URL is allowed based on all filtering rules
    * @param {string} url - URL to check
+   * @param {Object} [options] - Evaluation options
+   * @param {boolean} [options.isSeed=false] - Treat url as a crawl's start URL, which is
+   *   exempt from the include-pattern gate (the caller asked for it explicitly). Blacklist,
+   *   exclude patterns and whitelist checks are unchanged.
    * @returns {Object} Decision object with allowed status and metadata
    */
-  isAllowed(url) {
+  isAllowed(url, options = {}) {
+    const { isSeed = false } = options;
     try {
       const normalizedUrl = normalizeUrl(url);
-      
+      // Patterns are tested against the raw URL as well, so a pattern written with a
+      // trailing slash ('/docs/') still matches a URL normalizeUrl has stripped it from.
+      // The two forms can therefore reach different decisions and must not share a cache
+      // entry; seed checks skip the cache entirely since they use a different gate.
+      const cacheKey = normalizedUrl === url ? normalizedUrl : `${normalizedUrl}|${url}`;
+
       // Check cache first
-      if (this.cache.has(normalizedUrl)) {
+      if (!isSeed && this.cache.has(cacheKey)) {
         this.cacheHits++;
-        return this.cache.get(normalizedUrl);
+        return this.cache.get(cacheKey);
       }
 
       this.cacheMisses++;
-      const decision = this.evaluateUrl(normalizedUrl);
-      
+      const decision = this.evaluateUrl(normalizedUrl, url, isSeed);
+
       // Cache the decision
-      this.addToCache(normalizedUrl, decision);
-      
+      if (!isSeed) {
+        this.addToCache(cacheKey, decision);
+      }
+
       return decision;
     } catch (error) {
       return {
@@ -241,9 +253,11 @@ export class DomainFilter {
   /**
    * Internal URL evaluation logic
    * @param {string} url - Normalized URL to evaluate
+   * @param {string} [rawUrl=url] - URL as the caller supplied it, before normalization
+   * @param {boolean} [isSeed=false] - Skip the include-pattern gate for a crawl's start URL
    * @returns {Object} Decision object
    */
-  evaluateUrl(url) {
+  evaluateUrl(url, rawUrl = url, isSeed = false) {
     const urlObj = new URL(url);
     const domain = urlObj.hostname;
     const path = urlObj.pathname;
@@ -255,7 +269,7 @@ export class DomainFilter {
     }
 
     // 2. Check exclude patterns
-    const excludePatternResult = this.checkExcludePatterns(url);
+    const excludePatternResult = this.checkExcludePatterns(url, rawUrl);
     if (!excludePatternResult.allowed) {
       return excludePatternResult;
     }
@@ -267,13 +281,16 @@ export class DomainFilter {
     }
 
     // 4. Check include patterns
-    const includePatternResult = this.checkIncludePatterns(url);
+    const includePatternResult = this.checkIncludePatterns(url, rawUrl);
     if (includePatternResult.allowed) {
       return includePatternResult;
     }
 
-    // 5. Default behavior - if no whitelist exists, allow; if whitelist exists, deny
-    const hasWhitelist = this.whitelist.size > 0 || this.patterns.include.length > 0;
+    // 5. Default behavior - if no whitelist exists, allow; if whitelist exists, deny.
+    // A seed URL is not subject to the include-pattern gate: include patterns scope where a
+    // crawl may go, not whether the URL the caller named may be fetched at all.
+    const hasWhitelist = this.whitelist.size > 0 ||
+      (!isSeed && this.patterns.include.length > 0);
     
     return {
       allowed: !hasWhitelist,
@@ -366,12 +383,13 @@ export class DomainFilter {
 
   /**
    * Check exclude patterns
-   * @param {string} url - URL to check
+   * @param {string} url - Normalized URL to check
+   * @param {string} [rawUrl=url] - URL before normalization; tested as well
    * @returns {Object} Decision object
    */
-  checkExcludePatterns(url) {
+  checkExcludePatterns(url, rawUrl = url) {
     for (const patternConfig of this.patterns.exclude) {
-      if (patternConfig.pattern.test(url)) {
+      if (patternConfig.pattern.test(url) || patternConfig.pattern.test(rawUrl)) {
         return {
           allowed: false,
           reason: `Matches exclude pattern: ${patternConfig.rawPattern}`,
@@ -390,12 +408,13 @@ export class DomainFilter {
 
   /**
    * Check include patterns
-   * @param {string} url - URL to check
+   * @param {string} url - Normalized URL to check
+   * @param {string} [rawUrl=url] - URL before normalization; tested as well
    * @returns {Object} Decision object
    */
-  checkIncludePatterns(url) {
+  checkIncludePatterns(url, rawUrl = url) {
     for (const patternConfig of this.patterns.include) {
-      if (patternConfig.pattern.test(url)) {
+      if (patternConfig.pattern.test(url) || patternConfig.pattern.test(rawUrl)) {
         return {
           allowed: true,
           reason: `Matches include pattern: ${patternConfig.rawPattern}`,

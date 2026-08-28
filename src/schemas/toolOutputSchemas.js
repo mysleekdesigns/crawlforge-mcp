@@ -291,7 +291,10 @@ const crawlDeepShape = {
   stats: z.unknown().optional(),
   site_structure: z.object({
     total_pages: z.number().optional(),
-    depth_distribution: z.record(z.number()).optional(),
+    depth_distribution: z.record(z.number()).optional()
+      .describe('Pages per crawl depth (links from the start URL)'),
+    path_depth_distribution: z.record(z.number()).optional()
+      .describe('Pages per URL path-segment depth'),
     path_patterns: z.record(z.number()).optional(),
     file_types: z.record(z.number()).optional(),
     subdomains: z.array(z.string()).optional()

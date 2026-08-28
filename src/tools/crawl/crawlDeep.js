@@ -267,7 +267,7 @@ export class CrawlDeepTool {
           results: this.formatResults(results.results, validated.extract_content, validated.content_max_length),
           errors: results.errors,
           stats: results.stats,
-          site_structure: this.analyzeSiteStructure(results.urls),
+          site_structure: this.analyzeSiteStructure(results.urls, results.results),
           domain_filter_config: domainFilter ? domainFilter.exportConfig() : null,
           link_analysis: results.linkAnalysis,
           session: sessionContext
@@ -348,23 +348,35 @@ export class CrawlDeepTool {
     });
   }
 
-  analyzeSiteStructure(urls) {
+  analyzeSiteStructure(urls, pages = []) {
     const structure = {
       total_pages: urls.length,
       depth_distribution: {},
+      path_depth_distribution: {},
       path_patterns: {},
       file_types: {},
       subdomains: new Set()
     };
-    
+
+    // depth_distribution reports crawl depth — how many links from the start URL each
+    // page was reached at — taken from the depth the crawler recorded on each result.
+    // URL path depth is a different measurement and keeps its own field below.
+    for (const page of pages) {
+      const depth = page?.depth;
+      if (typeof depth === 'number') {
+        structure.depth_distribution[depth] = (structure.depth_distribution[depth] || 0) + 1;
+      }
+    }
+
     for (const url of urls) {
       try {
         const urlObj = new URL(url);
-        
-        // Analyze depth
-        const depth = urlObj.pathname.split('/').filter(s => s).length;
-        structure.depth_distribution[depth] = (structure.depth_distribution[depth] || 0) + 1;
-        
+
+        // Analyze URL path depth
+        const pathDepth = urlObj.pathname.split('/').filter(s => s).length;
+        structure.path_depth_distribution[pathDepth] =
+          (structure.path_depth_distribution[pathDepth] || 0) + 1;
+
         // Analyze path patterns
         const pathSegments = urlObj.pathname.split('/').filter(s => s);
         if (pathSegments.length > 0) {
@@ -446,10 +458,11 @@ export class CrawlDeepTool {
    * Analyze site structure with enhanced link analysis
    * @param {Array} urls - Crawled URLs
    * @param {Object} linkAnalysis - Link analysis results
+   * @param {Array} [pages] - Crawl results, each carrying the depth it was reached at
    * @returns {Object} Enhanced site structure analysis
    */
-  analyzeEnhancedSiteStructure(urls, linkAnalysis = null) {
-    const basicStructure = this.analyzeSiteStructure(urls);
+  analyzeEnhancedSiteStructure(urls, linkAnalysis = null, pages = []) {
+    const basicStructure = this.analyzeSiteStructure(urls, pages);
     
     if (!linkAnalysis) {
       return basicStructure;
