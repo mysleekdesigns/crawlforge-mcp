@@ -5,6 +5,41 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.3.0] - 2026-08-28
+
+Minor release, and the largest since 5.2.0: every fix from the 2026-08-28 tool-quality sweep, plus the compliance and identity work that gives the crawler one honest name and a robots gate on every path that fetches. 29 commits since 5.2.9, none of which had reached npm.
+
+### Compliance and identity
+
+- **Every fetching tool now checks robots.txt, and the crawler has one identity.** Both surfaces identify as the product token `CrawlForge`; the retired `CrawlForge-Bot` token is still honoured as a disallow so an existing opt-out keeps working. Two stealth paths that walked past the gate entirely are now gated with everything else — stealth changes how a page is rendered, not whose rules apply.
+- **A compliance refusal is free.** A request refused for robots or blocklist reasons no longer bills the caller. Previously a refusal could still consume credits, which charged users for the tool declining to act.
+- **Outbound requests are signed per RFC 9421 (Web Bot Auth).** Ed25519 signatures with a `Signature-Agent` header pointing at the published key directory, so a site can verify a crawl really came from CrawlForge. Unsigned is still the behaviour when no signing key is configured — the only difference is the signature itself.
+
+### Tool correctness
+
+The sweep exercised all 28 tools against live sites. These are the defects it found, each verified over real MCP stdio rather than a direct `execute()` call.
+
+- **`scrape` silently discarded data tables at its default setting.** Readability's article candidate excluded them, so Wikipedia's *List of S&P 500 companies* returned **0 table rows** with the default `onlyMainContent: true`. Data tables the article pass dropped are now re-attached by re-parsing the original HTML in a second JSDOM (Readability mutates the document it is handed, so the tables are already gone from the first one), and a warning names how many came back. 503 company rows now; a normal article is byte-identical to before.
+- **`extract_with_llm` returned `{}` with `success: true`.** An empty result fell straight through to success. It now gets one stricter retry and then fails honestly, naming the model.
+- **`extract_structured` answered from page chrome.** It fed whole-body text to the model, so a Cloudflare blog post returned `headline: "Skip to content"`. It now runs the same main-content pass as `scrape` and restores the title Readability strips.
+- **`crawl_deep`'s `include_patterns` blocked its own start URL**, making a documented parameter unusable: any value at all killed the crawl before it began, because the seed was tested against the patterns after normalization stripped its trailing slash. The seed is now exempt from the include gate (blacklist and exclude patterns still apply), and patterns are matched against the pre-normalization URL too.
+- **`crawl_deep`'s `depth_distribution` reported URL path depth, not crawl depth** — keys above `max_depth` on every crawl. It is now built from the depth the crawler records; path depth moved to `path_depth_distribution`.
+- **`track_changes` reported zero changes while the diff showed ten.** Text-only changes were never counted, so anything alerting on `summary.totalChanges` never fired. Text changes now count, with an explicit `textChanges` field beside the element counters.
+- **`scrape_structured` returned parallel arrays that were not row-aligned**, so on python.org every version paired with the previous release's date. A new optional `row_selector` matches fields within each row and returns aligned records; the parallel-array default is unchanged for existing callers.
+- **`summarize_content` led its summary with navigation chrome.** Fixed with an explicit navigation-phrase set rather than the punctuation heuristic originally proposed, which could not distinguish `Jump to content.` from a genuine short opening sentence.
+- **`deep_research` promoted boilerplate and vendor marketing into findings.** An arXiv author/affiliation block was the top finding and a competitor's marketing copy became the conclusion. Front matter, DOI stubs and bot-challenge interstitials are now rejected at claim extraction; claims are gated on topical relevance; and findings are drawn round-robin by source, so a source contributes a second finding only after every other source has contributed one. Claim grouping and consensus detection are now semantic rather than lexical.
+- **`process_document` returned two different readability scores for the same document** — 100 "Very Easy" against 54.75 "Fairly Difficult" on the same W-9. There were three Flesch implementations, not two; all response paths now use one.
+- **`analyze_content`'s readability block ignored the CJK segmenter**, reporting 1 word and 1 sentence for a Chinese paragraph while `statistics` in the same response reported 96. Both blocks now share one tokenizer, sentence splitting understands CJK terminators, and on CJK the Flesch score is withheld with `notApplicable: 'flesch-requires-syllable-based-language'` instead of fabricated.
+- **`search_web` returned fewer results than `limit`** when deduplication removed entries and nothing topped up. It now over-fetches a small margin once and trims after dedup, still issuing exactly one backend search. Note `limit: 10` cannot backfill — the provider caps a request at 10 items.
+- **`generate_llms_txt` truncated in crawl order, not by importance.** On modelcontextprotocol.io with a 15-page budget it returned 15 `/community/*` pages and omitted the homepage, docs and specification. It now keeps the site root first, then one entry point per top-level section, then fills the remainder.
+- **`scrape`'s `branding` format emitted `var(--default-font-family` as a font family**, splitting a CSS value mid-`var()`. Font lists are now split on top-level commas only and `var()` references resolve against the collected variables.
+- **`scrape_template github-repo` returned GitHub's OG boilerplate as the description** ("Contribute to owner/repo development by creating an account on GitHub"). Fixed in `crawlforge-extractors` 1.2.3, which this release depends on: the About text now comes from the repository's embedded sidebar payload, and a repo with no description honestly reports `null`.
+
+### Verification
+
+1439 unit tests / 1438 pass / 1 skipped, MCP compliance 100% with 28 tools. Every fix above was verified against a live target over MCP stdio, and each regression test was confirmed to fail against the pre-fix source rather than assumed to.
+
+
 ## [5.2.9] - 2026-08-26
 
 Patch release. The last of the small-local-model JSON parsing defects in `deep_research`.
