@@ -23,6 +23,7 @@ import { identityHeaders, resolveUserAgent } from './fetchIdentity.js';
 import { throttleHost } from './hostRateLimiter.js';
 import { recordComplianceEvent, apiKeyId } from './complianceAudit.js';
 import { signRequestHeaders } from './webBotAuth.js';
+import { markPreflightRefusal } from '../server/requestContext.js';
 import { config } from '../constants/config.js';
 
 export class RobotsDisallowedError extends Error {
@@ -70,7 +71,14 @@ function checkerFor(userAgent) {
  * @throws {BlockedHostError} for a permanently blocked host
  */
 export async function robotsPreflight(url, options = {}) {
-  assertHostAllowed(url); // G7 — first, and not overridable
+  // G7 — first, and not overridable. Stamp before rethrowing so a blocked host
+  // costs the caller nothing: we refused, we fetched nothing.
+  try {
+    assertHostAllowed(url);
+  } catch (error) {
+    if (error?.code === 'HOST_BLOCKED') markPreflightRefusal('HOST_BLOCKED');
+    throw error;
+  }
 
   const userAgent = resolveUserAgent(options.userAgent);
   const warnings = [];
@@ -129,7 +137,10 @@ export async function robotsPreflight(url, options = {}) {
  */
 export async function preflightFetch(url, options = {}) {
   const decision = await robotsPreflight(url, options);
-  if (!decision.allowed) throw new RobotsDisallowedError(url);
+  if (!decision.allowed) {
+    markPreflightRefusal('ROBOTS_DISALLOWED');
+    throw new RobotsDisallowedError(url);
+  }
 
   await throttleHost(url, { crawlDelayMs: decision.crawlDelayMs });
 
@@ -173,7 +184,10 @@ export async function browserPreflight(url, options = {}) {
     tool: options.tool,
     apiKey: options.apiKey
   });
-  if (!decision.allowed) throw new RobotsDisallowedError(url);
+  if (!decision.allowed) {
+    markPreflightRefusal('ROBOTS_DISALLOWED');
+    throw new RobotsDisallowedError(url);
+  }
 
   await throttleHost(url, { crawlDelayMs: decision.crawlDelayMs });
   return decision.warnings;

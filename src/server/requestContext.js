@@ -24,3 +24,26 @@ export const requestContext = new AsyncLocalStorage();
 export function isInternalRequest() {
   return requestContext.getStore()?.internal === true;
 }
+
+/**
+ * Record that the compliance gate refused this invocation before anything was
+ * fetched — robots.txt disallowed the path, or the host is on the permanent
+ * blocklist.
+ *
+ * withAuth reads this when it decides the charge. The flag rather than the
+ * error's `code` is deliberate: tool handlers catch their own errors and
+ * return `{ isError: true }` with only a message, so the typed error never
+ * reaches withAuth. It also survives both routes a refusal can take — thrown,
+ * or swallowed into an isError result.
+ *
+ * @param {string} code 'ROBOTS_DISALLOWED' | 'HOST_BLOCKED'
+ */
+export function markPreflightRefusal(code) {
+  const store = requestContext.getStore();
+  if (store) store.preflightRefusal = code;
+}
+
+/** The refusal code recorded for this invocation, or null. */
+export function preflightRefusal() {
+  return requestContext.getStore()?.preflightRefusal ?? null;
+}
