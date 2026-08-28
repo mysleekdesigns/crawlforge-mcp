@@ -7,8 +7,8 @@
  * Run: node --test tests/unit/tools/templates/scrapeTemplate.test.js
  *
  * TemplateRegistry.run(id, body, url) takes a raw response body directly (no
- * network), so the table-driven suite below exercises all 11 real template
- * extractors against representative fixtures with no stubbing. Most bodies are
+ * network), so the table-driven suite below exercises every page-scraping
+ * template extractor against representative fixtures with no stubbing. Most bodies are
  * HTML; shopify-product reads the store's product JSON endpoint instead, so its
  * fixture is a JSON string. ScrapeTemplateTool
  * wraps the registry with a safeFetch (SSRF-guarded) network call, tested
@@ -18,7 +18,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { TemplateRegistry } from 'crawlforge-extractors';
+import { TEMPLATES, TemplateRegistry } from 'crawlforge-extractors';
 
 // ---------------------------------------------------------------------------
 // Table-driven fixtures — one entry per registered template, each with
@@ -351,11 +351,18 @@ const CASES = [
 describe('TemplateRegistry.run (real extractors, table-driven)', () => {
   const registry = new TemplateRegistry();
 
-  test('registry lists exactly the templates covered by this fixture table', () => {
-    const ids = registry.list().map((t) => t.id).sort();
+  test('every page-scraping template is covered by this fixture table', () => {
+    // The table covers the templates this tool reaches by URL and parses out of
+    // a document. Connectors that build their own URL from params — the list
+    // connectors and nhtsa-vin — are fixtured in the package against payloads
+    // captured from the live APIs.
+    const pageTemplates = TEMPLATES
+      .filter((t) => !t.extractList && !t.listUrl)
+      .map((t) => t.id)
+      .sort();
     // Unique: a template may have multiple fixture cases (e.g. github-repo
     // classic + React layouts).
-    assert.deepEqual(ids, [...new Set(CASES.map((c) => c.id))].sort());
+    assert.deepEqual(pageTemplates, [...new Set(CASES.map((c) => c.id))].sort());
   });
 
   for (const testCase of CASES) {
@@ -379,6 +386,41 @@ describe('TemplateRegistry.run (real extractors, table-driven)', () => {
 
 process.env.ALLOWED_DOMAINS = 'localhost';
 const { ScrapeTemplateTool } = await import('../../../../src/tools/templates/ScrapeTemplateTool.js');
+const { robotsPreflight } = await import('../../../../src/utils/robotsGate.js');
+
+/** One product, shaped like the /products.json endpoint's rows. */
+const collectionProduct = (id, handle, title) => ({
+  id, title, handle, vendor: 'Acme', body_html: '<p>Copy.</p>', tags: [], options: [{ name: 'Size' }],
+  images: [{ src: `https://cdn.example/${id}.jpg` }],
+  variants: [{
+    id: id * 10, title: 'S', price: '19.99', compare_at_price: '', sku: `S-${id}`,
+    option1: 'S', inventory_management: null, inventory_policy: 'deny'
+  }]
+});
+
+/**
+ * Nothing shipped needs an API key today, so the credential path is exercised
+ * against a fixture connector rather than a live one. The key arrives as
+ * `params.apiKey` — the registry never reads process.env itself.
+ */
+const KEY_VALUE = 's3cret-key-value';
+const KEYED_TEMPLATE = {
+  id: 'fixture-keyed',
+  name: 'Fixture Keyed API',
+  description: 'Test-only list connector behind an API key.',
+  requiresApiKey: true,
+  credentialRef: 'FIXTURE_TEMPLATE_KEY',
+  listUrl(params = {}) {
+    if (!params.base) throw new Error('fixture-keyed requires a "base" parameter: the API origin.');
+    const url = new URL('/gated/list.json', params.base);
+    url.searchParams.set('key', params.apiKey);
+    return url.toString();
+  },
+  extractList(body) {
+    const { rows } = JSON.parse(body);
+    return { items: rows, count: rows.length };
+  }
+};
 
 describe('ScrapeTemplateTool (real module, real fetch against a local server)', () => {
   let server;
@@ -386,9 +428,36 @@ describe('ScrapeTemplateTool (real module, real fetch against a local server)', 
 
   before(async () => {
     server = http.createServer((req, res) => {
-      if (req.url === '/acme/widget') {
+      const { pathname, searchParams } = new URL(req.url, 'http://localhost');
+
+      // Allows everything except one collection endpoint — a path no caller
+      // names directly. It is only ever produced by resolveUrl or listUrl,
+      // which is what makes it a test of *which* URL the gate runs against.
+      if (pathname === '/robots.txt') {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('User-agent: *\nAllow: /\nDisallow: /collections/mens/products.json\n');
+        return;
+      }
+      if (pathname === '/acme/widget') {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end('<html><body><strong itemprop="name"><a href="/acme/widget">widget</a></strong></body></html>');
+        return;
+      }
+      if (pathname === '/collections/shoes/products.json') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          products: [collectionProduct(1, 'runner', 'Runner'), collectionProduct(2, 'trainer', 'Trainer')]
+        }));
+        return;
+      }
+      if (pathname === '/gated/list.json') {
+        if (searchParams.get('key') !== KEY_VALUE) {
+          res.writeHead(401);
+          res.end('unauthorized');
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ rows: [{ id: 1 }, { id: 2 }] }));
         return;
       }
       res.writeHead(404);
@@ -410,8 +479,12 @@ describe('ScrapeTemplateTool (real module, real fetch against a local server)', 
   test('list mode — returns all available templates, no network call', async () => {
     const tool = new ScrapeTemplateTool();
     const result = await tool.execute({ template: 'list' });
-    assert.equal(result.count, 11);
+    assert.equal(result.count, result.templates.length);
     assert.ok(result.templates.some((t) => t.id === 'github-repo'));
+    // A caller has to be able to tell the two kinds apart: an entity template
+    // takes a url, a list connector takes params and returns N records.
+    assert.equal(result.templates.find((t) => t.id === 'github-repo').mode, 'entity');
+    assert.equal(result.templates.find((t) => t.id === 'greenhouse-jobs').mode, 'list');
   });
 
   test('missing url triggers list mode', async () => {
@@ -441,5 +514,106 @@ describe('ScrapeTemplateTool (real module, real fetch against a local server)', 
       () => tool.execute({ template: 'github-repo', url: `${baseUrl}/missing` }),
       /HTTP 404/
     );
+  });
+
+  // ── auto ──────────────────────────────────────────────────────────────────
+
+  test('auto — detects the template, names its choice, and returns the list connector\'s items', async () => {
+    const tool = new ScrapeTemplateTool();
+    const result = await tool.execute({ template: 'auto', url: `${baseUrl}/collections/shoes` });
+    // A caller cannot audit "auto" that hides its own decision.
+    assert.equal(result.template, 'shopify-collection');
+    assert.equal(result.url, `${baseUrl}/collections/shoes`);
+    assert.equal(result.fetchedUrl, `${baseUrl}/collections/shoes/products.json`);
+    assert.equal(result.data.count, 2);
+    assert.equal(result.data.items.length, 2);
+  });
+
+  test('auto — no matching template points the caller at template:"list"', async () => {
+    const tool = new ScrapeTemplateTool();
+    await assert.rejects(
+      () => tool.execute({ template: 'auto', url: 'https://example.com/nothing-here' }),
+      (error) => /No template matches/.test(error.message) && /template:"list"/.test(error.message)
+    );
+  });
+
+  test('auto — without a url, says so rather than listing', async () => {
+    const tool = new ScrapeTemplateTool();
+    await assert.rejects(() => tool.execute({ template: 'auto' }), /needs a url/);
+  });
+
+  // ── list connectors ───────────────────────────────────────────────────────
+
+  test('list connector — params build the URL and N items come back', async () => {
+    const tool = new ScrapeTemplateTool();
+    const result = await tool.execute({
+      template: 'shopify-collection',
+      params: { store: baseUrl, collection: 'shoes' }
+    });
+    assert.equal(result.template, 'shopify-collection');
+    // The caller named no URL, so the one we built is the one reported.
+    assert.equal(result.url, `${baseUrl}/collections/shoes/products.json`);
+    assert.deepEqual(result.params, { store: baseUrl, collection: 'shoes' });
+    assert.equal(result.data.items.length, 2);
+    assert.equal(result.data.items[0].title, 'Runner');
+  });
+
+  test('listUrl\'s missing-parameter error reaches the caller, before any fetch', async () => {
+    const tool = new ScrapeTemplateTool();
+    await assert.rejects(
+      () => tool.execute({ template: 'shopify-collection', params: { collection: 'mens' } }),
+      /requires a "store" parameter/
+    );
+  });
+
+  // ── the robots gate runs against the URL actually fetched ─────────────────
+
+  test('robots gate runs against the URL listUrl produced, not the caller input', async () => {
+    // The caller names no URL at all here — only params. robots.txt disallows
+    // exactly the path listUrl builds, so a refusal can only mean the gate ran
+    // against that URL. listUrl reaches a host the caller never named, which is
+    // the way G5 breaks by accident.
+    const tool = new ScrapeTemplateTool();
+    await assert.rejects(
+      () => tool.execute({ template: 'shopify-collection', params: { store: baseUrl, collection: 'mens' } }),
+      (error) => error.code === 'ROBOTS_DISALLOWED' && /disallows this path/.test(error.message)
+    );
+  });
+
+  test('robots gate runs against the resolved URL, not the caller input', async () => {
+    const input = `${baseUrl}/collections/mens`;
+    const decision = await robotsPreflight(input);
+    assert.equal(decision.allowed, true, 'the input URL itself is allowed — only the resolved one is not');
+
+    const tool = new ScrapeTemplateTool();
+    await assert.rejects(
+      () => tool.execute({ template: 'shopify-collection', url: input }),
+      (error) => error.code === 'ROBOTS_DISALLOWED' && /disallows this path/.test(error.message)
+    );
+  });
+
+  // ── credentials ───────────────────────────────────────────────────────────
+
+  test('key-based connector — a missing key is an actionable error naming the env var', async () => {
+    delete process.env.FIXTURE_TEMPLATE_KEY;
+    const tool = new ScrapeTemplateTool({ templates: [KEYED_TEMPLATE] });
+    await assert.rejects(
+      () => tool.execute({ template: 'fixture-keyed', params: { base: baseUrl } }),
+      // Named, not a 401 passthrough from the target.
+      (error) => /FIXTURE_TEMPLATE_KEY/.test(error.message) && !/401/.test(error.message)
+    );
+  });
+
+  test('key-based connector — the key reaches listUrl and never comes back out', async () => {
+    process.env.FIXTURE_TEMPLATE_KEY = KEY_VALUE;
+    try {
+      const tool = new ScrapeTemplateTool({ templates: [KEYED_TEMPLATE] });
+      const result = await tool.execute({ template: 'fixture-keyed', params: { base: baseUrl } });
+      // The fixture server answers 401 unless the key arrived on the request.
+      assert.equal(result.data.count, 2);
+      assert.ok(!JSON.stringify(result).includes(KEY_VALUE), 'the API key must not be echoed back');
+    } finally {
+      delete process.env.FIXTURE_TEMPLATE_KEY;
+    }
   });
 });
