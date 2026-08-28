@@ -258,7 +258,43 @@ function extractColors(cssText, $, cssVariables) {
     .slice(0, 24);
 }
 
-function extractFonts(cssText, $) {
+// Splits a CSS value on commas that are not inside parentheses, so a
+// `var(--x, sans-serif)` reference survives as one entry instead of being cut in half.
+function splitTopLevel(value) {
+  const parts = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of value) {
+    if (ch === '(') depth++;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    if (ch === ',' && depth === 0) {
+      parts.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  parts.push(cur);
+  return parts.map((p) => p.trim()).filter(Boolean);
+}
+
+// Resolves a `var(--x)` / `var(--x, fallback)` entry against the collected variables,
+// returning the family names it stands for. An unresolvable reference yields nothing
+// rather than leaking `var(` text into the font list.
+function resolveVarRef(entry, cssVariables, seen) {
+  const m = entry.match(/^var\(\s*(--[\w-]+)\s*(?:,([\s\S]*))?\)$/);
+  if (!m) return [entry];
+  const name = m[1];
+  const fallback = m[2];
+  if (!seen.has(name)) {
+    seen.add(name);
+    const value = cssVariables[name];
+    if (value) return splitTopLevel(value).flatMap((v) => resolveVarRef(v, cssVariables, seen));
+  }
+  return fallback ? splitTopLevel(fallback).flatMap((v) => resolveVarRef(v, cssVariables, seen)) : [];
+}
+
+function extractFonts(cssText, $, cssVariables) {
   const families = new Map();
   const generics = new Set();
   const fontFaces = [];
@@ -266,7 +302,10 @@ function extractFonts(cssText, $) {
   const ffRe = /font-family\s*:\s*([^;}{]+)/gi;
   let m;
   while ((m = ffRe.exec(cssText)) !== null) {
-    const list = m[1].split(',').map((f) => f.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+    const list = splitTopLevel(m[1])
+      .flatMap((f) => resolveVarRef(f, cssVariables, new Set()))
+      .map((f) => f.trim().replace(/^['"]|['"]$/g, ''))
+      .filter((f) => f && !f.includes('var('));
     for (const f of list) {
       const lf = f.toLowerCase();
       if (GENERIC_FAMILIES.has(lf)) { generics.add(lf); continue; }
@@ -386,7 +425,7 @@ export async function extractBranding($, pageUrl, opts = {}) {
 
   const cssVariables = safe(() => extractCssVariables(sources.cssText), {}, 'css-variables');
   const colors = safe(() => extractColors(sources.cssText, $, cssVariables), [], 'colors');
-  const fontInfo = safe(() => extractFonts(sources.cssText, $), { fonts: [], genericFallbacks: [], webfontProviders: [], fontFaces: [] }, 'fonts');
+  const fontInfo = safe(() => extractFonts(sources.cssText, $, cssVariables), { fonts: [], genericFallbacks: [], webfontProviders: [], fontFaces: [] }, 'fonts');
   const logo = safe(() => extractLogo($, pageUrl), { favicons: [], ogImage: null, candidates: [], inlineHeaderSvg: null }, 'logo');
   const tokens = safe(() => extractTokens(sources.cssText, cssVariables), { radii: [], shadows: [], spacingVariables: {} }, 'tokens');
 

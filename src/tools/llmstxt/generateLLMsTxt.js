@@ -242,6 +242,14 @@ export class GenerateLLMsTxtTool {
     emitSection('Tools', flatten('tools'));
     emitSection('Navigation', flatten('navigation'));
 
+    // Pages the categorizer's keyword lists did not place — the site root and
+    // any section whose name it does not recognise. The analysis spent its
+    // page budget on these, so they belong in the guide; before this they were
+    // listed only when no named section matched at all, which silently dropped
+    // the homepage and whole sections (e.g. /specification) from sites that
+    // happen to also have a /docs.
+    emitSection('Pages', flatten('other'));
+
     // Fallback: if no categorized section produced output, list the raw
     // sitemap so llms.txt always carries a URL inventory. Must run BEFORE the
     // APIs section — an APIs entry alone used to set hasBody and suppress it.

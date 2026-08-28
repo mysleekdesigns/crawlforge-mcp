@@ -59,3 +59,40 @@ describe('extractBranding (static, no linked CSS)', () => {
     assert.ok(Array.isArray(b.fonts));
   });
 });
+
+describe('font-family values containing var() (6.5)', () => {
+  const branding = (css) =>
+    extractBranding(load(`<html><head><style>${css}</style></head><body></body></html>`), 'https://v.test/', {
+      fetchLinkedCss: false,
+    });
+
+  test('an undefined var() falls back instead of leaking a `var(` fragment', async () => {
+    const b = await branding('body{ font-family: var(--default-font-family, sans-serif); }');
+    assert.ok(!b.fonts.some((f) => f.family.includes('var(')), 'no var( fragment in fonts');
+    assert.ok(b.genericFallbacks.includes('sans-serif'), 'the var() fallback is read as the generic');
+  });
+
+  test('a defined var() resolves to the families it stands for', async () => {
+    const b = await branding(':root{ --font-sans: Inter, system-ui; } body{ font-family: var(--font-sans); }');
+    assert.ok(b.fonts.some((f) => f.family === 'Inter'), 'Inter resolved through the variable');
+    assert.ok(b.genericFallbacks.includes('system-ui'), 'generic inside the variable captured');
+    assert.ok(!b.fonts.some((f) => f.family.includes('var(')), 'no var( fragment in fonts');
+  });
+
+  test('an unresolvable var() with no fallback contributes nothing', async () => {
+    const b = await branding('body{ font-family: var(--missing); }');
+    assert.deepEqual(b.fonts, []);
+    assert.deepEqual(b.genericFallbacks, []);
+  });
+
+  test('self-referential variables terminate', async () => {
+    const b = await branding(':root{ --a: var(--b); --b: var(--a); } body{ font-family: var(--a); }');
+    assert.deepEqual(b.fonts, []);
+  });
+
+  test('a plain family list is unchanged', async () => {
+    const b = await branding('body{ font-family: "JetBrains Mono", Menlo, monospace; }');
+    assert.deepEqual(b.fonts.map((f) => f.family), ['JetBrains Mono', 'Menlo']);
+    assert.ok(b.genericFallbacks.includes('monospace'));
+  });
+});
