@@ -49,26 +49,17 @@ const MAX_FINDING_SHARE_PER_SOURCE = 0.4;
 // many findings have to be diverse before depth matters.
 const SUMMARY_SLICE = 5;
 
-// Pairwise contradiction judgement is OFF, and the reason is measured rather
-// than assumed. Against a live run's own claims (2026-08-28) the default local
-// model returned 29, 13 and 28 false contradictions at batch sizes 30, 8 and 1
-// — one pair per call being the worst, because with nothing to compare against
-// it affirms whatever it is shown. That is acquiescence bias, a documented and
-// general LLM failure mode. Adding the standard control for it (asking which
-// pairs are CONSISTENT and vetoing anything named by both passes) cut false
-// positives to 7 but then missed a direct negation pair outright — "X does not
-// use Y" against "X uses Y" was called consistent. At that point the signal is
-// anti-correlated with the truth.
-//
-// Zero conflicts is the honest answer: a research tool that invents
-// contradictions between sources that agree is worse than one that reports
-// none. Semantic grouping (which this replaced the lexical key with) DID make
-// detection structurally reachable — that half of the question is answered —
-// and consensus, which needed the same grouping, now works. The judgement
-// itself lives in LLMManager.findContradictions, is unit-tested, and becomes
-// useful the moment a model that can do natural-language inference is wired
-// in; a purpose-built NLI cross-encoder is the documented next step.
-const ENABLE_LLM_CONFLICT_DETECTION = false;
+// Conflict detection runs only when the judging model is one measured not to
+// invent disagreement. The default 4B local model, measured 2026-08-28 against
+// a live run's own claims, named 29, 13 and 28 non-contradictions at batch
+// sizes 30, 8 and 1; the consistency-veto control cut that to 7 but then
+// missed "X does not use Y" against "X uses Y" outright. Replaying the same
+// claims through gemma3:12b (three runs): 0 false contradictions on 27 real
+// pairs and every planted one caught. So the gate is the model, not a flag:
+// LLMManager.canJudgeContradictions() answers from JUDGEMENT_MODELS, and a
+// machine without such a model reports zero conflicts — the honest answer,
+// since a research tool that invents contradictions between sources that
+// agree is worse than one that reports none.
 
 // Contradiction checking is quadratic in a group's size, and every candidate
 // pair costs prompt tokens in the one batched call. Compare a group's most
@@ -1441,8 +1432,8 @@ export class ResearchOrchestrator extends EventEmitter {
    * sentence-shape repair for that, so there is no fallback path here.
    */
   async detectInformationConflicts(claimGroups, topic) {
-    if (!ENABLE_LLM_CONFLICT_DETECTION) return [];
     if (!this.enableLLMFeatures) return [];
+    if (!(await this.llmManager.canJudgeContradictions())) return [];
 
     const pairs = [];
     for (const group of claimGroups) {
@@ -1469,7 +1460,10 @@ export class ResearchOrchestrator extends EventEmitter {
     try {
       contradicting = await this.llmManager.findContradictions(
         candidates.map(({ a, b }) => ({ a: a.claim, b: b.claim })),
-        topic
+        topic,
+        // The judge's own default examined 30; every candidate formed here is
+        // meant to be judged, so the caps agree.
+        { maxPairs: MAX_CONFLICT_PAIRS }
       );
       this.metrics.llmAnalysisCalls++;
     } catch (error) {

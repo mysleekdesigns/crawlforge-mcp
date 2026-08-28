@@ -14,28 +14,37 @@ export class OllamaProvider extends LLMProvider {
     super(options);
 
     // Resolved lazily: choosing the best installed model needs an HTTP call.
+    // An explicit model applies to every role; otherwise each role resolves
+    // (and caches) its own choice.
     this.model = options.model || null;
+    this.modelByRole = new Map();
     this.embeddingModel = options.embeddingModel || process.env.OLLAMA_EMBEDDING_MODEL || null;
     this.timeout = options.timeout || 120000;
   }
 
-  /** The model to use, selecting the best installed one on first use. */
-  async resolveModel() {
-    if (!this.model) this.model = await selectOllamaModel();
-    return this.model;
+  /**
+   * The model to use, selecting the best installed one for the role on first
+   * use. Extraction and judgement have different winners — see JUDGEMENT_MODELS.
+   * @param {'default'|'judgement'} [role]
+   */
+  async resolveModel(role = 'default') {
+    if (this.model) return this.model;
+    if (!this.modelByRole.has(role)) this.modelByRole.set(role, await selectOllamaModel(role));
+    return this.modelByRole.get(role);
   }
 
   async generateCompletion(prompt, options = {}) {
-    const model = await this.resolveModel();
     const {
       maxTokens = 1000,
       temperature = 0.7,
       systemPrompt = null,
+      role = 'default',
       // 'json' constrains the model to emit a parseable object, or pass a JSON
       // Schema to constrain the shape as well. Small local models otherwise
       // wrap JSON in prose and the caller's JSON.parse fails.
       format = null
     } = options;
+    const model = await this.resolveModel(role);
 
     const messages = [];
     if (systemPrompt) {

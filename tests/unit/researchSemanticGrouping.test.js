@@ -46,12 +46,16 @@ const PARAPHRASE_CLAIMS = [
   claim(PARAPHRASE_B, 'https://two.example/b', 0.6)
 ];
 
-// An orchestrator whose LLM answers exactly what the test dictates.
-function withLLM(ro, { partition, scores, contradictions } = {}) {
+// An orchestrator whose LLM answers exactly what the test dictates. `judge`
+// is whether a measured judgement model is available — the conflict gate —
+// and is stubbed so no test's outcome depends on what Ollama the developer
+// happens to have installed.
+function withLLM(ro, { partition, scores, contradictions, judge = false } = {}) {
   ro.enableLLMFeatures = true;
   ro.llmManager.groupClaimsBySimilarity = async () => partition ?? [];
   ro.llmManager.scoreClaimRelevance = async () => scores ?? [];
   ro.llmManager.findContradictions = async () => contradictions ?? [];
+  ro.llmManager.canJudgeContradictions = async () => judge;
   return ro;
 }
 
@@ -193,7 +197,7 @@ describe('4.5 semantic claim grouping', () => {
   });
 });
 
-describe('conflict detection is gated off and fails closed', () => {
+describe('conflict detection is gated on a measured judge and fails closed', () => {
   function group(claims, id = 'g') {
     return { id, keywords: [], claims, sourceCount: 1, avgCredibility: 0.7 };
   }
@@ -230,31 +234,35 @@ describe('conflict detection is gated off and fails closed', () => {
     assert.deepEqual(conflicts, [], 'no sentence-shape test may add a conflict of its own');
   });
 
-  test('no conflicts are reported even when the model names some', async () => {
-    // The shipped state. Measured 2026-08-28 against a live run's own claims,
-    // the default local model named 29, 13 and 28 non-contradictions at batch
-    // sizes 30, 8 and 1; adding the consistency-veto control cut that to 7 but
-    // then missed "X does not use Y" against "X uses Y" entirely. A research
-    // tool that invents disagreement between sources that agree is worse than
-    // one that reports none, so the judgement is gated off until a model that
-    // can do natural-language inference is wired in.
+  test('a contradiction the model names is reported once a measured judge is available', async () => {
+    // Measured 2026-08-28: the default 4B model named 29, 13 and 28
+    // non-contradictions on a live run's own claims and, with the consistency
+    // veto, then missed "X does not use Y" against "X uses Y" outright — so
+    // the judgement was gated off. Replaying the same claims through
+    // gemma3:12b: 0 false contradictions on 27 real pairs, every planted one
+    // caught, three runs. The gate is the model: with a measured judge the
+    // model's answer is reported.
     const claims = [...LEXICALLY_OPPOSED, UNRELATED];
-    const ro = withLLM(orchestrator(), { contradictions: [2] });
+    // Pairs are formed in order: (0,1) (0,2) (1,2). The model names the first.
+    const ro = withLLM(orchestrator(), { contradictions: [0], judge: true });
 
-    assert.deepEqual(
-      await ro.detectInformationConflicts([group(claims)], TOPIC),
-      [],
-      'the gate holds regardless of what the model returns'
-    );
+    const conflicts = await ro.detectInformationConflicts([group(claims)], TOPIC);
+
+    assert.equal(conflicts.length, 1);
+    assert.equal(conflicts[0].type, 'contradiction');
+    assert.equal(conflicts[0].claim1.claim, LEXICALLY_OPPOSED[0].claim);
+    assert.equal(conflicts[0].claim2.claim, LEXICALLY_OPPOSED[1].claim);
   });
 
-  test('the model is not called at all while the gate is closed', async () => {
+  test('without a measured judge the model is not asked at all, whatever it would say', async () => {
     // Not merely "returns nothing": the gate must short-circuit before the
-    // pairs are built, so a disabled feature costs no LLM round trips inside
-    // the tool's wall-clock limit.
-    const ro = withLLM(orchestrator());
+    // pairs are built, so an unmeasured model costs no LLM round trips inside
+    // the tool's wall-clock limit — and cannot invent a conflict.
+    const ro = withLLM(orchestrator(), { judge: false });
+    let asked = false;
     ro.llmManager.findContradictions = async () => {
-      throw new Error('must not be called');
+      asked = true;
+      return [0];
     };
 
     assert.deepEqual(
@@ -267,6 +275,33 @@ describe('conflict detection is gated off and fails closed', () => {
       ),
       []
     );
+    assert.equal(asked, false, 'the judge must not be consulted while the gate is closed');
+  });
+
+  test('every candidate pair the orchestrator forms is offered to the judge', async () => {
+    // The judge's own default examined 30 pairs while the orchestrator formed
+    // up to 40, so the last ten candidates were silently never judged.
+    let sent;
+    let options;
+    const ro = withLLM(orchestrator(), { judge: true });
+    ro.llmManager.findContradictions = async (pairs, _topic, opts) => {
+      sent = pairs.length;
+      options = opts;
+      return [];
+    };
+    const groups = Array.from({ length: 10 }, (_, g) =>
+      group(
+        Array.from({ length: 10 }, (_, i) =>
+          claim(`Group ${g} claim ${i} about bot detection.`, `https://s${g}-${i}.example/x`, 0.5 + i * 0.01)
+        ),
+        `g${g}`
+      )
+    );
+
+    await ro.detectInformationConflicts(groups, TOPIC);
+
+    assert.equal(sent, 40, 'ten groups of ten is 450 pairs before the per-group and overall caps');
+    assert.equal(options?.maxPairs, sent, 'the judge must be told to examine every pair it is sent');
   });
 
   test('no conflicts when LLM features are disabled, and the model is not called', async () => {
@@ -303,10 +338,10 @@ describe('conflict detection is gated off and fails closed', () => {
     assert.deepEqual(await ro.detectInformationConflicts([group([LEXICALLY_OPPOSED[0]])], TOPIC), []);
   });
 
-  test('a large claim population still costs nothing while gated', async () => {
+  test('a large claim population still costs nothing without a measured judge', async () => {
     // Ten groups of ten claims is 450 unbounded pairs. The bounding logic that
-    // used to cap this lives behind the gate now, so what is pinned here is
-    // that none of it runs.
+    // caps this lives behind the gate, so what is pinned here is that none of
+    // it runs.
     const groups = Array.from({ length: 10 }, (_, g) =>
       group(
         Array.from({ length: 10 }, (_, i) =>

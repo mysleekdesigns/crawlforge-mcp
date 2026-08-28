@@ -560,3 +560,29 @@ describe('LLMManager.findContradictions', () => {
     assert.ok(!prompt.includes('x'.repeat(200)), 'the claim must be truncated before it reaches the prompt');
   });
 });
+
+describe('the judgement role', () => {
+  test('relevance, grouping and contradiction all ask the provider for the judgement model', async () => {
+    // Which model that resolves to is ollamaModelSelection.test.js's concern;
+    // what is pinned here is that every judgement call asks for it.
+    const manager = await stubbedManager();
+    const provider = manager.getProvider('ollama');
+    const real = provider.generateCompletion.bind(provider);
+    const roles = [];
+    provider.generateCompletion = async (prompt, options = {}) => {
+      roles.push(options.role);
+      return real(prompt, options);
+    };
+
+    chatContent = '{"scores":[{"i":0,"score":0.5}]}';
+    await manager.scoreClaimRelevance(['a'], TOPIC);
+    // Two claims: a single claim is a trivial partition and never reaches the model.
+    chatContent = '{"groups":[[0],[1]]}';
+    await manager.groupClaimsBySimilarity(['a', 'b'], TOPIC);
+    chatContent = '{"contradictions":[]}';
+    await manager.findContradictions([{ a: 'x', b: 'y' }], TOPIC);
+
+    assert.equal(roles.length, 3);
+    assert.deepEqual([...new Set(roles)], ['judgement']);
+  });
+});

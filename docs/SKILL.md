@@ -359,6 +359,11 @@ With no LLM configured, `deep_research` returns structured **raw evidence** for
 the calling assistant (e.g. Claude Code) to synthesize — this is expected, do
 not suggest adding API keys.
 
+On local Ollama, claim judgement (relevance, grouping, contradiction) uses
+`gemma3:12b` when it is installed and the extraction model otherwise; conflicts
+are reported only with that model or a cloud provider, so `conflictsFound: 0`
+on a machine without it is expected, not a failure.
+
 See [research workflows](references/workflows.md) for pipelines, depth tiers,
 and parameter detail.
 
