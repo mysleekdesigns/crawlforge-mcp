@@ -7,6 +7,7 @@ import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
 import * as cheerio from 'cheerio';
 import { z } from 'zod';
+import { ContentQualityAssessor } from '../../utils/contentUtils.js';
 
 const ContentProcessorSchema = z.object({
   html: z.string(),
@@ -381,7 +382,11 @@ export class ContentProcessor {
   }
 
   /**
-   * Calculate readability score using simple metrics
+   * Calculate readability metrics. The Flesch score, level and syllable
+   * counting come from ContentQualityAssessor.calculateSimpleReadability —
+   * the single Flesch implementation — so this never disagrees with a
+   * qualityAssessment computed over the same text. Score is unclamped; see
+   * that method for why.
    * @param {string} text - Text content
    * @returns {Object} - Readability metrics
    */
@@ -399,53 +404,20 @@ export class ContentProcessor {
       return null;
     }
 
-    const avgWordsPerSentence = words.length / sentences.length;
+    const readability = ContentQualityAssessor.calculateSimpleReadability(text);
     const avgCharsPerWord = charactersNoSpaces / words.length;
-    const avgSyllablesPerWord = words.reduce((sum, w) => sum + this._countSyllables(w), 0) / words.length;
-
-    // Flesch Reading-Ease: higher score = easier to read
-    const readabilityScore = 206.835 - (1.015 * avgWordsPerSentence) - (84.6 * avgSyllablesPerWord);
 
     return {
       sentences: sentences.length,
       words: words.length,
       characters,
       charactersNoSpaces,
-      avgWordsPerSentence: Math.round(avgWordsPerSentence * 100) / 100,
+      avgWordsPerSentence: readability.avgWordsPerSentence,
       avgCharsPerWord: Math.round(avgCharsPerWord * 100) / 100,
-      avgSyllablesPerWord: Math.round(avgSyllablesPerWord * 100) / 100,
-      readabilityScore: Math.round(readabilityScore * 100) / 100,
-      readabilityLevel: this.getReadabilityLevel(readabilityScore)
+      avgSyllablesPerWord: readability.avgSyllablesPerWord,
+      readabilityScore: readability.score,
+      readabilityLevel: readability.level
     };
-  }
-
-  /**
-   * Get readability level based on score
-   * @param {number} score - Readability score
-   * @returns {string} - Readability level
-   */
-  getReadabilityLevel(score) {
-    if (score >= 90) return 'Very Easy';
-    if (score >= 80) return 'Easy';
-    if (score >= 70) return 'Fairly Easy';
-    if (score >= 60) return 'Standard';
-    if (score >= 50) return 'Fairly Difficult';
-    if (score >= 30) return 'Difficult';
-    return 'Very Difficult';
-  }
-
-  /**
-   * Count syllables in a word (heuristic)
-   * @param {string} word
-   * @returns {number}
-   */
-  _countSyllables(word) {
-    const w = word.toLowerCase().replace(/[^a-z]/g, '');
-    if (w.length <= 3) return 1;
-    // Remove trailing silent e
-    const stripped = w.replace(/e$/, '');
-    const matches = stripped.match(/[aeiouy]+/g);
-    return Math.max(1, matches ? matches.length : 1);
   }
 
   /**

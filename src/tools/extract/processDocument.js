@@ -181,6 +181,15 @@ export class ProcessDocumentTool {
         );
       }
 
+      // Readability is populated once, here, for every source type, from the
+      // same Flesch implementation that backs
+      // qualityAssessment.metrics.readability — so the two fields on a
+      // response can never contradict each other.
+      if (result.content?.text) {
+        const { score, level, ...metrics } = ContentQualityAssessor.calculateSimpleReadability(result.content.text);
+        result.readabilityScore = { score, level, metrics };
+      }
+
       result.processingTime = Date.now() - startTime;
       result.success = true;
 
@@ -264,14 +273,6 @@ export class ProcessDocumentTool {
         pages: pdfResult.metadata.pages,
         encrypted: pdfResult.metadata.encrypted
       };
-    }
-
-    // Calculate readability score for text content
-    if (options.assessContentQuality && result.content.text) {
-      const readabilityScore = this.calculateReadabilityScore(result.content.text);
-      if (readabilityScore) {
-        result.readabilityScore = readabilityScore;
-      }
     }
   }
 
@@ -380,7 +381,9 @@ export class ProcessDocumentTool {
       url,
       options: {
         extractStructuredData: options.extractStructuredData,
-        calculateReadabilityScore: true,
+        // execute() computes readability once for every source type; asking
+        // ContentProcessor for its own score here would only duplicate it.
+        calculateReadabilityScore: false,
         removeBoilerplate: options.useReadability,
         preserveImageInfo: false,
         extractMetadata: true
@@ -435,12 +438,7 @@ export class ProcessDocumentTool {
       };
     }
 
-    // Step 5: Add readability score
-    if (processingResult.readability_score) {
-      result.readabilityScore = processingResult.readability_score;
-    }
-
-    // Step 6: Add structured data
+    // Step 5: Add structured data
     if (options.extractStructuredData && processingResult.structured_data) {
       result.structuredData = processingResult.structured_data;
     }
@@ -469,59 +467,6 @@ export class ProcessDocumentTool {
       paragraphs: paragraphs.length,
       readingTime
     };
-  }
-
-  /**
-   * Calculate readability score
-   * @param {string} text - Text to analyze
-   * @returns {Object|null} - Readability score
-   */
-  calculateReadabilityScore(text) {
-    try {
-      const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
-      const words = text.split(/\s+/).filter(w => w.length > 0);
-      
-      if (sentences.length === 0 || words.length === 0) {
-        return null;
-      }
-
-      const avgWordsPerSentence = words.length / sentences.length;
-      const avgCharsPerWord = text.replace(/\s/g, '').length / words.length;
-      
-      // Flesch Reading Ease Score approximation
-      const score = 206.835 - (1.015 * avgWordsPerSentence) - (84.6 * (avgCharsPerWord / 4.7));
-      const clampedScore = Math.max(0, Math.min(100, score));
-
-      return {
-        score: Math.round(clampedScore * 100) / 100,
-        level: this.getReadabilityLevel(clampedScore),
-        metrics: {
-          sentences: sentences.length,
-          words: words.length,
-          avgWordsPerSentence: Math.round(avgWordsPerSentence * 100) / 100,
-          avgCharsPerWord: Math.round(avgCharsPerWord * 100) / 100
-        }
-      };
-
-    } catch (error) {
-      console.warn('Readability calculation failed:', error.message);
-      return null;
-    }
-  }
-
-  /**
-   * Get readability level from score
-   * @param {number} score - Readability score
-   * @returns {string} - Readability level
-   */
-  getReadabilityLevel(score) {
-    if (score >= 90) return 'Very Easy';
-    if (score >= 80) return 'Easy';
-    if (score >= 70) return 'Fairly Easy';
-    if (score >= 60) return 'Standard';
-    if (score >= 50) return 'Fairly Difficult';
-    if (score >= 30) return 'Difficult';
-    return 'Very Difficult';
   }
 
   /**

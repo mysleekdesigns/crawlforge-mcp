@@ -34,6 +34,9 @@ const { ProcessDocumentTool } = await import('../../../../src/tools/extract/proc
 const PAGES = {
   '/article': '<html><head><title>Server Article</title></head><body><article><h1>Server Article</h1><p>' +
     'Content served from a local fixture server, exercised through the real fetch + ContentProcessor pipeline. '.repeat(6) +
+    '</p></article></body></html>',
+  '/prose': '<html><head><title>Prose</title></head><body><article><h1>Prose</h1><p>' +
+    'Comprehensive documentation facilitates extraordinary collaboration between independent engineering organizations. '.repeat(5) +
     '</p></article></body></html>'
 };
 
@@ -203,5 +206,87 @@ describe('processDocument tool (real module) — sourceType pdf_file (real PDF f
 
     assert.equal(result.success, false);
     assert.match(result.error, /password/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5.1 — one readability score per response.
+//
+// A response used to carry two contradictory Flesch scores: `readabilityScore`
+// came from a per-path implementation (a char-count syllable proxy clamped to
+// [0,100] on the PDF path, ContentProcessor's own copy on the web/file path)
+// while `qualityAssessment.metrics.readability` came from
+// ContentQualityAssessor. The live W-9 read 100 "Very Easy" against 54.75
+// "Fairly Difficult". Both fields now come from the same implementation.
+// ---------------------------------------------------------------------------
+
+describe('processDocument tool (real module) — readability is reported once', () => {
+  // Prose with polysyllabic words, so a syllable-based Flesch score and the
+  // old character-proxy score cannot coincide by accident.
+  const PROSE = 'Comprehensive documentation facilitates extraordinary collaboration between ' +
+    'independent engineering organizations. Sophisticated infrastructure necessitates continuous ' +
+    'verification. Readability approximations occasionally disagree with each other.';
+
+  function assertAgrees(result) {
+    const rs = result.readabilityScore;
+    const qa = result.qualityAssessment?.metrics?.readability;
+    assert.ok(rs, 'readabilityScore must be present');
+    assert.ok(qa, 'qualityAssessment.metrics.readability must be present');
+    assert.equal(rs.score, qa.score, `readabilityScore.score (${rs.score}) must equal qualityAssessment score (${qa.score})`);
+    assert.equal(rs.level, qa.level, `readabilityScore.level (${rs.level}) must equal qualityAssessment level (${qa.level})`);
+  }
+
+  // Conforms to the declared ProcessDocumentResult shape:
+  // { score: number, level: string, metrics: record }.
+  function assertDeclaredShape(result) {
+    const rs = result.readabilityScore;
+    assert.equal(typeof rs.score, 'number', 'readabilityScore.score must be a number');
+    assert.equal(typeof rs.level, 'string', 'readabilityScore.level must be a string');
+    assert.ok(rs.metrics && typeof rs.metrics === 'object', 'readabilityScore.metrics must be an object');
+  }
+
+  test('web path (sourceType url) reports one score in the declared shape', async () => {
+    const tool = new ProcessDocumentTool();
+    const result = await tool.execute({ source: `${baseUrl}/prose` });
+    assert.equal(result.success, true);
+    assertDeclaredShape(result);
+    assertAgrees(result);
+  });
+
+  test('local file path (sourceType file) reports one score in the declared shape', async () => {
+    const filePath = path.join(tmpDir, 'prose.txt');
+    await fs.writeFile(filePath, PROSE);
+
+    const tool = new ProcessDocumentTool();
+    const result = await tool.execute({ source: filePath, sourceType: 'file' });
+    assert.equal(result.success, true);
+    assertDeclaredShape(result);
+    assertAgrees(result);
+  });
+
+  test('PDF path (sourceType pdf_file) reports one score in the declared shape', async () => {
+    const pdfPath = path.join(tmpDir, 'prose.pdf');
+    await fs.writeFile(pdfPath, buildPdf({ pages: [PROSE] }));
+
+    const tool = new ProcessDocumentTool();
+    const result = await tool.execute({ source: pdfPath, sourceType: 'pdf_file' });
+    assert.equal(result.success, true);
+    assertDeclaredShape(result);
+    assertAgrees(result);
+  });
+
+  // Flesch is unbounded and the surviving implementation deliberately does not
+  // clamp: the old PDF-path implementation clamped to [0,100], which is what
+  // pinned the W-9 at exactly 100 "Very Easy" while the other field read 54.75.
+  test('score is not clamped to 100 for very simple text', async () => {
+    const filePath = path.join(tmpDir, 'simple.txt');
+    await fs.writeFile(filePath, 'The cat sat. The dog ran. I ate a pie. The sun is hot. We go now.');
+
+    const tool = new ProcessDocumentTool();
+    const result = await tool.execute({ source: filePath, sourceType: 'file' });
+
+    assert.equal(result.success, true);
+    assert.ok(result.readabilityScore.score > 100, `expected an unclamped score above 100, got ${result.readabilityScore.score}`);
+    assertAgrees(result);
   });
 });

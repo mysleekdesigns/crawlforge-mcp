@@ -312,7 +312,18 @@ export class ContentQualityAssessor {
   }
 
   /**
-   * Calculate simple readability metrics
+   * Calculate Flesch Reading-Ease metrics.
+   *
+   * This is the single Flesch implementation behind process_document and
+   * extract_content: both the `readabilityScore` field and
+   * `qualityAssessment.metrics.readability` are derived from here, so the two
+   * can never report different scores for the same text.
+   *
+   * The score is deliberately NOT clamped to [0, 100] — Flesch is unbounded
+   * (very simple text exceeds 100, dense text goes negative), and
+   * assessContentQuality() treats `score > 100` as a quality signal, which a
+   * clamp would make unreachable.
+   *
    * @param {string} text - Text to analyze
    * @returns {Object} - Readability metrics
    */

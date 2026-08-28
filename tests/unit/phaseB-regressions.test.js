@@ -82,12 +82,15 @@ describe('B1.1 ContentProcessor Flesch Reading-Ease', () => {
     );
   });
 
-  test('_countSyllables returns >= 1 for any word', async () => {
-    const { ContentProcessor } = await import('../../src/core/processing/ContentProcessor.js');
-    const cp = new ContentProcessor();
+  // ContentProcessor._countSyllables was removed in Phase 5.1: syllable
+  // counting now lives only in ContentQualityAssessor.countSyllables, which
+  // ContentProcessor.calculateReadabilityScore reaches through
+  // calculateSimpleReadability.
+  test('countSyllables returns >= 1 for any word', async () => {
+    const { ContentQualityAssessor } = await import('../../src/utils/contentUtils.js');
     for (const word of ['a', 'I', 'the', 'cat', 'technology', 'unprecedented']) {
-      const count = cp._countSyllables(word);
-      assert.ok(count >= 1, `_countSyllables("${word}") returned ${count}, expected >= 1`);
+      const count = ContentQualityAssessor.countSyllables(word);
+      assert.ok(count >= 1, `countSyllables("${word}") returned ${count}, expected >= 1`);
     }
   });
 });

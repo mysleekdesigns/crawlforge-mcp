@@ -78,8 +78,10 @@ const AnalyzeContentResult = z.object({
     })).optional()
   }).optional(),
   readability: z.object({
-    score: z.number(),
-    level: z.string(),
+    // score/level are absent when Flesch does not apply (CJK) — see notApplicable
+    score: z.number().optional(),
+    level: z.string().optional(),
+    notApplicable: z.string().optional(),
     metrics: z.object({
       sentences: z.number(),
       words: z.number(),
@@ -561,7 +563,7 @@ export class AnalyzeContentTool {
    */
   compareReadability(results) {
     const readabilityScores = results
-      .filter(r => r.success && r.readability)
+      .filter(r => r.success && r.readability && typeof r.readability.score === 'number')
       .map(r => r.readability.score);
 
     if (readabilityScores.length === 0) return null;
