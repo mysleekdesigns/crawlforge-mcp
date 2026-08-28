@@ -5,6 +5,15 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.3.1] - 2026-08-28
+
+Patch release: `deep_research` judges its claims with a model measured fit to judge.
+
+- **`deep_research` routes its three judgement calls — claim relevance, same-meaning grouping, contradiction — to `gemma3:12b` when it is installed** (`ollama pull gemma3:12b`), falling back to the extraction model otherwise. Measured 2026-08-28 by replaying a live run's own 136 claims through every installed model, three runs each: the 4B extraction winner scored "Playwright vs Selenium" marketing 0.9 relevant to an anti-bot topic and produced 1-2 false contradictions per run; `gemma3:12b` produced 0 false contradictions on 27 real pairs, caught every planted one, and formed 7-9 cross-source claim groups against 1.
+- **Conflict detection is on again — gated on the model, not a flag.** It runs only when the judging model is one measured not to invent disagreement (`gemma3:12b`, or a cloud provider). On a machine without one `conflictsFound` stays 0, which is the honest answer.
+- The orchestrator formed up to 40 candidate pairs but the judge examined 30 by default; the caps now agree.
+- Two model findings recorded, not fixed: thinking-capable models (`gemma4`, `gpt-oss`) return **empty content** at these token budgets because hidden reasoning consumes `num_predict`, and the flag that fixes one (`think: false`) makes the other emit nothing — neither is ranked. The orchestrator's embedding-similarity path fails on chat models (`Ollama embedding error 500`) and is swallowed.
+
 ## [5.3.0] - 2026-08-28
 
 Minor release, and the largest since 5.2.0: every fix from the 2026-08-28 tool-quality sweep, plus the compliance and identity work that gives the crawler one honest name and a robots gate on every path that fetches. 29 commits since 5.2.9, none of which had reached npm.

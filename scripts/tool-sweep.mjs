@@ -589,8 +589,10 @@ const CHECKS = [
       const domains = new Set(findings.flatMap((f) => (f.sources || []).map(domainOf)).filter(Boolean));
       expect(domains.size >= 3, `only ${domains.size} distinct source domain(s): ${[...domains].join(', ')}`);
       // The shipped half of 4.4/4.5: semantic grouping made consensus reachable.
-      // 4.4's criterion (c) and 4.5's conflict detection are deliberately not
-      // asserted — one passes ~2 runs in 3 and the other is gated off on purpose.
+      // Conflict detection is on when a measured judgement model (gemma3:12b)
+      // is installed, but a real run rarely holds a true contradiction, so
+      // conflicts > 0 is not assertable; 4.4's criterion (c) is judged by the
+      // three live runs recorded in TOOL_QUALITY_PLAN.md, not here.
       expect((r.consensus || []).length > 0, 'consensusAreas is 0 — claim grouping produced no cross-source group');
       // At least one corroborated finding, not all of them: generateKeyFindings
       // drains singleton groups once the corroborated ones are spent, so how

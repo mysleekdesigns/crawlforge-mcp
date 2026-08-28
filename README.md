@@ -238,6 +238,8 @@ export CRAWLFORGE_API_URL="https://api.crawlforge.dev"
 # and deep_research all use Ollama when no cloud key is set
 export OLLAMA_BASE_URL="http://localhost:11434"   # default; set https://ollama.com for Ollama Cloud
 export OLLAMA_DEFAULT_MODEL="gemma3:4b"            # optional; unset = pick the best installed model automatically
+                                                   # deep_research judges claims with gemma3:12b when it is installed (ollama pull gemma3:12b);
+                                                   # conflict detection is on only with that model, or a cloud provider
 export OLLAMA_EMBEDDING_MODEL="nomic-embed-text"   # default: OLLAMA_DEFAULT_MODEL; used for semantic ranking in deep_research
 export OLLAMA_API_KEY="..."                        # only for authenticated endpoints (required by Ollama Cloud; a local instance needs none)
 export DISABLE_OLLAMA="true"                       # skip Ollama entirely and use CSS/keyword fallbacks

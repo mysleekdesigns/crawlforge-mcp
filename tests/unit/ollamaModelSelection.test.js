@@ -21,7 +21,9 @@ const savedBaseUrl = process.env.OLLAMA_BASE_URL;
 const savedDefaultModel = process.env.OLLAMA_DEFAULT_MODEL;
 delete process.env.OLLAMA_DEFAULT_MODEL;
 
-const { selectOllamaModel, FALLBACK_OLLAMA_MODEL } = await import('../../src/utils/ollamaConfig.js');
+const { selectOllamaModel, isJudgementModel, FALLBACK_OLLAMA_MODEL } = await import('../../src/utils/ollamaConfig.js');
+const { OllamaProvider } = await import('../../src/core/llm/OllamaProvider.js');
+const { LLMManager } = await import('../../src/core/llm/LLMManager.js');
 
 let server;
 /** Model names the stub reports as installed. */
@@ -35,6 +37,17 @@ before(async () => {
       tagsRequests++;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ models: installed.map((name) => ({ name })) }));
+      return;
+    }
+    // A completion that answers with the model it was asked to run, so a test
+    // can see which model a role resolved to.
+    if (req.url.endsWith('/api/chat')) {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ message: { role: 'assistant', content: JSON.parse(body).model }, done: true }));
+      });
       return;
     }
     res.writeHead(404);
@@ -109,5 +122,75 @@ describe('selectOllamaModel', () => {
     await selectOllamaModel();
     await selectOllamaModel();
     assert.equal(tagsRequests, 1, 'selection must not re-list models on every extraction');
+  });
+});
+
+describe('the judgement role', () => {
+  // deep_research's claim judgements (relevance, grouping, contradiction) have
+  // a different measured winner from extraction — see JUDGEMENT_MODELS.
+  test('prefers a measured judgement model when it is installed, without changing extraction', async () => {
+    installed = ['gemma3:4b', 'gemma3:12b', 'llama3.2:latest'];
+    freshEndpoint('judge-installed');
+    assert.equal(await selectOllamaModel(), 'gemma3:4b', 'extraction keeps its own winner');
+    assert.equal(await selectOllamaModel('judgement'), 'gemma3:12b');
+  });
+
+  test('falls through to the extraction ranking when no judgement model is installed', async () => {
+    installed = ['gemma3:4b', 'llama3.2:latest'];
+    freshEndpoint('judge-absent');
+    assert.equal(await selectOllamaModel('judgement'), 'gemma3:4b');
+  });
+
+  test('an explicit OLLAMA_DEFAULT_MODEL applies to every role', async () => {
+    installed = ['gemma3:12b'];
+    freshEndpoint('judge-pinned');
+    process.env.OLLAMA_DEFAULT_MODEL = 'gemma3:4b';
+    assert.equal(await selectOllamaModel('judgement'), 'gemma3:4b');
+  });
+
+  test('isJudgementModel matches the measured list, tagged or not', () => {
+    assert.equal(isJudgementModel('gemma3:12b'), true);
+    assert.equal(isJudgementModel('gemma3:12b:latest'), true);
+    assert.equal(isJudgementModel('gemma3:4b'), false);
+    assert.equal(isJudgementModel(undefined), false);
+  });
+
+  test('OllamaProvider resolves each role once and sends the right model', async () => {
+    installed = ['gemma3:4b', 'gemma3:12b'];
+    freshEndpoint('provider-roles');
+    const provider = new OllamaProvider();
+    assert.equal(await provider.generateCompletion('x'), 'gemma3:4b');
+    assert.equal(await provider.generateCompletion('x', { role: 'judgement' }), 'gemma3:12b');
+    assert.equal(await provider.generateCompletion('x', { role: 'judgement' }), 'gemma3:12b');
+    assert.equal(tagsRequests, 1, 'both roles share one discovery call');
+  });
+
+  test('a provider constructed with an explicit model uses it for every role', async () => {
+    installed = ['gemma3:12b'];
+    freshEndpoint('provider-pinned');
+    const provider = new OllamaProvider({ model: 'mistral:7b' });
+    assert.equal(await provider.generateCompletion('x', { role: 'judgement' }), 'mistral:7b');
+  });
+
+  test('the conflict gate opens only when a measured judge is installed', async () => {
+    installed = ['gemma3:4b', 'gemma3:12b'];
+    freshEndpoint('gate-open');
+    assert.equal(await new LLMManager({ defaultProvider: 'ollama' }).canJudgeContradictions(), true);
+
+    installed = ['gemma3:4b', 'llama3.2:latest'];
+    freshEndpoint('gate-closed');
+    assert.equal(await new LLMManager({ defaultProvider: 'ollama' }).canJudgeContradictions(), false);
+  });
+
+  test('pinning the extraction winner keeps the conflict gate closed rather than routing around the measurement', async () => {
+    installed = ['gemma3:12b'];
+    freshEndpoint('gate-pinned');
+    process.env.OLLAMA_DEFAULT_MODEL = 'gemma3:4b';
+    assert.equal(await new LLMManager({ defaultProvider: 'ollama' }).canJudgeContradictions(), false);
+  });
+
+  test('an unreachable Ollama keeps the conflict gate closed', async () => {
+    process.env.OLLAMA_BASE_URL = 'http://127.0.0.1:1';
+    assert.equal(await new LLMManager({ defaultProvider: 'ollama' }).canJudgeContradictions(), false);
   });
 });

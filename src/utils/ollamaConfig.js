@@ -55,6 +55,32 @@ const PREFERRED_MODELS = [
   'qwen2.5:3b'
 ];
 
+/**
+ * Models measured fit to JUDGE claims — relevance to a topic, same-meaning
+ * grouping, and contradiction — as opposed to extracting fields. Measured
+ * 2026-08-28 by replaying a live deep_research run's own 136 claims through
+ * each installed model, three runs each:
+ *
+ *   gemma3:12b   0 false contradictions on 27 real pairs, 3/3 planted caught,
+ *                7-9 cross-source groups (the 4B model: 1-2 false, 0-1/3
+ *                caught, 1 group)
+ *   gemma3:4b    the extraction winner, but it scored "Playwright vs Selenium"
+ *                marketing 0.9 relevant to an anti-bot topic and put it in the
+ *                research summary
+ *   gemma4:31b   judged as cleanly as gemma3:12b but only with thinking turned
+ *                off — under the default it spends the whole token budget on
+ *                hidden reasoning and returns empty content — and it grouped so
+ *                strictly that consensus vanished. Not ranked.
+ *   gpt-oss:20b  empty content at these token budgets for the same reason,
+ *                and `think: false` makes it emit nothing at all. Not ranked.
+ *
+ * Membership here is what turns conflict detection on: a model that invents
+ * disagreement between sources that agree is worse than one that reports none,
+ * so a model absent from this list is never asked. When none is installed the
+ * judgement role falls through to the extraction ranking above.
+ */
+export const JUDGEMENT_MODELS = ['gemma3:12b'];
+
 /** Used only when Ollama cannot be reached, so the error names a real model. */
 export const FALLBACK_OLLAMA_MODEL = 'llama3.2';
 
@@ -102,9 +128,11 @@ export async function installedOllamaModels() {
  * instead would break anyone who has not pulled it, so the best *installed*
  * model is chosen, and an explicit OLLAMA_DEFAULT_MODEL always wins.
  *
+ * @param {'default'|'judgement'} [role] 'judgement' tries JUDGEMENT_MODELS
+ *   first and falls through to the extraction ranking when none is installed.
  * @returns {Promise<string>}
  */
-export async function selectOllamaModel() {
+export async function selectOllamaModel(role = 'default') {
   const explicit = process.env.OLLAMA_DEFAULT_MODEL;
   if (explicit) return explicit;
 
@@ -112,10 +140,16 @@ export async function selectOllamaModel() {
   if (installed.length === 0) return FALLBACK_OLLAMA_MODEL;
 
   const byBase = new Map(installed.map((name) => [baseName(name), name]));
-  for (const preferred of PREFERRED_MODELS) {
+  const ranking = role === 'judgement' ? [...JUDGEMENT_MODELS, ...PREFERRED_MODELS] : PREFERRED_MODELS;
+  for (const preferred of ranking) {
     const match = byBase.get(baseName(preferred));
     if (match) return match;
   }
   // Nothing recognised — use whatever is there rather than failing.
   return installed[0];
+}
+
+/** Whether a model name is one measured fit to judge contradictions. */
+export function isJudgementModel(name) {
+  return typeof name === 'string' && JUDGEMENT_MODELS.some((m) => baseName(m) === baseName(name));
 }

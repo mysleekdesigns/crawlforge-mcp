@@ -2,6 +2,7 @@ import { OpenAIProvider } from './OpenAIProvider.js';
 import { AnthropicProvider } from './AnthropicProvider.js';
 import { OllamaProvider } from './OllamaProvider.js';
 import { Logger } from '../../utils/Logger.js';
+import { isJudgementModel } from '../../utils/ollamaConfig.js';
 
 /**
  * LLM Manager
@@ -133,6 +134,25 @@ export class LLMManager {
       }
       
       throw error;
+    }
+  }
+
+  /**
+   * Whether conflict detection may run: only a model measured not to invent
+   * contradictions between sources that agree is asked (JUDGEMENT_MODELS in
+   * ollamaConfig.js). A cloud provider is assumed capable — the measurement
+   * that gated this off was of a 4B local model, and cloud models were not
+   * measured; that assumption is deliberate. A pinned OLLAMA_DEFAULT_MODEL is
+   * judged by the same list, so pinning the extraction winner keeps the gate
+   * closed rather than routing around the measurement.
+   */
+  async canJudgeContradictions() {
+    if (!this.defaultProvider) return false;
+    if (this.defaultProvider !== 'ollama') return true;
+    try {
+      return isJudgementModel(await this.getProvider('ollama').resolveModel('judgement'));
+    } catch {
+      return false;
     }
   }
 
@@ -503,7 +523,8 @@ Rate these ${batch.length} sentences:`;
             systemPrompt,
             maxTokens: 100 + batch.length * 20,
             temperature: 0.1,
-            format: scoreSchema
+            format: scoreSchema,
+            role: 'judgement'
           });
 
           const cleaned = response.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
@@ -633,7 +654,8 @@ Group these ${batch.length} sentences:`;
             systemPrompt,
             maxTokens: 200 + batch.length * 10,
             temperature: 0.1,
-            format: groupSchema
+            format: groupSchema,
+            role: 'judgement'
           });
 
           const cleaned = response.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
@@ -805,7 +827,8 @@ ${question.replace('${n}', String(batch.length))}`;
                 systemPrompt,
                 maxTokens: 100 + batch.length * 6,
                 temperature: 0.1,
-                format: schema
+                format: schema,
+                role: 'judgement'
               });
 
               const cleaned = response.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();

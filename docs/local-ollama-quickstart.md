@@ -65,7 +65,7 @@ Or via CrawlForge:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API endpoint — set `https://ollama.com` to use Ollama Cloud as a remote host |
-| `OLLAMA_DEFAULT_MODEL` | `llama3.2` | Default model for `extract_with_llm` and the LLM fallback chain |
+| `OLLAMA_DEFAULT_MODEL` | best installed | Model for `extract_with_llm` and the LLM fallback chain; unset picks the best installed model. `deep_research` judges claims (relevance, grouping, contradictions) with `gemma3:12b` when it is installed — `ollama pull gemma3:12b` — and reports conflicts only with that model or a cloud provider |
 | `OLLAMA_API_KEY` | unset | Bearer token for authenticated endpoints (required by Ollama Cloud; a local instance needs none) |
 
 Set in `.env` or export before starting CrawlForge:
