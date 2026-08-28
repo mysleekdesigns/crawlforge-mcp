@@ -73,6 +73,25 @@ const SummarizeContentResult = z.object({
   error: z.string().optional()
 });
 
+// Navigation chrome that some sites write with a trailing full stop, e.g. a
+// skip link rendered "Jump to content." Chrome without a terminator is already
+// caught by the punctuation test below; these are the only lines allowed to
+// pass it. Half were observed live in extract_text output (en/es Wikipedia,
+// MDN, BBC, GOV.UK); the rest are the same construction. Kept multilingual on
+// purpose so the exception does not quietly narrow a language-agnostic rule.
+const NAVIGATION_PHRASES = new Set([
+  'jump to content',
+  'jump to navigation',
+  'jump to search',
+  'skip to content',
+  'skip to main content',
+  'skip to navigation',
+  'skip to search',
+  'from wikipedia, the free encyclopedia',
+  'ir al contenido',
+  'de wikipedia, la enciclopedia libre'
+]);
+
 export class SummarizeContentTool {
   constructor() {
     this.contentAnalyzer = new ContentAnalyzer();
@@ -269,6 +288,17 @@ export class SummarizeContentTool {
    * mid-sentence survives: it is either punctuated, longer than the caps, or
    * protected by the size guard — if the strip would remove more than
    * min(600 chars, 20% of the text), nothing is stripped at all.
+   *
+   * One exception to the punctuation test: a line that matches NAVIGATION_PHRASES
+   * exactly — case-insensitively, ignoring trailing terminators — is stripped
+   * even though it is punctuated, so a skip link written "Jump to content." is
+   * caught. That exception has to be a list rather than a rule, because
+   * "Jump to content." and "It was cold." are identical on every feature this
+   * function can measure (≤ 60 chars, ≤ 8 words, a single terminator in final
+   * position, nothing punctuated in between). Anything general enough to catch
+   * the first eats the second, and dropping a summary's opening sentence is the
+   * worse failure. The cost is the usual one for a list: it catches the phrases
+   * it names and no others.
    * @param {string} text - Text to clean
    * @returns {string} - Text without leading navigation chrome
    */
@@ -287,7 +317,11 @@ export class SummarizeContentTool {
       }
       const wordCount = line.split(/\s+/).length;
       const hasSentencePunctuation = /[.!?…。！？]/.test(line);
-      const isBoilerplate = line.length <= 60 && wordCount <= 8 && !hasSentencePunctuation;
+      const isNavigationPhrase = NAVIGATION_PHRASES.has(
+        line.replace(/[.!?…。！？]+$/, '').trim().toLowerCase()
+      );
+      const isBoilerplate = line.length <= 60 && wordCount <= 8 &&
+        (!hasSentencePunctuation || isNavigationPhrase);
       if (!isBoilerplate) break;
 
       strippedChars += line.length;
