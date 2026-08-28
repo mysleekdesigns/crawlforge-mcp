@@ -30,7 +30,7 @@ skill (`scrape` / `extract_content`) instead.
 | Need | Tool | Cost |
 |------|------|------|
 | A ranked list of result URLs + snippets | `search_web` | 5 |
-| Reddit posts, comments, or a full thread | `reddit_search` | 2 |
+| Reddit posts, comments, or a full thread | `reddit_search` | 5 |
 | A direct answer, agent decides what to read | `agent` | 8 (scales) |
 | A synthesized, multi-source, cited report | `deep_research` | 10+ (scales) |
 
