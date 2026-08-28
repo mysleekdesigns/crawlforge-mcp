@@ -11,6 +11,30 @@ import { LLMManager } from './llm/LLMManager.js';
 import { safeFetch } from '../utils/ssrfGuard.js';
 import { preflightFetch, browserPreflight } from '../utils/robotsGate.js';
 import { noteRetryAfter } from '../utils/hostRateLimiter.js';
+import {
+  isAdmissibleClaim,
+  isVendorSelfPromotion,
+  isProductRecommendation
+} from './research/claimFilters.js';
+
+// Minimum per-source topical relevance for a claim to reach synthesis. Scores
+// come from LLMManager.analyzeRelevance (0-1) or, when the LLM is unavailable,
+// calculateTraditionalRelevance — which returns ~0 when none of the topic words
+// appear in the content at all. 0.3 keeps loosely related pages and drops the
+// ones a search phrase matched but the content does not discuss.
+const MIN_CLAIM_RELEVANCE = 0.3;
+
+// A vendor's promotional claim about itself keeps its place in the evidence but
+// stops competing with third-party analysis for a finding slot.
+const VENDOR_PROMO_CREDIBILITY_FACTOR = 0.5;
+
+// Share of key findings any single source may contribute. On the 2026-08-28
+// live run all five findings came from one URL.
+const MAX_FINDING_SHARE_PER_SOURCE = 0.4;
+
+// deepResearch.js re-slices findings to 5 for outputFormat 'summary', so this
+// many findings have to be diverse before depth matters.
+const SUMMARY_SLICE = 5;
 
 /**
  * ResearchOrchestrator - Multi-stage research orchestration engine with LLM integration
@@ -1086,12 +1110,17 @@ export class ResearchOrchestrator extends EventEmitter {
         try {
           this.logger.info('Generating LLM-powered research synthesis');
           
-          // Prepare findings for LLM analysis
-          const findingsForLLM = synthesis.keyFindings.map(finding => ({
-            finding: finding.finding,
-            credibility: finding.credibility,
-            sources: finding.sources.length
-          }));
+          // Prepare findings for LLM analysis. A vendor's promotional claim
+          // about its own product is not a research conclusion — the synthesis
+          // otherwise recommends whichever vendor's page ranked best. Only
+          // withheld while something else remains to synthesize.
+          const nonPromotional = synthesis.keyFindings.filter(finding => !finding.promotional);
+          const findingsForLLM = (nonPromotional.length > 0 ? nonPromotional : synthesis.keyFindings)
+            .map(finding => ({
+              finding: finding.finding,
+              credibility: finding.credibility,
+              sources: finding.sources.length
+            }));
 
           const llmSynthesis = await this.llmManager.synthesizeFindings(
             findingsForLLM,
@@ -1160,13 +1189,22 @@ export class ResearchOrchestrator extends EventEmitter {
         // Handle both keypoints (tool output) and keyPoints (legacy) property names
         const keyPoints = summary.keypoints || summary.keyPoints || [];
         if (keyPoints.length > 0) {
+          const relevance = this.sourceRelevance(source);
           keyPoints.forEach((point, index) => {
+            const credibility = source.overallCredibility || 0.65;
+            // A recommendation is not evidence. Two routes to the same flag: a
+            // page promoting itself, and — whoever published it — a claim whose
+            // subject is a named offering credited with doing the work.
+            const promotional = isVendorSelfPromotion(point, source.link) ||
+              isProductRecommendation(point);
             claims.push({
               id: `${source.link}_claim_${index}`,
               claim: point,
               source: source.link,
               sourceTitle: source.title,
-              credibility: source.overallCredibility || 0.65,
+              credibility: promotional ? credibility * VENDOR_PROMO_CREDIBILITY_FACTOR : credibility,
+              relevance,
+              promotional,
               context: summary.supporting?.[index] || '',
               extractedAt: new Date().toISOString()
             });
@@ -1180,7 +1218,45 @@ export class ResearchOrchestrator extends EventEmitter {
       }
     }
 
-    return claims;
+    return this.admitClaims(claims);
+  }
+
+  /**
+   * Topical relevance recorded for a source during deep exploration, or
+   * undefined when none was computed (extraction failed before analysis).
+   */
+  sourceRelevance(source) {
+    if (typeof source.relevanceScore === 'number') return source.relevanceScore;
+    return this.researchState?.relevanceScores?.get(source.link);
+  }
+
+  /**
+   * Keep only claims that can be research findings: prose about the topic, not
+   * document front matter (author/affiliation blocks, DOI stubs, "Retrieved
+   * from" lines) and not from a source the relevance analysis scored below
+   * MIN_CLAIM_RELEVANCE. Each gate falls back to the previous claim set rather
+   * than returning nothing — no claims means no findings at all.
+   */
+  admitClaims(claims) {
+    if (claims.length === 0) return claims;
+
+    const substantive = claims.filter(claim => isAdmissibleClaim(claim.claim));
+    const relevant = substantive.filter(
+      claim => typeof claim.relevance !== 'number' || claim.relevance >= MIN_CLAIM_RELEVANCE
+    );
+
+    const admitted = relevant.length > 0
+      ? relevant
+      : (substantive.length > 0 ? substantive : claims);
+
+    this.logger.debug('Claim admission', {
+      candidates: claims.length,
+      substantive: substantive.length,
+      relevant: relevant.length,
+      admitted: admitted.length
+    });
+
+    return admitted;
   }
 
   /**
@@ -1188,11 +1264,11 @@ export class ResearchOrchestrator extends EventEmitter {
    */
   groupRelatedClaims(claims) {
     const groups = new Map();
-    
+
     for (const claim of claims) {
       const keywords = this.extractKeywords(claim.claim);
       const groupKey = keywords.slice(0, 3).sort().join('_');
-      
+
       if (!groups.has(groupKey)) {
         groups.set(groupKey, {
           id: groupKey,
@@ -1202,7 +1278,7 @@ export class ResearchOrchestrator extends EventEmitter {
           sourceCount: 0
         });
       }
-      
+
       groups.get(groupKey).claims.push(claim);
     }
 
@@ -1545,16 +1621,76 @@ export class ResearchOrchestrator extends EventEmitter {
   }
 
   generateKeyFindings(claimGroups, sources) {
-    return claimGroups
-      .filter(group => group.avgCredibility >= this.credibilityThreshold)
-      .sort((a, b) => b.consensusStrength - a.consensusStrength)
-      .slice(0, 10)
-      .map(group => ({
-        finding: this.mostCredibleClaim(group).claim,
-        supportingClaims: group.claims.length,
-        credibility: group.avgCredibility,
-        sources: group.claims.map(c => c.source)
-      }));
+    const limit = 10;
+    const eligible = claimGroups.filter(group => group.avgCredibility >= this.credibilityThreshold);
+
+    // With a single reachable source there is nothing to diversify, so the
+    // per-source cap only applies once findings could come from more than one.
+    const distinctSources = new Set(eligible.flatMap(g => g.claims.map(c => c.source)));
+    const perSourceCap = distinctSources.size > 1
+      ? Math.max(1, Math.ceil(limit * MAX_FINDING_SHARE_PER_SOURCE))
+      : limit;
+
+    const ranked = eligible
+      // groupRelatedClaims never sets consensusStrength, so the sort below used
+      // to compare undefined with undefined and order nothing.
+      .map(group => ({ group, strength: group.consensusStrength ?? this.calculateConsensusStrength(group) }))
+      .sort((a, b) => {
+        // A corroborated group (more than one supporting claim) outranks a
+        // lone claim regardless of strength.
+        const corroboration = Number(b.group.claims.length > 1) - Number(a.group.claims.length > 1);
+        return corroboration !== 0 ? corroboration : b.strength - a.strength;
+      });
+
+    // Queue the ranked groups per source that supplies the surfaced claim, then
+    // take one from each queue per round. Diversity has to hold at the TOP of
+    // the list, not only in aggregate: deepResearch.js re-slices findings to 5
+    // for outputFormat 'summary', and an aggregate cap of 4-in-10 still allows
+    // 4 of the first 5 to come from one URL. Interleaving guarantees a
+    // positional property instead — a source contributes a second finding only
+    // after every other source with findings left has contributed one — while
+    // the per-source cap bounds a source that outlasts all the others.
+    const queues = new Map(); // insertion order: strongest source first
+    for (const { group } of ranked) {
+      const claim = this.mostCredibleClaim(group);
+      if (!queues.has(claim.source)) queues.set(claim.source, []);
+      queues.get(claim.source).push({ group, claim });
+    }
+
+    // Interleave the strongest SUMMARY_SLICE sources first and only widen to
+    // the rest once those queues run dry. Interleaving every source instead
+    // measurably degraded the research (live 2026-08-28): with ten thin sources
+    // it spent all ten slots on one line each — including a bot-check
+    // interstitial — and pushed the sources that actually covered the topic
+    // down to a single claim apiece.
+    const ordered = Array.from(queues.values());
+    const findings = [];
+
+    for (const pool of [ordered.slice(0, SUMMARY_SLICE), ordered.slice(SUMMARY_SLICE)]) {
+      for (let round = 0; findings.length < limit && round < perSourceCap; round++) {
+        let advanced = false;
+
+        for (const queue of pool) {
+          if (round >= queue.length) continue;
+          advanced = true;
+
+          const { group, claim } = queue[round];
+          findings.push({
+            finding: claim.claim,
+            supportingClaims: group.claims.length,
+            credibility: group.avgCredibility,
+            sources: group.claims.map(c => c.source),
+            ...(claim.promotional ? { promotional: true } : {})
+          });
+
+          if (findings.length >= limit) break;
+        }
+
+        if (!advanced) break;
+      }
+    }
+
+    return findings;
   }
 
   compileSupportingEvidence(sources) {
