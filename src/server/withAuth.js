@@ -15,7 +15,7 @@
 
 import { createHash } from 'node:crypto';
 import { recordToolInvocation } from '../observability/tracing.js';
-import { isInternalRequest } from './requestContext.js';
+import { isInternalRequest, preflightRefusal, requestContext } from './requestContext.js';
 
 export function hashParams(params) {
   try {
@@ -33,7 +33,7 @@ export function hashParams(params) {
  */
 export function makeWithAuth({ authManager, logger, metrics = null }) {
   return function withAuth(toolName, handler) {
-    return async (params) => {
+    const invoke = async (params) => {
       const startTime = Date.now();
       const paramHash = hashParams(params);
       const creatorMode = authManager.isCreatorMode();
@@ -82,7 +82,14 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
         // it as an error, honoring CLAUDE.md's "half credits on error" contract.
         const isErrorResult = result?.isError === true;
         outcome = isErrorResult ? 'error' : 'success';
-        const charge = creditCost === 0
+        // A pre-flight refusal (robots.txt disallowed the path, or the host is
+        // blocklisted) means we fetched nothing at all, so it costs nothing —
+        // not even the half-credit error rate, which exists for work that ran
+        // and then failed. Only when the refusal actually sank the call: a
+        // multi-URL tool that skipped one disallowed URL and still returned a
+        // result did real work and bills for it.
+        const refused = isErrorResult && preflightRefusal() !== null;
+        const charge = creditCost === 0 || refused
           ? 0
           : (isErrorResult ? Math.max(1, Math.floor(creditCost * 0.5)) : creditCost);
 
@@ -121,7 +128,7 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
         // DataForSEO is unconfigured — a no-op). Emit NO usage event at all so
         // the backend has nothing to (re-)price; reporting 0 would still create
         // a serp_rank record the backend could recompute to full cost.
-        if (!creatorMode && creditCost > 0) {
+        if (!creatorMode && creditCost > 0 && !refused) {
           await authManager.reportUsage(toolName, charge, params, isErrorResult ? 500 : 200, Date.now() - startTime);
         }
 
@@ -132,7 +139,7 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
         // Half-charge on error — but never charge a free (0-cost) call, never
         // let Math.max(1, …) floor a 0 up to 1 credit, and never bill at all
         // if the handler never ran (e.g. the credit check itself threw).
-        if (!creatorMode && creditCost > 0 && handlerStarted) {
+        if (!creatorMode && creditCost > 0 && handlerStarted && preflightRefusal() === null) {
           await authManager.reportUsage(
             toolName,
             Math.max(1, Math.floor(creditCost * 0.5)),
@@ -183,5 +190,14 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
         }, thrown);
       }
     };
+
+    // Every invocation runs in its own context so the compliance gate can stamp
+    // a refusal where the billing decision can see it. Any outer store (the
+    // HTTP transport's `internal` flag) is spread in, not replaced — and stdio
+    // callers, who have no transport-provided store, get one here.
+    return async (params) => requestContext.run(
+      { ...(requestContext.getStore() ?? {}), preflightRefusal: null },
+      () => invoke(params)
+    );
   };
 }

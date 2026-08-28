@@ -12,6 +12,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeWithAuth, hashParams } from '../../src/server/withAuth.js';
+import { markPreflightRefusal } from '../../src/server/requestContext.js';
 
 function makeFakeLogger() {
   const calls = [];
@@ -354,4 +355,111 @@ test('withAuth: outside a request context, billing behaves exactly as before', a
   assert.equal(auth.checkCalls.length, 1, 'credit check still runs');
   assert.equal(auth.reportCalls.length, 1, 'usage still reported');
   assert.equal(logger.calls[0].context.internal, false, 'internal flag defaults to false');
+});
+
+// ── Option B: a pre-flight compliance refusal costs nothing ──────────────────
+// robots.txt disallowed the path, or the host is blocklisted. Nothing was
+// fetched, so neither the full price nor the half-credit error rate applies.
+// The half rate exists for work that ran and then failed.
+
+test('withAuth: a robots refusal is free and emits no usage event', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 5 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const wrapped = withAuth('stealth_mode', async () => {
+    // Exactly how the gate + a tool's own catch block behave: the gate stamps
+    // the invocation, the handler swallows the error into an isError result.
+    markPreflightRefusal('ROBOTS_DISALLOWED');
+    return { content: [{ type: 'text', text: '{"error":"robots.txt disallows this path"}' }], isError: true };
+  });
+
+  const result = await wrapped({ url: 'https://example.com/private' });
+
+  assert.equal(auth.reportCalls.length, 0, 'a refusal must not report usage at all');
+  const cost = JSON.parse(result.content[0].text)._cost;
+  assert.equal(cost.actual, 0, 'a refusal must cost 0, not the half rate');
+  assert.equal(cost.projected, 5, 'the published price is still surfaced');
+});
+
+test('withAuth: a blocklisted host is free too', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 5 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const wrapped = withAuth('scrape', async () => {
+    markPreflightRefusal('HOST_BLOCKED');
+    return { content: [{ type: 'text', text: '{"error":"host is blocklisted"}' }], isError: true };
+  });
+
+  await wrapped({ url: 'https://blocked.example/' });
+  assert.equal(auth.reportCalls.length, 0);
+});
+
+test('withAuth: a refusal that throws is free, and does not bill the error rate', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 5 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const wrapped = withAuth('scrape_with_actions', async () => {
+    markPreflightRefusal('ROBOTS_DISALLOWED');
+    const err = new Error('robots.txt disallows this path');
+    err.code = 'ROBOTS_DISALLOWED';
+    throw err;
+  });
+
+  await assert.rejects(() => wrapped({ url: 'https://example.com/private' }), /robots\.txt/);
+  assert.equal(auth.reportCalls.length, 0, 'the throw path must not bill a refusal either');
+});
+
+test('withAuth: a genuine failure still bills the half-credit error rate', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 5 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  // No refusal stamp: the fetch happened and then something broke.
+  const wrapped = withAuth('stealth_mode', async () => ({
+    content: [{ type: 'text', text: '{"error":"navigation timeout"}' }], isError: true
+  }));
+
+  await wrapped({ url: 'https://example.com/' });
+  assert.equal(auth.reportCalls.length, 1, 'a real failure still reports usage');
+  assert.equal(auth.reportCalls[0][1], 2, 'and still bills the half rate (floor(5 * 0.5))');
+});
+
+test('withAuth: a refusal on one URL does not zero a call that still succeeded', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 5 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  // batch_scrape skipping one disallowed URL and returning results for the rest
+  // did real work for the others, so it bills in full.
+  const wrapped = withAuth('batch_scrape', async () => {
+    markPreflightRefusal('ROBOTS_DISALLOWED');
+    return { content: [{ type: 'text', text: '{"results":[{"ok":true}]}' }] };
+  });
+
+  await wrapped({ urls: ['https://a.example/', 'https://b.example/private'] });
+  assert.equal(auth.reportCalls.length, 1, 'partial work is still billed');
+  assert.equal(auth.reportCalls[0][1], 5);
+});
+
+test('withAuth: the refusal stamp does not leak between invocations', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 5 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const refusing = withAuth('scrape', async () => {
+    markPreflightRefusal('ROBOTS_DISALLOWED');
+    return { content: [{ type: 'text', text: '{"error":"refused"}' }], isError: true };
+  });
+  const succeeding = withAuth('scrape', async () => ({
+    content: [{ type: 'text', text: '{"ok":true}' }]
+  }));
+
+  await refusing({ url: 'https://example.com/private' });
+  await succeeding({ url: 'https://example.com/' });
+
+  assert.equal(auth.reportCalls.length, 1, 'only the successful call reports usage');
+  assert.equal(auth.reportCalls[0][1], 5, 'and it is billed in full, not zeroed by the previous refusal');
 });
