@@ -25,6 +25,9 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 process.env.ALLOWED_DOMAINS = '127.0.0.1';
 delete process.env.SSRF_PROTECTION_ENABLED;
@@ -36,10 +39,15 @@ let baseUrl;
 
 before(async () => {
   const page = `<html><body><script>var a=1;</script><style>.x{color:red}</style><p>Body text</p></body></html>`;
+  const sp500 = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'sp500-condensed.html'),
+    'utf8'
+  );
   server = http.createServer((req, res) => {
-    if (req.url.split('?')[0] === '/page') {
+    const path = req.url.split('?')[0];
+    if (path === '/page' || path === '/sp500') {
       res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(page);
+      res.end(path === '/page' ? page : sp500);
     } else {
       res.writeHead(404);
       res.end();
@@ -77,5 +85,33 @@ describe('UnifiedScrapeTool — format-order independence', () => {
       assert.match(result.content.text, /Body text/);
     }
     assert.equal(htmlFirst.content.text, textFirst.content.text);
+  });
+});
+
+// Reproduction test: Wikipedia's *List of S&P 500 companies* returned zero
+// table rows at the default onlyMainContent:true and 505 pipe-table lines with
+// it off — Readability's article candidate excludes the constituents table, so
+// the page's entire payload was silently discarded. getMainHtml() now goes
+// through _mainContent.js, which re-attaches the data tables Readability drops.
+describe('UnifiedScrapeTool — data tables at the default onlyMainContent', () => {
+  test('markdown keeps the constituents table, and a warning names the recovery', async () => {
+    const tool = new UnifiedScrapeTool();
+    const result = await tool.execute({ url: `${baseUrl}/sp500`, formats: ['markdown'] });
+
+    const rows = result.content.markdown
+      .split('\n')
+      .filter((line) => line.trim().startsWith('|'));
+    assert.equal(rows.length, 17, 'header, separator and the fixture\'s 15 constituent rows');
+    assert.match(result.content.markdown, /\bMMM\b/);
+    assert.ok(
+      result.warnings?.some((w) => w.includes('re-attached 1 data table')),
+      `expected a re-attachment warning, got: ${JSON.stringify(result.warnings)}`
+    );
+  });
+
+  test('a page with no table to recover emits no warning', async () => {
+    const tool = new UnifiedScrapeTool();
+    const result = await tool.execute({ url: `${baseUrl}/page`, formats: ['markdown'] });
+    assert.equal(result.warnings, undefined);
   });
 });

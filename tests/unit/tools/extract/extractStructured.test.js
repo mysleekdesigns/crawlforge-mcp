@@ -37,8 +37,23 @@ const PAGES = {
   '/no-match': '<html><head><title>Empty</title></head><body><div>nothing matches any selector</div></body></html>',
   // books.toscrape.com-style markup: price is in class "price_color", which
   // the exact-token `.price` selector cannot match.
-  '/book': '<html><head><title>Book Page</title></head><body><h1>Tipping the Velvet</h1><p class="price_color">£53.74</p><p class="instock availability">In stock</p></body></html>'
+  '/book': '<html><head><title>Book Page</title></head><body><h1>Tipping the Velvet</h1><p class="price_color">£53.74</p><p class="instock availability">In stock</p></body></html>',
+  // Chrome-heavy page, modelled on the blog.cloudflare.com post that made
+  // extract_structured answer `headline: "Skip to content"`: the real headline
+  // is only reachable through a main-content pass.
+  '/chrome-heavy': `<html><head><title>How we saved 100 terabytes of memory | Example Blog</title></head><body>
+    <nav><a href="#main">Skip to content</a><a href="/tags/dns">DNS</a><a href="/tags/rust">Rust</a></nav>
+    <header><h1>How we saved 100 terabytes of memory</h1></header>
+    <article>
+      <p>${'Five successive changes to how cache entries are stored in memory cut the per-entry footprint by more than half. '.repeat(6)}</p>
+      <p>${'Across the fleet those changes freed roughly one hundred terabytes of memory, with no measurable latency cost. '.repeat(6)}</p>
+    </article>
+    <footer><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Use</a></footer>
+  </body></html>`
 };
+
+// Served as text/plain so fetchAndParse classifies it as non-markup.
+const PLAIN_BODY = '{"headline":"From a JSON endpoint","memory_saved":"100 TB"}';
 
 let server;
 let baseUrl;
@@ -46,6 +61,11 @@ let baseUrl;
 before(async () => {
   server = http.createServer((req, res) => {
     const path = req.url.split('?')[0];
+    if (path === '/plain') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end(PLAIN_BODY);
+      return;
+    }
     const html = PAGES[path];
     if (!html) {
       res.writeHead(404);
@@ -174,5 +194,96 @@ describe('extractStructured tool (real module, CSS fallback — no LLM configure
     } finally {
       LLMManager.prototype.isAvailable = originalIsAvailable;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LLM path. The whole-body textContent fetchAndParse returns was handed
+// straight to the model, which answered from the first heading-shaped string
+// it saw — "Skip to content" on the Cloudflare blog post. A stubbed LLM
+// captures what the tool actually sends, so these tests pin the input, not a
+// model's answer.
+// ---------------------------------------------------------------------------
+
+/** Replace the tool's LLMManager with a stub; returns the captured input. */
+function stubLlm(tool, result) {
+  const captured = { input: null };
+  tool._ensureLLMManager = () => ({
+    ready: async () => true,
+    extractStructured: async (content) => {
+      captured.input = content;
+      return { method: 'llm', ...result };
+    }
+  });
+  return captured;
+}
+
+describe('extractStructured — the LLM is fed main content, not page chrome', () => {
+  test('the input opens with the headline and carries no nav or footer chrome', async () => {
+    const tool = new ExtractStructuredTool();
+    const captured = stubLlm(tool, { data: { headline: 'x' }, valid: true, validationErrors: [] });
+
+    await tool.execute({
+      url: `${baseUrl}/chrome-heavy`,
+      schema: { type: 'object', properties: { headline: { type: 'string' } }, required: ['headline'] }
+    });
+
+    assert.ok(
+      captured.input.startsWith('How we saved 100 terabytes of memory'),
+      `expected the headline first, got: ${JSON.stringify(captured.input.slice(0, 80))}`
+    );
+    assert.doesNotMatch(captured.input, /Skip to content/);
+    assert.doesNotMatch(captured.input, /Privacy Policy/);
+    assert.match(captured.input, /per-entry footprint/, 'the article body is still there');
+  });
+
+  test('a non-markup body (text/plain) is passed through whole', async () => {
+    const tool = new ExtractStructuredTool();
+    const captured = stubLlm(tool, { data: { headline: 'x' }, valid: true, validationErrors: [] });
+
+    await tool.execute({
+      url: `${baseUrl}/plain`,
+      schema: { type: 'object', properties: { headline: { type: 'string' } } }
+    });
+
+    assert.equal(captured.input, PLAIN_BODY);
+  });
+});
+
+describe('extractStructured — a missing required field is a top-level failure', () => {
+  test('success:false and a top-level error when a required field is absent', async () => {
+    const tool = new ExtractStructuredTool();
+    const schema = { type: 'object', properties: { title: { type: 'string' }, isbn: { type: 'string' } }, required: ['title', 'isbn'] };
+    const result = await tool.execute({ url: `${baseUrl}/product`, schema });
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /isbn/);
+    assert.equal(result.validation.valid, false);
+  });
+
+  test('a required field the model returned empty counts as missing', async () => {
+    const tool = new ExtractStructuredTool();
+    stubLlm(tool, { data: { headline: '', authors: [], memory_saved: null }, valid: false, validationErrors: ['Field "memory_saved": expected string, got object'] });
+
+    const result = await tool.execute({
+      url: `${baseUrl}/chrome-heavy`,
+      schema: {
+        type: 'object',
+        properties: { headline: { type: 'string' }, authors: { type: 'array' }, memory_saved: { type: 'string' } },
+        required: ['headline', 'authors', 'memory_saved']
+      }
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /headline, authors, memory_saved/);
+  });
+
+  test('success:true when every required field is filled', async () => {
+    const tool = new ExtractStructuredTool();
+    const schema = { type: 'object', properties: { title: { type: 'string' } }, required: ['title'] };
+    const result = await tool.execute({ url: `${baseUrl}/product`, schema });
+
+    assert.equal(result.success, true);
+    assert.ok(!('error' in result));
   });
 });
