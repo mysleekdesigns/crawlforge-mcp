@@ -64,6 +64,14 @@ const SearchWebSchema = z.object({
   }).optional()
 });
 
+// Deduplication runs after the backend search, so asking the provider for
+// exactly `limit` items returns short whenever that page contains duplicates.
+// Over-fetch a small margin once and trim back to `limit` after dedup. Google
+// returns at most 10 items per request and bills per request, so the margin
+// never costs an extra backend search.
+const DEDUPE_OVERFETCH = 4;
+const GOOGLE_MAX_RESULTS_PER_REQUEST = 10;
+
 export class SearchWebTool {
   constructor(options = {}) {
     const {
@@ -213,7 +221,10 @@ export class SearchWebTool {
           // Perform search with localized parameters
           const searchParams = {
             query: searchQuery,
-            num: localizedParams.limit,
+            num: Math.min(
+              GOOGLE_MAX_RESULTS_PER_REQUEST,
+              localizedParams.limit + DEDUPE_OVERFETCH
+            ),
             start: localizedParams.offset + 1, // Google uses 1-based indexing
             lr: localizedParams.lr || `lang_${localizedParams.lang}`,
             safe: localizedParams.safe_search ? 'active' : 'off',
@@ -275,7 +286,13 @@ export class SearchWebTool {
           deduplicationRate: ((originalCount - processedResults.length) / originalCount * 100).toFixed(1) + '%'
         };
       }
-      
+
+      // Drop the over-fetched margin. Runs unconditionally because the extra
+      // items are requested whether or not deduplication is enabled.
+      if (processedResults.length > localizedParams.limit) {
+        processedResults = processedResults.slice(0, localizedParams.limit);
+      }
+
       // Apply ranking if enabled
       let rankingInfo = null;
       if (validated.enable_ranking && processedResults.length > 1) {
@@ -386,7 +403,8 @@ export class SearchWebTool {
 
     const adapterResult = await searchViaSearxng({
       query: validated.query,
-      limit: validated.limit,
+      // SearXNG returns a whole page per request, so the dedup margin is free.
+      limit: validated.limit + DEDUPE_OVERFETCH,
       page,
       safeSearch: validated.safe_search,
       language: validated.lang
@@ -412,6 +430,11 @@ export class SearchWebTool {
         deduplicationRate:
           ((originalCount - processedResults.length) / originalCount * 100).toFixed(1) + '%'
       };
+    }
+
+    // Drop the over-fetched margin (see execute()).
+    if (processedResults.length > validated.limit) {
+      processedResults = processedResults.slice(0, validated.limit);
     }
 
     let rankingInfo = null;

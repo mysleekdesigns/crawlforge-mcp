@@ -11,6 +11,11 @@ import { noteRetryAfter } from '../utils/hostRateLimiter.js';
 
 const logger = new Logger('LLMsTxtAnalyzer');
 
+// How many URLs to gather before ranking them down to maxPages. Large enough
+// that a mid-size documentation site's top-level sections are all represented
+// in the pool, small enough not to walk a big sitemap index end to end.
+const CANDIDATE_POOL = 500;
+
 /**
  * LLMsTxtAnalyzer - Comprehensive website analysis for LLMs.txt generation
  * 
@@ -139,11 +144,16 @@ export class LLMsTxtAnalyzer {
     logger.info('Analyzing site structure...');
 
     try {
-      // Get comprehensive site map
+      // Get comprehensive site map. map_site truncates in sitemap document
+      // order, so asking it for exactly maxPages returns whichever section the
+      // sitemap happens to list first — the homepage and the docs/spec entry
+      // points never arrive. Ask for a larger candidate pool instead (the
+      // sitemap is downloaded whole either way, so a site with one sitemap pays
+      // no extra request), then keep the maxPages that describe the site.
       const siteMap = await this.mapSiteTool.execute({
         url,
         include_sitemap: true,
-        max_urls: this.options.maxPages,
+        max_urls: Math.max(this.options.maxPages, CANDIDATE_POOL),
         group_by_path: true,
         include_metadata: true
       });
@@ -157,17 +167,23 @@ export class LLMsTxtAnalyzer {
         respect_robots: this.options.respectRobots
       });
 
+      // group_by_path:true returns {section: [...]}; flatten before ranking.
+      const candidates = Array.isArray(siteMap.urls) ? siteMap.urls :
+                         (siteMap.urls && typeof siteMap.urls === 'object' ? Object.values(siteMap.urls).flat() : []);
+      const pages = this.prioritizeUrls(candidates, getBaseUrl(url), this.options.maxPages);
+
       this.analysis.structure = {
-        siteMap: siteMap.site_map,
-        totalPages: siteMap.total_urls,
-        sections: this.categorizeSections(siteMap.urls),
+        // Every field describes the same selected pages, not the wider pool.
+        siteMap: this.mapSiteTool.generateSiteMap(pages),
+        totalPages: pages.length,
+        sections: this.categorizeSections(pages),
         navigation: this.analyzeNavigation(crawlResult.pages),
-        hierarchy: this.buildHierarchy(siteMap.urls),
+        hierarchy: this.buildHierarchy(pages),
         robotsTxt: await this.fetchRobotsTxt(url),
-        sitemap: siteMap.urls || []
+        sitemap: pages
       };
 
-      logger.info(`Analyzed ${siteMap.total_urls} pages in site structure`);
+      logger.info(`Selected ${pages.length} of ${siteMap.total_urls} discovered pages for the site structure`);
 
     } catch (error) {
       logger.error(`Site structure analysis failed: ${error.message}`);
@@ -480,6 +496,63 @@ export class LLMsTxtAnalyzer {
       // No robots.txt found
     }
     return null;
+  }
+
+  /**
+   * Order candidate URLs by how much they tell an LLM about the site, then
+   * keep the first `limit`.
+   *
+   * Truncating the crawl order instead returned whichever section the sitemap
+   * lists first: modelcontextprotocol.io with maxPages 15 produced 15
+   * /community/* pages and no homepage, docs or specification. The order here
+   * is the site root, then one entry point per top-level section the site
+   * declares, then the rest of each section a page at a time until the budget
+   * runs out. Sections are visited alphabetically and ties inside a section
+   * break on depth then alphabetically, so a given site always yields the same
+   * list.
+   */
+  prioritizeUrls(urls, baseUrl, limit) {
+    const sections = new Map();
+    let sawAny = false;
+
+    for (const url of urls) {
+      let segments;
+      try {
+        segments = new URL(url).pathname.split('/').filter(Boolean);
+      } catch {
+        continue;
+      }
+      sawAny = true;
+      // The root arrives as either "https://site.com" or "https://site.com/"
+      // (normalizeUrl strips a trailing slash from every path but "/"), so it
+      // is recognised by its path and re-added below in one canonical form.
+      if (segments.length === 0) continue;
+      const section = segments[0];
+      if (!sections.has(section)) sections.set(section, []);
+      sections.get(section).push({ url, depth: segments.length });
+    }
+
+    if (!sawAny) return [];
+
+    // The site root leads: it is always fetched, and a site guide that omits
+    // the homepage is a misleading one.
+    const ordered = [`${baseUrl}/`];
+    const queues = [...sections.keys()].sort().map((name) =>
+      sections.get(name).sort((a, b) => a.depth - b.depth || a.url.localeCompare(b.url)));
+
+    let placed = true;
+    while (ordered.length < limit && placed) {
+      placed = false;
+      for (const queue of queues) {
+        if (ordered.length >= limit) break;
+        const next = queue.shift();
+        if (!next) continue;
+        ordered.push(next.url);
+        placed = true;
+      }
+    }
+
+    return ordered;
   }
 
   categorizeSections(urls) {
