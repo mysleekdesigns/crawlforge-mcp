@@ -372,12 +372,13 @@ registerToolIfEnabled("extract_metadata", {
 
 // Tool: scrape_structured
 registerToolIfEnabled("scrape_structured", {
-  description: "Use this when you know the exact CSS selectors for the data you want — e.g. scraping a pricing table or product list with consistent markup. More reliable than LLM extraction for well-structured pages. Example: scrape_structured({url: \"https://shop.com/products\", selectors: {price: \".price\", name: \".product-title\"}})",
+  description: "Use this when you know the exact CSS selectors for the data you want — e.g. scraping a pricing table or product list with consistent markup. More reliable than LLM extraction for well-structured pages. By default each selector is matched independently across the whole page, so the returned arrays are NOT row-aligned: data.price[0] need not belong to the same row as data.name[0]. Pass row_selector to get aligned records instead — one object per row, null for a field the row lacks. Example: scrape_structured({url: \"https://shop.com/products\", row_selector: \".product-card\", selectors: {price: \".price\", name: \".product-title\"}})",
   annotations: { title: "Scrape Structured Data", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to scrape"),
     selectors: z.record(z.string()).describe("CSS selectors mapping field names to selectors. Append @attr to extract an attribute instead of text (e.g. \"a.link@href\", \"img@src\")"),
-    max_results: z.number().int().min(1).optional().describe("Maximum number of matches to return per field when a selector matches multiple elements"),
+    row_selector: z.string().optional().describe("CSS selector for the repeating row/container element. When set, each field in selectors is matched inside each row and data is an array of row-aligned records ({field: value|null}) instead of parallel arrays"),
+    max_results: z.number().int().min(1).optional().describe("Maximum number of matches to return per field when a selector matches multiple elements, or the maximum number of rows when row_selector is set"),
     ...COMPLIANCE_PARAMS
   }
 }, withAuth("scrape_structured", scrapeStructuredHandler));

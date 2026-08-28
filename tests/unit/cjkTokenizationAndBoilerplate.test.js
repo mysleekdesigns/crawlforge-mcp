@@ -142,4 +142,46 @@ describe('SummarizeContentTool leading boilerplate stripping', () => {
     const poem = Array.from({ length: 30 }, (_, i) => `short line ${i}`).join('\n');
     assert.equal(tool.stripLeadingBoilerplate(poem), poem);
   });
+
+  test('the live extract_text chrome shape is stripped down to the article', () => {
+    // The three lines extract_text actually emits above the article body on
+    // en.wikipedia.org/wiki/Web_scraping (verified live 2026-08-27).
+    const page =
+      'Jump to content\n\nFrom Wikipedia, the free encyclopedia\n\n' +
+      `Method of extracting data from websites\n\n${PROSE}`;
+    assert.equal(tool.stripLeadingBoilerplate(page), PROSE);
+  });
+
+  test('a short opening sentence is kept, not mistaken for chrome', () => {
+    // The reason the punctuation exception is a phrase list and not a rule:
+    // "It was cold." and "Jump to content." match on every feature the function
+    // can measure (<= 60 chars, <= 8 words, one terminator in final position),
+    // so any general loosening of the terminator test admits both and the
+    // summary loses its first real sentence.
+    const prose =
+      'It was cold.\nThe wind came off the estuary and rattled the shutters until dawn.';
+    assert.equal(tool.stripLeadingBoilerplate(prose), prose);
+  });
+
+  test('a listed navigation phrase is stripped even when it carries a terminator', () => {
+    const page = `Jump to content.\n\nFrom Wikipedia, the free encyclopedia.\n\n${PROSE}`;
+    assert.equal(tool.stripLeadingBoilerplate(page), PROSE);
+  });
+
+  test('navigation phrases match case-insensitively and past repeated terminators', () => {
+    assert.equal(tool.stripLeadingBoilerplate(`JUMP TO CONTENT!!\n\n${PROSE}`), PROSE);
+    assert.equal(tool.stripLeadingBoilerplate(`  Skip to main content.  \n\n${PROSE}`), PROSE);
+    assert.equal(tool.stripLeadingBoilerplate(`Ir al contenido.\n\n${PROSE}`), PROSE);
+  });
+
+  test('a listed phrase is not stripped when it appears after real prose', () => {
+    const mid = `${PROSE}\n\nJump to content.\n\nMore text follows here.`;
+    assert.equal(tool.stripLeadingBoilerplate(mid), mid);
+  });
+
+  test('a punctuated line that merely resembles a nav phrase is kept', () => {
+    // Not on the list, so the punctuation test still protects it.
+    const prose = 'Jump to it.\nShe had been waiting for that signal for most of the morning.';
+    assert.equal(tool.stripLeadingBoilerplate(prose), prose);
+  });
 });

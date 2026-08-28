@@ -3,6 +3,8 @@
  * Extracted from server.js inline handler.
  * B1: Support attribute extraction (selector@attr), add max_results,
  *     fix elements_found to report real per-field DOM match counts.
+ * 3.2: Optional row_selector returns row-aligned records instead of the
+ *     default parallel arrays, which are matched independently per field.
  */
 
 import { load } from 'cheerio';
@@ -39,10 +41,58 @@ function parseSelectorSpec(raw) {
 }
 
 /**
- * @param {{ url: string, selectors: Record<string, string>, max_results?: number,
- *   user_agent?: string, respect_robots?: boolean }} params
+ * Row-aligned extraction: every field is matched *inside* each row element, so
+ * record N of the output is row N of the page. A field a row lacks is null
+ * rather than borrowed from a neighbouring row, which is what the default
+ * parallel-array output does — there each field is matched independently across
+ * the whole document and the arrays are not row-aligned.
+ *
+ * @param {import('cheerio').CheerioAPI} $
+ * @param {{ row_selector: string, selectors: Record<string, string>, max_results?: number }} params
+ * @returns {{ records: object[], rowsFound: number, matchCounts: Record<string, number> }}
  */
-export async function scrapeStructuredHandler({ url, selectors, max_results, user_agent, respect_robots }) {
+function extractRows($, { row_selector, selectors, max_results }) {
+  const allRows = $(row_selector);
+  // In row mode max_results caps rows, not per-field matches.
+  const rows = (max_results != null && max_results > 0)
+    ? allRows.slice(0, max_results)
+    : allRows;
+
+  const specs = Object.entries(selectors).map(([field, raw]) => [field, raw, parseSelectorSpec(raw)]);
+  const matchCounts = Object.fromEntries(specs.map(([field]) => [field, 0]));
+
+  const records = rows.toArray().map((rowEl) => {
+    const $row = $(rowEl);
+    const record = {};
+    for (const [field, raw, { selector, attribute }] of specs) {
+      try {
+        // A field selector may name the row element itself (row "tr.athing",
+        // field "tr@id"); .find() searches descendants only.
+        const el = $row.is(selector) ? $row : $row.find(selector).first();
+        if (el.length === 0) {
+          record[field] = null;
+          continue;
+        }
+        record[field] = attribute ? (el.attr(attribute) ?? null) : el.text().trim();
+        matchCounts[field] += 1;
+      } catch (selectorError) {
+        record[field] = {
+          error: `Invalid selector: ${raw}`,
+          message: selectorError.message
+        };
+      }
+    }
+    return record;
+  });
+
+  return { records, rowsFound: allRows.length, matchCounts };
+}
+
+/**
+ * @param {{ url: string, selectors: Record<string, string>, row_selector?: string,
+ *   max_results?: number, user_agent?: string, respect_robots?: boolean }} params
+ */
+export async function scrapeStructuredHandler({ url, selectors, row_selector, max_results, user_agent, respect_robots }) {
   try {
     const response = await fetchWithTimeout(url, {
       userAgent: user_agent,
@@ -55,6 +105,24 @@ export async function scrapeStructuredHandler({ url, selectors, max_results, use
 
     const html = await response.text();
     const $ = load(html);
+
+    if (row_selector) {
+      const { records, rowsFound, matchCounts } = extractRows($, { row_selector, selectors, max_results });
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            data: records,
+            selectors_used: selectors,
+            row_selector,
+            rows_found: rowsFound,
+            elements_found: matchCounts,
+            url: response.url
+          }, null, 2)
+        }]
+      };
+    }
+
     const results = {};
     const matchCounts = {};
 

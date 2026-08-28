@@ -1212,27 +1212,55 @@ export class ChangeTracker extends EventEmitter {
     return 'text_change';
   }
   
+  /**
+   * Count text-level changes for the summary. word_diff and line_diff describe
+   * the same edit at two granularities, so summing them would double-count —
+   * take the word diff, falling back to the line diff (a whitespace-only edit
+   * produces only the latter). Entries capDiffPayload dropped still count, or a
+   * large diff would report the cap instead of the real number.
+   */
+  countTextChanges(textChanges = []) {
+    const diff = textChanges.find(c => c.type === 'word_diff')
+      || textChanges.find(c => c.type === 'line_diff');
+
+    if (!diff) return 0;
+
+    return diff.changes.reduce(
+      (count, part) => count + (part.added || part.removed ? 1 : part.omittedEntries || 0),
+      0
+    );
+  }
+
   generateChangeSummary(changeAnalysis, significance) {
     const { addedElements, removedElements, modifiedElements, similarity } = changeAnalysis;
-    
-    const total = addedElements.length + removedElements.length + modifiedElements.length;
-    
+
+    // Text-only changes were left out of the total, so a compare whose entire
+    // diff was textual (a rotated UUID, an edited paragraph) reported
+    // totalChanges:0 beside a populated details.textChanges, and anything
+    // alerting on the counters never fired. Counted raw, like the three
+    // element counters beside it: all four report what the diff holds, and
+    // hasChanges alone reports whether it cleared the significance threshold.
+    const textChanges = this.countTextChanges(changeAnalysis.textChanges);
+
+    const total = addedElements.length + removedElements.length + modifiedElements.length + textChanges;
+
     return {
       totalChanges: total,
       contentSimilarity: Math.round(similarity * 100),
       added: addedElements.length,
       removed: removedElements.length,
       modified: modifiedElements.length,
+      textChanges,
       // Sub-threshold text noise (a rotating session token, a base64 timestamp)
-      // still lands in textChanges, so the description read "Text content
-      // changed" on a compare that reported hasChanges:false and
+      // still lands in details.textChanges, so the description read "Text
+      // content changed" on a compare that reported hasChanges:false and
       // totalChanges:0. Defer to the verdict the caller is given.
       changeDescription: significance === 'none'
         ? 'No significant changes detected'
         : this.generateChangeDescription(changeAnalysis)
     };
   }
-  
+
   generateChangeDescription(changeAnalysis) {
     const { addedElements, removedElements, modifiedElements, textChanges } = changeAnalysis;
     
