@@ -110,14 +110,18 @@ export class BFSCrawler {
     const normalizedStart = normalizeUrl(startUrl);
     this.baseUrl = new URL(normalizedStart);
     
-    // Check if start URL is allowed
-    const startUrlDecision = this.domainFilter.isAllowed(normalizedStart);
+    // Check if start URL is allowed. isSeed exempts it from the include-pattern gate:
+    // include patterns scope where the crawl may go next, not whether the URL the caller
+    // explicitly asked for may be fetched. Blacklist and exclude patterns still apply.
+    // The un-normalized startUrl is passed so a pattern written with a trailing slash
+    // ('/docs/') is tested against the form the caller wrote.
+    const startUrlDecision = this.domainFilter.isAllowed(startUrl, { isSeed: true });
     if (!startUrlDecision.allowed) {
       throw new Error(`Start URL blocked by domain filter: ${startUrlDecision.reason}`);
     }
     
     // Initialize queue with starting URL
-    await this.queue.add(() => this.processUrl(normalizedStart, 0));
+    await this.queue.add(() => this.processUrl(startUrl, 0));
 
     // Wait for crawling to complete
     await this.queue.onIdle();
@@ -149,8 +153,11 @@ export class BFSCrawler {
       return;
     }
 
+    // Only the seed is queued at depth 0; children are always depth >= 1.
+    const isSeed = depth === 0;
+
     // Check domain filter (replaces old pattern checking)
-    const filterDecision = this.domainFilter.isAllowed(normalizedUrl);
+    const filterDecision = this.domainFilter.isAllowed(url, { isSeed });
     this.filterDecisions.push({
       url: normalizedUrl,
       decision: filterDecision,
@@ -163,7 +170,7 @@ export class BFSCrawler {
     }
 
     // Backward compatibility: also check legacy patterns
-    if (!this.shouldCrawlUrl(normalizedUrl)) {
+    if (!this.shouldCrawlUrl(normalizedUrl, url, isSeed)) {
       logger.debug(`Legacy pattern blocks: ${normalizedUrl}`);
       return;
     }
@@ -420,16 +427,21 @@ export class BFSCrawler {
     }
   }
 
-  shouldCrawlUrl(url) {
-    // Check include patterns
-    if (this.includePatterns.length > 0) {
-      const matches = this.includePatterns.some(pattern => pattern.test(url));
+  shouldCrawlUrl(url, rawUrl = url, isSeed = false) {
+    // Check include patterns. The seed is exempt for the same reason as in crawl():
+    // it is the URL the caller named, not a link the crawl chose to follow.
+    if (!isSeed && this.includePatterns.length > 0) {
+      const matches = this.includePatterns.some(
+        pattern => pattern.test(url) || pattern.test(rawUrl)
+      );
       if (!matches) return false;
     }
 
     // Check exclude patterns
     if (this.excludePatterns.length > 0) {
-      const excluded = this.excludePatterns.some(pattern => pattern.test(url));
+      const excluded = this.excludePatterns.some(
+        pattern => pattern.test(url) || pattern.test(rawUrl)
+      );
       if (excluded) return false;
     }
 
