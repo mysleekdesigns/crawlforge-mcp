@@ -5,6 +5,24 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.4.1] - 2026-08-29
+
+Patch release: `extract_embedded_state`'s reader moves into the shared `crawlforge-extractors` package. **No behaviour change** — the tool returns exactly what it did in 5.4.0.
+
+### Changed
+
+- **`extract_embedded_state` now reads its state through `crawlforge-extractors` 1.4.0** rather than a local copy. `src/utils/embeddedState.js` (304 lines) and `src/utils/jsonPath.js` (80) are gone; the tool imports `extractEmbeddedState` and `selectJsonPath` from the package.
+
+### Why
+
+The CrawlForge REST API gained an `extract_embedded_state` endpoint the same day, which meant either a second implementation of this reader or one shared implementation. A second RSC flight-stream parser is the wrong kind of duplication: a T row's declared byte length *includes* its terminating newline, and reading one character past it makes the next row id `14` parse as `4` and silently overwrite an unrelated row — on the live Healthgrades capture that destroyed 19 rows while still looking like a clean parse. That fix living in only one of two copies is exactly the failure `crawlforge-extractors` exists to prevent.
+
+Both surfaces now run the same function, so **MCP and REST are both 29 tools at identical credit costs.**
+
+### Note on the test count
+
+The unit suite reads **1530 tests / 1529 pass / 1 skip**, down from 1565 / 1564. That is the 35 embedded-state and JSON-path tests relocating to the package alongside the code they cover — they run there now (package suite: 339 pass). It is not a loss of coverage. MCP protocol compliance stays 100%, 29 tools discovered.
+
 ## [5.4.0] - 2026-08-29
 
 Minor release: Tier 2 extraction — the structured data that is already in the HTML. One fetch, exact values, **no LLM in the extraction path**. Phase 3 of `VERTICAL_COVERAGE_PLAN.md`.
