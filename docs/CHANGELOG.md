@@ -30,9 +30,13 @@ Minor release: Tier 2 extraction — the structured data that is already in the 
 - Matching normalises both sides — grouping spaces, NBSP, `.`/`,` resolved by position — and admits every ambiguous reading of a source number, so an extra reading can only let a value through, never null a real one.
 - When the guard nulls a **required** field, the result's `valid` flag flips to false rather than reporting a fabrication as valid.
 
-### Fixed
+### Fixed — G5 overrides that were accepted and silently dropped
 
-- `extract_structured`'s `server.js` wrapper destructured a fixed six parameters and dropped `respect_robots` and `user_agent` before calling the tool — both declared in its input schema and read by the tool, so the G5 override was accepted and silently ignored. It now forwards params whole.
+Four tools declared `respect_robots` and `user_agent`, validated them at the MCP boundary, and then threw them away: their `server.js` wrappers destructured a fixed parameter list and re-packed it for `execute()`. Each tool's own schema reads both and forwards them to the fetch layer, so the override worked everywhere except the one place it had to. `extract_structured` (found while wiring 3.4), `map_site`, `extract_content` and `process_document` now forward params whole.
+
+Robots failed safe — the override was ignored, so robots.txt was always respected — but `user_agent` did not: a customer with their own agreement with a target could not identify as themselves, which is the case G4 exists to serve.
+
+`tests/unit/complianceParamForwarding.test.js` now fails the build if a tool declares `COMPLIANCE_PARAMS` and drops one, whether by destructuring a short list or by re-packing `execute()` arguments. Its exemption list is a decision record, not clutter: `stealth_mode` is exempt from `user_agent` only, because its browser generates the UA from a fingerprint persona and derives `Sec-CH-UA` and the OS profile from it — injecting a caller's UA would desynchronise the fingerprint. `stealth_mode` still forwards `respect_robots`.
 
 ## [5.3.1] - 2026-08-28
 

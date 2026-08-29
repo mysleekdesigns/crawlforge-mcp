@@ -597,12 +597,12 @@ registerToolIfEnabled("map_site", {
     ...COMPLIANCE_PARAMS
   },
   outputSchema: OUTPUT_SCHEMAS.map_site
-}, withAuth("map_site", async ({ url, include_sitemap, max_urls, group_by_path, include_metadata, domain_filter, import_filter_config, search }) => {
+}, withAuth("map_site", async (params) => {
   try {
-    if (!url) {
+    if (!params.url) {
       return { content: [{ type: "text", text: "URL parameter is required" }], isError: true };
     }
-    const result = await mapSiteTool.execute({ url, include_sitemap, max_urls, group_by_path, include_metadata, domain_filter, import_filter_config, search });
+    const result = await mapSiteTool.execute(params);
     return dualOutput(result);
   } catch (error) {
     return { content: [{ type: "text", text: `Site mapping failed: ${error.message}` }], isError: true };
@@ -618,12 +618,12 @@ registerToolIfEnabled("extract_content", {
     options: z.object({}).passthrough().optional().describe("Additional extraction options"),
     ...COMPLIANCE_PARAMS
   }
-}, withAuth("extract_content", async ({ url, options }) => {
+}, withAuth("extract_content", async (params) => {
   try {
-    if (!url) {
+    if (!params.url) {
       return { content: [{ type: "text", text: "URL parameter is required" }], isError: true };
     }
-    const result = await extractContentTool.execute({ url, options });
+    const result = await extractContentTool.execute(params);
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
     return { content: [{ type: "text", text: `Content extraction failed: ${error.message}` }], isError: true };
@@ -642,12 +642,12 @@ registerToolIfEnabled("process_document", {
     options: z.object({}).passthrough().optional().describe("Additional processing options (maxPages, pageRange:{start,end}, extractText, extractMetadata, outputFormat, ...)"),
     ...COMPLIANCE_PARAMS
   }
-}, withAuth("process_document", async ({ source, sourceType, options }) => {
+}, withAuth("process_document", async (params) => {
   try {
-    if (!source) {
+    if (!params.source) {
       return { content: [{ type: "text", text: "Source parameter is required" }], isError: true };
     }
-    const result = await processDocumentTool.execute({ source, sourceType, options });
+    const result = await processDocumentTool.execute(params);
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (error) {
     return { content: [{ type: "text", text: `Document processing failed: ${error.message}` }], isError: true };
