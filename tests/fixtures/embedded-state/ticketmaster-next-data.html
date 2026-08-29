@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head>
+<!--
+Fixture condensed from a live capture of
+    https://www.ticketmaster.com/discover/concerts
+  captured 2026-08-29 with:
+    curl -A 'CrawlForge/5.3.1 (+https://crawlforge.dev)' -L <url>   (HTTP 200, 674,040 bytes)
+
+  The real page carries one <script id="__NEXT_DATA__" type="application/json">
+  of 439,333 bytes. Kept: the whole envelope (page, query, buildId, assetPrefix,
+  isFallback, gip, scriptLoader) and props.pageProps with its noIndex flag and
+  the first 2 of its 20 eventsJsonLD MusicEvent objects, every value byte-identical
+  to the capture. Deleted whole: pageProps.globalTranslations, .pageTranslations,
+  .theme and .initialReduxState (399,215 bytes of Redux store). Re-serialized with
+  JSON.stringify, so only the JSON whitespace differs. Nothing was added or reworded.
+
+  What it proves: the __NEXT_DATA__ script is reported as its own source, parsed,
+  and NOT duplicated into json_scripts — on this page that would double a
+  multi-hundred-KB payload.
+-->
+<meta charset="utf-8">
+<title>Concert Tickets | Ticketmaster</title>
+<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"eventsJsonLD":[[{"@context":"http://schema.org","@type":"MusicEvent","url":"https://www.ticketmaster.com/remember-when-the-ultimate-tribute-to-sacramento-california-11-21-2025/event/1C006349E7B5D9FF","name":"Remember When - The Ultimate Tribute to Alan Jackson","description":"Remember When - The Ultimate Tribute to Alan Jackson | Friday, Nov 21, 2025, 8:00 PM | Crest Theater, Sacramento","image":{"@type":"ImageObject","url":"https://mapsapi.tmol.io/maps/geometry/3/event/1C006349E7B5D9FF/staticImage?type=png&systemId=HOST","name":"Crest Theater Seating Chart, Remember When - The Ultimate Tribute to Alan Jackson","caption":"Seating chart for Remember When - The Ultimate Tribute to Alan Jackson at Crest Theater, Sacramento"},"startDate":"2025-11-21T20:00:00","endDate":"2025-11-21","eventStatus":"https://schema.org/EventCancelled","eventAttendanceMode":"https://schema.org/OfflineEventAttendanceMode","location":{"@type":"Place","name":"Crest Theater","sameAs":"https://www.ticketmaster.com/crest-theater-tickets-sacramento/venue/229443","address":{"@type":"PostalAddress","streetAddress":"1013 K Street","addressLocality":"Sacramento","addressRegion":"CA","postalCode":"95814","addressCountry":"US"},"geo":{"@type":"GeoCoordinates","latitude":38.579137,"longitude":-121.493412}},"offers":{"@type":"Offer","availability":"http://schema.org/EventCancelled","description":"Remember When - The Ultimate Tribute to Alan Jackson | Friday, Nov 21, 2025, 8:00 PM | Crest Theater, Sacramento","url":"https://www.ticketmaster.com/remember-when-the-ultimate-tribute-to-sacramento-california-11-21-2025/event/1C006349E7B5D9FF","validFrom":"2025-10-10T10:00:00","availabilityStarts":"2025-10-10T10:00:00"}},{"@context":"http://schema.org","@type":"MusicEvent","url":"https://travel.ticketmaster.com/attraction/825?_uid=2d1a81bc-09c6-45ae-ba80-43c6cfcac5ca&utm_source=Caesars_TM&utm_medium=TM_ADP_MJLive","name":"MJ Live | Official Caesars Ticket + Hotel Packages","description":"MJ Live | Official Caesars Ticket + Hotel Packages | Tuesday, Dec 9, 2025, 7:00 PM | Harrah's Showroom at Harrah's Las Vegas, Las Vegas","startDate":"2025-12-09T19:00:00","endDate":"2025-12-09","eventStatus":"https://schema.org/EventScheduled","eventAttendanceMode":"https://schema.org/OfflineEventAttendanceMode","location":{"@type":"Place","name":"Harrah's Showroom at Harrah's Las Vegas","sameAs":"https://www.ticketmaster.com/harrahs-showroom-at-harrahs-las-vegas-tickets-las-vegas/venue/467856","address":{"@type":"PostalAddress","streetAddress":"3475 Las Vegas Blvd S","addressLocality":"Las Vegas","addressRegion":"NV","postalCode":"89109","addressCountry":"US"},"geo":{"@type":"GeoCoordinates","latitude":36.11955071,"longitude":-115.1720183}},"offers":{"@type":"Offer","availability":"http://schema.org/InStock","description":"MJ Live | Official Caesars Ticket + Hotel Packages | Tuesday, Dec 9, 2025, 7:00 PM | Harrah's Showroom at Harrah's Las Vegas, Las Vegas","url":"https://travel.ticketmaster.com/attraction/825?_uid=2d1a81bc-09c6-45ae-ba80-43c6cfcac5ca&utm_source=Caesars_TM&utm_medium=TM_ADP_MJLive","validFrom":"2025-12-09T10:00:00","availabilityStarts":"2025-12-09T10:00:00"},"performer":[{"@type":"MusicGroup","name":"MJ LIVE – Michael Jackson Tribute Concert","sameAs":"https://www.ticketmaster.com/mj-live-michael-jackson-tribute-concert-tickets/artist/1751107"}]}]],"noIndex":false}},"page":"/major-category","query":{"majorCategoryLabel":"concerts"},"buildId":"KfC_3GF1zuM-t3vA0Rtwl","assetPrefix":"//uk.tmconst.com/rc-eba258bd","isFallback":false,"isExperimentalCompile":false,"gip":true,"scriptLoader":[]}</script>
+</head><body></body></html>

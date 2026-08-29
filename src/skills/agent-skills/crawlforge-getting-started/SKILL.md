@@ -8,7 +8,7 @@ metadata:
 
 # CrawlForge: Getting Started
 
-CrawlForge is an MCP server with **28 tools** for web scraping, crawling,
+CrawlForge is an MCP server with **29 tools** for web scraping, crawling,
 extraction, research, change tracking, and AI-compliance. This skill orients you
 and routes each request to the right specialized skill.
 
@@ -52,13 +52,13 @@ stored at `~/.crawlforge/config.json`.
 | Watch a page for changes / monitor pricing | **crawlforge-change-tracking** |
 | Scrape many URLs, run browser actions, generate llms.txt | **crawlforge-batch-automation** |
 
-## The 28 tools at a glance
+## The 29 tools at a glance
 
 - **Basic (5):** fetch_url, extract_text, extract_links, extract_metadata, scrape_structured
 - **Unified (1):** scrape (multi-format single fetch)
 - **Search & research (5):** search_web, serp_rank, reddit_search, deep_research, agent
 - **Crawl (2):** crawl_deep, map_site
-- **Extract & analyze (7):** extract_content, process_document, summarize_content, analyze_content, extract_structured, extract_with_llm, list_ollama_models
+- **Extract & analyze (8):** extract_content, process_document, summarize_content, analyze_content, extract_structured, extract_with_llm, extract_embedded_state, list_ollama_models
 - **Batch & automation (4):** batch_scrape, get_batch_results, scrape_with_actions, generate_llms_txt
 - **Stealth & locale (2):** stealth_mode, localization
 - **Templates & tracking (2):** scrape_template, track_changes

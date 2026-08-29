@@ -1,6 +1,6 @@
 ---
 name: crawlforge-structured-extraction
-description: "Extracts structured JSON and analyzes content with CrawlForge's extract_structured, extract_with_llm, scrape_structured, scrape_template, process_document, analyze_content, summarize_content, and list_ollama_models tools. Use when the user wants to extract specific fields, pull data into a JSON schema, extract by natural-language prompt, scrape with CSS selectors, get product, profile, or repo data from known sites (Amazon, LinkedIn, GitHub, YouTube, Reddit, and more), parse a PDF or DOCX, summarize a page, or analyze sentiment, entities, or keywords. Defaults to local Ollama for LLM extraction; OpenAI and Anthropic optional."
+description: "Extracts structured JSON and analyzes content with CrawlForge's extract_structured, extract_with_llm, extract_embedded_state, scrape_structured, scrape_template, process_document, analyze_content, summarize_content, and list_ollama_models tools. Use when the user wants to extract specific fields, pull data into a JSON schema, extract by natural-language prompt, scrape with CSS selectors, read a page's embedded JavaScript state (__NEXT_DATA__, React Server Components, Nuxt, Apollo, Redux), get product, profile, or repo data from known sites (Amazon, LinkedIn, GitHub, YouTube, Reddit, and more), parse a PDF or DOCX, summarize a page, or analyze sentiment, entities, or keywords. Defaults to local Ollama for LLM extraction; OpenAI and Anthropic optional."
 metadata:
   version: 4.8.0
   source: crawlforge-mcp-server
@@ -17,6 +17,7 @@ extraction method by how predictable the page is and whether an LLM is needed.
 |-----------------|------|------|
 | A well-known site (Amazon, GitHub, LinkedIn...) | `scrape_template` | 1 |
 | Exact CSS selectors for the fields | `scrape_structured` | 2 |
+| The data is in the page's JS state, not its HTML | `extract_embedded_state` | 2 |
 | A JSON schema to fill (LLM, CSS fallback) | `extract_structured` | 3 |
 | A natural-language extraction instruction | `extract_with_llm` | 3 |
 | A PDF / DOCX / TXT to parse | `process_document` | 2 |
@@ -24,8 +25,26 @@ extraction method by how predictable the page is and whether an LLM is needed.
 | Sentiment / entities / keywords / readability | `analyze_content` | 3 |
 | To list local LLMs available for extraction | `list_ollama_models` | 1 |
 
-Cheapest-first rule: try `scrape_template` → `scrape_structured` (deterministic)
-before reaching for the LLM tools.
+Cheapest-first rule: try `scrape_template` → `scrape_structured` /
+`extract_embedded_state` (all deterministic) before reaching for the LLM tools.
+On a React/Next/Nuxt page the values are usually sitting in the embedded state
+already, exact and typed — that beats asking a model to read them off the render.
+
+## extract_embedded_state — the page's own JS state (cost: 2)
+
+```json
+{ "tool": "extract_embedded_state", "params": { "url": "https://www.ticketmaster.com/discover/concerts", "path": "next_data.props.pageProps" } }
+```
+
+Finds `__NEXT_DATA__`, `self.__next_f` (React Server Component payloads),
+`window.__NUXT__`, `__APOLLO_STATE__`, `__INITIAL_STATE__`, `__PRELOADED_STATE__`
+and `<script type="application/json">` blocks, keyed by source name. No LLM in
+the path, so values are exact rather than inferred.
+
+These payloads are routinely over a megabyte — pass `path` (dotted keys and
+array indexes, e.g. `next_data.props.pageProps` or `next_f[0].f`) to return one
+subtree. Without it, a large result comes back with a warning naming the biggest
+source and a ready-to-paste path.
 
 ## scrape_template — known sites, zero selectors (cost: 1)
 

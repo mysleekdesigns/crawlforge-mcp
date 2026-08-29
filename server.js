@@ -52,6 +52,7 @@ import { extractTextHandler } from "./src/tools/basic/extractText.js";
 import { extractLinksHandler } from "./src/tools/basic/extractLinks.js";
 import { extractMetadataHandler } from "./src/tools/basic/extractMetadata.js";
 import { scrapeStructuredHandler } from "./src/tools/basic/scrapeStructured.js";
+import { extractEmbeddedStateHandler } from "./src/tools/extract/extractEmbeddedState.js";
 // D1.1 Resources + D1.2 Prompts + D1.4 Elicitation
 import { ResourceRegistry } from "./src/resources/ResourceRegistry.js";
 import { PROMPTS, getPromptMessages } from "./src/prompts/PromptRegistry.js";
@@ -105,7 +106,7 @@ const taskStore = createTaskStore({ logger });
 const server = new McpServer({
   name: "crawlforge",
   version: "5.3.1",
-  description: "Production-ready MCP server with 28 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
+  description: "Production-ready MCP server with 29 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
   icons: [{ src: "https://www.crawlforge.dev/icon.png", mimeType: "image/png", sizes: ["any"] }],
@@ -141,7 +142,7 @@ server.registerPrompt("getting-started", {
       role: "user",
       content: {
         type: "text",
-        text: "You have access to CrawlForge MCP with 28 web scraping tools. Key tools:\n\n" +
+        text: "You have access to CrawlForge MCP with 29 web scraping tools. Key tools:\n\n" +
           "- fetch_url: Fetch raw HTML/content from any URL\n" +
           "- extract_text: Extract clean text from a webpage\n" +
           "- extract_content: Smart content extraction with readability\n" +
@@ -322,6 +323,11 @@ const COMPLIANCE_PARAMS = {
   user_agent: z.string().optional().describe("Override the outbound User-Agent. CrawlForge identifies itself honestly by default; use this only for targets you have your own agreement with.")
 };
 
+// 3.4: the two tools that let an LLM produce values share one provenance control.
+const VERIFY_NUMBERS_PARAM = {
+  verify_numbers: z.boolean().optional().default(true).describe("Numeric provenance guard (default: true): every price or numeric value the LLM returns must appear literally in the page source, else it is returned as null with a reason in `provenance.unverified`. Set false to get the model's raw numbers back, including ones it derived (a count, a sum, a total) rather than read off the page.")
+};
+
 
 // Tool: fetch_url
 registerToolIfEnabled("fetch_url", {
@@ -366,9 +372,21 @@ registerToolIfEnabled("extract_metadata", {
   annotations: { title: "Extract Metadata", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to extract metadata from"),
+    json_ld_types: z.array(z.string()).optional().describe("Filter the returned JSON-LD to nodes of these schema.org types, e.g. [\"Product\",\"Offer\"]. Subtypes match their parent: \"Event\" returns MusicEvent, \"Offer\" returns AggregateOffer, \"ItemList\" returns BreadcrumbList. Nodes are found at any depth, including inside @graph and nested inside a parent node. When set, json_ld carries only the matching nodes instead of the raw dump, and json_ld_type_counts reports how many matched per requested type. Documented types: ItemList, Product, Offer, Event, JobPosting, RealEstateListing — any other schema.org type is matched exactly."),
     ...COMPLIANCE_PARAMS
   }
 }, withAuth("extract_metadata", extractMetadataHandler));
+
+// Tool: extract_embedded_state
+registerToolIfEnabled("extract_embedded_state", {
+  description: "Use this when a page's data lives in its embedded JavaScript state rather than its rendered HTML — Next.js (__NEXT_DATA__ and React Server Component payloads), Nuxt, Apollo, Redux (__INITIAL_STATE__, __PRELOADED_STATE__), and <script type=\"application/json\"> blocks. One fetch, exact values, no LLM in the extraction path, so nothing can be fabricated. Payloads are routinely over a megabyte — pass `path` to return one subtree instead of the whole blob. Example: extract_embedded_state({url: \"https://www.ticketmaster.com/discover/concerts\", path: \"next_data.props.pageProps\"})",
+  annotations: { title: "Extract Embedded State", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  inputSchema: {
+    url: z.string().url().describe("The URL to read embedded state from"),
+    path: z.string().optional().describe("Return only this subtree instead of the whole payload. Dotted keys and array indexes, e.g. \"next_data.props.pageProps\" or \"next_f[0].f\" — not JSONPath (no wildcards, filters or recursion). State payloads are routinely over a megabyte; scope them."),
+    ...COMPLIANCE_PARAMS
+  }
+}, withAuth("extract_embedded_state", extractEmbeddedStateHandler));
 
 // Tool: scrape_structured
 registerToolIfEnabled("scrape_structured", {
@@ -694,12 +712,16 @@ registerToolIfEnabled("extract_structured", {
     }).optional().describe("LLM provider configuration for AI-powered extraction"),
     fallbackToSelectors: z.boolean().optional().default(true).describe("Fall back to CSS selector extraction if LLM is unavailable"),
     selectorHints: z.record(z.string()).optional().describe("CSS selector hints to guide extraction"),
-    ...COMPLIANCE_PARAMS
+    ...COMPLIANCE_PARAMS,
+    ...VERIFY_NUMBERS_PARAM
   },
   outputSchema: OUTPUT_SCHEMAS.extract_structured
-}, withAuth("extract_structured", async ({ url, schema, prompt, llmConfig, fallbackToSelectors, selectorHints }) => {
+}, withAuth("extract_structured", async (params) => {
   try {
-    const result = await extractStructuredTool.execute({ url, schema, prompt, llmConfig, fallbackToSelectors, selectorHints });
+    // Forward params whole. This wrapper used to destructure a fixed six, which
+    // silently dropped respect_robots and user_agent — both declared here and
+    // read by the tool, so the G5 override was accepted and ignored.
+    const result = await extractStructuredTool.execute(params);
     return dualOutput(result);
   } catch (error) {
     return { content: [{ type: "text", text: `Structured extraction failed: ${error.message}` }], isError: true };
@@ -718,7 +740,8 @@ registerToolIfEnabled("extract_with_llm", {
     provider: z.enum(["openai", "anthropic", "ollama", "auto"]).optional().default("auto").describe("LLM provider. Defaults to 'ollama' (local, no key, http://localhost:11434). Use 'openai' or 'anthropic' for cloud models (requires the matching API key)."),
     model: z.string().optional().describe("Override the model. For ollama, pass a name returned by list_ollama_models (e.g. 'llama3.2', 'qwen2.5:7b'). Defaults: openai='gpt-4o-mini', anthropic='claude-haiku-4-5-20251001', ollama='llama3.2' or $OLLAMA_DEFAULT_MODEL."),
     maxTokens: z.number().optional().default(4096).describe("Maximum output tokens"),
-    ...COMPLIANCE_PARAMS
+    ...COMPLIANCE_PARAMS,
+    ...VERIFY_NUMBERS_PARAM
   }
 }, withAuth("extract_with_llm", async (params) => {
   try {

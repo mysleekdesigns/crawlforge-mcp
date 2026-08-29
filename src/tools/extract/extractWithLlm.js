@@ -10,6 +10,7 @@
 import { z } from 'zod';
 import { fetchAndParse } from './_fetchAndParse.js';
 import { ollamaBaseUrl, ollamaHeaders, selectOllamaModel } from '../../utils/ollamaConfig.js';
+import { verifyNumericProvenance } from '../../utils/provenance.js';
 // D1.3: SamplingClient for MCP sampling fallback (lazy — only imported if needed)
 let _SamplingClient = null;
 async function getSamplingClient() {
@@ -485,6 +486,7 @@ export class ExtractWithLlm {
    * @param {number}  [params.maxTokens] - Max output tokens (default 4096)
    * @param {boolean} [params.respect_robots] - Per-request robots.txt override
    * @param {string}  [params.user_agent]     - Per-request identity override
+   * @param {boolean} [params.verify_numbers] - Numeric provenance guard (default true)
    * @returns {Promise<Object>}
    */
   async execute(params) {
@@ -497,7 +499,8 @@ export class ExtractWithLlm {
       model: modelParam,
       maxTokens = 4096,
       respect_robots,
-      user_agent
+      user_agent,
+      verify_numbers = true
     } = params;
 
     // Validate: exactly one of url or content must be provided
@@ -530,18 +533,25 @@ export class ExtractWithLlm {
 
     // Step 1: Get text to extract from
     let text;
+    // What the provenance guard checks against. Deliberately wider than what
+    // the model is shown: the raw html carries numbers the flattened text does
+    // not (Apple's prices exist only inside an embedded JSON blob), and a value
+    // missing from `text` but present on the page must not be nulled.
+    let sourceForProvenance;
     let fetchWarnings = [];
     try {
       if (url) {
-        const { textContent, warnings } = await fetchAndParse(url, {
+        const { html, textContent, warnings } = await fetchAndParse(url, {
           respectRobots: respect_robots,
           userAgent: user_agent,
           tool: 'extract_with_llm'
         });
         text = textContent;
+        sourceForProvenance = `${html}\n${textContent}`;
         fetchWarnings = warnings || [];
       } else {
         text = content;
+        sourceForProvenance = content;
       }
     } catch (fetchErr) {
       return { success: false, error: `Failed to fetch content: ${fetchErr.message}` };
@@ -654,10 +664,27 @@ export class ExtractWithLlm {
       }
     }
 
+    // 3.4: numeric provenance. A number the model wrote that is nowhere in the
+    // page it was given was invented, so it comes back null with a reason
+    // rather than as a confident answer.
+    let provenance = { enabled: false };
+    if (verify_numbers) {
+      const checked = verifyNumericProvenance(parsed, sourceForProvenance);
+      parsed = checked.data;
+      provenance = {
+        enabled: true,
+        verified: checked.verified,
+        nulled: checked.nulled,
+        unverified: checked.unverified
+      };
+      if (checked.skipped) provenance.skipped = checked.skipped;
+    }
+
     // C3: surface truncation metadata so callers know the input was clipped
     const result = {
       success: true,
       data: parsed,
+      provenance,
       provider: resolvedModel === 'sampling' ? 'sampling' : provider,
       model: resolvedModel || model,
       usage

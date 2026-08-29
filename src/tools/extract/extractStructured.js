@@ -11,6 +11,7 @@ import { LLMManager } from '../../core/llm/LLMManager.js';
 import { CRAWLFORGE_USER_AGENT } from '../../utils/fetchIdentity.js';
 import { fetchAndParse, flattenBodyText } from './_fetchAndParse.js';
 import { extractMainContent } from '../scrape/_mainContent.js';
+import { verifyNumericProvenance } from '../../utils/provenance.js';
 
 // Semantic element selectors for well-known field names, tried as a last
 // resort in the CSS fallback so common fields (e.g. "title") still resolve when
@@ -79,7 +80,8 @@ const ExtractStructuredSchema = z.object({
   fallbackToSelectors: z.boolean().optional().default(true),
   selectorHints: z.record(z.string()).optional(),
   respect_robots: z.boolean().optional(),
-  user_agent: z.string().optional()
+  user_agent: z.string().optional(),
+  verify_numbers: z.boolean().optional().default(true)
 });
 
 export class ExtractStructuredTool {
@@ -136,7 +138,7 @@ export class ExtractStructuredTool {
 
     try {
       const validated = ExtractStructuredSchema.parse(params);
-      const { url, schema, prompt, llmConfig, fallbackToSelectors, selectorHints, respect_robots, user_agent } = validated;
+      const { url, schema, prompt, llmConfig, fallbackToSelectors, selectorHints, respect_robots, user_agent, verify_numbers } = validated;
 
       // Step 1: Fetch and parse — shared helper strips scripts/styles/iframes/svgs
       const { html, $, textContent, warnings } = await fetchAndParse(url, {
@@ -178,6 +180,43 @@ export class ExtractStructuredTool {
         // callers can tell "LLM broken" apart from "no LLM configured".
         extractionResult = null;
         llmErrorMessage = llmError.message;
+      }
+
+      // Step 3b (3.4): numeric provenance. Only the LLM path invents numbers —
+      // the CSS and keyword fallbacks can only return text they read off the
+      // page — so the guard is scoped to it.
+      //
+      // It is checked against the FULL source, never `mainContentText()`: on
+      // the Apple MacBook Air page Readability keeps the FAQ block and every
+      // price is left behind in an embedded JSON blob, so checking against what
+      // the model was shown would null every correct price.
+      let provenance = { enabled: false };
+      if (extractionResult && extractionMethod === 'llm' && verify_numbers) {
+        const checked = verifyNumericProvenance(extractionResult.data || {}, `${html}\n${textContent}`);
+        // The model's own `valid` flag described the data before the guard ran.
+        // A required field the guard nulled is not filled in any more, so that
+        // flag cannot stand or the response reports a fabrication as valid.
+        const nulledRequired = checked.unverified
+          .map((entry) => entry.path)
+          .filter((path) => (schema.required || []).includes(path));
+        extractionResult = {
+          ...extractionResult,
+          data: checked.data,
+          ...(nulledRequired.length > 0 ? {
+            valid: false,
+            validationErrors: [
+              ...(extractionResult.validationErrors || []),
+              ...nulledRequired.map((field) => `Field "${field}" was not found in the page source`)
+            ]
+          } : {})
+        };
+        provenance = {
+          enabled: true,
+          verified: checked.verified,
+          nulled: checked.nulled,
+          unverified: checked.unverified
+        };
+        if (checked.skipped) provenance.skipped = checked.skipped;
       }
 
       // Step 4: CSS selector fallback if LLM unavailable or failed
@@ -223,6 +262,12 @@ export class ExtractStructuredTool {
       if (llmErrorMessage) {
         extractionNotes.push(`LLM extraction failed: ${llmErrorMessage}`);
       }
+      if (provenance.nulled > 0) {
+        extractionNotes.push(
+          `Numeric provenance: ${provenance.nulled} value(s) the model returned are not in the page source and were replaced with null: ` +
+          provenance.unverified.map((u) => `${u.path}=${JSON.stringify(u.value)}`).join(', ')
+        );
+      }
 
       // A required field that came back missing or empty is a failed
       // extraction, not a successful one carrying a note: surface it at the
@@ -249,6 +294,7 @@ export class ExtractStructuredTool {
           errors: extractionResult.validationErrors || []
         },
         extractionNotes,
+        provenance,
         ...(warnings?.length ? { warnings } : {})
       };
 

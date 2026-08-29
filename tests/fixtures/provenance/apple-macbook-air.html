@@ -1,0 +1,482 @@
+<!--
+  Fixture: condensed from a LIVE capture of https://www.apple.com/shop/buy-mac/macbook-air
+  Captured 2026-08-29 with:
+    curl -A 'CrawlForge/5.3.1 (+https://crawlforge.dev)' -L https://www.apple.com/shop/buy-mac/macbook-air
+  HTTP 200, 606,174 bytes, robots-allowed.
+
+  Every byte below is a verbatim slice of that capture; whole regions were dropped
+  (styles, analytics, nav, the other 48 KB of product JSON) to get from 606 KB to ~45 KB.
+
+  Why this page: it is the page whose extraction fabricated prices. The MacBook Air
+  prices ($1,299.00 / $1,399.00 / $1,499.00) appear ONLY inside the embedded
+  PRODUCT_SELECTION_BOOTSTRAP JSON below — they are not in the rendered text at all,
+  and Readability's main-content pass keeps the FAQ block, which has no prices in it.
+  A model handed the trimmed main content therefore has no price to read, and invents one.
+
+  Slices, in order:
+    A  product-selection area — model names, visibly rendered, no prices
+    B  PRODUCT_SELECTION_BOOTSTRAP JSON — where the real prices live (raw html only)
+    C  FAQ section — what extractMainContent() keeps as "main content"
+    D  Apple Card financing footnotes — the only visibly-rendered $ amounts
+-->
+<!doctype html>
+<html lang="en-US">
+<head><meta charset="utf-8"><title>Buy MacBook Air - Apple</title></head>
+<body>
+<!-- A -->
+<div id="as-noscript-header" class="product-selection-header noscript as-l-container">
+                                    <h1 class="fwl">
+    Shop MacBook Air
+</h1>
+
+                </div>
+
+                <div class="product-selection-area noscript as-l-container">
+                    <div class="product-selection-1-group">
+                        <div class="selection-buttons">
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/13-inch-starlight-m5-chip-10-core-cpu-10-core-gpu-16gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 13-inch, M5 Chip, 10-core CPU, 10-core GPU, Starlight, 16GB memory, 1TB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/15-inch-starlight-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-512gb-storage
+" 
+   >            <div class="details">MacBook Air, 15-inch, M5 Chip, 10-core CPU, 10-core GPU, Starlight, 24GB memory, 512GB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/15-inch-starlight-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 15-inch, M5 Chip, 10-core CPU, 10-core GPU, Starlight, 24GB memory, 1TB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/13-inch-sky-blue-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-512gb-storage
+" 
+   >            <div class="details">MacBook Air, 13-inch, M5 Chip, 10-core CPU, 10-core GPU, Sky Blue, 24GB memory, 512GB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/13-inch-starlight-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-512gb-storage
+" 
+   >            <div class="details">MacBook Air, 13-inch, M5 Chip, 10-core CPU, 10-core GPU, Starlight, 24GB memory, 512GB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/15-inch-midnight-m5-chip-10-core-cpu-10-core-gpu-16gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 15-inch, M5 Chip, 10-core CPU, 10-core GPU, Midnight, 16GB memory, 1TB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/15-inch-starlight-m5-chip-10-core-cpu-10-core-gpu-16gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 15-inch, M5 Chip, 10-core CPU, 10-core GPU, Starlight, 16GB memory, 1TB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/15-inch-midnight-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-512gb-storage
+" 
+   >            <div class="details">MacBook Air, 15-inch, M5 Chip, 10-core CPU, 10-core GPU, Midnight, 24GB memory, 512GB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/15-inch-silver-m5-chip-10-core-cpu-10-core-gpu-16gb-memory-512gb-storage
+" 
+   >            <div class="details">MacBook Air, 15-inch, M5 Chip, 10-core CPU, 10-core GPU, Silver, 16GB memory, 512GB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/15-inch-starlight-m5-chip-10-core-cpu-10-core-gpu-16gb-memory-512gb-storage
+" 
+   >            <div class="details">MacBook Air, 15-inch, M5 Chip, 10-core CPU, 10-core GPU, Starlight, 16GB memory, 512GB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/15-inch-midnight-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 15-inch, M5 Chip, 10-core CPU, 10-core GPU, Midnight, 24GB memory, 1TB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/13-inch-midnight-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-512gb-storage
+" 
+   >            <div class="details">MacBook Air, 13-inch, M5 Chip, 10-core CPU, 10-core GPU, Midnight, 24GB memory, 512GB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/13-inch-silver-m5-chip-10-core-cpu-8-core-gpu-16gb-memory-512gb-storage
+" 
+   >            <div class="details">MacBook Air, 13-inch, M5 Chip, 10-core CPU, 8-core GPU, Silver, 16GB memory, 512GB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/13-inch-midnight-m5-chip-10-core-cpu-10-core-gpu-16gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 13-inch, M5 Chip, 10-core CPU, 10-core GPU, Midnight, 16GB memory, 1TB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/13-inch-midnight-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 13-inch, M5 Chip, 10-core CPU, 10-core GPU, Midnight, 24GB memory, 1TB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/15-inch-midnight-m5-chip-10-core-cpu-10-core-gpu-16gb-memory-512gb-storage
+" 
+   >            <div class="details">MacBook Air, 15-inch, M5 Chip, 10-core CPU, 10-core GPU, Midnight, 16GB memory, 512GB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/15-inch-sky-blue-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 15-inch, M5 Chip, 10-core CPU, 10-core GPU, Sky Blue, 24GB memory, 1TB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/15-inch-sky-blue-m5-chip-10-core-cpu-10-core-gpu-16gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 15-inch, M5 Chip, 10-core CPU, 10-core GPU, Sky Blue, 16GB memory, 1TB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/15-inch-silver-m5-chip-10-core-cpu-10-core-gpu-16gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 15-inch, M5 Chip, 10-core CPU, 10-core GPU, Silver, 16GB memory, 1TB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/15-inch-silver-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 15-inch, M5 Chip, 10-core CPU, 10-core GPU, Silver, 24GB memory, 1TB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/13-inch-starlight-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 13-inch, M5 Chip, 10-core CPU, 10-core GPU, Starlight, 24GB memory, 1TB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/13-inch-silver-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 13-inch, M5 Chip, 10-core CPU, 10-core GPU, Silver, 24GB memory, 1TB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/13-inch-starlight-m5-chip-10-core-cpu-8-core-gpu-16gb-memory-512gb-storage
+" 
+   >            <div class="details">MacBook Air, 13-inch, M5 Chip, 10-core CPU, 8-core GPU, Starlight, 16GB memory, 512GB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/13-inch-sky-blue-m5-chip-10-core-cpu-10-core-gpu-16gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 13-inch, M5 Chip, 10-core CPU, 10-core GPU, Sky Blue, 16GB memory, 1TB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/13-inch-midnight-m5-chip-10-core-cpu-8-core-gpu-16gb-memory-512gb-storage
+" 
+   >            <div class="details">MacBook Air, 13-inch, M5 Chip, 10-core CPU, 8-core GPU, Midnight, 16GB memory, 512GB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/13-inch-sky-blue-m5-chip-10-core-cpu-8-core-gpu-16gb-memory-512gb-storage
+" 
+   >            <div class="details">MacBook Air, 13-inch, M5 Chip, 10-core CPU, 8-core GPU, Sky Blue, 16GB memory, 512GB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/13-inch-sky-blue-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 13-inch, M5 Chip, 10-core CPU, 10-core GPU, Sky Blue, 24GB memory, 1TB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/15-inch-sky-blue-m5-chip-10-core-cpu-10-core-gpu-24gb-memory-512gb-storage
+" 
+   >            <div class="details">MacBook Air, 15-inch, M5 Chip, 10-core CPU, 10-core GPU, Sky Blue, 24GB memory, 512GB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/15-inch-sky-blue-m5-chip-10-core-cpu-10-core-gpu-16gb-memory-512gb-storage
+" 
+   >            <div class="details">MacBook Air, 15-inch, M5 Chip, 10-core CPU, 10-core GPU, Sky Blue, 16GB memory, 512GB storage</div>
+</a></div>
+                                
+
+<div class="item">
+<a href="            https://www.apple.com/shop/buy-mac/macbook-air/13-inch-silver-m5-chip-10-core-cpu-10-core-gpu-16gb-memory-1tb-storage
+" 
+   >            <div class="details">MacBook Air, 13-inch, M5 Chip, 10-core CPU, 10-core GPU, Silver, 16GB memory, 1TB storage</div>
+</a></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="root" data-analytics-no-activitymap></div>
+                <div class="rs-sticky-chat" data-analytics-region="sticky"></div>
+
+                
+
+        
+<!-- B -->
+<script>
+</span></span> <span class=\"nowrap\"> for 36 <span aria-hidden=\"true\">mo.</span></span><span class=\"visuallyhidden\">months</span><span class=\"price-point-poiMessage\"> with Apple Upgrade</span><as-footnote data-id=\"adca7b89eb75cd243b1bfaffc3ebb778\" data-assigned=\"true\"><sup data-autom=\"footnote-sub\" class=\"as-footnote\"><span class=\"visuallyhidden\">&nbsp;Footnote&nbsp;</span>¶</sup></as-footnote>","currentPrice":{"amount":"$1,299.00","raw_amount":"1299.00"},"fullPrice":"<span class=\"as-pricepoint-fullprice\"><span class=\"nowrap\">$1299</span></span>","tierListSavings":null,"seoPrice":1299.00,"comparativeDisplayPrice":"Buy from <span class=\"nowrap\">$1299</span>","acmiPrice":"<span class=\"as-pricepoint-installmentprice\"><span class=\"nowrap\"> or $108.25<span aria-hidden=\"true\">/mo.&nbsp;</span><span class=\"visuallyhidden\">&nbsp;per month</span></span><span class=\"as-price-acinstallmentmonths\">for 12 <span aria-hidden=\"true\">mo.</span><span class=\"visuallyhidden\">months</span><as-footnote data-id=\"932981f9787ea5f414e8e3ff80aca24e\" data-assigned=\"true\"><sup data-autom=\"footnote-sub\" class=\"as-footnote\"><span class=\"visuallyhidden\">&nbsp;Footnote&nbsp;</span>#</sup></as-footnote></span>","previousPrice":null,"poiPrice":"<span class=\"price-point price-point-poiPrice\"><span class=\"price-point-poiFrom\">Lease from </span><span class=\"price-point-from\">From </span><span class=\"nowrap\">$24.99<span aria-hidden=\"true\">/mo.</span><span class=\"visuallyhidden\"> per month</span></span> for 36 <span aria-hidden=\"true\">mo.</span><span class=\"visuallyhidden\">months</span><span class=\"price-point-poiMessage\"> with Apple Upgrade</span><as-footnote data-id=\"adca7b89eb75cd243b1bfaffc3ebb778\" data-assigned=\"true\"><sup data-autom=\"footnote-sub\" class=\"as-footnote\"><span class=\"visuallyhidden\">&nbsp;Footnote&nbsp;</span>¶</sup></as-footnote>"},"15inch-skyblue-10-10":{"amount":1499.00,"promoSavings":null,"fullPrice-comparative":"<span class=\"as-pricepoint-fullprice\">Buy from <span class=\"nowrap\">$1499</span></span>","acmiPrice-comparative":"<span class=\"as-pricepoint-installmentprice-comparative\"><span class=\"nowrap\"> or $124.91<span aria-hidden=\"true\">/mo.&nbsp;</span><span class=\"visuallyhidden\">&nbsp;per month</span></span><span class=\"nowrap\"><span class=\"as-price-acinstallmentmonths\"> for 12 <span aria-hidden=\"true\">mo.</span><span class=\"visuallyhidden\">months</span></span><span class=\"as-price-acinstallmentterms-footnotes\"><as-footnote data-id=\"932981f9787ea5f414e8e3ff80aca24e\" data-assigned=\"true\"><sup data-autom=\"footnote-sub\" class=\"as-footnote\"><span class=\"visuallyhidden\">&nbsp;Footnote&nbsp;</span>#</sup></as-footnote></span></span></span>","poiPrice-comparative":"<span class=\"price-point price-point-poiPrice\"><span class=\"price-point-poiFrom\">Lease from </span><span class=\"price-point-from\">From </span><span class=\"nowrap\">$28.99<span aria-hidden=\"true\">/mo.</span><span class=\"visuallyhidden\">per month</span></span> <span class=\"nowrap\"> for 36 <span aria-hidden=\"true\">mo.</span></span><span class=\"visuallyhidden\">months</span><span class=\"price-point-poiMessage\"> with Apple Upgrade</span><as-footnote data-id=\"adca7b89eb75cd243b1bfaffc3ebb778\" data-assigned=\"true\"><sup data-autom=\"footnote-sub\" class=\"as-footnote\"><span class=\"visuallyhidden\">&nbsp;Footnote&nbsp;</span>¶</sup></as-footnote>","currentPrice":{"amount":"$1,499.00","raw_amount":"1499.00"},"fullPrice":"<span class=\"as-pricepoint-fullprice\"><span class=\"nowrap\">$1499</span></span>","tierListSavings":null,"seoPrice":1499.00,"comparativeDisplayPrice":"Buy from <span class=\"nowrap\">$1499</span>","acmiPrice":"<span class=\"as-pricepoint-installmentprice\"><span class=\"nowrap\"> or $124.91<span aria-hidden=\"true\">/mo.&nbsp;</span><span class=\"visuallyhidden\">&nbsp;per month</span></span><span class=\"as-price-acinstallmentmonths\">for 12 <span aria-hidden=\"true\">mo.</span><span class=\"visuallyhidden\">months</span><as-footnote data-id=\"932981f9787ea5f414e8e3ff80aca24e\" data-assigned=\"true\"><sup data-autom=\"footnote-sub\" class=\"as-footnote\"><span class=\"visuallyhidden\">&nbsp;Footnote&nbsp;</span>#</sup></as-footnote></span>","previousPrice":null,"poiPrice":"<span class=\"price-point price-point-poiPrice\"><span class=\"price-point-poiFrom\">Lease from </span><span class=\"price-point-from\">From </span><span class=\"nowrap\">$28.99<span aria-hidden=\"true\">/mo.</span><span class=\"visuallyhidden\"> per month</span></span> for 36 <span aria-hidden=\"true\">mo.</span><span class=\"visuallyhidden\">months</span><span class=\"price-point-poiMessage\"> with Apple Upgrade</span><as-footnote data-id=\"adca7b89eb75cd243b1bfaffc3ebb778\" data-assigned=\"true\"><sup data-autom=\"footnote-sub\" class=\"as-footnote\"><span class=\"visuallyhidden\">&nbsp;Footnote&nbsp;</span>¶</sup></as-footnote>"},"15inch-midnight-10-10":{"amount":1499.00,"promoSavings":null,"fullPrice-comparative":"<span class=\"as-pricepoint-fullprice\">Buy from <span class=\"nowrap\">$1499</span></span>","acmiPrice-comparative":"<span class=\"as-pricepoint-installmentprice-comparative\"><span class=\"nowrap\"> or $124.91<span aria-hidden=\"true\">/mo.&nbsp;</span><span class=\"visuallyhidden\">&nbsp;per month</span></span><span class=\"nowrap\"><span class=\"as-price-acinstallmentmonths\"> for 12 <span aria-hidden=\"true\">mo.</span><span class=\"visuallyhidden\">months</span></span><span class=\"as-price-acinstallmentterms-footnotes\"><as-footnote data-id=\"932981f9787ea5f414e8e3ff80aca24e\" data-assigned=\"true\"><sup data-autom=\"footnote-sub\" class=\"as-footnote\"><span class=\"visuallyhidden\">&nbsp;Footnote&nbsp;</span>#</sup></as-footnote></span></span></span>","poiPrice-comparative":"<span class=\"price-point price-point-poiPrice\"><span class=\"price-point-poiFrom\">Lease from </span><span class=\"price-point-from\">From </span><span class=\"nowrap\">$28.99<span aria-hidden=\"true\">/mo.</span><span class=\"visuallyhidden\">per month</span></span> <span class=\"nowrap\"> for 36 <span aria-hidden=\"true\">mo.</span></span><span class=\"visuallyhidden\">months</span><span class=\"price-point-poiMessage\"> with Apple Upgrade</span><as-footnote data-id=\"adca7b89eb75cd243b1bfaffc3ebb778\" data-assigned=\"true\"><sup data-autom=\"footnote-sub\" class=\"as-footnote\"><span class=\"visuallyhidden\">&nbsp;Footnote&nbsp;</span>¶</sup></as-footnote>","currentPrice":{"amount":"$1,499.00","raw_amount":"1499.00"},"fullPrice":"<span class=\"as-pricepoint-fullprice\"><span class=\"nowrap\">$1499</span></span>","tierListSavings":null,"seoPrice":1499.00,"comparativeDisplayPrice":"Buy from <span class=\"nowrap\">$1499</span>","acmiPrice":"<span class=\"as-pricepoint-installmentprice\"><span class=\"nowrap\"> or $124.91<span aria-hidden=\"true\">/mo.&nbsp;</span><span class=\"visuallyhidden\">&nbsp;per month</span></span><span class=\"as-price-acinstallmentmonths\">for 12 <span aria-hidden=\"true\">mo.</span><span class=\"visuallyhidden\">months</span><as-footnote data-id=\"932981f9787ea5f414e8e3ff80aca24e\" data-assigned=\"true\"><sup data-autom=\"footnote-sub\" class=\"as-footnote\"><span class=\"visuallyhidden\">&nbsp;Footnote&nbsp;</span>#</sup></as-footnote></span>","previousPrice":null,"poiPrice":"<span class=\"price-point price-point-poiPrice\"><span class=\"price-point-poiFrom\">Lease from </span><span class=\"price-point-from\">From </span><span class=\"nowrap\">$28.99<span aria-hidden=\"true\">/mo.</span><span class=\"visuallyhidden\"> per month</span></span> for 36 <span aria-hidden=\"true\">mo.</span><span class=\"visuallyhidden\">months</span><span class=\"price-point-poiMessage\"> with Apple Upgrade</span><as-footnote data-id=\"adca7b89eb75cd243b1bfaffc3ebb778\" data-assigned=\"true\"><sup data-autom=\"footnote-sub\" class=\"as-footnote\"><span class=\"visuallyhidden\">&nbsp;Footnote&nbsp;</span>¶</sup></as-footnote>"},"13inch-skyblue-10-10":{"amount":1399.00,"promoSavings":null,"fullPrice-comparative":"<span class=\"as-pricepoint-fullprice\">Buy from <span class=\"nowrap\">$1399</span></span>","acmiPrice-comparative":"<span class=\"as-pricepoint-installmentprice-comparative\"><span class=\"nowrap\"> or $116.58<span aria-hidden=\"true\">/mo.&nbsp;</span><span class=\"visuallyhidden\">&nbsp;per month</span></span><span class=\"nowrap\"><span class=\"as-price-acinstallmentmonths\"> for 12 <span aria-hidden=\"true\">mo.</span><span class=\"visuallyhidden\">months</span></span><span class=\"as-price-acinstallmentterms-footnotes\"><as-footnote data-id=\"932981f9787ea5f414e8e3ff80aca24e\" data-assigned=\"true\"><sup data-autom=\"footnote-sub\" class=\"as-footnote\"><span class=\"visuallyhidden\">&nbsp;Footnote&nbsp;</span>#</sup></as-footnote></span></span></span>","poiPrice-comparative":"<span class=\"price-point price-point-poiPrice\"><span class=\"price-point-poiFrom\">Lease from </span><span class=\"price-point-from\">From </span><span class=\"nowrap\">$27.07<span aria-hidden=\"true\">/mo.</span><span class=\"visuallyhidden\">per month</span></span> <span class=\"nowrap\"> for 36 <span aria-hidden=\"true\">mo.</span></span><span class=\"visuallyhidden\">months</span><span class=\"price-point-poiMessage\"> with Apple Upgrade</span><as-footnote data-id=\"adca7b89eb75cd243b1bfaffc3ebb778\" data-assigned=\"true\"><sup data-autom=\"footnote-sub\" class=\"as-footnote\"><span class=\"visuallyhidden\">&nbsp;Footnote&nbsp;</span>¶</sup></as-footnote>","currentPrice":{"amount":"$1,399.00","raw_amount":"1399.00"},"fullPrice":"<span class=\"as-pricepoint-fullprice\"><span class=\"nowrap\">$1399</span></span>","tierListSavings":null,"seoPrice":1399.00,"comparativeDisplayPrice":"Buy from <span class=\"nowrap\">$1399</span>","acmiPrice":"<span class=\"as-pricepoint-installmentprice\"><span class=\"nowrap\"> or $116.58<span aria-hidden=\"true\">/mo.&nbsp;</span><span class=\"visuallyhidden\">&nbsp;per month</span></span><span class=\"as-price-acinstallmentmonths\">for 12 <span aria-hidden=\"true\">mo.</span><span class=\"visuallyhidden\">months</span><as-footnote data-id=\"932981f9787ea5f414e8e3ff80aca24e\" data-assigned=\"true\"><sup data-autom=\"footnote-sub\" class=\"as-footnote\"><span class=\"visuallyhidden\">&nbsp;Footnote&nbsp;</span>#</sup></as-footnote
+</script>
+<!-- C -->
+<div class="faq-section noscript as-l-container">
+            <h2 class="rc-accordion-title">
+                Frequently Asked Questions
+            </h2>
+            <div class="rc-accordion rc-accordion-compact rc-accordion-hover">
+                <ul class="rc-accordion">
+                        <li class="rc-accordion-item">
+                                <h3 class="rc-accordion-header">
+                                    <button class="rc-accordion-button">
+                                        <span class="rc-accordion-title">
+                                            I’m switching from a PC to a Mac. Is it easy to set up my new Mac and transfer my files?
+                                        </span>
+                                        <span class="icon icon-plus as-accordion-plusicon"></span>
+                                    </button>
+                                </h3>
+                            <div class="r-height-transition-enter-done" id="question-0">
+                                <div data-core-accordion-content>
+                                    <div class="rc-accordion-content row">
+                                        <div class="rc-accordion-box-content column large-10 small-12">
+                                                    <p>Yes, switching to Mac is simple, and learning how to use Mac feels just as easy as using your iPhone. Mac pairs seamlessly with your iPhone and other Apple devices.</p>
+<p>If you already have an iPhone, setting up your Mac is a snap. Just bring your iPhone near your Mac, and Setup Assistant signs you in to your Wi-Fi network and Apple&nbsp;Account. Your files, photos, messages, passwords, and more are transferred from iCloud right to your new Mac. </p>
+<p>Don’t have an iPhone? No problem. With Migration Assistant preinstalled on every Mac, you can easily transfer your documents, apps, accounts, and settings from a PC or an existing Mac. Once the transfer is complete, everything will be ready on your new Mac.</p>
+<p>Need more help? With Personal Setup, you get free online, one-on-one sessions with a Specialist who walks you through setup and shows you how to make the most of your new Mac. Best of all, you can join whenever works for you, from wherever you&nbsp;are.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                        <li class="rc-accordion-item">
+                                <h3 class="rc-accordion-header">
+                                    <button class="rc-accordion-button">
+                                        <span class="rc-accordion-title">
+                                            Does Apple offer any special discounts or promotions to higher education students, parents, and teachers?
+                                        </span>
+                                        <span class="icon icon-plus as-accordion-plusicon"></span>
+                                    </button>
+                                </h3>
+                            <div class="r-height-transition-enter-done" id="question-1">
+                                <div data-core-accordion-content>
+                                    <div class="rc-accordion-content row">
+                                        <div class="rc-accordion-box-content column large-10 small-12">
+                                                    <p>Apple has an Education Store dedicated to your needs. You’ll find discounts, promotions, and bundle deals on Mac, iPad, software, and accessories. You can also access tools and resources to learn how you can better use your Apple devices, software, and apps to enhance learning and teaching. </p>
+<p>Products eligible for education discounts are marked with a graduation cap icon. You may need to verify your eligibility with an active school email or other documentation during checkout. Verification varies by country.</p>
+<p><a href="https://www.apple.com/us-edu/store" data-slot-name="faqSection" data-feature-name="Astro Link" data-display-name="AOS: www.apple.com/us-edu/store" class="icon icon-after icon-external" target="_blank">Shop the Education Store<span class="visuallyhidden">(Opens in a new window)</span></a></p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                        <li class="rc-accordion-item">
+                                <h3 class="rc-accordion-header">
+                                    <button class="rc-accordion-button">
+                                        <span class="rc-accordion-title">
+                                            What’s the fastest way to get my order, and what are my delivery options?
+                                        </span>
+                                        <span class="icon icon-plus as-accordion-plusicon"></span>
+                                    </button>
+                                </h3>
+                            <div class="r-height-transition-enter-done" id="question-2">
+                                <div data-core-accordion-content>
+                                    <div class="rc-accordion-content row">
+                                        <div class="rc-accordion-box-content column large-10 small-12">
+                                                    <p>If you need a Mac right away, visit your local Apple Store to check in-stock availability and options for same-day pickup. In most metro areas, we offer same-day scheduled courier delivery on available in-stock items from an Apple Store. The two-hour delivery fee is $9. You’ll choose a delivery date and time during checkout. Subject to availability. Delivery options, which you can select during checkout, depend on your location and the product availability. While many Mac configurations are ready to ship or pick up in a store, some customized selections may impact your delivery estimates and options.</p>
+<p>Orders placed on apple.com can only be shipped within the country or region of purchase. Visit the online store of the location where you want your products delivered.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                        <li class="rc-accordion-item">
+                                <h3 class="rc-accordion-header">
+                                    <button class="rc-accordion-button">
+                                        <span class="rc-accordion-title">
+                                            Can I connect my Mac to additional displays?
+                                        </span>
+                                        <span class="icon icon-plus as-accordion-plusicon"></span>
+                                    </button>
+                                </h3>
+                            <div class="r-height-transition-enter-done" id="question-3">
+                                <div data-core-accordion-content>
+                                    <div class="rc-accordion-content row">
+                                        <div class="rc-accordion-box-content column large-10 small-12">
+                                                    <p>Yes. The number of additional displays that can be connected will depend on your Mac model and chip, and could also vary depending on display resolution.</p>
+<p>Get more details about connecting to external displays for each Mac model:</p>
+<ul role="list">
+<li role="listitem"><a href="https://support.apple.com/en-us/126473" data-slot-name="faqSection" data-feature-name="Astro Link" data-display-name="AOS: support.apple.com/en-us/126473" target="_blank">MacBook Neo</a></li>
+<li role="listitem"><a href="https://support.apple.com/en-us/122212" data-slot-name="faqSection" data-feature-name="Astro Link" data-display-name="AOS: support.apple.com/en-us/122212" target="_blank">MacBook Air</a></li>
+<li role="listitem"><a href="https://support.apple.com/en-us/101571" data-slot-name="faqSection" data-feature-name="Astro Link" data-display-name="AOS: support.apple.com/en-us/101571" target="_blank">MacBook Pro</a></li>
+<li role="listitem"><a href="https://support.apple.com/guide/imac/connect-a-display-apd271f29cb9/mac" data-slot-name="faqSection" data-feature-name="Astro Link" data-display-name="AOS: support.apple.com/guide/imac/connect-a-display-apd271f29cb9/mac" target="_blank">iMac</a></li>
+<li role="listitem"><a href="https://support.apple.com/en-us/102194" data-slot-name="faqSection" data-feature-name="Astro Link" data-display-name="AOS: support.apple.com/en-us/102194" target="_blank">Mac mini</a></li>
+<li role="listitem"><a href="https://support.apple.com/en-us/101910" data-slot-name="faqSection" data-feature-name="Astro Link" data-display-name="AOS: support.apple.com/en-us/101910" target="_blank">Mac Studio</a></li>
+</ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                        <li class="rc-accordion-item">
+                                <h3 class="rc-accordion-header">
+                                    <button class="rc-accordion-button">
+                                        <span class="rc-accordion-title">
+                                            How can I pay for my new Mac?
+                                        </span>
+                                        <span class="icon icon-plus as-accordion-plusicon"></span>
+                                    </button>
+                                </h3>
+                            <div class="r-height-transition-enter-done" id="question-4">
+                                <div data-core-accordion-content>
+                                    <div class="rc-accordion-content row">
+                                        <div class="rc-accordion-box-content column large-10 small-12">
+                                                    <p>You can buy with a one-time payment, finance with Apple, or lease an eligible Mac with Apple Upgrade.</p>
+<p>Apple accepts Apple Pay, most credit and debit cards, PayPal, Apple Gift Cards, and Apple Card. You can also split your payment across multiple cards as long as they share the same billing address.</p>
+<p>When you choose to check out at Apple with Apple Card Monthly Installments, you can pay for your new device over time, interest-free,<as-footnote data-id="2fa639c1e58882c7fa169b5f702527ba" data-assigned="true"><sup data-autom="footnote-sub" class="as-footnote"><span class="visuallyhidden">&nbsp;Footnote&nbsp;</span>◊</sup></as-footnote> and you’ll receive 3% Daily Cash back up front.</p>
+<p>If you don’t have Apple Card yet, you can apply for one in as little as a minute when you select Apple Card Monthly Installments as your payment option and use it for your purchase.</p>
+<p><a href="https://www.apple.com/apple-card/monthly-installments" data-slot-name="faqSection" data-feature-name="Astro Link" data-display-name="AOS: apple-card/monthly-installments" class="icon icon-after icon-external" target="_blank">Learn more about Apple Card Monthly Installments<span class="visuallyhidden">(Opens in a new window)</span></a></p>
+<p>If you used your Apple Card to pay in full, but you meant to take advantage of interest-free financing using Apple Card Monthly Installments, we can help you get switched over. Contact an Apple Card Specialist at 877-255-5923. You can also chat with one by tapping Apple Card in Wallet, tapping the More button in the upper-right corner, and then tapping Message.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                        <li class="rc-accordion-item">
+                                <h3 class="rc-accordion-header">
+                                    <button class="rc-accordion-button">
+                                        <span class="rc-accordion-title">
+                                            How does Apple Upgrade work?
+                                        </span>
+                                        <span class="icon icon-plus as-accordion-plusicon"></span>
+                                    </button>
+                                </h3>
+                            <div class="r-height-transition-enter-done" id="question-5">
+                                <div data-core-accordion-content>
+                                    <div class="rc-accordion-content row">
+                                        <div class="rc-accordion-box-content column large-10 small-12">
+                                                    <p>
+Apple Upgrade is a leasing program offered in partnership with Klarna. Lease an iPhone or Apple Watch for 12 or 24 months, or an iPad or Mac for 24 or 36 months. Then, easily upgrade to something new at the end of your term. You can even upgrade earlier for an early upgrade fee up to the amount of your remaining lease payments.  In either case, you must return your original device in good condition.<as-footnote data-id="555fcc6cda7b7617a871609ee6c9a251" data-assigned="true"><sup data-autom="footnote-sub" class="as-footnote"><span class="visuallyhidden">&nbsp;Footnote&nbsp;</span>∆</sup></as-footnote>
+</p>
+<p>
+Enroll in Apple Upgrade by selecting which Apple product you want, choosing Apple Upgrade as your payment option, selecting the term that works best for you, and filling out your application during checkout.
+</p>  
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                        <li class="rc-accordion-item">
+                                <h3 class="rc-accordion-header">
+                                    <button class="rc-accordion-button">
+                                        <span class="rc-accordion-title">
+                                            How does Apple Trade In work?
+                                        </span>
+                                        <span class="icon icon-plus as-accordion-plusicon"></span>
+                                    </button>
+                                </h3>
+                            <div class="r-height-transition-enter-done" id="question-6">
+                                <div data-core-accordion-content>
+                                    <div class="rc-accordion-content row">
+                                        <div class="rc-accordion-box-content column large-10 small-12">
+                                                    <p>Apple Trade In makes it easy to get credit toward the purchase of your new Mac. Just answer a few questions about your device and its condition. Based on what you tell us, we’ll provide an estimated trade-in value.<as-footnote data-id="64dae4ad8f7828e82c803175386770f9" data-assigned="true"><sup data-autom="footnote-sub" class="as-footnote"><span class="visuallyhidden">&nbsp;Footnote&nbsp;</span>§</sup></as-footnote> If you buy online and choose to pay with Apple Card Monthly Installments, we’ll apply the value as an instant credit to lower the monthly payments of your new device. If you pay in full, we’ll credit your payment method after we receive your trade-in. And if it’s not eligible for credit, we’ll provide a simple way to recycle it for free.</p>
+<p>If it’s eligible for trade-in, we’ll mail you a free trade-in kit. You may receive it along with your new device. Otherwise it will be mailed to you separately as soon as your order is ready for delivery or pickup. Once you receive the trade-in kit, you have 14 days to prepare and send in your device.</p>
+<p>Once we receive your trade-in, we'll inspect it and verify its condition. If everything checks out, there’s nothing more you need to do. If your device doesn’t match the condition you described, you’ll receive an email with next steps. </p>
+<p>If you paid in full and the value of your device was more than the cost of your new Mac, you’ll receive an Apple Gift Card by email with the remaining amount.</p>
+<p>The online trade-in process can take up to 2 to 3 weeks. You can also trade in your device at an Apple Store at the point of purchase. However, the trade-in value in-store may be different from the estimated trade-in value you received online.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                        <li class="rc-accordion-item">
+                                <h3 class="rc-accordion-header">
+                                    <button class="rc-accordion-button">
+                                        <span class="rc-accordion-title">
+                                            What protection does AppleCare offer?
+                                        </span>
+                                        <span class="icon icon-plus as-accordion-plusicon"></span>
+                                    </button>
+                                </h3>
+                            <div class="r-height-transition-enter-done" id="question-7">
+                                <div data-core-accordion-content>
+                                    <div class="rc-accordion-content row">
+                                        <div class="rc-accordion-box-content column large-10 small-12">
+                                                    <p>AppleCare+ extends the standard warranty for your new Mac. It provides unlimited repairs for accidents like drops and spills, as well as battery replacements at no extra charge. You’ll also get access to 24/7 priority support from Apple experts.<as-footnote data-id="5417471945f4e512e3c29cd9ed09e50d" data-assigned="true"><sup data-autom="footnote-sub" class="as-footnote"><span class="visuallyhidden">&nbsp;Footnote&nbsp;</span>±</sup></as-footnote></p>
+<p>If you choose AppleCare One, you get all the same benefits of AppleCare+ for up to three devices, plus theft and loss coverage for iPhone, iPad, and Apple Watch.<as-footnote data-id="cadfe65d0db835937ede08333006a20f" data-assigned="true"><sup data-autom="footnote-sub" class="as-footnote as-footnote-symbol-large"><span class="visuallyhidden">&nbsp;Footnote&nbsp;</span>†</sup></as-footnote></p>
+<p>If you have an active AppleCare+ plan, you can still upgrade to an AppleCare&nbsp;One plan. Other eligible devices are those currently associated with your Apple Account, Apple audio or headphones less than one year old, and other Apple devices that are less than four years old and in good condition. When you switch plans, we’ll automatically cancel your current one and refund any amount&nbsp;owed.</p>
+<p><a href="https://www.apple.com/applecare" data-slot-name="faqSection" data-feature-name="Astro Link" data-display-name="AOS: applecare" class="icon icon-after icon-external" target="_blank">Learn more about AppleCare+ <span class="a11y"> (Opens in a new window)</span></a></p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                        <li class="rc-accordion-item">
+                                <h3 class="rc-accordion-header">
+                                    <button class="rc-accordion-button">
+                                        <span class="rc-accordion-title">
+                                            Can I return or exchange my Mac?
+                                        </span>
+                                        <span class="icon icon-plus as-accordion-plusicon"></span>
+                                    </button>
+                                </h3>
+                            <div class="r-height-transition-enter-done" id="question-8">
+                                <div data-core-accordion-content>
+                                    <div class="rc-accordion-content row">
+                                        <div class="rc-accordion-box-content column large-10 small-12">
+                                                    <p>If you change your mind and no longer wish to keep your Mac, you have the option to return it or exchange it. The returned device must be in good condition and in the original packaging, including all accessories, manuals, and instructions. Returns are subject to Apple’s Sales and Refunds Policy.</p>
+<p><a href="/shop/help/returns_refund" data-slot-name="faqSection" data-feature-name="Astro Link" data-display-name="AOS: help/returns_refund" class="icon icon-after icon-external" target="_blank">Learn more about returns, refunds, and exchanges<span class="visuallyhidden">(Opens in a new window)</span></a></p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>
+                </ul>
+            </div>
+            
+        </div>
+<!-- D -->
+<p>For an iPhone 17 Pro 256GB with a purchase price of $1099 (excluding taxes and any trade-in credit), the typical monthly payment is $31.99 (excluding taxes and any trade-in credit) for a 24-month lease term and $45.99 (excluding taxes and any trade-in credit) for a 12-month lease term.</p>
+<p>For an Apple Watch Series 11 42mm with a purchase price of $399 (excluding taxes and any trade-in credit), the typical monthly payment is $11.99 (excluding taxes and any trade-in credit) for a 24-month lease term and $21.99 (excluding taxes and any trade-in credit) for a 12-month lease term.</p>
+<p>For an iPad Pro 256GB with a purchase price of $1199 (excluding taxes and any trade-in credit), the typical monthly payment is $24.99 (excluding taxes and any trade-in credit) for a 36-month lease term and $31.99 (excluding taxes and any trade-in credit) for a 24-month lease term.</p>
+<p>For a MacBook Pro 16GB with a purchase price of $1999 (excluding taxes and any trade-in credit), the typical monthly payment is $38.99 (excluding taxes and any trade-in credit) for a 36-month lease term and $53.99 (excluding taxes and any trade-in credit) for a 24-month lease term.</p>
+</body>
+</html>

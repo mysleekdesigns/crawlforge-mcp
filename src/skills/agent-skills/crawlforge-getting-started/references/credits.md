@@ -21,6 +21,7 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
 |------|-------|
 | `scrape` | Unified multi-format single fetch. |
 | `scrape_structured` | CSS-selector extraction. |
+| `extract_embedded_state` | Embedded JS state (`__NEXT_DATA__`, RSC, Nuxt, Apollo, Redux). |
 | `extract_content` | Readability-cleaned article. |
 | `map_site` | URL discovery / sitemap. |
 | `process_document` | PDF / DOCX / TXT parsing. |
