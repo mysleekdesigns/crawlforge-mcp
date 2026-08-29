@@ -5,6 +5,39 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.4.0] - 2026-08-29
+
+Minor release: Tier 2 extraction — the structured data that is already in the HTML. One fetch, exact values, **no LLM in the extraction path**. Phase 3 of `VERTICAL_COVERAGE_PLAN.md`.
+
+### New tool: `extract_embedded_state` (2 credits) — the 29th tool
+
+- Reads a page's embedded JavaScript state rather than its rendered HTML: `__NEXT_DATA__`, `self.__next_f` (React Server Component payloads), `window.__NUXT__`, `__APOLLO_STATE__`, `__INITIAL_STATE__`, `__PRELOADED_STATE__`, and `<script type="application/json">` blocks, each keyed by source name. Verified live 2026-08-29: Ticketmaster returned a parsed 439,333-byte `__NEXT_DATA__`, Healthgrades a parsed 1,426,837-byte RSC payload.
+- **RSC chunks are genuinely parsed, not just collected.** The `self.__next_f.push([1,"…"])` chunks are concatenated in document order into the flight stream, then split into `<hexId>:<payload>` rows — JSON parsed, module refs and text blobs kept as strings. Two bugs the live-capture rule caught before they shipped: a T-row's declared byte length *includes* its terminating newline, and reading one character past it silently destroyed 19 rows on the live Healthgrades page while still looking like a clean parse; and `<script>` inside an HTML comment matched through to the first real `</script>`, swallowing the genuine tag after it.
+- **`path` scopes the result** — dotted keys and array indexes, not JSONPath. Verified live: Ticketmaster's 439,347-byte payload scoped to `next_data.props.pageProps.eventsJsonLD` returns 28,346 bytes.
+- **Large payloads warn, they are never capped.** Truncating structured JSON produces something worse than a big object, and a default cap would have silently dropped Ticketmaster's whole payload. Over 256 KB unscoped the result names the largest source and hands back a ready-to-paste `path`.
+- A source that is not JSON — Nuxt 3's unquoted-key object literal, Nuxt 2's IIFE wrapper — is reported as unparsed rather than guessed at. No `eval`.
+
+### `extract_metadata` — JSON-LD becomes a first-class extraction path
+
+- New `json_ld_types` filter. Nodes are found at any depth, so `@graph` wrappers, top-level arrays and nodes nested inside a parent all resolve; `@type` may be a string, an array, or a full `https://schema.org/X` IRI. With no filter the output is byte-identical to before.
+- **Subtypes match their parent, because exact matching returns nothing on real pages.** Ticketmaster publishes `MusicEvent` and never `Event`; Apple publishes `AggregateOffer` and `BreadcrumbList`, never `Offer` or `ItemList`. `JSON_LD_SUBTYPES` carries the transitive descendants of the six documented types; anything outside it is matched exactly, never guessed.
+- Verified live: Ticketmaster `Event`→20, `Offer`→20; Apple `Product`→1; propertyfinder.ae `RealEstateListing`→23 with `offers.price`, from a single 64-node `@graph`.
+
+### `extract_with_llm` / `extract_structured` — numeric provenance guard
+
+- **Any number an LLM returns must be findable in the page source, or it comes back `null` with a reason** in a new `provenance` block. Default on; `verify_numbers: false` opts out and is documented as returning derived numbers too.
+- Checked against the **full fetched source**, never the trimmed main content the model was shown. On the Apple MacBook Air page Readability keeps the FAQ block and leaves every price behind in an embedded JSON blob, so checking against the model's own input would have nulled every correct price.
+- Matching normalises both sides — grouping spaces, NBSP, `.`/`,` resolved by position — and admits every ambiguous reading of a source number, so an extra reading can only let a value through, never null a real one.
+- When the guard nulls a **required** field, the result's `valid` flag flips to false rather than reporting a fabrication as valid.
+
+### Fixed — G5 overrides that were accepted and silently dropped
+
+Four tools declared `respect_robots` and `user_agent`, validated them at the MCP boundary, and then threw them away: their `server.js` wrappers destructured a fixed parameter list and re-packed it for `execute()`. Each tool's own schema reads both and forwards them to the fetch layer, so the override worked everywhere except the one place it had to. `extract_structured` (found while wiring 3.4), `map_site`, `extract_content` and `process_document` now forward params whole.
+
+Robots failed safe — the override was ignored, so robots.txt was always respected — but `user_agent` did not: a customer with their own agreement with a target could not identify as themselves, which is the case G4 exists to serve.
+
+`tests/unit/complianceParamForwarding.test.js` now fails the build if a tool declares `COMPLIANCE_PARAMS` and drops one, whether by destructuring a short list or by re-packing `execute()` arguments. Its exemption list is a decision record, not clutter: `stealth_mode` is exempt from `user_agent` only, because its browser generates the UA from a fingerprint persona and derives `Sec-CH-UA` and the OS profile from it — injecting a caller's UA would desynchronise the fingerprint. `stealth_mode` still forwards `respect_robots`.
+
 ## [5.3.1] - 2026-08-28
 
 Patch release: `deep_research` judges its claims with a model measured fit to judge.

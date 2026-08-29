@@ -188,6 +188,15 @@ const CHECKS = [
     }
   },
   {
+    tool: 'extract_embedded_state', tier: 'default', what: 'embedded JS state (3.1)',
+    run: async () => {
+      const r = await call('extract_embedded_state', { url: 'https://www.ticketmaster.com/discover/concerts' });
+      const names = (r.found || []).map((f) => f.name);
+      expect(names.includes('next_data'), `sources found: ${names.join(', ') || 'none'}`);
+      return `${names.length} sources (${names.join(', ')}), ${r.bytes} B`;
+    }
+  },
+  {
     tool: 'scrape', tier: 'default', what: '1.1 data tables survive onlyMainContent',
     run: async () => {
       const r = await call('scrape', { url: SP500, formats: ['markdown'] });

@@ -217,7 +217,10 @@ describe('C3.3 extract_with_llm robustness', () => {
       status: 200,
       json: async () => ({ message: { content: 'Sure! Here is the data: {"a": 1, "b": "x"} — done.' }, prompt_eval_count: 1, eval_count: 1, model: 'llama3.2' })
     });
-    const res = await new ExtractWithLlm().execute({ content: 'irrelevant', prompt: 'extract', provider: 'auto' });
+    // verify_numbers off: the content is the literal string 'irrelevant', so the
+    // numeric provenance guard would null the `1` — correctly, since it is not
+    // in the source. This test is about JSON recovery from prose.
+    const res = await new ExtractWithLlm().execute({ content: 'irrelevant', prompt: 'extract', provider: 'auto', verify_numbers: false });
     assert.equal(res.success, true);
     assert.deepEqual(res.data, { a: 1, b: 'x' });
   });

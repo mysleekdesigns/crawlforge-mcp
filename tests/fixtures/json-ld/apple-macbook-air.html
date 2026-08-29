@@ -1,0 +1,84 @@
+<!doctype html>
+<html><head>
+<!--
+Fixture condensed from a live capture of
+    https://www.apple.com/shop/buy-mac/macbook-air
+  captured 2026-08-29 with:
+    curl -A 'CrawlForge/5.3.1 (+https://crawlforge.dev)' -L <url>   (HTTP 200, 606 KB)
+
+  The real page carries 3 JSON-LD blocks: Product, BreadcrumbList and a FAQPage.
+  Kept verbatim: Product (with its nested AggregateOffer) and BreadcrumbList.
+  The FAQPage block was dropped as irrelevant to type filtering. Nothing was
+  added or reworded.
+
+  What it proves: the offer node is an AggregateOffer, never a bare Offer.
+-->
+<meta charset="utf-8">
+<title>Buy MacBook Air - Apple</title>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "name": "MacBook Air",
+  "url": "https://www.apple.com/shop/buy-mac/macbook-air",
+  "mainEntityOfPage": "https://www.apple.com/shop/buy-mac/macbook-air",
+  "offers": [
+    {
+      "@type": "AggregateOffer",
+      "lowPrice": 1299.0,
+      "highPrice": 3719.0,
+      "priceCurrency": "USD",
+      "shippingDetails": {
+        "@type": "OfferShippingDetails",
+        "shippingRate": {
+          "@type": "MonetaryAmount",
+          "value": 0,
+          "currency": "USD"
+        }
+      },
+      "hasMerchantReturnPolicy": {
+        "@type": "MerchantReturnPolicy",
+        "applicableCountry": "US",
+        "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+        "merchantReturnDays": 14,
+        "returnMethod": "https://schema.org/ReturnByMail",
+        "returnFees": "https://schema.org/FreeReturn"
+      }
+    }
+  ],
+  "image": "https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/macbook-air-size-unselect-202601-gallery-1?wid=5120&hei=3280&fmt=jpeg&qlt=90&.v=1767638925491",
+  "description": "Get a new MacBook Air laptop with the M5 chip from only $108.25 per month. Built for AI. Lightweight, with all-day battery life. Buy or lease now at apple.com."
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": "1",
+      "item": {
+        "@id": "https://www.apple.com/mac",
+        "url": "https://www.apple.com/mac",
+        "name": "Mac"
+      }
+    },
+    {
+      "@type": "ListItem",
+      "position": "2",
+      "item": {
+        "@id": "https://www.apple.com/macbook-air",
+        "url": "https://www.apple.com/macbook-air",
+        "name": "MacBook Air"
+      }
+    },
+    {
+      "@type": "ListItem",
+      "position": "3",
+      "name": "Buy MacBook Air"
+    }
+  ]
+}
+</script>
+</head><body></body></html>

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <b>28 web scraping, crawling, deep-research &amp; autonomous-extraction tools for Claude, Cursor &amp; any MCP client.</b><br>
+  <b>29 web scraping, crawling, deep-research &amp; autonomous-extraction tools for Claude, Cursor &amp; any MCP client.</b><br>
   Clean Markdown &amp; structured JSON from any site. Get started with <b>1,000 free credits</b> — no credit card required.
 </p>
 
@@ -35,7 +35,7 @@
 
 ## 🎯 Why CrawlForge?
 
-- **28 MCP-native tools** — scraping, crawling, search, real Google SERP rank tracking, deep research, an autonomous `agent`, a unified multi-format `scrape`, document processing, stealth browsing, and more, callable directly from your AI assistant.
+- **29 MCP-native tools** — scraping, crawling, search, real Google SERP rank tracking, deep research, an autonomous `agent`, a unified multi-format `scrape`, document processing, stealth browsing, and more, callable directly from your AI assistant.
 - **Generous free tier** — 1,000 credits to start instantly, no credit card. The grant is one-time rather than monthly, and the credits never expire.
 - **Local-LLM by default** — `extract_with_llm` runs against a local **Ollama** model out of the box: no LLM API key, no per-token cost, and your data never leaves your machine. Cloud (OpenAI/Anthropic) is opt-in.
 - **LLM-ready output** — clean Markdown, structured JSON (schema-driven), screenshots, links, and metadata from a single fetch.
@@ -47,7 +47,7 @@
 
 | | **CrawlForge MCP** | Firecrawl | Raw scraping API |
 |---|:---:|:---:|:---:|
-| Native MCP server | ✅ 28 tools | ✅ | ❌ |
+| Native MCP server | ✅ 29 tools | ✅ | ❌ |
 | Free tier | ✅ 1,000 credits, rollover | Limited | Varies |
 | Self-hosted / local LLM extraction (Ollama) | ✅ default, $0/token | ❌ | ❌ |
 | Autonomous agent (no URLs needed) | ✅ `agent` | ✅ | ❌ |
@@ -180,6 +180,7 @@ CrawlForge requires a CrawlForge API key — **every tool is metered and consume
 | `get_batch_results` | 1 | Retrieve paginated results for a `batch_scrape` job by `batchId` |
 | `scrape` | 2 | **Unified single-fetch, multi-format extraction.** Pass a `formats` array (markdown/html/rawHtml/text/links/metadata/screenshot/json-schema) plus `onlyMainContent`; one fetch serves every requested format with per-format partial-success warnings |
 | `scrape_structured` | 2 | Extract structured data with CSS selectors |
+| `extract_embedded_state` | 2 | Read a page's embedded JavaScript state — `__NEXT_DATA__`, React Server Component payloads, Nuxt, Apollo, Redux, `<script type="application/json">` — with a `path` to scope the result. No LLM in the extraction path |
 | `extract_content` | 2 | Enhanced content extraction |
 | `map_site` | 2 | Discover and map website structure (optional `search=` ranks the discovered URLs) |
 | `process_document` | 2 | Multi-format document processing |
@@ -216,7 +217,7 @@ For the full canonical capabilities reference (all tools, CLI commands, stealth 
 | **Business** ($399) | 250,000 / month | Large scale operations |
 
 **All plans include:**
-- Access to all 28 tools
+- Access to all 29 tools
 - Credits never expire; paid-plan credits roll over month to month
 - API access and webhook notifications
 

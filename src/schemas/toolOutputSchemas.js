@@ -259,6 +259,17 @@ const extractStructuredShape = {
     errors: z.array(z.string()).optional()
   }).passthrough().optional(),
   extractionNotes: z.array(z.string()).optional(),
+  provenance: z.object({
+    enabled: z.boolean().optional().describe('Whether the numeric provenance guard ran'),
+    verified: z.number().optional().describe('Numeric values found literally in the page source'),
+    nulled: z.number().optional().describe('Numeric values replaced with null because the source does not contain them'),
+    unverified: z.array(z.object({
+      path: z.string().optional().describe('Path to the field, e.g. configurations[2].price'),
+      value: z.unknown().optional().describe('The value that was removed'),
+      reason: z.string().optional().describe('"not_found_in_source"')
+    }).passthrough()).optional(),
+    skipped: z.string().optional().describe('"empty_source" when there was nothing to check against')
+  }).passthrough().optional(),
   _cost: costShape
 };
 

@@ -2,28 +2,12 @@
  * extract_metadata — Extract page metadata (title, description, OG tags, etc.).
  * Extracted from server.js inline handler.
  * B1: Parse JSON-LD and microdata; stronger title fallback chain (og:title → <title> → h1).
+ * 3.3: json_ld_types promotes JSON-LD from a raw dump to a filtered extraction path.
  */
 
 import { load } from 'cheerio';
 import { fetchWithTimeout } from './_fetch.js';
-
-/**
- * Parse all JSON-LD blocks from the document.
- * @param {import('cheerio').CheerioAPI} $
- * @returns {Array}
- */
-function parseJsonLd($) {
-  const results = [];
-  $('script[type="application/ld+json"]').each((_, el) => {
-    try {
-      const raw = $(el).html();
-      if (raw) results.push(JSON.parse(raw));
-    } catch {
-      // Skip invalid blocks
-    }
-  });
-  return results;
-}
+import { parseJsonLd, filterJsonLdByType } from '../../utils/jsonLd.js';
 
 /**
  * Parse microdata items (elements with itemscope).
@@ -60,9 +44,10 @@ function parseMicrodata($) {
 }
 
 /**
- * @param {{ url: string, user_agent?: string, respect_robots?: boolean }} params
+ * @param {{ url: string, user_agent?: string, respect_robots?: boolean,
+ *   json_ld_types?: string[] }} params
  */
-export async function extractMetadataHandler({ url, user_agent, respect_robots }) {
+export async function extractMetadataHandler({ url, user_agent, respect_robots, json_ld_types }) {
   try {
     const response = await fetchWithTimeout(url, {
       userAgent: user_agent,
@@ -115,25 +100,33 @@ export async function extractMetadataHandler({ url, user_agent, respect_robots }
     const jsonLd = parseJsonLd($);
     const microdata = parseMicrodata($);
 
+    const result = {
+      title,
+      description,
+      keywords: keywords.split(',').map(k => k.trim()).filter(Boolean),
+      canonical_url: canonical,
+      author,
+      robots,
+      viewport,
+      charset,
+      og_tags: ogTags,
+      twitter_tags: twitterTags,
+      json_ld: jsonLd,
+      microdata,
+      url: response.url
+    };
+
+    // With a type filter, json_ld carries only the matching nodes — returning
+    // the raw dump as well would double the payload on the large pages that
+    // make filtering worth asking for.
+    if (json_ld_types?.length) {
+      const { items, counts } = filterJsonLdByType(jsonLd, json_ld_types);
+      result.json_ld = items;
+      result.json_ld_type_counts = counts;
+    }
+
     return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          title,
-          description,
-          keywords: keywords.split(',').map(k => k.trim()).filter(Boolean),
-          canonical_url: canonical,
-          author,
-          robots,
-          viewport,
-          charset,
-          og_tags: ogTags,
-          twitter_tags: twitterTags,
-          json_ld: jsonLd,
-          microdata,
-          url: response.url
-        }, null, 2)
-      }]
+      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
     };
   } catch (error) {
     return {

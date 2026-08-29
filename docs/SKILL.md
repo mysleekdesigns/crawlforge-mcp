@@ -371,7 +371,7 @@ and parameter detail.
 
 # CrawlForge: Getting Started
 
-CrawlForge is an MCP server with **28 tools** for web scraping, crawling,
+CrawlForge is an MCP server with **29 tools** for web scraping, crawling,
 extraction, research, change tracking, and AI-compliance. This skill orients you
 and routes each request to the right specialized skill.
 
@@ -415,13 +415,13 @@ stored at `~/.crawlforge/config.json`.
 | Watch a page for changes / monitor pricing | **crawlforge-change-tracking** |
 | Scrape many URLs, run browser actions, generate llms.txt | **crawlforge-batch-automation** |
 
-## The 28 tools at a glance
+## The 29 tools at a glance
 
 - **Basic (5):** fetch_url, extract_text, extract_links, extract_metadata, scrape_structured
 - **Unified (1):** scrape (multi-format single fetch)
 - **Search & research (5):** search_web, serp_rank, reddit_search, deep_research, agent
 - **Crawl (2):** crawl_deep, map_site
-- **Extract & analyze (7):** extract_content, process_document, summarize_content, analyze_content, extract_structured, extract_with_llm, list_ollama_models
+- **Extract & analyze (8):** extract_content, process_document, summarize_content, analyze_content, extract_structured, extract_with_llm, extract_embedded_state, list_ollama_models
 - **Batch & automation (4):** batch_scrape, get_batch_results, scrape_with_actions, generate_llms_txt
 - **Stealth & locale (2):** stealth_mode, localization
 - **Templates & tracking (2):** scrape_template, track_changes
@@ -581,6 +581,7 @@ extraction method by how predictable the page is and whether an LLM is needed.
 |-----------------|------|------|
 | A well-known site (Amazon, GitHub, LinkedIn...) | `scrape_template` | 1 |
 | Exact CSS selectors for the fields | `scrape_structured` | 2 |
+| The data is in the page's JS state, not its HTML | `extract_embedded_state` | 2 |
 | A JSON schema to fill (LLM, CSS fallback) | `extract_structured` | 3 |
 | A natural-language extraction instruction | `extract_with_llm` | 3 |
 | A PDF / DOCX / TXT to parse | `process_document` | 2 |
@@ -588,8 +589,26 @@ extraction method by how predictable the page is and whether an LLM is needed.
 | Sentiment / entities / keywords / readability | `analyze_content` | 3 |
 | To list local LLMs available for extraction | `list_ollama_models` | 1 |
 
-Cheapest-first rule: try `scrape_template` → `scrape_structured` (deterministic)
-before reaching for the LLM tools.
+Cheapest-first rule: try `scrape_template` → `scrape_structured` /
+`extract_embedded_state` (all deterministic) before reaching for the LLM tools.
+On a React/Next/Nuxt page the values are usually sitting in the embedded state
+already, exact and typed — that beats asking a model to read them off the render.
+
+## extract_embedded_state — the page's own JS state (cost: 2)
+
+```json
+{ "tool": "extract_embedded_state", "params": { "url": "https://www.ticketmaster.com/discover/concerts", "path": "next_data.props.pageProps" } }
+```
+
+Finds `__NEXT_DATA__`, `self.__next_f` (React Server Component payloads),
+`window.__NUXT__`, `__APOLLO_STATE__`, `__INITIAL_STATE__`, `__PRELOADED_STATE__`
+and `<script type="application/json">` blocks, keyed by source name. No LLM in
+the path, so values are exact rather than inferred.
+
+These payloads are routinely over a megabyte — pass `path` (dotted keys and
+array indexes, e.g. `next_data.props.pageProps` or `next_f[0].f`) to return one
+subtree. Without it, a large result comes back with a warning naming the biggest
+source and a ready-to-paste path.
 
 ## scrape_template — known sites, zero selectors (cost: 1)
 

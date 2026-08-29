@@ -115,7 +115,10 @@ describe('extract_with_llm empty-result detection', () => {
   test('zero and false are data, not emptiness', async () => {
     replies = [JSON.stringify({ count: 0, found: false })];
 
-    const result = await run();
+    // The count is derived, not read: there is no 0 anywhere in the content
+    // above, so the numeric provenance guard would (correctly) null it. This
+    // test is about emptiness detection, so the guard is off for it.
+    const result = await run({ verify_numbers: false });
     assert.equal(result.success, true, 'a legitimate zero/false answer must not be rejected');
     assert.equal(callCount, 1, 'real data must not trigger a retry');
     assert.deepEqual(result.data, { count: 0, found: false });

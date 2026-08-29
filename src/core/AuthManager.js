@@ -562,6 +562,7 @@ class AuthManager {
       process_document: 2,
       localization: 2,
       scrape: 2,
+      extract_embedded_state: 2,
       reddit_search: 5, // a Reddit-wide search spends a web search to discover posts, same as search_web
 
       // 3 credits

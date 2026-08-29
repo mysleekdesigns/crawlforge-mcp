@@ -1,0 +1,249 @@
+<!doctype html>
+<html><head>
+<!--
+Fixture condensed from a live capture of
+    https://www.propertyfinder.ae/en/buy/properties-for-sale.html
+  captured 2026-08-29 with:
+    curl -A 'CrawlForge/5.3.1 (+https://crawlforge.dev)' -L <url>   (HTTP 200, 326 KB)
+  robots.txt allows this path for User-agent: * (its blanket Disallow rules name
+  site-ripper agents such as HTTrack and Screaming Frog, not us).
+
+  This stands in for the plan's Zillow clause: Zillow, apartments.com, homes.com,
+  zoopla, century21, remax, redfin, realtor.com and realestate.com.au all refuse
+  an honestly-identified client (403/405/429), and schema.org publishes no
+  example for RealEstateListing. propertyfinder.ae is a real, reachable portal
+  publishing the same shape.
+
+  The real page's single block is a @graph of 64 nodes, of which 23 are
+  RealEstateListing. Kept verbatim except where noted: Organization (long
+  knowsAbout/contactPoint arrays dropped), BreadcrumbList, and the first 3
+  listings with their `description`, `amenityFeature` and `image` keys dropped
+  for size. Every @type, `offers`, price and priceCurrency is untouched. The
+  graph's Person / RealEstateAgent nodes were deliberately left out — no personal
+  data in the repo.
+
+  What it proves: @graph wrapper, @type as an ARRAY (["RealEstateListing",
+  "House"]), and offers.price on a real-estate search page.
+-->
+<meta charset="utf-8">
+<title>Properties for sale in UAE | Property Finder</title>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@id": "https://www.propertyfinder.ae/#organization",
+      "@type": "Organization",
+      "alternateName": "Property Finder UAE",
+      "name": "Property Finder",
+      "legalName": "Propertyfinder FZ-LLC",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "Shatha Tower, 1505 — Dubai Media City — Dubai",
+        "addressLocality": "Dubai",
+        "postalCode": "50954",
+        "addressCountry": "AE"
+      },
+      "areaServed": {
+        "@type": "Country",
+        "identifier": "AE",
+        "name": "United Arab Emirates"
+      },
+      "brand": {
+        "@type": "Brand",
+        "logo": "https://upload.wikimedia.org/wikipedia/commons/8/81/Logo_Property_Finder.png",
+        "name": "Property Finder"
+      },
+      "foundingDate": "2007",
+      "foundingLocation": {
+        "@type": "Place",
+        "address": {
+          "@type": "PostalAddress",
+          "addressLocality": "Dubai",
+          "addressCountry": "AE"
+        }
+      },
+      "logo": {
+        "@type": "ImageObject",
+        "height": 60,
+        "url": "https://upload.wikimedia.org/wikipedia/commons/8/81/Logo_Property_Finder.png",
+        "width": 600
+      },
+      "numberOfEmployees": {
+        "@type": "QuantitativeValue",
+        "maxValue": 1000,
+        "minValue": 500
+      },
+      "slogan": "Changing Living for Good in the Region",
+      "telephone": "+971 4556 0300",
+      "url": "https://www.propertyfinder.ae/"
+    },
+    {
+      "@id": "https://www.propertyfinder.ae/en/buy/properties-for-sale.html#breadcrumb",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "item": "https://www.propertyfinder.ae/",
+          "name": "Property Finder",
+          "position": 1
+        },
+        {
+          "@type": "ListItem",
+          "item": "https://www.propertyfinder.ae/en/buy/properties-for-sale.html",
+          "name": "Properties for sale in UAE",
+          "position": 2
+        }
+      ]
+    },
+    {
+      "@id": "https://www.propertyfinder.ae/en/plp/buy/villa-for-sale-dubai-jumeirah-islands-mediterranean-clusters-entertainment-foyer-133887058.html",
+      "@type": [
+        "RealEstateListing",
+        "House"
+      ],
+      "name": "Lake Views | Fully Extended | 5 Bedrooms",
+      "url": "https://www.propertyfinder.ae/en/plp/buy/villa-for-sale-dubai-jumeirah-islands-mediterranean-clusters-entertainment-foyer-133887058.html",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "Entertainment Foyer",
+        "addressLocality": "Dubai, Jumeirah Islands, Mediterranean Clusters",
+        "addressRegion": "Dubai",
+        "addressCountry": "AE"
+      },
+      "datePosted": "2026-08-22T15:06:08Z",
+      "floorSize": {
+        "@type": "QuantitativeValue",
+        "unitCode": "FTK",
+        "unitText": "sqft",
+        "value": 10781
+      },
+      "geo": {
+        "@type": "GeoCoordinates",
+        "latitude": 25.05771827697754,
+        "longitude": 55.15365219116211
+      },
+      "numberOfBathroomsTotal": 6,
+      "numberOfBedrooms": 5,
+      "offers": {
+        "@type": "Offer",
+        "availability": "https://schema.org/InStock",
+        "businessFunction": "https://purl.org/goodrelations/v1#Sell",
+        "price": 33999999,
+        "priceCurrency": "AED",
+        "url": "https://www.propertyfinder.ae/en/plp/buy/villa-for-sale-dubai-jumeirah-islands-mediterranean-clusters-entertainment-foyer-133887058.html",
+        "seller": {
+          "@id": "https://www.propertyfinder.ae/en/agent/victor-gutsul-301947"
+        }
+      },
+      "potentialAction": {
+        "@type": "BuyAction",
+        "price": 33999999,
+        "priceCurrency": "AED",
+        "seller": {
+          "@id": "https://www.propertyfinder.ae/en/agent/victor-gutsul-301947"
+        }
+      }
+    },
+    {
+      "@id": "https://www.propertyfinder.ae/en/plp/buy/villa-for-sale-dubai-dubai-hills-estate-maple-at-dubai-hills-estate-maple-at-dubai-hills-estate-1-132962706.html",
+      "@type": [
+        "RealEstateListing",
+        "House"
+      ],
+      "name": "Greenbelt Backing | New To Market | Best Priced",
+      "url": "https://www.propertyfinder.ae/en/plp/buy/villa-for-sale-dubai-dubai-hills-estate-maple-at-dubai-hills-estate-maple-at-dubai-hills-estate-1-132962706.html",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "Maple at Dubai Hills Estate 1",
+        "addressLocality": "Dubai, Dubai Hills Estate, Maple at Dubai Hills Estate",
+        "addressRegion": "Dubai",
+        "addressCountry": "AE"
+      },
+      "datePosted": "2026-08-20T10:54:40Z",
+      "floorSize": {
+        "@type": "QuantitativeValue",
+        "unitCode": "FTK",
+        "unitText": "sqft",
+        "value": 3119
+      },
+      "geo": {
+        "@type": "GeoCoordinates",
+        "latitude": 25.093000411987305,
+        "longitude": 55.25438690185547
+      },
+      "numberOfBathroomsTotal": 4,
+      "numberOfBedrooms": 4,
+      "offers": {
+        "@type": "Offer",
+        "availability": "https://schema.org/InStock",
+        "businessFunction": "https://purl.org/goodrelations/v1#Sell",
+        "price": 5600000,
+        "priceCurrency": "AED",
+        "url": "https://www.propertyfinder.ae/en/plp/buy/villa-for-sale-dubai-dubai-hills-estate-maple-at-dubai-hills-estate-maple-at-dubai-hills-estate-1-132962706.html",
+        "seller": {
+          "@id": "https://www.propertyfinder.ae/en/agent/divine-johannis-267237"
+        }
+      },
+      "potentialAction": {
+        "@type": "BuyAction",
+        "price": 5600000,
+        "priceCurrency": "AED",
+        "seller": {
+          "@id": "https://www.propertyfinder.ae/en/agent/divine-johannis-267237"
+        }
+      }
+    },
+    {
+      "@id": "https://www.propertyfinder.ae/en/plp/buy/apartment-for-sale-dubai-dubai-hills-estate-elvira-at-dubai-hills-estate-elvira-2-136103084.html",
+      "@type": [
+        "RealEstateListing",
+        "Apartment"
+      ],
+      "name": "Rare Duplex | Corner Unit | Full Park View",
+      "url": "https://www.propertyfinder.ae/en/plp/buy/apartment-for-sale-dubai-dubai-hills-estate-elvira-at-dubai-hills-estate-elvira-2-136103084.html",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "Elvira 2",
+        "addressLocality": "Dubai, Dubai Hills Estate, Elvira at Dubai Hills Estate",
+        "addressRegion": "Dubai",
+        "addressCountry": "AE"
+      },
+      "datePosted": "2026-08-26T11:54:47Z",
+      "floorSize": {
+        "@type": "QuantitativeValue",
+        "unitCode": "FTK",
+        "unitText": "sqft",
+        "value": 2509
+      },
+      "geo": {
+        "@type": "GeoCoordinates",
+        "latitude": 25.112958908081055,
+        "longitude": 55.25711441040039
+      },
+      "numberOfBathroomsTotal": 4,
+      "numberOfBedrooms": 3,
+      "offers": {
+        "@type": "Offer",
+        "availability": "https://schema.org/InStock",
+        "businessFunction": "https://purl.org/goodrelations/v1#Sell",
+        "price": 6000000,
+        "priceCurrency": "AED",
+        "url": "https://www.propertyfinder.ae/en/plp/buy/apartment-for-sale-dubai-dubai-hills-estate-elvira-at-dubai-hills-estate-elvira-2-136103084.html",
+        "seller": {
+          "@id": "https://www.propertyfinder.ae/en/agent/aleksandr-mylnikov-183021"
+        }
+      },
+      "potentialAction": {
+        "@type": "BuyAction",
+        "price": 6000000,
+        "priceCurrency": "AED",
+        "seller": {
+          "@id": "https://www.propertyfinder.ae/en/agent/aleksandr-mylnikov-183021"
+        }
+      }
+    }
+  ]
+}
+</script>
+</head><body></body></html>
