@@ -9,8 +9,9 @@
  */
 
 import { fetchAndParse } from './_fetchAndParse.js';
-import { extractEmbeddedState } from '../../utils/embeddedState.js';
-import { selectJsonPath } from '../../utils/jsonPath.js';
+// Both live in crawlforge-extractors so the REST API's extract_embedded_state
+// runs this exact reader — one RSC flight-stream parser, not two.
+import { extractEmbeddedState, selectJsonPath } from 'crawlforge-extractors';
 
 // Above this, an unscoped result is big enough to be a problem for the caller
 // (context window, transport) rather than just large. Warn — never truncate:
