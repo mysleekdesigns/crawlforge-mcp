@@ -434,9 +434,11 @@ export class StealthBrowserManager {
   async createStealthContext(config = {}) {
     const validatedConfig = StealthConfigSchema.parse({ ...this.defaultConfig, ...config });
     
-    if (!this.browser) {
-      await this.launchStealthBrowser(validatedConfig);
-    }
+    // Always go through launchStealthBrowser: it returns the running browser
+    // when the engine matches, and closes + relaunches on an engine mismatch.
+    // Guarding on `!this.browser` here skipped that mismatch check, so a
+    // camoufox request silently reused an already-running chromium browser.
+    await this.launchStealthBrowser(validatedConfig);
 
     // Generate fingerprint for this context
     const fingerprint = this.generateAdvancedFingerprint(validatedConfig);
