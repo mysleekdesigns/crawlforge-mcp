@@ -84,8 +84,15 @@ mcp-publisher publish
 Before either the CI workflow or the manual fallback can succeed:
 
 1. The npm package (`crawlforge-mcp-server`) must already be published at the version referenced in `server.json`.
-2. That published npm manifest must contain the `mcpName` field matching `server.json`'s `name` — it does today
-   (verified against the currently published `4.10.0` on `registry.npmjs.org`).
+2. That published npm manifest must contain the `mcpName` field matching `server.json`'s `name`. Check the
+   **published** manifest rather than the working tree, since that is what the registry reads:
+
+   ```bash
+   curl -sS https://registry.npmjs.org/crawlforge-mcp-server/latest | jq -r '.version, .mcpName'
+   jq -r '.name' server.json
+   ```
+
+   The second and third lines must be identical.
 
 Skipping either of these causes `mcp-publisher publish` to fail registry-side ownership verification.
 
