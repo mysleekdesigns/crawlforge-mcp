@@ -7,7 +7,7 @@ import { LinkAnalyzer } from '../analysis/LinkAnalyzer.js';
 import { normalizeUrl, extractLinks, isValidUrl } from '../../utils/urlNormalizer.js';
 import { Logger } from '../../utils/Logger.js';
 import { safeFetch } from '../../utils/ssrfGuard.js';
-import { robotsPreflight } from '../../utils/robotsGate.js';
+import { robotsPreflight, RobotsDisallowedError } from '../../utils/robotsGate.js';
 import { throttleHost } from '../../utils/hostRateLimiter.js';
 import { CRAWLFORGE_USER_AGENT, identityHeaders } from '../../utils/fetchIdentity.js';
 
@@ -185,6 +185,18 @@ export class BFSCrawler {
     });
     if (!gate.allowed) {
       logger.debug(`Robots.txt blocks: ${normalizedUrl}`);
+      // A refused seed used to end the crawl with 0 pages and 0 errors, so the
+      // caller could not tell a robots refusal from an empty site. Children
+      // stay silent: skipping disallowed links is the normal case.
+      if (isSeed) {
+        this.errors.push({
+          url: normalizedUrl,
+          depth,
+          error: new RobotsDisallowedError(normalizedUrl).message,
+          code: 'ROBOTS_DISALLOWED',
+          timestamp: new Date().toISOString()
+        });
+      }
       return;
     }
 

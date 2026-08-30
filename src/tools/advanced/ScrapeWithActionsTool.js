@@ -675,18 +675,35 @@ export class ScrapeWithActionsTool extends EventEmitter {
       // Prefer the post-action live page HTML captured during action execution.
       // This ensures the final content reflects clicks/typing/navigation rather
       // than re-fetching the original (pre-action) URL.
-      if (chainResult?.finalHtml) {
-        return await this.extractContentTool.execute({
+      const extractResult = chainResult?.finalHtml
+        ? await this.extractContentTool.execute({
           url: chainResult.finalUrl || params.url,
           html: chainResult.finalHtml,
           options
-        });
-      }
+        })
+        : await this.extractContentTool.execute({ url: params.url, options });
 
-      const extractResult = await this.extractContentTool.execute({
-        url: params.url,
-        options
-      });
+      // extractContent never honoured customSelectors, so extractionOptions.
+      // selectors only ever surfaced inside captureIntermediateStates. Run them
+      // over the post-action DOM here, the one place every caller reads.
+      if (chainResult?.finalHtml && (params.extractionOptions?.selectors || params.formats?.includes('text'))) {
+        const $ = load(chainResult.finalHtml);
+        extractResult.content = extractResult.content || {};
+        if (params.extractionOptions?.selectors) {
+          extractResult.content.extracted = this.extractWithSelectors($, params.extractionOptions.selectors);
+        }
+        // Readability picks a "main" block and drops form controls; on a small
+        // post-action page (a demo form, a results panel) that leaves the
+        // footer alone, or a page minus the very buttons the actions produced.
+        // A short readable result means it found nothing substantial, so hand
+        // back the whole (equally short) body text instead.
+        const readable = extractResult.content.text || '';
+        const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
+        if (readable.length < 300 && bodyText.length > readable.length) {
+          extractResult.content.text = bodyText;
+          extractResult.content.textSource = 'body';
+        }
+      }
 
       return extractResult;
     } catch (error) {
@@ -706,6 +723,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
     if (formats.includes('json')) {
       content.json = {
         finalContent: finalContent.content || {},
+        ...(finalContent.content?.extracted ? { extracted: finalContent.content.extracted } : {}),
         metadata: finalContent.metadata || {},
         actionSummary: {
           totalActions: additionalData.actionResults.length,

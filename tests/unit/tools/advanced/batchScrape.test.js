@@ -168,6 +168,14 @@ describe('BatchScrapeTool (real module) — async mode: in-progress status + can
     releaseGate('/gate/a2');
     const finished = await waitForJobStatus(tool.jobManager, queued.jobId, ['completed']);
     assert.equal(finished.result.successfulUrls, 2);
+
+    // Once complete, the same poll must still carry status/mode — the
+    // completed branches (cache and job) used to drop both, so a poller keyed
+    // on `status` saw `undefined` the moment the job finished.
+    const done = await tool.getBatchResults(queued.batchId);
+    assert.equal(done.status, 'completed');
+    assert.equal(done.mode, 'async');
+    assert.equal(done.results.length, 2);
   });
 
   // Reproduction test for the cancelBatch fix: cancelling an async batch used
@@ -284,6 +292,7 @@ describe('BatchScrapeTool (real module) — batchResults cache TTL eviction', ()
 
       const fresh = await tool.getBatchResults(batchId);
       assert.equal(fresh.cached, true, 'a not-yet-expired entry must be served from cache');
+      assert.equal(fresh.status, 'completed', 'the cached branch reports the lifecycle status too');
       assert.equal(fresh.results.length, 1);
 
       await new Promise((r) => setTimeout(r, 60));
