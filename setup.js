@@ -68,8 +68,11 @@ function addToMcpConfig(configPath, clientName, apiKey) {
       }
     };
 
-    // Write updated config
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    // Write updated config. This file now embeds the API key, so keep it
+    // owner-only (0o600). The `mode` option only applies when writeFileSync
+    // creates the file, so chmod enforces it for a pre-existing config too.
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+    fs.chmodSync(configPath, 0o600);
 
     return {
       success: true,
@@ -107,7 +110,7 @@ function configureMcpClients(apiKey) {
     if (!fs.existsSync(cursorConfigPath)) {
       // Create mcp.json if it doesn't exist
       try {
-        fs.writeFileSync(cursorConfigPath, JSON.stringify({ mcpServers: {} }, null, 2));
+        fs.writeFileSync(cursorConfigPath, JSON.stringify({ mcpServers: {} }, null, 2), { mode: 0o600 });
       } catch (e) {
         // Ignore creation errors
       }

@@ -151,7 +151,14 @@ function sendRpcError(res, status, code, message) {
  */
 export async function connectStreamableHttp(server, authManager, logger, options = {}) {
   const port = options.port ?? 3000;
-  const host = options.host ?? '0.0.0.0';
+  // Bind loopback by default so a local `--http` server is not exposed to the
+  // LAN. Managed hosts need 0.0.0.0 to be reachable by their router: Render sets
+  // $RENDER; $MCP_HTTP_HOST is an explicit override for any other platform.
+  const host = options.host ?? process.env.MCP_HTTP_HOST ?? (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
+  const hostIsLoopback = host === '127.0.0.1' || host === '::1' || host === 'localhost';
+  if (authManager.isCreatorMode() && !hostIsLoopback) {
+    console.error(`WARNING: creator mode is enabled but the server is bound to ${host} (non-loopback) — per-request auth will NOT be bypassed. Bind to 127.0.0.1 to use creator mode.`);
+  }
   const legacy = options.legacy === true;
   const oauthProvider = options.oauth ?? null;
   const metrics = options.metrics ?? null;
@@ -242,12 +249,14 @@ export async function connectStreamableHttp(server, authManager, logger, options
 
     // MCP endpoint
     if (req.url === '/mcp' || req.url === '/' || req.url?.startsWith('/mcp?')) {
-      // Per-request auth (bypassed in creator mode). `internal` marks a
-      // request from the website's REST proxy (INTERNAL_PROXY_SECRET): it is
-      // billing-exempt in withAuth because the website already charged the
-      // end user. Request-scoped only — never persisted on the session.
+      // Per-request auth. Creator mode bypasses it, but only on a loopback bind
+      // — never expose an unauthenticated MCP endpoint on a public interface.
+      // `internal` marks a request from the website's REST proxy
+      // (INTERNAL_PROXY_SECRET): it is billing-exempt in withAuth because the
+      // website already charged the end user. Request-scoped only — never
+      // persisted on the session.
       let internal = false;
-      if (!authManager.isCreatorMode()) {
+      if (!(authManager.isCreatorMode() && hostIsLoopback)) {
         const authResult = await authenticateRequest(req, authManager, oauthProvider);
         if (!authResult.ok) {
           logger.warn('Streamable HTTP request rejected', {
