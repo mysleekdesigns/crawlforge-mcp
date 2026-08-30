@@ -136,3 +136,32 @@ describe('provenance — the guard refuses to guess', () => {
     assert.equal(data.price, 1849);
   });
 });
+
+describe('provenance — the markup-weld pass must not backtrack catastrophically', () => {
+  // Regression: MARKUP_BETWEEN_DIGITS was /(\d)(?:\s*<[^>]{0,120}>\s*)+([\d.,])/g.
+  // The \s* on BOTH sides of a +-quantified group let a whitespace run be split
+  // between one iteration's trailing \s* and the next one's leading \s*, so a
+  // digit followed by whitespace-separated tags and NO closing digit explored
+  // 2^n paths. Real pages hit this constantly: at n=18 a single replace took 5s,
+  // and on live html it never returned — pinning the whole MCP server's event
+  // loop at 100% CPU, which hangs every other tool, not just this one.
+  test('a digit followed by many whitespace-separated tags and no closing digit returns fast', () => {
+    const pathological = `<p>1${' <b> '.repeat(40)}x</p>`;
+    const started = Date.now();
+    verifyNumericProvenance({ value: '999' }, pathological);
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed < 1000, `weld pass took ${elapsed}ms — the regex is backtracking again`);
+  });
+
+  test('welding still joins a number the markup splits across tags', () => {
+    const split = '<span>1</span><span>299</span>';
+    const { data } = verifyNumericProvenance({ price: '1299' }, split);
+    assert.equal(data.price, '1299', 'a number only readable across tag boundaries must survive');
+  });
+
+  test('welding still joins across tags separated by whitespace — the ReDoS shape', () => {
+    const spaced = '<b>4</b> <b>2</b>';
+    const { data } = verifyNumericProvenance({ answer: '42' }, spaced);
+    assert.equal(data.answer, '42', 'whitespace between tags must not stop the weld');
+  });
+});
