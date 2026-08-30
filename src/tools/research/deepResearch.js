@@ -49,7 +49,7 @@ const DeepResearchSchema = z.object({
   
   // LLM Configuration
   llmConfig: z.object({
-    provider: z.enum(['auto', 'openai', 'anthropic']).optional().default('auto'),
+    provider: z.enum(['auto', 'openai', 'anthropic', 'ollama']).optional().default('auto'),
     openai: z.object({
       apiKey: z.string().optional(),
       model: z.string().optional().default('gpt-3.5-turbo'),
@@ -58,6 +58,10 @@ const DeepResearchSchema = z.object({
     anthropic: z.object({
       apiKey: z.string().optional(),
       model: z.string().optional().default('claude-3-haiku-20240307')
+    }).optional(),
+    ollama: z.object({
+      model: z.string().optional(),
+      embeddingModel: z.string().optional()
     }).optional(),
     enableSemanticAnalysis: z.boolean().optional().default(true),
     enableIntelligentSynthesis: z.boolean().optional().default(true)
@@ -265,9 +269,23 @@ export class DeepResearchTool {
       ...baseConfig.searchConfig
     };
 
-    // Add LLM configuration if provided
+    // Add LLM configuration if provided. LLMManager selects on
+    // `defaultProvider`; the schema's `provider` was never mapped onto it, so
+    // an explicit choice was silently ignored and 'auto' always ran.
     if (params.llmConfig) {
-      baseConfig.llmConfig = params.llmConfig;
+      const { provider = 'auto', ...llmConfig } = params.llmConfig;
+      const cloudKey = {
+        openai: llmConfig.openai?.apiKey || process.env.OPENAI_API_KEY,
+        anthropic: llmConfig.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY
+      };
+      if (provider in cloudKey && !cloudKey[provider]) {
+        throw new Error(
+          `llmConfig.provider "${provider}" needs an API key: pass llmConfig.${provider}.apiKey ` +
+          `or set ${provider === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY'}. ` +
+          'Omit provider (or pass "ollama") to use the local Ollama, which needs no key.'
+        );
+      }
+      baseConfig.llmConfig = { ...llmConfig, defaultProvider: provider };
     }
 
     // params.cacheResults was previously dropped entirely — only the

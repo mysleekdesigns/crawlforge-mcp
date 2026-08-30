@@ -105,7 +105,7 @@ const taskStore = createTaskStore({ logger });
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "5.4.3",
+  version: "5.5.0",
   description: "Production-ready MCP server with 29 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -492,7 +492,7 @@ registerToolIfEnabled("serp_rank", {
 
 // Tool: reddit_search — search Reddit posts/comments or read a full thread (via community archives)
 registerToolIfEnabled("reddit_search", {
-  description: "Use this to search Reddit posts or comments, or read a full comment thread — reddit.com blocks direct scraping, so this reads the Arctic Shift community archive instead (free, no Reddit credentials). Modes: 'posts' (default) and 'comments' search; 'thread' returns a post plus its nested comment tree by link_id. A subreddit/author-scoped search queries the archive directly. A keyword search across ALL of Reddit finds posts with a site-restricted web search and then reads those posts from the archive, because Arctic Shift can only keyword-search within a scope; results come back as real archive rows, ordered by search relevance. An unscoped COMMENT search has no backend — scope it or search posts. Example: reddit_search({query: \"best mechanical keyboard\", subreddit: \"MechanicalKeyboards\", limit: 10})",
+  description: "Use this to search Reddit posts or comments, or read a full comment thread — reddit.com blocks direct scraping, so this reads the Arctic Shift community archive instead (free, no Reddit credentials). Modes: 'posts' (default) and 'comments' search; 'thread' returns a post plus its nested comment tree by link_id. A subreddit/author-scoped search queries the archive directly. A keyword search across ALL of Reddit finds posts with a site-restricted web search and then reads those posts from the archive, because Arctic Shift can only keyword-search within a scope; results come back as real archive rows, ordered by search relevance. An unscoped COMMENT search discovers posts the same way and then searches each post's comments for the keywords. A scoped comment search Arctic Shift times out on is retried over narrower windows (7d, 3d, 1d) and reports window_applied. Example: reddit_search({query: \"best mechanical keyboard\", subreddit: \"MechanicalKeyboards\", limit: 10})",
   annotations: { title: "Reddit Search", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     query: z.string().optional().describe("Keyword search. Posts: matches title+selftext; comments: matches body. Supports \"quoted phrases\", OR, -exclusion"),
@@ -504,7 +504,7 @@ registerToolIfEnabled("reddit_search", {
     before: z.string().optional().describe("Only content posted before this date — same formats as after"),
     limit: z.number().min(1).max(100).optional().describe("Max results (default 25; thread mode: max comments returned)"),
     sort: z.enum(["asc", "desc"]).optional().describe("Sort by post date (default desc = newest first)"),
-    source: z.enum(["auto", "arctic_shift", "pullpush", "reddit_api"]).optional().describe("Backend: auto routes + falls back (default). reddit_api uses the official Reddit Data API — only when REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET are set; serves posts/thread, not comment search")
+    source: z.enum(["auto", "arctic_shift", "pullpush", "reddit_api", "web_discovery"]).optional().describe("Backend: auto routes + falls back (default). web_discovery serves only unscoped keyword searches (web search finds the posts, the archive supplies the rows). reddit_api uses the official Reddit Data API — only when REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET are set; serves posts/thread, not comment search")
   },
   outputSchema: OUTPUT_SCHEMAS.reddit_search
 }, withAuth("reddit_search", async ({ query, subreddit, author, mode, link_id, after, before, limit, sort, source }) => {
@@ -977,7 +977,7 @@ if (toolFilter.isEnabled("deep_research")) {
         maxVariations: z.number().min(1).max(20).optional().default(8)
       }).optional().describe("Query expansion settings for broader search coverage"),
       llmConfig: z.object({
-        provider: z.enum(['auto', 'openai', 'anthropic']).optional().default('auto'),
+        provider: z.enum(['auto', 'openai', 'anthropic', 'ollama']).optional().default('auto'),
         openai: z.object({
           apiKey: z.string().optional(),
           model: z.string().optional().default('gpt-3.5-turbo'),
@@ -987,9 +987,13 @@ if (toolFilter.isEnabled("deep_research")) {
           apiKey: z.string().optional(),
           model: z.string().optional().default('claude-3-haiku-20240307')
         }).optional(),
+        ollama: z.object({
+          model: z.string().optional(),
+          embeddingModel: z.string().optional()
+        }).optional(),
         enableSemanticAnalysis: z.boolean().optional().default(true),
         enableIntelligentSynthesis: z.boolean().optional().default(true)
-      }).optional().describe("LLM provider configuration for AI-powered analysis"),
+      }).optional().describe("LLM provider configuration for AI-powered analysis. provider 'auto' (default) uses a configured cloud key if there is one, else the local Ollama (http://localhost:11434, no key); 'ollama' forces the local model; 'openai'/'anthropic' need the matching API key"),
       concurrency: z.number().min(1).max(20).optional().default(5).describe("Number of concurrent research requests"),
       cacheResults: z.boolean().optional().default(true).describe("Cache research results for reuse"),
       webhook: z.object({
@@ -1534,10 +1538,30 @@ registerToolIfEnabled("localization", {
         if (!params.countryCode) throw new Error('countryCode is required for configure_country operation');
         result = await localizationManager.configureCountry(params.countryCode, params);
         break;
-      case 'localize_search':
+      case 'localize_search': {
         if (!params.searchParams) throw new Error('searchParams is required for localize_search operation');
-        result = await localizationManager.localizeSearchQuery(params.searchParams, params.countryCode);
+        const localizedParams = await localizationManager.localizeSearchQuery(params.searchParams, params.countryCode);
+        if (!params.searchParams.query) {
+          result = {
+            ...localizedParams,
+            note: 'No searchParams.query was given, so no search ran — these are the parameters a localized search would use.'
+          };
+          break;
+        }
+        // Run the search the caller asked for under the localized country and
+        // language, so the operation returns results rather than a config.
+        // Priced as a search_web call (AuthManager.getToolCost).
+        const countryCode = params.countryCode || localizationManager.getCurrentSettings().countryCode;
+        const search = await searchWebTool.execute({
+          query: params.searchParams.query,
+          limit: params.searchParams.limit,
+          offset: params.searchParams.offset,
+          lang: localizedParams.lang,
+          localization: { countryCode, language: params.language || localizedParams.lang }
+        });
+        result = { localizedParams, search };
         break;
+      }
       case 'localize_browser':
         if (!params.browserOptions) throw new Error('browserOptions is required for localize_browser operation');
         result = await localizationManager.localizeBrowserContext(params.browserOptions, params.countryCode);
@@ -1578,7 +1602,7 @@ registerToolIfEnabled("localization", {
 
 // Tool: scrape_template (D3.3 — pre-built site templates)
 registerToolIfEnabled("scrape_template", {
-  description: "Use this when you want structured data from a well-known site or platform API without writing custom selectors. Three modes: a template id with a url (scrape_template({template:\"github-repo\", url:\"https://github.com/user/repo\"})); template:\"auto\" with a url, which picks the template from the URL and names its choice in the response; or template:\"list\" to enumerate every template with the URLs it handles. Page templates return one record — e-commerce, social, developer and news sites (shopify-product, amazon-product, github-repo, youtube-video, tweet, reddit-thread, hacker-news-front-page, producthunt-launch, stackoverflow-question, npm-package, linkedin-profile). List connectors return N records from one call and are driven by params instead of a url: job boards (Greenhouse, Lever, Ashby, Workable, Recruitee, Teamtailor) return a company's whole careers board, US government APIs (NHTSA VIN decode, NPI provider registry) answer keyless lookups, and shopify-collection returns a whole collection. Example: scrape_template({template:\"greenhouse-jobs\", params:{company:\"stripe\"}})",
+  description: "Use this when you want structured data from a well-known site or platform API without writing custom selectors. Three modes: a template id with a url (scrape_template({template:\"github-repo\", url:\"https://github.com/user/repo\"})); template:\"auto\" with a url, which picks the template from the URL and names its choice in the response; or template:\"list\" to enumerate every template with the URLs it handles. Page templates return one record — e-commerce, social, developer and news sites (shopify-product, amazon-product, github-repo, youtube-video, reddit-thread, hacker-news-front-page, producthunt-launch, stackoverflow-question, npm-package; reddit-thread reads the post from the Arctic Shift archive and reddit_search reads the comment tree). linkedin-profile and tweet are retired — those sites' robots.txt disallow every keyless path — and naming one returns the reason. List connectors return N records from one call and are driven by params instead of a url: job boards (Greenhouse, Lever, Ashby, Workable, Recruitee, Teamtailor) return a company's whole careers board, US government APIs (NHTSA VIN decode, NPI provider registry) answer keyless lookups, and shopify-collection returns a whole collection. Example: scrape_template({template:\"greenhouse-jobs\", params:{company:\"stripe\"}})",
   annotations: { title: "Scrape Template", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     template: z.string().describe("Template ID (e.g. github-repo), \"auto\" to detect one from the url, or \"list\" to enumerate available templates"),

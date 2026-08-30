@@ -5,6 +5,22 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.5.0] - 2026-08-30
+
+Minor release closing the "missing features" list from the 5.4.3 live matrix: two operations that returned a config instead of doing the work, a provider the schema would not accept, a Reddit search shape with no backend, and three templates with no compliant way to their data.
+
+### Added
+
+- **`localization` `localize_search` now runs the search.** With `searchParams.query` it localizes the parameters (country restrict, language, Accept-Language) and runs them through the same adapter `search_web` uses, returning `{ localizedParams, search }`; it is priced as a `search_web` call. Without a query it returns the localized parameters as before, with a note saying no search ran.
+- **`reddit_search` serves an unscoped comment search.** It finds posts with a site-restricted web search, then searches each post's comments for the keywords in the Arctic Shift archive (`link_id` is the scope Arctic Shift accepts), in relevance order until `limit` is reached; `posts_searched` and `discovered` report the work, and one throttled post no longer discards the others. Previously the call failed with "no available backend". `source:"web_discovery"` is now in the MCP schema.
+- **`reddit_search` narrows a scoped comment keyword search Arctic Shift times out on.** The archive answers a full-history comment search on a busy subreddit with a fast 422 "Timeout"; when the caller set no `after`, the search is retried over the last 7d, 3d and 1d, and the result reports `window_applied` and a note. A caller-chosen window is never overridden.
+- **`deep_research.llmConfig.provider` accepts `"ollama"`** and an `ollama: { model, embeddingModel }` block. The chosen provider is now mapped onto `LLMManager`'s `defaultProvider` — before this the field was validated and then ignored, so `"anthropic"` ran whatever `auto` picked. An explicit cloud provider with no API key is rejected up front instead of silently downgrading to keyword extraction.
+
+### Changed
+
+- **`scrape_template` `reddit-thread` reads the Arctic Shift archive** (crawlforge-extractors 1.5.0): one keyless `/api/posts/ids` request returns the post — title, subreddit, author, score, upvote ratio, comment count, body, flair, removal state — where the old selector template never saw a page (reddit.com 403s every non-browser client). The comment tree is `reddit_search` `mode:"thread"` with the returned `id`.
+- **`scrape_template` `linkedin-profile` and `tweet` are retired.** linkedin.com/robots.txt disallows every path for all agents but LinkedIn's own crawler and profiles sit behind an auth wall; x.com/robots.txt disallows every path for generic agents and the keyless embed endpoints (`cdn.syndication.twimg.com`, `publish.x.com/oembed`) are disallowed by their own robots.txt (all verified 2026-08-30). Naming either template — or passing one of their URLs to `template:"auto"` — returns the reason, fetches nothing and costs nothing. 18 templates ship.
+
 ## [5.4.3] - 2026-08-30
 
 Patch release from a 29-tool live matrix (209 calls against sites not used in earlier sweeps). Nine defects, all fixed and re-verified over MCP stdio; unit suite 1552/1552, protocol compliance 100%.

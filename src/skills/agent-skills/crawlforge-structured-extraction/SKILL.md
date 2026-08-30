@@ -53,9 +53,11 @@ source and a ready-to-paste path.
 ```
 
 Pass `template:"list"` to enumerate templates. Supports `shopify-product`,
-`amazon-product`, `linkedin-profile`, `github-repo`, `youtube-video`, `tweet`,
-`reddit-thread`, `hacker-news-front-page`, `producthunt-launch`,
-`stackoverflow-question`, `npm-package`. Prefer `shopify-product` over scraping
+`amazon-product`, `github-repo`, `youtube-video`, `reddit-thread` (the post,
+from the Arctic Shift archive; `reddit_search` reads the comment tree),
+`hacker-news-front-page`, `producthunt-launch`, `stackoverflow-question`,
+`npm-package`. `linkedin-profile` and `tweet` are retired — those sites'
+robots.txt disallow every keyless path. Prefer `shopify-product` over scraping
 or LLM extraction on any Shopify storefront — it reads the store's own JSON, so
 prices and stock cannot be misread. Full field lists: [templates](references/templates.md).
 CLI: `crawlforge template github-repo https://github.com/owner/repo`.

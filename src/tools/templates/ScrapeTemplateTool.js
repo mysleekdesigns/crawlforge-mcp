@@ -11,7 +11,7 @@
  * one call — the registry builds the URL, this tool fetches it.
  */
 
-import { TemplateRegistry } from 'crawlforge-extractors';
+import { TemplateRegistry, retiredTemplate } from 'crawlforge-extractors';
 import { safeFetch } from '../../utils/ssrfGuard.js';
 import { preflightFetch } from '../../utils/robotsGate.js';
 import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
@@ -60,6 +60,12 @@ export class ScrapeTemplateTool {
       }
       const detected = this.registry.detect(url);
       if (!detected) {
+        // A URL a withdrawn template used to handle gets the reason it is
+        // gone, not "no template matches".
+        const retired = retiredTemplate(url);
+        if (retired) {
+          throw badRequest(`The "${retired.id}" template that handled ${url} was retired: ${retired.reason}`);
+        }
         throw badRequest(
           `No template matches ${url}. Pass template:"list" to see every template and the URLs ` +
           'each one handles, or name a template explicitly.'
@@ -74,6 +80,10 @@ export class ScrapeTemplateTool {
     // Validate template exists before making network call
     const tpl = this.registry.get(templateId);
     if (!tpl) {
+      const retired = retiredTemplate(templateId);
+      if (retired) {
+        throw badRequest(`Template "${templateId}" was retired: ${retired.reason}`);
+      }
       const available = this.registry.list().map(t => t.id).join(', ');
       throw new Error(`Unknown template "${templateId}". Available templates: ${available}`);
     }

@@ -329,9 +329,11 @@ Options:
   --list   List all available templates
 
 Available templates:
-  amazon-product, linkedin-profile, github-repo, youtube-video,
-  tweet, reddit-thread, hacker-news-front-page, producthunt-launch,
-  stackoverflow-question, npm-package
+  shopify-product, shopify-collection, amazon-product, github-repo,
+  youtube-video, reddit-thread, hacker-news-front-page, producthunt-launch,
+  stackoverflow-question, npm-package, plus the job-board and government
+  connectors (--list names them all). linkedin-profile and tweet are retired:
+  those sites' robots.txt disallow every keyless path.
 
 Examples:
   crawlforge template github-repo https://github.com/owner/repo
