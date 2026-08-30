@@ -40,6 +40,28 @@ release tag, then:
    registry trusts GitHub's OIDC token for the `mysleekdesigns` namespace since we authenticate as that GitHub org/user.
 3. Runs `mcp-publisher publish`.
 
+## Verifying a publish
+
+`mcp-publisher publish` exiting 0 only means the registry accepted the request, so the workflow reads the version back
+and fails if it does not match. To check by hand:
+
+```bash
+curl -sSf "https://registry.modelcontextprotocol.io/v0/servers?search=crawlforge-mcp-server&limit=100" \
+  | jq -r '[ .servers[]
+             | select(.server.name == "io.github.mysleekdesigns/crawlforge-mcp-server")
+             | select(._meta["io.modelcontextprotocol.registry/official"].isLatest == true)
+             | .server.version ] | first'
+```
+
+**The filter is not optional.** The registry keeps *every* published version as its own record under the same name — 23
+of them as of 5.5.2 — and they are not ordered newest-last. Reading `.servers[0].server.version` returns `4.6.2`, a
+version from June, which looks exactly like a publish that silently failed. Always filter to the exact `name` and then
+take the record flagged `isLatest`.
+
+`limit=100` is defensive headroom, not a current requirement — the default page returns all 23 records today, `isLatest`
+among them. It is there because the record count grows by one every release and a page that silently truncates would
+reintroduce exactly the failure above. Past 100 versions this query needs a cursor.
+
 ## Manual fallback
 
 If the workflow is unavailable or a one-off publish is needed, run these locally from the repo root (requires a
