@@ -19,7 +19,7 @@ import { dirname, join } from 'node:path';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 
-import { extractMainContent } from '../../../../src/tools/scrape/_mainContent.js';
+import { extractMainContent, sanitizeAccidentalClasses } from '../../../../src/tools/scrape/_mainContent.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const SP500_URL = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies';
@@ -101,5 +101,100 @@ describe('extractMainContent — pages with nothing to recover', () => {
     const result = extractMainContent('<html><head><title>Empty</title></head><body></body></html>', 'https://example.com/empty');
     assert.equal(result.html, null);
     assert.equal(result.tablesRecovered, 0);
+  });
+});
+
+/**
+ * Second defect: Readability's class regexes are unanchored, so `extra` matches
+ * inside Nextra's `nextra-*` prefix and `hidden` inside Tailwind's
+ * `overflow-hidden`. On next-intl.dev/docs/routing/setup that deleted every
+ * code example while leaving the prose, so the page read as complete.
+ */
+const nextraHtml = readFileSync(join(FIXTURES, 'nextra-docs-condensed.html'), 'utf8');
+const NEXTRA_URL = 'https://next-intl.dev/docs/routing/setup';
+
+const countTag = (html, tag) => (html.match(new RegExp(`<${tag}[\\s>]`, 'gi')) || []).length;
+
+/** Run just the sanitizer and hand back the resulting class attribute. */
+function sanitizedClassOf(markup, selector) {
+  const { document } = new JSDOM(`<body>${markup}</body>`).window;
+  sanitizeAccidentalClasses(document);
+  return document.querySelector(selector).getAttribute('class');
+}
+
+describe('extractMainContent — code Readability deletes over a class-name collision', () => {
+  test('the installed Readability still collides: a nextra- class is removed outright', () => {
+    const prose = 'Prose long enough for Readability to treat this as the article candidate, with commas. '.repeat(8);
+    const html = `<html><head><title>T</title></head><body><article>
+      <p>${prose} <code class="nextra-code">KEEPME</code> tail.</p><p>${prose}</p></article></body></html>`;
+    assert.doesNotMatch(plainReadability(html, 'https://example.com/a'), /KEEPME/);
+  });
+
+  test('the installed Readability still collides: overflow-hidden sinks a wrapper', () => {
+    const prose = 'Prose long enough for Readability to treat this as the article candidate, with commas. '.repeat(8);
+    const html = `<html><head><title>T</title></head><body><article><p>${prose}</p>
+      <div class="overflow-hidden"><pre><code>KEEPME</code></pre></div><p>${prose}</p></article></body></html>`;
+    assert.doesNotMatch(plainReadability(html, 'https://example.com/a'), /KEEPME/);
+  });
+
+  test('the fixture still reproduces the defect: plain Readability keeps no code at all', () => {
+    const content = plainReadability(nextraHtml, NEXTRA_URL);
+    assert.ok(content, 'Readability should still find an article in the fixture');
+    assert.equal(countTag(content, 'pre'), 0, 'plain Readability must drop every code block');
+    assert.equal(countTag(content, 'code'), 0, 'and every inline code span');
+    assert.doesNotMatch(content, /legacy API/, 'and the callout warning about the legacy API');
+  });
+
+  test('the loss is silent: the surviving prose reads as a complete sentence', () => {
+    const content = plainReadability(nextraHtml, NEXTRA_URL).replace(/\s+/g, ' ');
+    assert.match(content, /supports, can be used to handle/, 'the inline code left a hole, not an error');
+  });
+
+  test('re-attaches the code blocks, the inline code and the callout', () => {
+    const { html } = extractMainContent(nextraHtml, NEXTRA_URL);
+    assert.equal(countTag(html, 'pre'), 3, 'all three code blocks are back');
+    assert.match(html, /defineRouting/, 'routing.ts example');
+    assert.match(html, /createMiddleware/, 'proxy.ts example');
+    // Syntax highlighting splits identifiers across spans, so match the token
+    // rather than a contiguous call expression.
+    assert.match(html, /LocaleLayout/, 'layout example');
+    assert.match(html, /legacy API/, 'the callout that marks setRequestLocale legacy');
+    assert.match(
+      html,
+      /supports, <code[^>]*>next-intl<\/code> can be used/,
+      'the sentence has its inline code back rather than a hole'
+    );
+  });
+});
+
+describe('sanitizeAccidentalClasses — only reverses accidental matches', () => {
+  test('strips the token that matches mid-word, keeping the rest of the class', () => {
+    assert.equal(
+      sanitizedClassOf('<div class="nextra-code relative rounded-md"></div>', 'div'),
+      'relative rounded-md'
+    );
+  });
+
+  test('strips a utility class that collides on a whole word without the meaning', () => {
+    assert.equal(sanitizedClassOf('<div class="overflow-hidden py-4"></div>', 'div'), 'py-4');
+  });
+
+  for (const genuine of ['comments', 'banner', 'page-footer', 'sidebar', 'hidden', 'social-share']) {
+    test(`leaves a genuine "${genuine}" class alone`, () => {
+      assert.equal(sanitizedClassOf(`<div class="${genuine} wrap"></div>`, 'div'), `${genuine} wrap`);
+    });
+  }
+
+  test('keeps a token that also carries a positive signal', () => {
+    assert.equal(sanitizedClassOf('<div class="nextra-content"></div>', 'div'), 'nextra-content');
+  });
+
+  test('removes the attribute entirely when every token was accidental', () => {
+    assert.equal(sanitizedClassOf('<div class="nextra-code"></div>', 'div'), null);
+  });
+
+  test('leaves a document with nothing accidental untouched', () => {
+    const { document } = new JSDOM('<body><div class="post-body wrapper"></div></body>').window;
+    assert.equal(sanitizeAccidentalClasses(document), 0);
   });
 });
