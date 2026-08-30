@@ -83,7 +83,29 @@ mcp-publisher publish
 
 Before either the CI workflow or the manual fallback can succeed:
 
-1. The npm package (`crawlforge-mcp-server`) must already be published at the version referenced in `server.json`.
+1. The npm package (`crawlforge-mcp-server`) must already be published at the version referenced in `server.json` —
+   **and be visible on `registry.npmjs.org`, which is not the same moment.** `npm publish` returning
+   `+ crawlforge-mcp-server@x.y.z` means npm accepted the upload; the version then takes time to appear (measured at
+   ~120s for 5.5.2), and until it does the registry's ownership check gets a 404 and the publish fails with:
+
+   ```
+   registry validation failed for package 0 (crawlforge-mcp-server): NPM package
+   'crawlforge-mcp-server' exists, but version '5.5.1' was not found (status: 404)
+   ```
+
+   Because the workflow fires on `release: published`, this is decided by *when you create the GitHub Release*. Creating
+   it immediately after `npm publish` is what failed **v5.4.0** and **v5.5.1** — and since v5.5.0 was never released at
+   all, the registry silently sat on 5.4.1 for two releases while npm was current. Wait for the flip first:
+
+   ```bash
+   until curl -sSf https://registry.npmjs.org/-/package/crawlforge-mcp-server/dist-tags \
+     | grep -q "\"latest\":\"$(jq -r '.version' server.json)\""; do sleep 10; done
+   ```
+
+   A stale read here is propagation lag, never a failed publish — do not re-run `npm publish` because of it. If a
+   Release was already created too early, re-run the publish with `gh workflow run publish-mcp-registry.yml` rather
+   than cutting a new version; that is how v5.4.0 was recovered.
+
 2. That published npm manifest must contain the `mcpName` field matching `server.json`'s `name`. Check the
    **published** manifest rather than the working tree, since that is what the registry reads:
 
