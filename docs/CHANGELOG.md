@@ -5,6 +5,23 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.4.3] - 2026-08-30
+
+Patch release from a 29-tool live matrix (209 calls against sites not used in earlier sweeps). Nine defects, all fixed and re-verified over MCP stdio; unit suite 1552/1552, protocol compliance 100%.
+
+### Fixed
+
+- **Five `track_changes` operations had no implementation.** `get_dashboard`, `export_history`, `create_alert_rule`, `generate_trend_report` and `get_monitoring_templates` each returned `success:false` with `this.changeTracker.<method> is not a function` — the tool called `ChangeTracker` methods that were never written (since v3.1.0). All five now exist: alert rules are evaluated on every compare (a matching compare returns `alerts`; url-scoped, throttled, `significance` equality and ordered comparisons), the dashboard aggregates tracked pages, rules, fired alerts, per-URL trends and both polling and scheduled monitors, `export_history` emits JSON rows or CSV with optional diff details and baseline snapshots, the trend report summarises change rate, drift direction and significance mix with recommendations, and six built-in presets (`price-watch`, `availability`, `news-feed`, `documentation`, `regulatory`, `job-board`) back `get_monitoring_templates` and are applied by `scheduledMonitorOptions.templateId`, which the schema accepted and ignored. An omitted `dashboardOptions` now means the schema defaults instead of stripping every section.
+- **`scrape_with_actions` never returned `extractionOptions.selectors`.** They were forwarded to extract_content as `customSelectors`, which it does not read, so they only surfaced inside `captureIntermediateStates`. They now run over the post-action DOM and come back as `content.json.extracted`. On a small post-action page Readability's "main" block could be the footer alone (and it drops `<button>` text), so a readable result under 300 chars falls back to the body text, marked `textSource:"body"`.
+- **`get_batch_results` dropped `status` once a job completed.** Both completed branches (result cache and job lookup) now carry `status:"completed"` and `mode`, so a poller can key on one field for the whole lifecycle.
+- **`crawl_deep` on a seed its robots.txt gate declined returned 0 pages and 0 errors** — indistinguishable from an empty site. The decision is now reported once in `errors` with `code:"ROBOTS_DISALLOWED"`; declined child links stay silent as before.
+- **`generate_llms_txt` ignored `customGuidelines`/`customRestrictions` in `llms-full.txt`** (and `customRestrictions` in the spec-format `llms.txt`); only the legacy robots-style output emitted them. Both files now carry them.
+- **`scrape_template` `stackoverflow-question` returned nothing** — the rendered page is not served to plain HTTP clients. crawlforge-extractors 1.4.1 reads the public, keyless Stack Exchange API instead (question, owner and answers in one request, accepted answer first). **`hacker-news-front-page` did not match `https://news.ycombinator.com/`** (trailing slash), so `template:"auto"` reported no template for the front page.
+
+### Verified live, not defects
+
+Declined fetches on `lobste.rs`, `webscraper.io/test-sites/e-commerce/`, `scrapingcourse.com/ecommerce/`, `x.com`, `linkedin.com/in/` and `reddit.com` are correct robots.txt gate behaviour (each disallows the path for `*`). `executeJavaScript` stays behind `ALLOW_JAVASCRIPT_EXECUTION=true` by design. Empty Lever/Workable/Teamtailor boards return honest zero-item lists. `analyze_content` reports ISO 639-3 language codes (`eng`, `spa`, `jpn`).
+
 ## [5.4.2] - 2026-08-30
 
 Patch release: a regex in the numeric provenance guard could backtrack exponentially and **hang the entire server**, not just the tool that triggered it.

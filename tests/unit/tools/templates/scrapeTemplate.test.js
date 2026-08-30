@@ -288,29 +288,50 @@ const CASES = [
   },
 
   {
+    // stackoverflow.com answers every non-browser fetch with a Cloudflare 403,
+    // so this template reads the Stack Exchange API instead. The body below is
+    // an API response (base=default filter plus bodies and nested answers),
+    // not a page.
     id: 'stackoverflow-question',
     url: 'https://stackoverflow.com/questions/123/how-do-i',
-    html: `<html><body>
-      <div id="question-header"><h1>How do I center a div?</h1></div>
-      <div class="question">
-        <div class="s-prose">Use flexbox with justify-content: center.</div>
-        <span class="js-vote-count">15</span>
-        <div class="user-details"><a href="/users/1/alice">alice</a></div>
-        <time datetime="2024-04-04T00:00:00Z"></time>
-      </div>
-      <span class="post-tag">css</span><span class="post-tag">flexbox</span>
-      <div class="answer accepted-answer">
-        <div class="js-vote-count">30</div>
-        <div class="s-prose">Here's the accepted answer body.</div>
-      </div>
-    </body></html>`,
+    html: JSON.stringify({
+      items: [{
+        question_id: 123,
+        title: 'How do I center a &quot;div&quot;?',
+        body: '<p>Use flexbox with <code>justify-content: center</code>.</p>',
+        score: 15,
+        view_count: 4200,
+        tags: ['css', 'flexbox'],
+        owner: { display_name: 'alice', reputation: 900 },
+        creation_date: 1712188800,
+        last_activity_date: 1712275200,
+        link: 'https://stackoverflow.com/questions/123/how-do-i',
+        is_answered: true,
+        accepted_answer_id: 456,
+        answer_count: 2,
+        answers: [
+          { answer_id: 789, score: 40, is_accepted: false, owner: { display_name: 'carol' }, creation_date: 1712190000, body: '<p>Or use grid.</p>' },
+          { answer_id: 456, score: 30, is_accepted: true, owner: { display_name: 'bob' }, creation_date: 1712189000, body: "<p>Here's the accepted answer body.</p>" }
+        ]
+      }],
+      has_more: false,
+      quota_max: 300,
+      quota_remaining: 299
+    }),
     assert: (data) => {
-      assert.equal(data.title, 'How do I center a div?');
-      assert.equal(data.votes, '15');
+      assert.equal(data.title, 'How do I center a "div"?');
+      assert.equal(data.body, 'Use flexbox with justify-content: center.');
+      assert.equal(data.votes, 15);
+      assert.equal(data.views, 4200);
       assert.deepEqual(data.tags, ['css', 'flexbox']);
+      assert.equal(data.author, 'alice');
+      assert.equal(data.asked, '2024-04-04T00:00:00.000Z');
       assert.equal(data.answered, true);
-      assert.equal(data.answers.length, 1);
-      assert.equal(data.answers[0].accepted, true);
+      assert.equal(data.answer_count, 2);
+      assert.equal(data.answers.length, 2);
+      assert.equal(data.answers[0].accepted, true, 'accepted answer is listed first even with a lower score');
+      assert.equal(data.answers[0].body, "Here's the accepted answer body.");
+      assert.equal(data.answers[1].votes, 40);
     }
   },
 

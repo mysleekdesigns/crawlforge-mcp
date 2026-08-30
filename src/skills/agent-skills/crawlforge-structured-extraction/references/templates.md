@@ -15,7 +15,7 @@ to enumerate at runtime. Cost: 1 credit per call.
 | `reddit-thread` | Reddit thread | title, subreddit, author, score, top comments |
 | `hacker-news-front-page` | HN front page | ranked stories: title, URL, points, author, comment count |
 | `producthunt-launch` | Product Hunt launch | name, tagline, upvotes, maker, description |
-| `stackoverflow-question` | Stack Overflow question | title, tags, votes, question body, accepted answer |
+| `stackoverflow-question` | Stack Overflow question (read from the keyless Stack Exchange API, not the page) | title, body, votes, views, tags, author, asked, answered, accepted_answer_id, answer_count, top 5 answers (accepted first: votes, author, posted, body) |
 | `npm-package` | npm package page | name, version, description, weekly downloads, license, repo link |
 
 ## Usage

@@ -63,6 +63,48 @@ describe('scrapeWithActions tool (real module)', () => {
     tool = new ScrapeWithActionsTool({ actionExecutor: makeFakeExecutor(), enableLogging: false });
   });
 
+  test('extractionOptions.selectors are run over the post-action DOM and returned in json.extracted', async () => {
+    const finalHtml = '<html><body><nav>Menu</nav><div class="example"><h3>Add/Remove Elements</h3>' +
+      '<button onclick="addElement()">Add Element</button><div id="elements">' +
+      '<button class="added-manually">Delete</button><button class="added-manually">Delete</button></div></div>' +
+      '<div id="page-footer">Powered by Elemental Selenium</div></body></html>';
+    tool = new ScrapeWithActionsTool({
+      actionExecutor: makeFakeExecutor({ onExecute: (url, chain) => makeFakeChainResult(chain.actions, { finalHtml, finalUrl: url }) }),
+      enableLogging: false
+    });
+    const result = await tool.execute({
+      url: 'https://example.com/add_remove',
+      actions: [CLICK_ACTION],
+      formats: ['json', 'text'],
+      captureScreenshots: false,
+      extractionOptions: { selectors: { deleteButtons: '.added-manually', heading: 'h3', missing: '#nope' } }
+    });
+    assert.equal(result.success, true, result.error);
+    const extracted = result.content.json.extracted;
+    assert.deepEqual(extracted.deleteButtons, ['Delete', 'Delete']);
+    assert.equal(extracted.heading, 'Add/Remove Elements');
+    assert.equal(extracted.missing, null);
+    assert.deepEqual(result.content.json.finalContent.extracted, extracted, 'finalContent carries the same block');
+    // Readability reduced this tiny page to its footer; the text format must
+    // still show what the actions produced.
+    assert.match(result.content.text, /Add Element/);
+    assert.match(result.content.text, /Delete/);
+  });
+
+  test('a normal article keeps its Readability text (no body fallback) and no extracted block', async () => {
+    const paragraphs = Array.from({ length: 12 }, (_, i) => `<p>Paragraph ${i} of a long article body with enough words to count as real content for the reader.</p>`).join('');
+    const finalHtml = `<html><body><nav>Home About Contact</nav><article><h1>Long Article</h1>${paragraphs}</article><footer>Footer</footer></body></html>`;
+    tool = new ScrapeWithActionsTool({
+      actionExecutor: makeFakeExecutor({ onExecute: (url, chain) => makeFakeChainResult(chain.actions, { finalHtml, finalUrl: url }) }),
+      enableLogging: false
+    });
+    const result = await tool.execute({ url: 'https://example.com/article', actions: [WAIT_ACTION], formats: ['json', 'text'], captureScreenshots: false });
+    assert.equal(result.success, true, result.error);
+    assert.equal(result.content.json.extracted, undefined);
+    assert.equal(result.content.json.finalContent.textSource, undefined, 'a page with real main content is not replaced by body text');
+    assert.match(result.content.text, /Paragraph 11/);
+  });
+
   test('constructor wires the injected actionExecutor (no browser launched)', () => {
     assert.ok(tool.actionExecutor);
     assert.ok(tool.extractContentTool, 'a real ExtractContentTool is constructed by default');

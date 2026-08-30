@@ -183,6 +183,25 @@ describe('robots gate — every fetching tool refuses a disallowed path (0.4)', 
     assert.deepEqual(paths, ['/', '/public'], '/private must not be crawled');
     assert.equal(result.errors.length, 0);
   });
+
+  test('crawl_deep (BFSCrawler) reports a robots-refused SEED in errors instead of an empty crawl', async () => {
+    const crawler = new BFSCrawler({
+      respectRobots: true,
+      enableLinkAnalysis: false,
+      concurrency: 1,
+      maxDepth: 1,
+      maxPages: 10,
+      timeout: 5000
+    });
+    const result = await crawler.crawl(`${baseUrl}/private`);
+    crawler.destroy();
+
+    assert.equal(result.urls.length, 0, 'nothing is fetched');
+    assert.equal(result.errors.length, 1, 'the refusal is reported once, for the seed');
+    assert.equal(result.errors[0].code, 'ROBOTS_DISALLOWED');
+    assert.match(result.errors[0].error, /robots\.txt on .* disallows this path for CrawlForge/);
+    assert.equal(new URL(result.errors[0].url).pathname, '/private');
+  });
 });
 
 // ── 0.5 one robots.txt fetch per host ───────────────────────────────────────

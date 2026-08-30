@@ -186,6 +186,9 @@ export class GenerateLLMsTxtTool {
     if (Array.isArray(outputOptions.customGuidelines) && outputOptions.customGuidelines.length > 0) {
       details.push(...outputOptions.customGuidelines);
     }
+    if (Array.isArray(outputOptions.customRestrictions) && outputOptions.customRestrictions.length > 0) {
+      details.push(`Do not access: ${outputOptions.customRestrictions.join(', ')}.`);
+    }
     if (details.length > 0) {
       lines.push(details.join(' '));
       lines.push('');
@@ -591,6 +594,13 @@ export class GenerateLLMsTxtTool {
     lines.push('- Form submissions and interactive content');
     lines.push('- Administrative and configuration areas');
     lines.push('');
+    if (Array.isArray(outputOptions.customRestrictions) && outputOptions.customRestrictions.length > 0) {
+      lines.push('### Additional Restrictions');
+      for (const restriction of outputOptions.customRestrictions) {
+        lines.push(`- ${restriction}`);
+      }
+      lines.push('');
+    }
 
     // Section 4: APIs and Data Sources
     lines.push('## 4. API and Data Sources');
@@ -669,6 +679,13 @@ export class GenerateLLMsTxtTool {
     lines.push('4. **Cache responsibly:** Cache content appropriately to reduce server load');
     lines.push('5. **Handle errors gracefully:** Implement proper error handling and retries');
     lines.push('');
+    if (Array.isArray(outputOptions.customGuidelines) && outputOptions.customGuidelines.length > 0) {
+      lines.push('### Site-Specific Guidelines');
+      for (const guideline of outputOptions.customGuidelines) {
+        lines.push(`- ${guideline}`);
+      }
+      lines.push('');
+    }
 
     if (analysis.structure && analysis.structure.robotsTxt) {
       lines.push('### Robots.txt Status');

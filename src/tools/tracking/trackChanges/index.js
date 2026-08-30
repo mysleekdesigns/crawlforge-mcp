@@ -289,6 +289,7 @@ export class TrackChangesTool extends EventEmitter {
       ...(comparisonResult.warnings || fetchWarnings.length
         ? { warnings: [...(comparisonResult.warnings || []), ...fetchWarnings] }
         : {}),
+      ...(comparisonResult.alerts ? { alerts: comparisonResult.alerts } : {}),
       snapshot: snapshotInfo, timestamp: Date.now()
     };
   }
@@ -390,16 +391,36 @@ export class TrackChangesTool extends EventEmitter {
     const { url, scheduledMonitorOptions, monitoringOptions, trackingOptions, notificationOptions } = params;
     if (!url) throw new Error('create_scheduled_monitor requires a url');
     const opts = scheduledMonitorOptions || {};
+
+    // A preset fills in whatever the caller left unspecified; explicit values win.
+    let preset = null;
+    if (opts.templateId) {
+      preset = this.changeTracker.monitoringTemplates.get(opts.templateId);
+      if (!preset) {
+        throw new Error(
+          `Unknown monitoring template "${opts.templateId}". ` +
+          `Available: ${Array.from(this.changeTracker.monitoringTemplates.keys()).join(', ')} ` +
+          '(operation:"get_monitoring_templates" describes each).'
+        );
+      }
+    }
+    // Precedence: scheduledMonitorOptions > preset > monitoringOptions. The
+    // schema fills monitoringOptions.interval/notificationThreshold with
+    // defaults, so they cannot sit above a preset without always winning.
     const monitor = await this.scheduler.createMonitor({
       url,
-      interval: opts.interval ?? monitoringOptions?.interval,
+      interval: opts.interval ?? preset?.frequency ?? monitoringOptions?.interval,
       schedule: opts.schedule,
-      goal: opts.goal,
-      notificationThreshold: opts.notificationThreshold || monitoringOptions?.notificationThreshold || 'moderate',
-      trackingOptions,
+      goal: opts.goal ?? preset?.goal,
+      notificationThreshold: opts.notificationThreshold || preset?.notificationThreshold || monitoringOptions?.notificationThreshold || 'moderate',
+      trackingOptions: preset ? { ...preset.options, ...(trackingOptions || {}) } : trackingOptions,
       notificationOptions
     });
-    return { success: true, operation: 'create_scheduled_monitor', url, monitor, firingGuarantee: monitor.firingGuarantee, timestamp: Date.now() };
+    return {
+      success: true, operation: 'create_scheduled_monitor', url, monitor,
+      ...(preset ? { templateId: preset.id } : {}),
+      firingGuarantee: monitor.firingGuarantee, timestamp: Date.now()
+    };
   }
 
   async stopScheduledMonitor(params) {
@@ -424,8 +445,24 @@ export class TrackChangesTool extends EventEmitter {
   }
 
   async getMonitoringDashboard(params) {
-    const { dashboardOptions } = params;
+    // The schema defaults every flag to true, but only inside a dashboardOptions
+    // object the caller supplied; an omitted object must mean the same thing.
+    const dashboardOptions = { includeRecentAlerts: true, includeTrends: true, includeMonitorStatus: true, ...(params.dashboardOptions || {}) };
     const dashboard = this.changeTracker.getMonitoringDashboard();
+    // The tracker only knows tracked pages; the monitors that poll them live here.
+    const polling = Array.from(this.activeMonitors.entries()).map(([url, m]) => ({
+      id: `poll:${url}`, url, kind: 'polling', status: 'active',
+      interval: m.options?.interval ?? null, stats: m.stats
+    }));
+    if (!this.monitorStore._loaded) await this.monitorStore.load();
+    const scheduled = this.scheduler.list().map(m => ({
+      id: m.id, url: m.url, kind: 'scheduled',
+      status: m.enabled === false ? 'disabled' : m.scheduled ? 'scheduled' : 'idle',
+      interval: m.interval, goal: m.goal, nextDueAt: m.nextDueAt,
+      lastCheckAt: m.lastCheckAt, lastChangeAt: m.lastChangeAt, stats: m.stats
+    }));
+    dashboard.monitors = [...polling, ...scheduled];
+    dashboard.summary.activeMonitors = dashboard.monitors.length;
     if (!dashboardOptions?.includeRecentAlerts) delete dashboard.recentAlerts;
     if (!dashboardOptions?.includeTrends) delete dashboard.trends;
     if (!dashboardOptions?.includeMonitorStatus) {
@@ -441,16 +478,22 @@ export class TrackChangesTool extends EventEmitter {
   }
 
   async createAlertRule(params) {
-    const { alertRuleOptions } = params;
+    const { url, alertRuleOptions } = params;
     const ruleId = alertRuleOptions?.ruleId || `custom_rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const rule = {
-      condition: this._parseCondition(alertRuleOptions?.condition || 'significance === "major"'),
+    const rule = this.changeTracker.addAlertRule(ruleId, {
+      condition: alertRuleOptions?.condition,
+      url: url || null,
       actions: alertRuleOptions?.actions || ['webhook'],
-      throttle: alertRuleOptions?.throttle || 600000,
+      throttle: alertRuleOptions?.throttle ?? 600000,
       priority: alertRuleOptions?.priority || 'medium'
+    });
+    // Rules fire from compare: every later compare that matches returns an
+    // `alerts` array, and get_dashboard lists what fired.
+    return {
+      success: true, operation: 'create_alert_rule', ruleId,
+      rule: { id: rule.id, url: rule.url, condition: rule.conditionText, actions: rule.actions, throttle: rule.throttle, priority: rule.priority },
+      timestamp: Date.now()
     };
-    this.changeTracker.alertRules.set(ruleId, rule);
-    return { success: true, operation: 'create_alert_rule', ruleId, rule, timestamp: Date.now() };
   }
 
   async generateTrendReport(params) {
@@ -461,7 +504,11 @@ export class TrackChangesTool extends EventEmitter {
   async getMonitoringTemplates() {
     const templates = {};
     for (const [id, template] of this.changeTracker.monitoringTemplates.entries()) {
-      templates[id] = { name: template.name, frequency: template.frequency, options: template.options, alertRules: template.alertRules };
+      templates[id] = {
+        name: template.name, description: template.description, frequency: template.frequency,
+        notificationThreshold: template.notificationThreshold, goal: template.goal,
+        options: template.options, alertRules: template.alertRules
+      };
     }
     return { success: true, operation: 'get_monitoring_templates', templates, count: Object.keys(templates).length, timestamp: Date.now() };
   }
@@ -532,20 +579,6 @@ export class TrackChangesTool extends EventEmitter {
     stats.oldestMonitor = Math.min(...all.map(v => v.started));
     stats.newestMonitor = Math.max(...all.map(v => v.started));
     return stats;
-  }
-
-  _parseCondition(conditionString) {
-    return (changeResult) => {
-      try {
-        if (conditionString.includes('significance')) {
-          const match = conditionString.match(/significance\s*===\s*["'](\w+)["']/);
-          if (match) return changeResult.significance === match[1];
-        }
-        return false;
-      } catch {
-        return false;
-      }
-    };
   }
 }
 

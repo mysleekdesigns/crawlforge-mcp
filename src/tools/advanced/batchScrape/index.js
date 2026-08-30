@@ -175,7 +175,7 @@ export class BatchScrapeTool extends EventEmitter {
       };
 
       if (this.enableResultCaching) {
-        this._cacheBatchResult(batchId, processedResults);
+        this._cacheBatchResult(batchId, processedResults, 'sync');
       }
 
       this.stats.completedBatches++;
@@ -237,7 +237,7 @@ export class BatchScrapeTool extends EventEmitter {
       if (Date.now() - cached.timestamp < cached.ttl) {
         const offset = (page - 1) * pageSize;
         return {
-          batchId, success: true,
+          batchId, success: true, status: 'completed', ...(cached.mode ? { mode: cached.mode } : {}),
           results: paginateResults(cached.results, offset, pageSize),
           pagination: { page, pageSize, totalResults: cached.results.length, totalPages: Math.ceil(cached.results.length / pageSize) },
           cached: true, timestamp: cached.timestamp
@@ -267,8 +267,11 @@ export class BatchScrapeTool extends EventEmitter {
       if (job.status === 'completed' && job.result) {
         const results = job.result.results || [];
         const offset = (page - 1) * pageSize;
+        // Same status/mode fields the pending and running branches carry, so
+        // a poller can key on `status` for the whole job lifecycle.
         return {
-          batchId, success: true, jobId: job.id,
+          batchId, success: true, jobId: job.id, status: 'completed', mode: 'async',
+          completedAt: job.completedAt,
           results: paginateResults(results, offset, pageSize),
           pagination: { page, pageSize, totalResults: results.length, totalPages: Math.ceil(results.length / pageSize) },
           cached: false, timestamp: job.completedAt
@@ -366,8 +369,8 @@ export class BatchScrapeTool extends EventEmitter {
    * Cache a batch's results, capped to maxCachedBatches. Map preserves
    * insertion order, so the oldest entry is evicted first (LRU by write time).
    */
-  _cacheBatchResult(batchId, results) {
-    this.batchResults.set(batchId, { results, timestamp: Date.now(), ttl: this.resultCacheTtl });
+  _cacheBatchResult(batchId, results, mode) {
+    this.batchResults.set(batchId, { results, mode, timestamp: Date.now(), ttl: this.resultCacheTtl });
     while (this.batchResults.size > this.maxCachedBatches) {
       const oldestKey = this.batchResults.keys().next().value;
       this.batchResults.delete(oldestKey);
@@ -430,7 +433,7 @@ export class BatchScrapeTool extends EventEmitter {
         };
 
         if (this.enableResultCaching) {
-          this._cacheBatchResult(batchId, processedResults);
+          this._cacheBatchResult(batchId, processedResults, 'async');
         }
 
         this.stats.totalUrls += results.length;

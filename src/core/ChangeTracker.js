@@ -103,6 +103,79 @@ function extractMonetaryValues(text) {
   return values;
 }
 
+/**
+ * Built-in monitoring presets, served by track_changes
+ * {operation:"get_monitoring_templates"} and applied by
+ * create_scheduled_monitor via scheduledMonitorOptions.templateId. `options`
+ * are trackingOptions (the baseline analysis options); `frequency` is the
+ * polling interval in ms; `goal` is the plain-English alert goal the
+ * scheduler's LLM judge uses when one is configured.
+ */
+export const MONITORING_TEMPLATES = {
+  'price-watch': {
+    name: 'Price watch',
+    description: 'Product, plan or rate pages — hourly, and any numeric change counts.',
+    frequency: 3600000,
+    notificationThreshold: 'minor',
+    goal: 'A price, discount, fee or plan cost changed',
+    options: { granularity: 'text', trackText: true, trackStructure: false, trackLinks: false, ignoreWhitespace: true, significanceThresholds: { minor: 0.02, moderate: 0.1, major: 0.3 } },
+    alertRules: [{ condition: 'significance >= "minor"', actions: ['webhook'], priority: 'high' }]
+  },
+  'availability': {
+    name: 'Stock / availability',
+    description: 'In-stock, sold-out and waitlist states — every 15 minutes, any change counts.',
+    frequency: 900000,
+    notificationThreshold: 'minor',
+    goal: 'An item went in or out of stock, or a waitlist or pre-order opened',
+    options: { granularity: 'text', trackText: true, trackStructure: false, trackLinks: false, ignoreWhitespace: true, significanceThresholds: { minor: 0.01, moderate: 0.1, major: 0.3 } },
+    alertRules: [{ condition: 'significance >= "minor"', actions: ['webhook'], priority: 'high' }]
+  },
+  'news-feed': {
+    name: 'News / announcements',
+    description: 'Blogs, changelogs and press pages — every 30 minutes, section-level diffs so a new post registers as one change.',
+    frequency: 1800000,
+    notificationThreshold: 'moderate',
+    goal: 'A new article, release note or announcement was published',
+    options: { granularity: 'section', trackText: true, trackStructure: true, trackLinks: true, ignoreWhitespace: true },
+    alertRules: [{ condition: 'significance >= "moderate"', actions: ['webhook'], priority: 'medium' }]
+  },
+  'documentation': {
+    name: 'Documentation',
+    description: 'API references and docs pages — daily, structure tracked so a new parameter or removed endpoint shows up.',
+    frequency: 86400000,
+    notificationThreshold: 'moderate',
+    goal: 'A documented API, parameter, default or behaviour changed',
+    options: { granularity: 'section', trackText: true, trackStructure: true, trackLinks: true, ignoreWhitespace: true },
+    alertRules: [{ condition: 'significance >= "moderate"', actions: ['webhook'], priority: 'medium' }]
+  },
+  'regulatory': {
+    name: 'Regulation / policy',
+    description: 'Terms, policies, tariffs and rule pages — daily, and every wording change counts.',
+    frequency: 86400000,
+    notificationThreshold: 'minor',
+    goal: 'A rule, deadline, fee, threshold or policy wording changed',
+    options: { granularity: 'text', trackText: true, trackStructure: false, trackLinks: false, ignoreWhitespace: true, ignoreCase: false },
+    alertRules: [{ condition: 'significance >= "minor"', actions: ['webhook'], priority: 'high' }]
+  },
+  'job-board': {
+    name: 'Job listings',
+    description: 'Careers pages — every 6 hours, links tracked so an added or removed posting registers.',
+    frequency: 21600000,
+    notificationThreshold: 'moderate',
+    goal: 'A job opening was added or removed',
+    options: { granularity: 'section', trackText: true, trackStructure: false, trackLinks: true, ignoreWhitespace: true },
+    alertRules: [{ condition: 'significance >= "moderate"', actions: ['webhook'], priority: 'medium' }]
+  }
+};
+
+const SIGNIFICANCE_RANK = { none: 0, minor: 1, moderate: 2, major: 3, critical: 4 };
+
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const text = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
 export class ChangeTracker extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -147,6 +220,16 @@ export class ChangeTracker extends EventEmitter {
       processingTime: 0
     };
     
+    // Alert rules (create_alert_rule) are evaluated on every compare; the
+    // alerts they fire are kept here for get_dashboard. Presets back
+    // get_monitoring_templates and scheduledMonitorOptions.templateId.
+    this.alertRules = new Map();
+    this.recentAlerts = [];
+    this.maxRecentAlerts = 100;
+    this.monitoringTemplates = new Map(
+      Object.entries(MONITORING_TEMPLATES).map(([id, t]) => [id, { id, ...t }])
+    );
+
     // Semantic analysis tools (if enabled)
     this.semanticAnalyzer = null;
     
@@ -311,6 +394,7 @@ export class ChangeTracker extends EventEmitter {
       }
       
       this.emit('changeDetected', changeRecord);
+      const alerts = this.evaluateAlertRules(changeRecord);
       
       const ignoredOptions = this.findIgnoredCompareOptions(options, baseline.options);
 
@@ -322,6 +406,7 @@ export class ChangeTracker extends EventEmitter {
         details: changeAnalysis,
         metrics: changeRecord.metrics,
         recommendations: this.generateChangeRecommendations(changeRecord),
+        ...(alerts.length ? { alerts } : {}),
         ...(ignoredOptions.length ? {
           warnings: [
             `${ignoredOptions.join(', ')} passed to this compare ${ignoredOptions.length === 1 ? 'was' : 'were'} ignored — ` +
@@ -1652,6 +1737,252 @@ export class ChangeTracker extends EventEmitter {
       pagesTracked: this.contentHistory.size,
       changesDetected: this.stats.changesDetected || 0
     };
+  }
+
+  // ── Alert rules, dashboard, export, trends, presets ─────────────────────────
+  // Backing for the track_changes operations create_alert_rule, get_dashboard,
+  // export_history, generate_trend_report and get_monitoring_templates. The
+  // tool has called these since v3.1.0; until 5.4.3 none of them existed.
+
+  /**
+   * Turn an alert-rule condition string into a predicate over a change record.
+   * Supported: `significance === "major"`, `significance >= "moderate"` and
+   * the other comparison operators against the significance ladder
+   * none < minor < moderate < major < critical. Anything else never matches.
+   */
+  static parseAlertCondition(conditionString = '') {
+    const match = String(conditionString).match(/significance\s*(===|==|!==|!=|>=|<=|>|<)\s*["'](\w+)["']/);
+    if (!match) return () => false;
+    const [, op, level] = match;
+    const target = SIGNIFICANCE_RANK[level];
+    if (target === undefined) return () => false;
+    return (record) => {
+      const rank = SIGNIFICANCE_RANK[record?.significance];
+      if (rank === undefined) return false;
+      switch (op) {
+        case '===': case '==': return rank === target;
+        case '!==': case '!=': return rank !== target;
+        case '>=': return rank >= target;
+        case '<=': return rank <= target;
+        case '>': return rank > target;
+        default: return rank < target;
+      }
+    };
+  }
+
+  /**
+   * Register an alert rule. `condition` is a string (see parseAlertCondition);
+   * `url` scopes the rule to one tracked page, or every page when omitted.
+   */
+  addAlertRule(ruleId, { condition, url = null, actions = ['webhook'], throttle = 600000, priority = 'medium' } = {}) {
+    const rule = {
+      id: ruleId,
+      url,
+      conditionText: condition || 'significance === "major"',
+      condition: ChangeTracker.parseAlertCondition(condition || 'significance === "major"'),
+      actions,
+      throttle,
+      priority,
+      createdAt: Date.now(),
+      fireCount: 0,
+      suppressedCount: 0,
+      lastFiredAt: null
+    };
+    this.alertRules.set(ruleId, rule);
+    return rule;
+  }
+
+  /** Evaluate every rule against a change record; returns the alerts fired. */
+  evaluateAlertRules(changeRecord) {
+    const fired = [];
+    const now = changeRecord.timestamp || Date.now();
+    for (const rule of this.alertRules.values()) {
+      if (rule.url && rule.url !== changeRecord.url) continue;
+      let matches = false;
+      try { matches = rule.condition(changeRecord); } catch { matches = false; }
+      if (!matches) continue;
+      if (rule.lastFiredAt && rule.throttle && now - rule.lastFiredAt < rule.throttle) {
+        rule.suppressedCount++;
+        continue;
+      }
+      rule.lastFiredAt = now;
+      rule.fireCount++;
+      const alert = {
+        id: `alert_${now}_${Math.random().toString(36).slice(2, 8)}`,
+        ruleId: rule.id,
+        url: changeRecord.url,
+        timestamp: now,
+        significance: changeRecord.significance,
+        changeType: changeRecord.changeType,
+        similarity: changeRecord.details?.similarity ?? null,
+        priority: rule.priority,
+        actions: rule.actions
+      };
+      this.recentAlerts.unshift(alert);
+      if (this.recentAlerts.length > this.maxRecentAlerts) this.recentAlerts.length = this.maxRecentAlerts;
+      fired.push(alert);
+      this.emit('alert', alert);
+    }
+    return fired;
+  }
+
+  /** Per-URL change trend over the in-memory history. */
+  summarizeTrend(url) {
+    const history = this.changeHistory.get(url) || [];
+    const changes = history.filter(r => r.significance !== 'none');
+    const significanceDistribution = { none: 0, minor: 0, moderate: 0, major: 0, critical: 0 };
+    for (const r of history) {
+      significanceDistribution[r.significance] = (significanceDistribution[r.significance] || 0) + 1;
+    }
+    const similarities = history.map(r => r.details?.similarity).filter(n => typeof n === 'number');
+    const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null);
+    const half = Math.floor(similarities.length / 2);
+    const early = avg(similarities.slice(0, half));
+    const late = avg(similarities.slice(half));
+    let direction = 'insufficient_data';
+    if (similarities.length >= 4 && early !== null && late !== null) {
+      direction = late < early - 0.05 ? 'diverging' : late > early + 0.05 ? 'stabilizing' : 'steady';
+    }
+    const span = history.length >= 2 ? history[history.length - 1].timestamp - history[0].timestamp : 0;
+    const changeTypes = {};
+    for (const r of changes) changeTypes[r.changeType] = (changeTypes[r.changeType] || 0) + 1;
+    return {
+      url,
+      compares: history.length,
+      changes: changes.length,
+      changeRate: history.length ? changes.length / history.length : 0,
+      changesPerDay: span > 0 ? changes.length / (span / 86400000) : null,
+      averageSimilarity: avg(similarities),
+      direction,
+      significanceDistribution,
+      changeTypes,
+      firstCompareAt: history[0]?.timestamp ?? null,
+      lastCompareAt: history[history.length - 1]?.timestamp ?? null,
+      lastChangeAt: changes[changes.length - 1]?.timestamp ?? null
+    };
+  }
+
+  async generateTrendAnalysisReport(url) {
+    if (url && !this.changeHistory.has(url) && !this.snapshots.has(url)) {
+      throw new Error(`No tracking history for ${url} — run create_baseline and compare first`);
+    }
+    const urls = url ? [url] : Array.from(this.changeHistory.keys());
+    const trends = urls.map(u => this.summarizeTrend(u));
+    const recommendations = [];
+    for (const t of trends) {
+      if (t.compares < 2) {
+        recommendations.push(`${t.url}: ${t.compares} compare${t.compares === 1 ? '' : 's'} recorded — run compare a few more times before reading a trend.`);
+        continue;
+      }
+      if (t.direction === 'diverging') {
+        recommendations.push(`${t.url}: each compare drifts further from the baseline — recreate the baseline if the current page is the new normal.`);
+      }
+      if (t.changes === 0) {
+        recommendations.push(`${t.url}: no changes across ${t.compares} compares — the polling interval can be lengthened.`);
+      }
+      if (t.changesPerDay !== null && t.changesPerDay > 24) {
+        recommendations.push(`${t.url}: changes more than hourly — scope the baseline with customSelectors to skip volatile regions.`);
+      }
+    }
+    return { generatedAt: Date.now(), scope: url || 'global', urlCount: urls.length, trends, recommendations };
+  }
+
+  getMonitoringDashboard() {
+    const urls = Array.from(new Set([...this.snapshots.keys(), ...this.changeHistory.keys()]));
+    const tracked = urls.map(url => {
+      const history = this.changeHistory.get(url) || [];
+      const last = history[history.length - 1] || null;
+      const snaps = this.snapshots.get(url) || [];
+      const baseline = snaps[snaps.length - 1] || null;
+      return {
+        url,
+        baselineVersion: baseline?.version ?? null,
+        baselineCreatedAt: baseline?.timestamp ?? null,
+        compares: history.length,
+        changes: history.filter(r => r.significance !== 'none').length,
+        lastCompareAt: last?.timestamp ?? null,
+        lastSignificance: last?.significance ?? null,
+        lastChangeType: last?.changeType ?? null
+      };
+    });
+    return {
+      generatedAt: Date.now(),
+      summary: {
+        trackedUrls: urls.length,
+        totalCompares: tracked.reduce((n, t) => n + t.compares, 0),
+        totalChanges: tracked.reduce((n, t) => n + t.changes, 0),
+        alertRules: this.alertRules.size,
+        alertsFired: this.recentAlerts.length,
+        activeMonitors: 0,
+        ...this.getStats()
+      },
+      tracked,
+      alertRules: Array.from(this.alertRules.values()).map(r => ({
+        id: r.id, url: r.url, condition: r.conditionText, actions: r.actions, throttle: r.throttle,
+        priority: r.priority, fireCount: r.fireCount, suppressedCount: r.suppressedCount, lastFiredAt: r.lastFiredAt
+      })),
+      recentAlerts: this.recentAlerts.slice(0, 20),
+      trends: urls.map(u => this.summarizeTrend(u)),
+      // Polling and scheduled monitors live in the tool, which fills this in.
+      monitors: []
+    };
+  }
+
+  async exportHistoricalData(options = {}) {
+    const { url, format = 'json', startTime, endTime, includeContent = false, includeSnapshots = false } = options;
+    const urls = url ? [url] : Array.from(this.changeHistory.keys());
+    const records = [];
+    for (const u of urls) {
+      for (const r of this.changeHistory.get(u) || []) {
+        if (startTime && r.timestamp < startTime) continue;
+        if (endTime && r.timestamp > endTime) continue;
+        const row = {
+          url: r.url,
+          timestamp: r.timestamp,
+          iso: new Date(r.timestamp).toISOString(),
+          baselineVersion: r.baselineVersion ?? null,
+          changeType: r.changeType,
+          significance: r.significance,
+          similarity: r.details?.similarity ?? null,
+          structuralSimilarity: r.details?.structuralSimilarity ?? null,
+          addedElements: r.metrics?.addedElements ?? 0,
+          removedElements: r.metrics?.removedElements ?? 0,
+          modifiedElements: r.metrics?.modifiedElements ?? 0,
+          processingTime: r.processingTime ?? null
+        };
+        if (includeContent) row.details = r.details;
+        records.push(row);
+      }
+    }
+    records.sort((a, b) => a.timestamp - b.timestamp);
+
+    const result = {
+      format,
+      exportedAt: Date.now(),
+      scope: url || 'global',
+      urlCount: urls.length,
+      recordCount: records.length,
+      ...(startTime || endTime ? { range: { startTime: startTime ?? null, endTime: endTime ?? null } } : {})
+    };
+    if (includeSnapshots) {
+      result.snapshots = urls.flatMap(u => (this.snapshots.get(u) || []).map(snap => ({
+        url: u,
+        version: snap.version ?? null,
+        createdAt: snap.timestamp ?? null,
+        contentHash: snap.analysis?.hashes?.content ?? null,
+        options: snap.options ?? null
+      })));
+    }
+    if (format === 'csv') {
+      const columns = ['url', 'timestamp', 'iso', 'baselineVersion', 'changeType', 'significance', 'similarity',
+        'structuralSimilarity', 'addedElements', 'removedElements', 'modifiedElements', 'processingTime',
+        ...(includeContent ? ['details'] : [])];
+      result.columns = columns;
+      result.csv = [columns.join(','), ...records.map(r => columns.map(c => csvCell(r[c])).join(','))].join('\n');
+    } else {
+      result.records = records;
+    }
+    return result;
   }
 
   async initializeSemanticAnalyzer() {
