@@ -8,7 +8,7 @@ import { ResultRanker } from '../tools/search/ranking/ResultRanker.js';
 import { CacheManager } from './cache/CacheManager.js';
 import { Logger } from '../utils/Logger.js';
 import { LLMManager } from './llm/LLMManager.js';
-import { safeFetch } from '../utils/ssrfGuard.js';
+import { safeFetch, safeGoto } from '../utils/ssrfGuard.js';
 import { preflightFetch, browserPreflight } from '../utils/robotsGate.js';
 import { noteRetryAfter } from '../utils/hostRateLimiter.js';
 import {
@@ -989,7 +989,9 @@ export class ResearchOrchestrator extends EventEmitter {
       page = await this._stealthManager.createStealthPage(contextId);
     }
     try {
-      const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: this.stealthTimeoutMs });
+      // browserPreflight (robots + platform blocklist) ran in _stealthFetchHtml;
+      // safeGoto adds the SSRF/DNS-rebinding guard the browser path also needs.
+      const resp = await safeGoto(page, url, { waitUntil: 'domcontentloaded', timeout: this.stealthTimeoutMs });
       // Do NOT bail on the initial HTTP status: anti-bot challenges (Cloudflare
       // Turnstile) return 403 on the first response and only resolve to the
       // real page after their JS runs. Let it settle, then judge by the

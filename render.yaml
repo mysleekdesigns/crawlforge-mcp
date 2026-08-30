@@ -6,7 +6,8 @@ services:
   - type: web
     name: crawlforge-mcp
     runtime: docker
-    plan: starter            # bump to standard/pro for production traffic
+    plan: standard           # 2 GB RAM. Kept in sync with the dashboard so a
+                             # blueprint re-apply can't downgrade the box.
     region: oregon
     dockerfilePath: ./Dockerfile
     dockerContext: .
@@ -19,6 +20,23 @@ services:
         value: production
       - key: MCP_HTTP
         value: "true"
+      # Stage-2 SSRF enforcement: block RFC1918 / ULA / CGNAT / loopback /
+      # link-local, not just the metadata + loopback range Stage-1 covers. This
+      # hosted box only ever reaches public scrape targets and the public
+      # website, so full private-range blocking closes the internal-network
+      # reach a rendered/stealth navigation could otherwise be steered toward.
+      # Left off by default for npm/local users so they can scrape their own
+      # localhost; on by name here.
+      - key: SSRF_STRICT
+        value: "true"
+      # Cap live browser contexts per manager. The default is 10, but each
+      # co-resident StealthBrowserManager (deep_research's, and extract/scrape's
+      # BrowserProcessor) keeps its own pool AND its own Chromium, so the real
+      # worst case is 2-3x this across multiple browser processes. 6 is
+      # comfortable on the 2 GB standard box while bounding that blow-up; raise
+      # or lower it with the plan size. (npm/local users keep the default 10.)
+      - key: MAX_BROWSER_CONTEXTS
+        value: "6"
       # CRAWLFORGE_API_KEY must be set in the dashboard (it's a secret).
       # Add it manually under "Environment" → "Add Environment Variable".
       - key: CRAWLFORGE_API_KEY

@@ -323,6 +323,30 @@ export async function safeFetch(url, options = {}) {
   }
 }
 
+/**
+ * SSRF-safe wrapper around Playwright's `page.goto`. The navigate analog of
+ * safeFetch: a browser drives its own DNS resolution, so URL/host checks alone
+ * miss DNS-rebinding and private-IP targets — resolveDns:true closes that.
+ * Checks the URL before navigating, then re-checks the landed URL, because a
+ * redirect during navigation could carry us into a blocked range even when the
+ * original URL was safe. Returns the Response so callers can read the status.
+ * Options pass through unchanged; behaviour-preserving for allowed URLs.
+ *
+ * @param {import('playwright').Page} page
+ * @param {string} url
+ * @param {Parameters<import('playwright').Page['goto']>[1]} [options]
+ * @returns {Promise<import('playwright').Response|null>}
+ */
+export async function safeGoto(page, url, options = {}) {
+  await assertUrlAllowed(url, { resolveDns: true });
+  const response = await page.goto(url, options);
+  const landedUrl = page.url();
+  if (/^https?:\/\//i.test(landedUrl)) {
+    await assertUrlAllowed(landedUrl, { resolveDns: true });
+  }
+  return response;
+}
+
 // Exposed for unit tests.
 export const __ssrfInternals = {
   ssrfLookup,
