@@ -60,6 +60,25 @@ const StealthConfigSchema = z.object({
   engine: z.enum(['chromium', 'camoufox']).optional().default('chromium')
 });
 
+/**
+ * True when a page is driven by Chromium, the only engine that speaks CDP.
+ *
+ * Playwright exposes the engine as `browser.browserType().name()`. A context
+ * created over a persistent/connected browser can report a null browser, so an
+ * unknown engine is treated as not-Chromium: skipping an optional emulation is
+ * cheap, and calling CDP on Firefox throws.
+ *
+ * @param {import('playwright').Page} page
+ * @returns {boolean}
+ */
+function isChromium(page) {
+  try {
+    return page.context().browser()?.browserType().name() === 'chromium';
+  } catch {
+    return false;
+  }
+}
+
 export class StealthBrowserManager {
   constructor(options = {}) {
     this.browser = null;
@@ -1822,15 +1841,31 @@ export class StealthBrowserManager {
     // Add request headers
     await page.setExtraHTTPHeaders(fingerprint.headers);
 
-    // Emulate realistic network conditions
-    if (config.level === 'advanced') {
-      const client = await page.context().newCDPSession(page);
-      await client.send('Network.emulateNetworkConditions', {
-        offline: false,
-        downloadThroughput: (1.5 + Math.random() * 2) * 1024 * 1024 / 8, // 1.5-3.5 Mbps
-        uploadThroughput: (0.75 + Math.random() * 1.25) * 1024 * 1024 / 8, // 0.75-2 Mbps  
-        latency: 40 + Math.random() * 60 // 40-100ms
-      });
+    // Emulate realistic network conditions.
+    //
+    // Network.emulateNetworkConditions is a Chrome DevTools Protocol command,
+    // and CDP is Chromium-only — Playwright throws "CDP session is only
+    // available in Chromium" on Firefox and WebKit, and there is no
+    // cross-browser equivalent. Unguarded, this made `engine: "camoufox"` fail
+    // 100% of the time, because Camoufox is Firefox-based: every advanced-level
+    // camoufox scrape died here before it ever reached the page.
+    //
+    // The emulation is cosmetic realism, not a stealth requirement, so on a
+    // non-Chromium engine it is skipped rather than fatal.
+    if (config.level === 'advanced' && isChromium(page)) {
+      try {
+        const client = await page.context().newCDPSession(page);
+        await client.send('Network.emulateNetworkConditions', {
+          offline: false,
+          downloadThroughput: (1.5 + Math.random() * 2) * 1024 * 1024 / 8, // 1.5-3.5 Mbps
+          uploadThroughput: (0.75 + Math.random() * 1.25) * 1024 * 1024 / 8, // 0.75-2 Mbps
+          latency: 40 + Math.random() * 60 // 40-100ms
+        });
+      } catch (error) {
+        // A browser build that reports chromium but refuses CDP must not take
+        // the scrape down with it.
+        console.warn(`Network condition emulation skipped: ${error.message}`);
+      }
     }
 
     // Set up human behavior if enabled

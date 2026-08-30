@@ -153,20 +153,34 @@ describe('extract_structured — replaying the Apple page that produced 20 fabri
     assert.equal(result.extraction_method, 'llm');
     for (const [i, config] of result.data.configurations.entries()) {
       assert.equal(config.price, null, `fabricated price ${FABRICATED_PRICES[i]} was returned as data`);
-      assert.equal(config.sku, `MBA-CFG-${i + 1}`, 'non-numeric fields are untouched');
+      // The SKUs are invented by this test's stub alongside the prices, and
+      // "MBA-CFG-n" appears nowhere in the page. Since round 10 the guard also
+      // covers digit-bearing literals — versions, dates, SKUs — so a fabricated
+      // SKU is nulled for the same reason a fabricated price is. It used to
+      // pass through, which is how a made-up version reached callers as valid.
+      assert.equal(config.sku, null, 'a SKU absent from the page is a fabrication too');
     }
 
     assert.equal(result.provenance.enabled, true);
-    assert.equal(result.provenance.nulled, FABRICATED_PRICES.length);
-    assert.equal(result.provenance.unverified.length, FABRICATED_PRICES.length);
+    // Prices and SKUs, one of each per configuration.
+    assert.equal(result.provenance.nulled, FABRICATED_PRICES.length * 2);
+    assert.equal(result.provenance.unverified.length, FABRICATED_PRICES.length * 2);
     for (const entry of result.provenance.unverified) {
       assert.equal(entry.reason, 'not_found_in_source');
-      assert.match(entry.path, /^configurations\[\d+\]\.price$/);
+      assert.match(entry.path, /^configurations\[\d+\]\.(price|sku)$/);
     }
+    // Both classes are reported verbatim, so nothing disappears silently. The
+    // walker reports fields in key order, which puts each config's sku before
+    // its price.
     assert.deepEqual(
-      result.provenance.unverified.map((u) => u.value),
+      result.provenance.unverified.filter((u) => u.path.endsWith('.price')).map((u) => u.value),
       FABRICATED_PRICES.map((p) => `$${p}.00`),
-      'the removed values are reported verbatim, so nothing disappears silently'
+      'the removed prices are reported verbatim'
+    );
+    assert.deepEqual(
+      result.provenance.unverified.filter((u) => u.path.endsWith('.sku')).map((u) => u.value),
+      FABRICATED_PRICES.map((_, i) => `MBA-CFG-${i + 1}`),
+      'the removed SKUs are reported verbatim'
     );
 
     // The anti-false-positive half: these three are on the page but in NONE of
