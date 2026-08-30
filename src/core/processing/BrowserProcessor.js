@@ -9,6 +9,7 @@ import { z } from 'zod';
 import StealthBrowserManager from '../StealthBrowserManager.js';
 import HumanBehaviorSimulator from '../../utils/HumanBehaviorSimulator.js';
 import LocalizationManager from '../LocalizationManager.js';
+import { safeGoto } from '../../utils/ssrfGuard.js';
 
 const BrowserProcessorSchema = z.object({
   url: z.string().url(),
@@ -613,8 +614,10 @@ export class BrowserProcessor {
   async navigateAndWait(page, url, options) {
     const startTime = Date.now();
 
-    // Navigate to URL
-    await page.goto(url, {
+    // Navigate to URL. safeGoto adds the SSRF/DNS-rebinding guard on top of the
+    // robots/blocklist preflight the calling tool already ran, and re-checks the
+    // landed URL so a redirect can't carry us into a private/metadata range.
+    await safeGoto(page, url, {
       waitUntil: 'domcontentloaded',
       timeout: 30000
     });

@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url';
 import {
   ssrfGuard,
   safeFetch,
+  safeGoto,
   ipBlocked,
   isSsrfError,
   assertUrlAllowed,
@@ -151,6 +152,42 @@ describe('assertUrlAllowed', () => {
       () => assertUrlAllowed('http://localhost/', { resolveDns: true }),
       /SSRF Protection/
     );
+  });
+});
+
+describe('safeGoto (browser navigation guard)', () => {
+  // Duck-typed page: the guard only needs goto() and url(), so no real browser.
+  const fakePage = (landed, onGoto) => ({
+    goto: async (...args) => { onGoto?.(...args); return { status: () => 200 }; },
+    url: () => landed,
+  });
+
+  test('refuses a metadata/loopback IP-literal before calling page.goto', async () => {
+    let navigated = false;
+    const page = fakePage('http://169.254.169.254/', () => { navigated = true; });
+    await assert.rejects(
+      () => safeGoto(page, 'http://169.254.169.254/latest/meta-data/'),
+      /SSRF Protection/
+    );
+    assert.equal(navigated, false, 'must throw before the navigation happens');
+  });
+
+  test('re-checks the landed URL: a redirect into a blocked range is refused after goto', async () => {
+    // Original URL is a public IP literal (passes pre-flight); the page then
+    // reports having landed on a loopback address, as a redirect would.
+    const page = fakePage('http://127.0.0.1/');
+    await assert.rejects(
+      () => safeGoto(page, 'http://8.8.8.8/'),
+      /SSRF Protection/
+    );
+  });
+
+  test('passes an allowed URL through and returns the response', async () => {
+    let seenOpts;
+    const page = fakePage('http://8.8.8.8/', (_url, opts) => { seenOpts = opts; });
+    const resp = await safeGoto(page, 'http://8.8.8.8/', { waitUntil: 'domcontentloaded' });
+    assert.equal(resp.status(), 200);
+    assert.deepEqual(seenOpts, { waitUntil: 'domcontentloaded' }, 'options pass through unchanged');
   });
 });
 

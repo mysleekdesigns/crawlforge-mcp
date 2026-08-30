@@ -13,6 +13,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import HumanBehaviorSimulator from '../utils/HumanBehaviorSimulator.js';
 import { BrowserContextPool } from './BrowserContextPool.js';
+import { safeGoto } from '../utils/ssrfGuard.js';
 
 const StealthConfigSchema = z.object({
   level: z.enum(['basic', 'medium', 'advanced']).default('medium'),
@@ -1776,7 +1777,9 @@ export class StealthBrowserManager {
     const { contextId } = await this.createStealthContext({ ...stealthConfig, engine });
     try {
       const page = await this.createStealthPage(contextId);
-      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      // SSRF guard at the navigation boundary: the stealth engine resolves DNS
+      // itself, so a URL/host-only check would miss rebinding to private/metadata IPs.
+      await safeGoto(page, url, { waitUntil: 'domcontentloaded' });
       if (wait_for > 0) await page.waitForTimeout(wait_for);
 
       const [title, html, text] = await Promise.all([
