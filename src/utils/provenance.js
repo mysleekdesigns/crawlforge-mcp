@@ -1,7 +1,7 @@
 /**
- * provenance -- numeric provenance guard for LLM-extracted data.
+ * provenance -- provenance guard for LLM-extracted data.
  *
- * A model handed page text that does not contain the number it was asked for
+ * A model handed page text that does not contain the value it was asked for
  * does not say so: it writes a plausible one. On
  * https://www.apple.com/shop/buy-mac/macbook-air every MacBook Air price lives
  * only inside the page's embedded PRODUCT_SELECTION_BOOTSTRAP JSON — the
@@ -25,6 +25,22 @@
  *    "1.299,00", "1 299", "1299.00" and in a value split across markup. Every
  *    ambiguous reading of a source number is admitted, because an extra reading
  *    can only make the guard more permissive, never null a real value.
+ *
+ * Two kinds of value are checked, both of which have one correct spelling:
+ *
+ * - numbers, matched on normalised numeric readings (see `valueReadings`);
+ * - digit-bearing literals — versions, dates, ISBNs, SKUs, model numbers —
+ *   matched by literal substring (see `literalReadings`).
+ *
+ * The literal class was added after `extract_structured` returned SQLite
+ * "3.34.0" on sqlite.org for three runs running. Readability drops the
+ * "Version 3.53.4" line, so the model saw no version and answered from memory
+ * with a real-but-wrong release; the guard reported `verified: 0` because a
+ * three-segment dotted string is not a number and nothing else looked at it.
+ *
+ * Prose is never checked. A value containing whitespace, or no digit at all,
+ * is left alone: a model may legitimately re-word a description, and nulling
+ * good text is the one failure this guard must not introduce.
  */
 
 /** Spaces (incl. NBSP / narrow NBSP) and the Swiss apostrophe group digits. */
@@ -45,6 +61,31 @@ const CURRENCY_SYMBOLS = /\p{Sc}/gu;
  * alone — the guard deliberately under-reaches rather than risk a false null.
  */
 const NUMERIC_STRING = /^[+-]?\d+(?:[.,]\d{3})*(?:[.,]\d+)?$/;
+
+/**
+ * A digit-bearing literal that is not a plain number: a version ("3.53.4"), a
+ * date ("2026-07-24"), an ISBN, a SKU, a model number ("A2338"), an id.
+ *
+ * These are the other thing a model fabricates, and NUMERIC_STRING cannot see
+ * them — "3.34.0" has three dotted segments, so it fails that pattern, and
+ * `valueReadings` returned null, and the walker skipped the field. On
+ * sqlite.org that is exactly what happened: Readability drops the "Version
+ * 3.53.4" line, so the model was shown no version at all and answered "3.34.0"
+ * from memory — a real SQLite release, absent from the page, reported as
+ * verified because the guard never looked at it.
+ *
+ * The shape is deliberately tight, and the rule is "no whitespace": a value
+ * with a space in it is prose, which a model may legitimately re-word, and
+ * comparing it literally would null good extractions. What is left is only
+ * tokens that have one correct spelling, so a literal lookup is a fair test.
+ */
+const LITERAL_SEPARATED = /^[A-Za-z0-9]+(?:[.\-_/:+][A-Za-z0-9]+)+$/;
+
+/** A mixed alphanumeric run with no separator: "A2338", "RTX4090". */
+const LITERAL_ALNUM = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9]+$/;
+
+/** A leading "v" is a way of writing a version, not part of it. */
+const VERSION_PREFIX = /^v(?=\d)/i;
 
 /** Chained markup between digits (`<span>1</span><span>299</span>`) is welded. */
 const MARKUP_BETWEEN_DIGITS = /(\d)(?:(?:\s*<[^>]{0,120}>)+\s*)([\d.,])/g;
@@ -96,7 +137,7 @@ function readings(token) {
  * @param {string} source - raw html and/or page text
  * @returns {Set<string>}
  */
-function numbersInSource(source) {
+function sourceVariants(source) {
   const variants = [source];
   if (source.includes('<')) {
     let welded = source;
@@ -107,9 +148,12 @@ function numbersInSource(source) {
     }
     if (welded !== source) variants.push(welded);
   }
+  return variants;
+}
 
+function numbersInSource(source) {
   const found = new Set();
-  for (const variant of variants) {
+  for (const variant of sourceVariants(source)) {
     for (const [token] of variant.matchAll(GROUPED_TOKEN)) {
       for (const reading of readings(token)) found.add(reading);
     }
@@ -118,6 +162,19 @@ function numbersInSource(source) {
     }
   }
   return found;
+}
+
+/**
+ * Lowercased source variants for literal lookup. A literal is checked by
+ * substring, so "3.53.4" is found inside "Version 3.53.4 (2026-07-24)" and
+ * inside "v3.53.4", and the welded variant covers a token the page splits
+ * across markup.
+ *
+ * @param {string} source
+ * @returns {string[]}
+ */
+function literalHaystacks(source) {
+  return sourceVariants(source).map((variant) => variant.toLowerCase());
 }
 
 /**
@@ -141,6 +198,34 @@ function valueReadings(value) {
   const stripped = value.replace(CURRENCY_SYMBOLS, '').replace(GROUPING_CHARS, '');
   if (!NUMERIC_STRING.test(stripped)) return null;
   return readings(stripped.replace(/^\+/, ''));
+}
+
+/**
+ * The literal spellings of a digit-bearing identifier, or null when the value
+ * is not one. Checked only after `valueReadings` declines, so a plain number
+ * never reaches here.
+ *
+ * Two shapes qualify, both of which have exactly one correct spelling:
+ * separated ("3.53.4", "2026-07-24", "978-0-596-51774-8") and mixed
+ * alphanumeric ("A2338"). Everything else — anything with whitespace, and any
+ * string with no digit in it — is prose and is left alone, because a model may
+ * legitimately re-word prose and a literal comparison would null good data.
+ *
+ * @param {*} value
+ * @returns {string[]|null} lowercased spellings to look for
+ */
+function literalReadings(value) {
+  if (typeof value !== 'string') return null;
+  const token = value.trim();
+  if (!token || /\s/.test(token)) return null;
+  if (!/\d/.test(token)) return null;
+  if (!LITERAL_SEPARATED.test(token) && !LITERAL_ALNUM.test(token)) return null;
+
+  const lower = token.toLowerCase();
+  const spellings = new Set([lower]);
+  // "v3.53.4" on a page that writes "3.53.4", and the reverse.
+  spellings.add(lower.replace(VERSION_PREFIX, ''));
+  return [...spellings];
 }
 
 /**
@@ -168,6 +253,13 @@ export function verifyNumericProvenance(data, source) {
   const found = numbersInSource(source);
   const unverified = [];
   let verified = 0;
+  // Built lazily: most extractions are all numbers and never need it, and
+  // lowercasing a multi-megabyte page is not free.
+  let haystacks = null;
+  const inSource = (spellings) => {
+    if (haystacks === null) haystacks = literalHaystacks(source);
+    return spellings.some((s) => haystacks.some((h) => h.includes(s)));
+  };
 
   const walk = (node, path) => {
     if (Array.isArray(node)) {
@@ -182,8 +274,20 @@ export function verifyNumericProvenance(data, source) {
     }
 
     const candidates = valueReadings(node);
-    if (candidates === null) return node;
-    if (candidates.some((c) => found.has(c))) {
+    if (candidates !== null) {
+      if (candidates.some((c) => found.has(c))) {
+        verified++;
+        return node;
+      }
+      unverified.push({ path: path || '(root)', value: node, reason: 'not_found_in_source' });
+      return null;
+    }
+
+    // Not a number, but possibly a version/date/SKU-shaped literal, which is
+    // the other thing a model invents when the page does not say.
+    const literals = literalReadings(node);
+    if (literals === null) return node;
+    if (inSource(literals)) {
       verified++;
       return node;
     }

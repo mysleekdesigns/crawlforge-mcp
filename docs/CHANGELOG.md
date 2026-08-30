@@ -5,6 +5,21 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.5.1] - 2026-08-30
+
+Patch release from a 152-call live sweep of all 29 tools against sites not used in earlier runs. Four defects, three of them fixed at the shared level rather than at the call site, so the same class cannot come back on another surface.
+
+### Fixed
+
+- **`extract_structured` could return a version number that is not on the page.** On sqlite.org it answered "3.34.0" on three runs running while the page said 3.53.4. Two things were wrong. The provenance guard only inspected values it could read as numbers, and a dotted version has too many segments to be one, so the field was skipped and reported as verified. The guard now also covers digit-bearing literals with no whitespace — versions, dates, ISBNs, SKUs, model numbers — matched literally against the page. Prose is still never checked, because a model may legitimately re-word it and a wrongly emptied field is the costlier failure. Separately, the model is shown the page's main content while the guard checks the whole document, and readability extraction had dropped the line carrying the version, so the model had nothing to read. When the guard empties a required field, extraction now retries once against the full page text and keeps that result only if strictly fewer required fields come back empty.
+- **`stealth_mode` with `engine: "camoufox"` failed on every advanced-level scrape.** Network-condition emulation is a Chrome DevTools Protocol call and Camoufox is Firefox-based, so it raised "CDP session is only available in Chromium" before reaching the page. The emulation is cosmetic realism and is now skipped on non-Chromium engines instead of ending the scrape.
+- **`localization` reported the wrong language.** Japanese came back empty and French came back as Spanish, while `analyze_content` read the same text correctly. The localization path carried its own five-language stop-word matcher, so the franc-based detection and CJK script handling added in 5.2.2 never reached it. Both surfaces now share one detector in `src/utils/languageDetection.js`, and a parity test pins that they agree.
+
+### Changed
+
+- Extraction guarded by `verify_numbers` now empties a fabricated version, date or SKU where such a value previously passed through untouched. Values removed are still reported verbatim under `provenance.unverified`, and `verify_numbers: false` returns the unguarded result as before.
+- `crawlforge-extractors` moved to ^1.5.1, which reads a Teamtailor careers-site root URL and reports a board with no open roles as an empty list rather than an error.
+
 ## [5.5.0] - 2026-08-30
 
 Minor release closing the "missing features" list from the 5.4.3 live matrix: two operations that returned a config instead of doing the work, a provider the schema would not accept, a Reddit search shape with no backend, and three templates with no compliant way to their data.

@@ -3,7 +3,11 @@
  * Uses multiple NLP libraries for comprehensive content analysis
  */
 
-import { franc, francAll } from 'franc';
+import {
+  LANGUAGE_NAMES,
+  cjkScriptCounts as sharedCjkScriptCounts,
+  detectLanguage as sharedDetectLanguage
+} from '../../utils/languageDetection.js';
 import nlp from 'compromise';
 import { z } from 'zod';
 import { splitSentences } from './sentenceUtils.js';
@@ -98,86 +102,6 @@ const AnalysisResult = z.object({
 });
 
 // Language code to name mapping
-const LANGUAGE_NAMES = {
-  'eng': 'English',
-  'spa': 'Spanish',
-  'fra': 'French',
-  'deu': 'German',
-  'ita': 'Italian',
-  'por': 'Portuguese',
-  'rus': 'Russian',
-  'jpn': 'Japanese',
-  'kor': 'Korean',
-  'cmn': 'Chinese',
-  'arb': 'Arabic',
-  'hin': 'Hindi',
-  'nld': 'Dutch',
-  'swe': 'Swedish',
-  'nob': 'Norwegian',
-  'dan': 'Danish',
-  'fin': 'Finnish',
-  'pol': 'Polish',
-  'ces': 'Czech',
-  'hun': 'Hungarian',
-  'tur': 'Turkish',
-  'ell': 'Greek',
-  'heb': 'Hebrew',
-  'tha': 'Thai',
-  'vie': 'Vietnamese',
-  'ind': 'Indonesian',
-  'zlm': 'Malay',
-  'zsm': 'Malay',
-  'tgl': 'Tagalog',
-  'ukr': 'Ukrainian',
-  'bul': 'Bulgarian',
-  'hrv': 'Croatian',
-  'slv': 'Slovenian',
-  'ron': 'Romanian',
-  'lit': 'Lithuanian',
-  'lav': 'Latvian',
-  'est': 'Estonian',
-  'slk': 'Slovak',
-  'cat': 'Catalan',
-  'eus': 'Basque',
-  'glg': 'Galician',
-  'gle': 'Irish',
-  'cym': 'Welsh',
-  'isl': 'Icelandic',
-  'mlt': 'Maltese',
-  'sqi': 'Albanian',
-  'mkd': 'Macedonian',
-  'srp': 'Serbian',
-  'bos': 'Bosnian',
-  'mon': 'Mongolian',
-  'uzb': 'Uzbek',
-  'kaz': 'Kazakh',
-  'aze': 'Azerbaijani',
-  'geo': 'Georgian',
-  'arm': 'Armenian',
-  'fas': 'Persian',
-  'urd': 'Urdu',
-  'ben': 'Bengali',
-  'tam': 'Tamil',
-  'tel': 'Telugu',
-  'kan': 'Kannada',
-  'mal': 'Malayalam',
-  'guj': 'Gujarati',
-  'pan': 'Punjabi',
-  'ori': 'Odia',
-  'mar': 'Marathi',
-  'nep': 'Nepali',
-  'sin': 'Sinhala',
-  'mya': 'Burmese',
-  'khm': 'Khmer',
-  'lao': 'Lao',
-  'amh': 'Amharic',
-  'som': 'Somali',
-  'swa': 'Swahili',
-  'hau': 'Hausa',
-  'yor': 'Yoruba',
-  'ibo': 'Igbo',
-  'afr': 'Afrikaans'
-};
 
 export class ContentAnalyzer {
   constructor() {
@@ -205,17 +129,7 @@ export class ContentAnalyzer {
    * @returns {Object} - { letters, han, kana, hangul, share }
    */
   cjkScriptCounts(text) {
-    const letters = (text.match(/\p{L}/gu) || []).length;
-    const han = (text.match(/\p{Script=Han}/gu) || []).length;
-    const kana = (text.match(/[\p{Script=Hiragana}\p{Script=Katakana}]/gu) || []).length;
-    const hangul = (text.match(/\p{Script=Hangul}/gu) || []).length;
-    return {
-      letters,
-      han,
-      kana,
-      hangul,
-      share: letters > 0 ? (han + kana + hangul) / letters : 0
-    };
+    return sharedCjkScriptCounts(text);
   }
 
   /**
@@ -346,80 +260,12 @@ export class ContentAnalyzer {
    * @returns {Promise<Object>} - Language detection result
    */
   async detectLanguage(text, options = {}) {
-    try {
-      // franc scores the single most common script, so a Chinese, Japanese or
-      // Korean page carrying the usual run of English product names and code
-      // samples is detected as English. Those scripts never appear in
-      // Latin-script prose, so a meaningful share of them settles the question
-      // before trigram scoring gets a say.
-      const { letters, han, kana, hangul, share } = this.cjkScriptCounts(text);
-      if (letters > 0) {
-        if (share >= 0.1) {
-          const code = kana > 0 ? 'jpn' : hangul > han ? 'kor' : 'cmn';
-          return {
-            code,
-            name: LANGUAGE_NAMES[code],
-            confidence: 0.9,
-            alternative: [],
-            detectionMethod: 'script'
-          };
-        }
-      }
-
-      // Use franc for language detection
-      const detected = franc(text, {
-        minLength: 10,
-        whitelist: Object.keys(LANGUAGE_NAMES)
-      });
-
-      if (detected === 'und') {
-        // Fallback: check if text is predominantly ASCII Latin characters (likely English)
-        const latinChars = (text.match(/[a-zA-Z]/g) || []).length;
-        const totalChars = text.replace(/\s/g, '').length;
-        if (totalChars > 0 && latinChars / totalChars > 0.7) {
-          // Check for common English words as a heuristic
-          const lower = text.toLowerCase();
-          const englishMarkers = ['the ', 'is ', 'are ', 'was ', 'and ', 'for ', 'that ', 'with ', 'this ', 'from '];
-          const matchCount = englishMarkers.filter(w => lower.includes(w)).length;
-          if (matchCount >= 2) {
-            return {
-              code: 'eng',
-              name: 'English',
-              confidence: 0.6,
-              alternative: [],
-              detectionMethod: 'heuristic'
-            };
-          }
-        }
-        return null; // Truly undetermined language
-      }
-
-      // Get confidence score based on text length and detection certainty
-      const confidence = Math.min(1, 0.5 + (text.length / 500) * 0.5);
-
-      // Get alternative languages using franc.all
-      const alternatives = francAll(text, {
-        minLength: 10,
-        whitelist: Object.keys(LANGUAGE_NAMES)
-      })
-      .slice(1, 4) // Top 3 alternatives
-      .map(([code, score]) => ({
-        code,
-        name: LANGUAGE_NAMES[code] || code,
-        confidence: Math.round(score * 100) / 100
-      }));
-
-      return {
-        code: detected,
-        name: LANGUAGE_NAMES[detected] || detected,
-        confidence: Math.round(confidence * 100) / 100,
-        alternative: alternatives
-      };
-
-    } catch (error) {
-      console.warn('Language detection failed:', error.message);
-      return null;
-    }
+    // The detector itself lives in src/utils/languageDetection.js so that this
+    // class and LocalizationManager cannot drift apart again — they did, and
+    // the localization surface spent that time reporting Japanese as null and
+    // French as Spanish. Behaviour here is unchanged: same franc call, same CJK
+    // script pre-check, same result shape.
+    return sharedDetectLanguage(text, options);
   }
 
   /**

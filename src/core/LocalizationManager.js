@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import { EventEmitter } from 'events';
 import { identityHeaders } from '../utils/fetchIdentity.js';
+import { detectLanguage, toIso6391 } from '../utils/languageDetection.js';
 
 // ISO 3166-1 alpha-2 country codes with associated settings (Expanded to 15+ countries)
 const SUPPORTED_COUNTRIES = {
@@ -1372,35 +1373,26 @@ export class LocalizationManager extends EventEmitter {
    * Analyze text for language detection
    */
   async analyzeTextLanguage(text) {
-    // Simple heuristic-based language detection
-    // In a real implementation, this could use a proper language detection library
-    const patterns = {
-      'en': /\b(the|and|is|in|to|of|a|that|it|with|for|as|was|on|are|you)\b/gi,
-      'es': /\b(el|la|de|que|y|en|un|es|se|no|te|lo|le|da|su|por|son)\b/gi,
-      'fr': /\b(le|de|et|à|un|il|être|et|en|avoir|que|pour|dans|ce|son|une)\b/gi,
-      'de': /\b(der|die|und|in|den|von|zu|das|mit|sich|des|auf|für|ist|im)\b/gi,
-      'it': /\b(il|di|che|e|la|per|in|un|è|da|sono|con|non|si|una|su)\b/gi
+    // Delegates to the server's single detector (src/utils/languageDetection.js).
+    //
+    // This used to be a stop-word regex stub covering five languages, and it
+    // was wrong in both directions: Japanese matched no pattern and returned
+    // null, and French returned 'es' because the `fr` and `es` lists share
+    // "de", "la", "en", "un" and "le" and whichever matched more tokens won.
+    // analyze_content answered the same strings correctly the whole time,
+    // because it used franc — so the bug was really that two detectors existed
+    // and only one got fixed. Anything language-shaped goes through the shared
+    // module now.
+    //
+    // The shared detector speaks ISO 639-3; this surface reports 639-1 (what
+    // html@lang and Accept-Language use), so codes are converted on the way out.
+    const detected = detectLanguage(text);
+    if (!detected) return null;
+
+    return {
+      language: toIso6391(detected.code),
+      confidence: Math.round(detected.confidence * 100)
     };
-    
-    let bestMatch = null;
-    let maxMatches = 0;
-    const wordCount = text.split(/\s+/).filter(Boolean).length;
-
-    for (const [lang, pattern] of Object.entries(patterns)) {
-      const matches = (text.match(pattern) || []).length;
-      if (matches > maxMatches) {
-        maxMatches = matches;
-        // Confidence from stop-word DENSITY (matches per word), not the
-        // absolute match count — absolute counts made confidence depend on
-        // sample length (a 500-char English sample scored only ~35%).
-        // Stop-words are ~25-40% of natural text in the matching language,
-        // so density * 250 puts an unambiguous match in the 60-95 range.
-        const density = matches / Math.max(1, wordCount);
-        bestMatch = { language: lang, confidence: Math.min(95, Math.round(density * 250)) };
-      }
-    }
-
-    return bestMatch;
   }
 
   /**

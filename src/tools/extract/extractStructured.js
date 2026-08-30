@@ -190,33 +190,76 @@ export class ExtractStructuredTool {
       // the Apple MacBook Air page Readability keeps the FAQ block and every
       // price is left behind in an embedded JSON blob, so checking against what
       // the model was shown would null every correct price.
-      let provenance = { enabled: false };
-      if (extractionResult && extractionMethod === 'llm' && verify_numbers) {
-        const checked = verifyNumericProvenance(extractionResult.data || {}, `${html}\n${textContent}`);
+      const fullSource = `${html}\n${textContent}`;
+
+      /** Run the guard over one extraction and describe what it did. */
+      const applyGuard = (result) => {
+        const checked = verifyNumericProvenance(result.data || {}, fullSource);
         // The model's own `valid` flag described the data before the guard ran.
         // A required field the guard nulled is not filled in any more, so that
         // flag cannot stand or the response reports a fabrication as valid.
         const nulledRequired = checked.unverified
           .map((entry) => entry.path)
           .filter((path) => (schema.required || []).includes(path));
-        extractionResult = {
-          ...extractionResult,
-          data: checked.data,
-          ...(nulledRequired.length > 0 ? {
-            valid: false,
-            validationErrors: [
-              ...(extractionResult.validationErrors || []),
-              ...nulledRequired.map((field) => `Field "${field}" was not found in the page source`)
-            ]
-          } : {})
+        return {
+          checked,
+          nulledRequired,
+          result: {
+            ...result,
+            data: checked.data,
+            ...(nulledRequired.length > 0 ? {
+              valid: false,
+              validationErrors: [
+                ...(result.validationErrors || []),
+                ...nulledRequired.map((field) => `Field "${field}" was not found in the page source`)
+              ]
+            } : {})
+          }
         };
+      };
+
+      let provenance = { enabled: false };
+      if (extractionResult && extractionMethod === 'llm' && verify_numbers) {
+        let guarded = applyGuard(extractionResult);
+
+        // Step 3c: the model is shown main content, but the guard checks the
+        // FULL source — so a value can be nulled for being absent from what the
+        // model saw while sitting in the page all along. sqlite.org is the case
+        // that found this: Readability drops the "Version 3.53.4" line, the
+        // model was handed no version at all and answered "3.34.0" from memory,
+        // and the guard correctly nulled it — leaving a caller with nothing on a
+        // page that plainly states the answer.
+        //
+        // So when a REQUIRED field is nulled, retry once on the full page text,
+        // which is exactly what the guard will accept. Only a strictly better
+        // result is kept, so a retry can never make the answer worse.
+        const shownText = mainContentText($, html, url) || textContent;
+        if (guarded.nulledRequired.length > 0 && shownText !== textContent && textContent) {
+          try {
+            const llm = this._ensureLLMManager(llmConfig || {});
+            const retry = await llm.extractStructured(textContent, schema, {
+              prompt: prompt || '',
+              maxContentLength: 6000
+            });
+            if (retry?.method === 'llm') {
+              const retryGuarded = applyGuard(retry);
+              if (retryGuarded.nulledRequired.length < guarded.nulledRequired.length) {
+                guarded = retryGuarded;
+              }
+            }
+          } catch {
+            // The first answer already stands; a failed retry changes nothing.
+          }
+        }
+
+        extractionResult = guarded.result;
         provenance = {
           enabled: true,
-          verified: checked.verified,
-          nulled: checked.nulled,
-          unverified: checked.unverified
+          verified: guarded.checked.verified,
+          nulled: guarded.checked.nulled,
+          unverified: guarded.checked.unverified
         };
-        if (checked.skipped) provenance.skipped = checked.skipped;
+        if (guarded.checked.skipped) provenance.skipped = guarded.checked.skipped;
       }
 
       // Step 4: CSS selector fallback if LLM unavailable or failed

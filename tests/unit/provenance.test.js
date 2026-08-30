@@ -96,15 +96,37 @@ describe('provenance — a number that is not in the source comes back null with
 describe('provenance — what counts as a numeric field', () => {
   const source = 'Nothing numeric on this page at all.';
 
-  test('strings carrying words are text, not numeric fields, and are left alone', () => {
+  test('strings carrying words are text, not guarded fields, and are left alone', () => {
+    // Whitespace is the line: a model may legitimately re-word prose, so
+    // comparing it against the page would null good extractions.
     const data = {
       headline: 'From $999 — MacBook Air 13-inch',
-      version: '3.14.7',
-      sku: 'MBA-13-M5',
       released: 'September 2026'
     };
     const result = verifyNumericProvenance(data, source);
     assert.deepEqual(result.data, data);
+    assert.equal(result.nulled, 0);
+  });
+
+  test('a version or SKU absent from the page IS nulled — the literal class', () => {
+    // Widened after round 10: these used to pass through untouched, which is
+    // how extract_structured reported SQLite "3.34.0" as valid on a page that
+    // says 3.53.4. A dotted version or a SKU has one correct spelling, so
+    // "not on the page" means the model wrote it.
+    const result = verifyNumericProvenance(
+      { version: '3.14.7', sku: 'MBA-13-M5' },
+      source
+    );
+    assert.deepEqual(result.data, { version: null, sku: null });
+    assert.equal(result.nulled, 2);
+  });
+
+  test('the same version survives when the page does carry it', () => {
+    const result = verifyNumericProvenance(
+      { version: '3.14.7' },
+      'Python 3.14.7 is the current release.'
+    );
+    assert.equal(result.data.version, '3.14.7');
     assert.equal(result.nulled, 0);
   });
 
