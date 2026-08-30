@@ -5,6 +5,16 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.5.2] - 2026-08-30
+
+Patch release fixing a silent content loss in main-content extraction that affected documentation sites in particular — the pages an agent is most likely to scrape.
+
+### Fixed
+
+- **`scrape` at its default `onlyMainContent: true` deleted every code example on Nextra-built documentation sites.** On next-intl.dev's routing docs it dropped all 12 `<pre>` blocks, all 96 inline `<code>` spans and the callout warning that `setRequestLocale` is a legacy API, while leaving the surrounding prose intact — so the result read as a complete page rather than as a failure, and sentences came back with holes where their inline code had been ("In order to use unique pathnames …, can be used to handle"). An agent reading that output would write the API call from memory instead of from the page. The cause is not that Readability drops `pre`/`code`. Its class regexes are unanchored and two of them collide with framework class names: `unlikelyCandidates` contains `extra`, which matches inside `nextra-`, the prefix on every element Nextra emits, so those elements are deleted before scoring runs; and `negative` contains `hidden`, which matches Tailwind's `overflow-hidden` on the code wrapper, docking 25 class weight — enough for `_cleanConditionally` to delete the wrapper holding every code block. Both had to be addressed: fixing only the first restored inline code and still returned zero code blocks. Extraction now strips just the class tokens that trip a removal regex accidentally, before Readability parses. A match is treated as accidental only when it sits mid-word behind a preceding letter, so `comments`, `banners`, `page-footer` and a genuine `hidden` are still removed as before; `overflow-hidden` and its overflow/scroll variants are listed explicitly, because they collide on a whole word. A class carrying one of Readability's positive signals is never stripped.
+
+  Affects `scrape`, `extract_structured` and every path built on main-content extraction. On the page above, markdown went from roughly 3 KB with no fenced blocks to 8,953 characters with 11. The one block inside a collapsed `<details>` is still not recovered — Readability discards those wholesale — and element ids are left untouched, since they anchor in-page links.
+
 ## [5.5.1] - 2026-08-30
 
 Patch release from a 152-call live sweep of all 29 tools against sites not used in earlier runs. Four defects, three of them fixed at the shared level rather than at the call site, so the same class cannot come back on another surface.
