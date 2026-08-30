@@ -273,6 +273,11 @@ test('getToolCost: fully-paid Scheme B table (no free tier, key required for all
   assert.equal(authManager.getToolCost('scrape', { formats: ['markdown'] }), 2);
   // Unknown tools fall back to 1
   assert.equal(authManager.getToolCost('unknown_tool'), 1);
+  // localize_search with a query runs a real web search, so it is priced as one;
+  // the other localization operations, and a query-less localize_search, stay at 2.
+  assert.equal(authManager.getToolCost('localization', { operation: 'localize_search', searchParams: { query: 'pricing' } }), 5);
+  assert.equal(authManager.getToolCost('localization', { operation: 'localize_search', searchParams: { limit: 5 } }), 2);
+  assert.equal(authManager.getToolCost('localization', { operation: 'configure_country', countryCode: 'DE' }), 2);
 });
 
 test('getToolCost: serp_rank costs 5 configured, 0 when DataForSEO is unconfigured (no-op)', () => {

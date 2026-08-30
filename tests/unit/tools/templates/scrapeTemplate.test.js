@@ -96,23 +96,6 @@ const CASES = [
   },
 
   {
-    id: 'linkedin-profile',
-    url: 'https://linkedin.com/in/jane-doe',
-    html: `<html><body>
-      <h1>Jane Doe</h1>
-      <h2>Senior Engineer at Acme</h2>
-      <div class="profile-info-subheader">San Francisco, CA</div>
-      <div class="summary"><p>Builds distributed systems.</p></div>
-    </body></html>`,
-    assert: (data) => {
-      assert.equal(data.name, 'Jane Doe');
-      assert.equal(data.headline, 'Senior Engineer at Acme');
-      assert.equal(data.location, 'San Francisco, CA');
-      assert.ok(data.note.includes('authentication'));
-    }
-  },
-
-  {
     id: 'github-repo',
     url: 'https://github.com/acme/widget',
     html: `<html><head><meta property="og:description" content="A widget factory."></head><body>
@@ -194,37 +177,24 @@ const CASES = [
   },
 
   {
-    id: 'tweet',
-    url: 'https://x.com/acme/status/1234567890',
-    html: `<html><head>
-      <meta property="og:description" content="Shipping v5 today!">
-      <meta property="og:title" content="Acme (@acme)">
-      <meta property="og:url" content="https://x.com/acme/status/1234567890">
-      <meta property="og:image" content="https://img.example.com/tweet.jpg">
-    </head><body></body></html>`,
-    assert: (data) => {
-      assert.equal(data.text, 'Shipping v5 today!');
-      assert.equal(data.author, 'Acme (@acme)');
-      assert.equal(data.url, 'https://x.com/acme/status/1234567890');
-    }
-  },
-
-  {
+    // Reads the Arctic Shift archive's /api/posts/ids record rather than the
+    // page (reddit.com 403s plain fetchers), so the fixture is that JSON.
     id: 'reddit-thread',
     url: 'https://reddit.com/r/programming/comments/abc/title/',
-    html: `<html><head><title>My Post Title • r/programming</title>
-      <meta property="og:title" content="My Post Title">
-      <meta property="og:url" content="https://reddit.com/r/programming/comments/abc/title/">
-    </head><body>
-      <a href="/user/alice" class="author">alice</a>
-      <time datetime="2024-03-03T00:00:00Z"></time>
-      <div data-click-id="text"><p>Post body text here.</p></div>
-    </body></html>`,
+    html: JSON.stringify({
+      data: [{
+        id: 'abc', title: 'My Post Title', subreddit: 'programming', author: 'alice',
+        created_utc: 1709424000, score: 12, upvote_ratio: 0.9, num_comments: 3,
+        is_self: true, selftext: 'Post body text here.', link_flair_text: null, over_18: false,
+        permalink: '/r/programming/comments/abc/title/'
+      }]
+    }),
     assert: (data) => {
       assert.equal(data.title, 'My Post Title');
       assert.equal(data.subreddit, 'programming');
-      assert.equal(data.posted, '2024-03-03T00:00:00Z');
+      assert.equal(data.posted, '2024-03-03T00:00:00.000Z');
       assert.equal(data.body, 'Post body text here.');
+      assert.equal(data.url, 'https://www.reddit.com/r/programming/comments/abc/title/');
     }
   },
 
@@ -520,6 +490,19 @@ describe('ScrapeTemplateTool (real module, real fetch against a local server)', 
       () => tool.execute({ template: 'fakebook', url: 'https://fb.example.com' }),
       /Unknown template "fakebook"/
     );
+  });
+
+  test('a retired template names its reason before any network call — by id, and by url under auto', async () => {
+    const tool = new ScrapeTemplateTool();
+    await assert.rejects(
+      () => tool.execute({ template: 'tweet', url: 'https://x.com/jack/status/20' }),
+      /Template "tweet" was retired: .*robots\.txt/s
+    );
+    await assert.rejects(
+      () => tool.execute({ template: 'auto', url: 'https://www.linkedin.com/in/williamhgates' }),
+      /The "linkedin-profile" template that handled .* was retired: .*robots\.txt/s
+    );
+    assert.ok(!tool.listTemplates().templates.some((t) => t.id === 'tweet' || t.id === 'linkedin-profile'));
   });
 
   test('happy path — fetches a real page through safeFetch and runs the github-repo extractor', async () => {

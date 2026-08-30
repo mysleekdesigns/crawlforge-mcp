@@ -8,15 +8,20 @@ to enumerate at runtime. Cost: 1 credit per call.
 |-------------|--------|-------------------------|
 | `shopify-product` | Any Shopify storefront product page (`/products/<handle>`), custom domains included | title, price, compare-at price, on_sale, currency, price range, per-variant stock, options, images, tags — read from the store's `/products/<handle>.json`, not the rendered page |
 | `amazon-product` | Amazon product page (`/dp/...`) | title, price, currency, rating (number), review count (number), brand, ASIN, availability, full-size images, description, breadcrumbs. Breadcrumbs are empty on device pages, which genuinely have none |
-| `linkedin-profile` | LinkedIn public profile | name, headline, location, current role, about, experience |
 | `github-repo` | GitHub repository | name, owner, description, stars, forks, language, topics, README excerpt |
 | `youtube-video` | YouTube watch page | title, channel, views, likes, published date, description |
-| `tweet` | A single tweet/X post | author, handle, text, timestamp, likes, reposts |
-| `reddit-thread` | Reddit thread | title, subreddit, author, score, top comments |
+| `reddit-thread` | Reddit post (read from the Arctic Shift archive, not reddit.com, which blocks plain fetchers) | id, title, subreddit, author, score, upvote_ratio, num_comments, posted, body, link_url, flair, removed. Pass `id` to `reddit_search` with `mode:"thread"` for the comment tree |
 | `hacker-news-front-page` | HN front page | ranked stories: title, URL, points, author, comment count |
 | `producthunt-launch` | Product Hunt launch | name, tagline, upvotes, maker, description |
 | `stackoverflow-question` | Stack Overflow question (read from the keyless Stack Exchange API, not the page) | title, body, votes, views, tags, author, asked, answered, accepted_answer_id, answer_count, top 5 answers (accepted first: votes, author, posted, body) |
 | `npm-package` | npm package page | name, version, description, weekly downloads, license, repo link |
+
+**Retired (2026-08-30):** `linkedin-profile` and `tweet`. LinkedIn's robots.txt
+disallows every path for all agents but its own crawler and profiles sit behind
+an auth wall; X's robots.txt disallows every path for generic agents and its
+keyless embed endpoints are disallowed by their own robots.txt. Naming either
+returns the reason and fetches nothing. For X or LinkedIn data, use the
+platform's own API with the user's credentials.
 
 ## Usage
 

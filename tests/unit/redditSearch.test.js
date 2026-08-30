@@ -634,12 +634,52 @@ describe('reddit_search Reddit-wide keyword search', () => {
     assert.equal(adapter.calls.length, 0, 'a scoped search must not spend a web search');
   });
 
-  test('an unscoped comment search asks for a scope instead of failing opaquely', async () => {
-    const tool = new RedditSearchTool({ searchAdapter: stubSearchAdapter([]) });
-    await assert.rejects(
-      () => tool.execute({ query: 'switches', mode: 'comments', limit: 10 }),
-      /no available backend.*subreddit or author/s
-    );
+  test('an unscoped comment search discovers posts, then searches each post\'s comments for the keywords', async () => {
+    const adapter = stubSearchAdapter([
+      'https://www.reddit.com/r/x/comments/aaa111/first/',
+      'https://www.reddit.com/r/x/comments/bbb222/second/',
+    ]);
+    stubFetch((url) => {
+      const id = new URL(url).searchParams.get('link_id');
+      return okResponse({ data: [{ ...RAW_COMMENT, id: `c_${id}`, link_id: `t3_${id}` }] });
+    });
+    const tool = new RedditSearchTool({ searchAdapter: adapter });
+
+    const result = await tool.execute({ query: 'switches', mode: 'comments', limit: 10 });
+
+    assert.equal(result.source, 'web_discovery');
+    assert.equal(result.mode, 'comments');
+    assert.equal(result.count, 2);
+    assert.deepEqual(result.results.map(r => r.id), ['c_aaa111', 'c_bbb222']);
+    assert.equal(result.discovered, 2);
+    assert.equal(result.posts_searched, 2);
+    assert.match(adapter.calls[0].query, /^site:reddit\.com /);
+    // Every archive call is a link_id-scoped body search — the one scope
+    // Arctic Shift accepts for a keyword search without a subreddit or author.
+    assert.deepEqual(requests.map(r => r.url.pathname), ['/api/comments/search', '/api/comments/search']);
+    assert.deepEqual(requests.map(r => r.url.searchParams.get('link_id')), ['aaa111', 'bbb222']);
+    assert.deepEqual(requests.map(r => r.url.searchParams.get('body')), ['switches', 'switches']);
+  });
+
+  test('a discovered comment search stops at limit, and one failing post does not discard the rest', async () => {
+    const adapter = stubSearchAdapter([
+      'https://www.reddit.com/r/x/comments/aaa111/first/',
+      'https://www.reddit.com/r/x/comments/bbb222/second/',
+      'https://www.reddit.com/r/x/comments/ccc333/third/',
+    ]);
+    stubFetch((url) => {
+      const id = new URL(url).searchParams.get('link_id');
+      if (id === 'aaa111') return errResponse(500, 'Internal Server Error');
+      return okResponse({ data: [{ ...RAW_COMMENT, id: `c_${id}` }, { ...RAW_COMMENT, id: `d_${id}` }] });
+    });
+    const tool = new RedditSearchTool({ searchAdapter: adapter });
+
+    const result = await tool.execute({ query: 'switches', mode: 'comments', limit: 2 });
+
+    assert.equal(result.count, 2);
+    assert.equal(result.posts_searched, 1, 'limit reached after the first successful post');
+    assert.equal(requests.length, 2, 'third post never searched');
+    assert.match(result.notes.join('\n'), /1 discovered post\(s\) could not be searched: aaa111/);
   });
 
   test('reports zero results rather than erroring when discovery finds no posts', async () => {
@@ -658,6 +698,63 @@ describe('reddit_search Reddit-wide keyword search', () => {
       () => tool.execute({ query: 'x', subreddit: 'y', mode: 'posts', source: 'web_discovery', limit: 10 }),
       /only serves unscoped keyword searches/
     );
+  });
+});
+
+describe('reddit_search scoped comment search window ladder', () => {
+  // Arctic Shift answers a scoped comment keyword search over its whole
+  // history with the same 422 "Timeout" it uses for throttling; observed live
+  // 2026-08-30 (r/webdev body=react: unbounded and 7d failed, 3d answered).
+  const throttled = () => ({
+    ok: false, status: 422, statusText: 'Unprocessable Entity',
+    headers: { get: () => null },
+    text: async () => JSON.stringify({ data: null, error: 'Timeout. Maybe slow down a bit' }),
+    json: async () => ({}),
+  });
+
+  test('narrows the window step by step when the caller set none, and says which one answered', async () => {
+    stubFetch((url) => (new URL(url).searchParams.get('after') === '3d'
+      ? okResponse({ data: [RAW_COMMENT] })
+      : throttled()));
+    const tool = new RedditSearchTool({ retryDelayMs: 0 });
+
+    const result = await tool.execute({ query: 'react', subreddit: 'webdev', mode: 'comments', limit: 5 });
+
+    assert.equal(result.count, 1);
+    assert.equal(result.window_applied, '3d');
+    assert.match(result.notes.join('\n'), /limited to the last 3d/);
+    // The unbounded search and its one retry, then the ladder up to the window that answered.
+    assert.deepEqual(requests.map(r => r.url.searchParams.get('after')), [null, null, '7d', '3d']);
+  });
+
+  test('is not applied when the caller chose a window, and never to a posts search', async () => {
+    stubFetch(throttled);
+    const tool = new RedditSearchTool({ retryDelayMs: 0 });
+
+    await assert.rejects(
+      () => tool.execute({ query: 'react', subreddit: 'webdev', mode: 'comments', after: '30d', limit: 5 }),
+      /Timeout\. Maybe slow down a bit/
+    );
+    assert.equal(requests.length, 2, 'the caller\'s window is respected: one attempt plus the throttle retry');
+
+    stubFetch(throttled);
+    await assert.rejects(
+      () => tool.execute({ query: 'react', subreddit: 'webdev', mode: 'posts', limit: 5 }),
+      /Timeout\. Maybe slow down a bit/
+    );
+    assert.equal(requests.length, 2);
+  });
+
+  test('a non-throttle failure inside the ladder surfaces as itself', async () => {
+    let calls = 0;
+    stubFetch(() => (++calls <= 2 ? throttled() : errResponse(500, 'Internal Server Error')));
+    const tool = new RedditSearchTool({ retryDelayMs: 0 });
+
+    await assert.rejects(
+      () => tool.execute({ query: 'react', subreddit: 'webdev', mode: 'comments', limit: 5 }),
+      /HTTP 500/
+    );
+    assert.equal(requests.length, 3);
   });
 });
 

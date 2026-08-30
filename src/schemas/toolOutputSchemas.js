@@ -189,6 +189,8 @@ const redditSearchShape = {
   count: z.number().optional(),
   results: z.array(z.union([redditPostShape, redditCommentShape])).optional().describe('posts/comments modes'),
   discovered: z.number().optional().describe('web_discovery: how many post ids the site-restricted web search surfaced before archive hydration'),
+  posts_searched: z.number().optional().describe('web_discovery comments mode: how many discovered posts had their comments searched before limit was reached'),
+  window_applied: z.string().optional().describe('arctic_shift comments mode: the after-window ("7d"/"3d"/"1d") the search was narrowed to after the full-history search timed out; absent when the caller set after or no narrowing was needed'),
   post: redditPostShape.nullable().optional().describe('thread mode: the post itself'),
   comments: z.array(z.unknown()).optional().describe('thread mode: nested comment tree ({...comment, replies:[...]}); collapsed branches appear as {more_count, more_ids}'),
   comment_count: z.number().optional(),

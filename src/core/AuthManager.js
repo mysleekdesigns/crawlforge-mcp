@@ -612,6 +612,12 @@ class AuthManager {
       if (bookkeepingOps.has(params?.operation)) return 1;
     }
 
+    // localize_search with a query runs a real web search through the same
+    // adapter search_web uses, so it is priced as one rather than undercutting it.
+    if (tool === 'localization' && params?.operation === 'localize_search' && params?.searchParams?.query) {
+      return costs.search_web;
+    }
+
     return costs[tool] ?? 1;
   }
 

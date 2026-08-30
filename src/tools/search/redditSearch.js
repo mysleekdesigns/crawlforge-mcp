@@ -15,9 +15,11 @@
  *   cross-subreddit full-text search, but has known post-2023 archive gaps
  *   and recurring outages.
  *
- * Routing: scoped searches go to Arctic Shift (fresher) with PullPush as an
- * error-only fallback; unscoped keyword searches can only go to PullPush.
- * Both services are free and need no credentials.
+ * Routing: scoped searches go to Arctic Shift. An unscoped keyword search
+ * finds posts through a site-restricted web search and then reads them — or
+ * searches their comments — in the archive by id. PullPush stopped serving
+ * automated clients in August 2026 and is used only on explicit request.
+ * Both archives are free and need no credentials.
  *
  * Optional official-API path: if the user sets REDDIT_CLIENT_ID and
  * REDDIT_CLIENT_SECRET (their own Reddit app), posts/thread requests can read
@@ -148,14 +150,15 @@ export class RedditSearchTool {
     // comment full-text search, so `comments` mode always uses the archives.
     const officialPossible = this.officialConfigured && (v.mode === 'thread' || v.mode === 'posts');
 
-    // A Reddit-wide keyword search for posts can be discovered through a web
-    // search and then read out of the archive by ID.
-    const discoveryPossible = v.mode === 'posts' && Boolean(v.query) && !subreddit && !author;
+    // A Reddit-wide keyword search can be discovered through a web search and
+    // then read out of the archive by ID — posts directly, comments by
+    // searching each discovered post's comments for the keywords.
+    const discoveryPossible = v.mode !== 'thread' && Boolean(v.query) && !scoped;
 
     let order; // backends to try, in order
     if (v.source === 'web_discovery') {
       if (!discoveryPossible) {
-        throw new Error('web_discovery only serves unscoped keyword searches in posts mode — it finds posts through a web search and then reads them from the archive');
+        throw new Error('web_discovery only serves unscoped keyword searches (posts or comments) — it finds posts through a web search and then reads them from the archive');
       }
       order = ['web_discovery'];
     } else if (v.source === 'reddit_api') {
@@ -185,14 +188,6 @@ export class RedditSearchTool {
         : discoveryPossible ? ['web_discovery']
         : [];
       order = officialPossible ? ['reddit_api', ...archives] : archives;
-    }
-
-    if (order.length === 0) {
-      // Unscoped comment search was PullPush-only, and PullPush no longer
-      // serves automated clients. Web discovery identifies posts, not comments.
-      throw new Error(
-        `An unscoped keyword search of ${v.mode} has no available backend: Arctic Shift requires a subreddit or author scope, and PullPush no longer serves automated clients. Add a subreddit or author filter, or search mode:"posts", which finds posts through a web search and reads them from the archive.`
-      );
     }
 
     const errors = [];
@@ -226,11 +221,12 @@ export class RedditSearchTool {
 
   /**
    * Reddit-wide keyword search, in two steps: find matching posts with a
-   * site-restricted web search, then read those posts out of the Arctic Shift
-   * archive by ID. Arctic Shift cannot keyword-search across all of Reddit and
-   * reddit.com blocks scrapers, so discovery has to come from somewhere else —
-   * but what comes back are real archive rows, the same shape a scoped search
-   * returns, not scraped search-engine snippets.
+   * site-restricted web search, then read them out of the Arctic Shift archive
+   * by ID — the posts themselves, or (comments mode) each post's comments that
+   * match the keywords. Arctic Shift cannot keyword-search across all of
+   * Reddit and reddit.com blocks scrapers, so discovery has to come from
+   * somewhere else — but what comes back are real archive rows, the same shape
+   * a scoped search returns, not scraped search-engine snippets.
    */
   async #searchWebDiscovery(v) {
     let found;
@@ -252,7 +248,9 @@ export class RedditSearchTool {
     }
 
     const notes = [
-      'Reddit-wide keyword search: posts were found with a site-restricted web search, then read from the Arctic Shift archive by ID.',
+      v.mode === 'comments'
+        ? 'Reddit-wide comment search: posts were found with a site-restricted web search, then each post\'s comments were searched for the keywords in the Arctic Shift archive, in post relevance order.'
+        : 'Reddit-wide keyword search: posts were found with a site-restricted web search, then read from the Arctic Shift archive by ID.',
       'Results are ordered by web-search relevance, not by score or date.',
       'Arctic Shift cannot keyword-search across all of Reddit, and PullPush no longer serves automated clients — scope the search to a subreddit or author to query the archive directly.',
     ];
@@ -262,11 +260,47 @@ export class RedditSearchTool {
       notes.push('after/before were NOT applied: discovery runs through a web search, which cannot filter by post date. Scope the search to a subreddit or author to use date filters.');
     }
 
+    const envelope = {
+      source: 'web_discovery', mode: v.mode,
+      query: v.query ?? null, subreddit: null, author: null,
+    };
     if (ids.length === 0) {
+      return { ...envelope, count: 0, results: [], notes, checkedAt: new Date().toISOString() };
+    }
+
+    if (v.mode === 'comments') {
+      // Arctic Shift's body search needs a scope, and link_id is one: search
+      // the discovered posts in relevance order until `limit` comments are in
+      // hand. A post whose search fails is skipped and counted, so one
+      // throttled request does not discard the others' results.
+      const results = [];
+      const skipped = [];
+      let postsSearched = 0;
+      for (const id of ids) {
+        if (results.length >= v.limit) break;
+        try {
+          const data = await this.#get(`${this.arcticBaseUrl}/api/comments/search`, {
+            link_id: id,
+            body: v.query,
+            limit: String(v.limit - results.length),
+            sort: v.sort,
+          });
+          postsSearched++;
+          const rows = Array.isArray(data.data) ? data.data : [];
+          results.push(...rows.map(normalizeComment));
+        } catch (error) {
+          skipped.push(`${id}: ${error.message}`);
+        }
+      }
+      if (postsSearched === 0) {
+        throw new Error(`comment search failed for every discovered post — ${skipped.join('; ')}`);
+      }
+      if (skipped.length > 0) {
+        notes.push(`${skipped.length} discovered post(s) could not be searched: ${skipped.join('; ')}`);
+      }
       return {
-        source: 'web_discovery', mode: 'posts',
-        query: v.query ?? null, subreddit: null, author: null,
-        count: 0, results: [],
+        ...envelope, count: results.length, results,
+        discovered: ids.length, posts_searched: postsSearched,
         notes, checkedAt: new Date().toISOString(),
       };
     }
@@ -280,9 +314,7 @@ export class RedditSearchTool {
     const ordered = ids.map(id => byId.get(id)).filter(Boolean);
 
     return {
-      source: 'web_discovery', mode: 'posts',
-      query: v.query ?? null, subreddit: null, author: null,
-      count: ordered.length, results: ordered.map(normalizePost),
+      ...envelope, count: ordered.length, results: ordered.map(normalizePost),
       discovered: ids.length,
       notes, checkedAt: new Date().toISOString(),
     };
@@ -327,13 +359,45 @@ export class RedditSearchTool {
       if (v.query) query.body = v.query;
       if (v.link_id) query.link_id = stripIdPrefix(v.link_id);
     }
-    const data = await this.#get(`${this.arcticBaseUrl}${path}`, query);
+    let data;
+    let windowApplied = null;
+    try {
+      data = await this.#get(`${this.arcticBaseUrl}${path}`, query);
+    } catch (error) {
+      // Arctic Shift sheds a scoped comment keyword search over its whole
+      // history with the same 422 "Timeout. Maybe slow down a bit" it uses for
+      // throttling (observed live 2026-08-30: r/webdev body=react failed
+      // unbounded and at 7d, answered at 3d). When the caller set no window,
+      // narrow it step by step rather than hand the caller the 422.
+      const narrowable = v.mode === 'comments' && Boolean(v.query) && !v.after;
+      if (!error.retryable || !narrowable) throw error;
+      let lastError = error;
+      for (const window of ['7d', '3d', '1d']) {
+        await new Promise((resolve) => setTimeout(resolve, this.retryDelayMs));
+        try {
+          data = await this.#getOnce(`${this.arcticBaseUrl}${path}?${new URLSearchParams({ ...query, after: window })}`);
+          windowApplied = window;
+          break;
+        } catch (retryError) {
+          lastError = retryError;
+          if (!retryError.retryable) throw retryError;
+        }
+      }
+      if (!data) {
+        throw new Error(
+          `${lastError.message} — Arctic Shift timed out at every window (full history, 7d, 3d, 1d), ` +
+          'so its comment search is under load right now. Retry later, pass a narrower after/before, or scope to one post with link_id.'
+        );
+      }
+      notes.push(`Arctic Shift timed out searching the full history; results are limited to the last ${windowApplied}. Pass after/before to choose the window.`);
+    }
     const rows = Array.isArray(data.data) ? data.data : [];
     const results = v.mode === 'posts' ? rows.map(normalizePost) : rows.map(normalizeComment);
     return {
       source: 'arctic_shift', mode: v.mode,
       query: v.query ?? null, subreddit: subreddit ?? null, author: author ?? null,
       count: results.length, results,
+      ...(windowApplied && { window_applied: windowApplied }),
       notes, checkedAt: new Date().toISOString(),
     };
   }
