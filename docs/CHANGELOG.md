@@ -5,6 +5,26 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.4.2] - 2026-08-30
+
+Patch release: a regex in the numeric provenance guard could backtrack exponentially and **hang the entire server**, not just the tool that triggered it.
+
+### Fixed
+
+- **Catastrophic backtracking in `src/utils/provenance.js`.** `MARKUP_BETWEEN_DIGITS` carried `\s*` on *both* sides of a `+`-quantified group, so a whitespace run could be split between one iteration's trailing `\s*` and the next one's leading `\s*`. A digit followed by whitespace-separated tags and no closing digit then explored 2^n paths: n=12 took 7ms, n=16 552ms, n=18 5036ms, and on live python.org HTML it never returned. Whitespace is now consumed in exactly one place per iteration. Welded output is byte-identical to the old pattern on every case checked, and the 60KB input that hung completes in 0ms.
+- **`reddit_search` unscoped keyword search failed MCP output validation.** The successful `web_discovery` path returns a `discovered` count that was never declared in `redditSearchShape`, so the call was rejected with `-32602 "data must NOT have additional properties"`. The empty-result branch omits the field, so only a search that actually found posts broke.
+- **`serverInfo.version` reported `5.3.1`**, two releases stale. It now tracks the package version.
+
+### Why it mattered more than a two-line diff suggests
+
+The provenance guard (`verify_numbers`, default `true`) runs only in `extract_structured` and `extract_with_llm`. But Node is single-threaded: the runaway `replace` pinned the event loop at 100% CPU, and **every other tool queued behind it forever** — including `list_ollama_models`, which is a localhost call. A live sweep read as "the whole MCP server is dead" when one regex on one page was the cause. Anything that reports a hang across unrelated tools is worth checking for a busy loop before suspecting the network.
+
+The `reddit_search` gap is the third time a result field has shipped without its output schema. Adding or changing a tool's returned fields still means updating `OUTPUT_SCHEMAS` in the same change, and verification has to include one real MCP stdio call — `execute()` and the REST route both bypass output validation entirely.
+
+### Verified
+
+All 29 tools exercised over live MCP stdio against real sites. `extract_structured` 804ms returning Python 3.14.7 (was: never returned), unscoped `reddit_search` returning `discovered: 3`, and four concurrent calls — the batch shape that previously produced four 120s timeouts — all returning normally. Unit suite 1532 pass / 0 fail / 1 skip.
+
 ## [5.4.1] - 2026-08-29
 
 Patch release: `extract_embedded_state`'s reader moves into the shared `crawlforge-extractors` package. **No behaviour change** — the tool returns exactly what it did in 5.4.0.
