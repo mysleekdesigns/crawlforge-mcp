@@ -5,6 +5,24 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.5.5] - 2026-08-30
+
+Security patch.
+
+### Security
+
+- **SSRF guard on the stealth/browser navigation path.** Added `safeGoto()` (SSRF + DNS-rebinding check before navigation, re-checked after redirects) to the three browser-navigation sites that lacked it: `scrapeWithStealth`, `deep_research`'s stealth fallback, and `BrowserProcessor.navigateAndWait` (the `extract_content` / `process_document` browser path). Previously these could be steered to `169.254.169.254` / RFC1918 / loopback and return the rendered response.
+- **Full private-range SSRF enforcement on the hosted deployment.** `render.yaml` now sets `SSRF_STRICT=true` (Stage-2: blocks RFC1918 / ULA / CGNAT, not just metadata + loopback). npm/local users keep the Stage-1 default so they can still scrape their own localhost.
+- **Pulled in `crawlforge-extractors@1.5.2`**, which fixes a flight-stream quadratic-DoS in `extract_embedded_state` and scheme-filters extracted URLs (drops `javascript:` / `data:`).
+
+### Changed
+
+- **`render.yaml`: `MAX_BROWSER_CONTEXTS=6` and `plan: standard`.** Each co-resident browser manager keeps its own context pool and Chromium, so the default 10 is really 2–3× that; 6 bounds it on the 2 GB box.
+
+### Removed
+
+- **Dead `src/security/wave3-*` modules** (imported by nothing at runtime).
+
 ## [5.5.4] - 2026-08-30
 
 Documentation-only patch.
