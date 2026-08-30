@@ -5,6 +5,14 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.5.4] - 2026-08-30
+
+Documentation-only patch.
+
+### Changed
+
+- **`scrape_with_actions`: the `extractionOptions` description now states where selector results land.** `extractionOptions.selectors` output is returned as `content.json.extracted`, which only exists when `"json"` is in `formats` — a caller passing selectors with `formats: ["markdown"]` had their extraction computed and silently omitted from the response, with nothing in the schema saying so. No behavior change.
+
 ## [5.5.3] - 2026-08-30
 
 Patch release from a 69-call live sweep of all 29 tools against sites not used in any earlier round. Two defects, both found by verifying engine behavior and field values rather than trusting success flags.
