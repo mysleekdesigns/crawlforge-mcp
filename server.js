@@ -105,7 +105,7 @@ const taskStore = createTaskStore({ logger });
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "5.5.3",
+  version: "5.5.4",
   description: "Production-ready MCP server with 29 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -922,7 +922,7 @@ registerToolIfEnabled("scrape_with_actions", {
       includeMetadata: z.boolean().default(true),
       includeLinks: z.boolean().default(true),
       includeImages: z.boolean().default(true)
-    }).optional().describe("Content extraction options"),
+    }).optional().describe("Content extraction options. selectors results are returned as content.json.extracted, so include \"json\" in formats when passing selectors — without it the extraction is not part of the response."),
     continueOnActionError: z.boolean().default(false).describe("Continue executing actions if one fails"),
     maxRetries: z.number().min(0).max(3).default(1).describe("Maximum retry attempts on failure"),
     screenshotOnError: z.boolean().default(true).describe("Capture screenshot when an error occurs"),
