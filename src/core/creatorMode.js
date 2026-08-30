@@ -10,8 +10,21 @@
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 
-// Load .env file early to check for creator secret
-dotenv.config({ path: '.env', quiet: true });
+// Load the cwd .env early to check for the creator secret, but into an isolated
+// object rather than straight into process.env. A .env sitting in whatever
+// directory the server is launched from is untrusted; seeding process.env from
+// it directly would let it silently flip the SSRF controls (this module is
+// imported before config.js runs its package-relative .env load). We copy the
+// benign keys through — preserving the historical "cwd .env is read" behavior,
+// including the creator secret — but never the SSRF/allowlist controls, which
+// must come from the real environment.
+const CWD_ENV_DENYLIST = new Set(['SSRF_PROTECTION_ENABLED', 'SSRF_STRICT', 'ALLOWED_DOMAINS']);
+const cwdEnv = {};
+dotenv.config({ path: '.env', quiet: true, processEnv: cwdEnv });
+for (const [key, value] of Object.entries(cwdEnv)) {
+  if (CWD_ENV_DENYLIST.has(key)) continue;
+  if (process.env[key] === undefined) process.env[key] = value; // don't override the real env
+}
 
 // SECURITY: Clear any externally-set creator mode env var to prevent bypass
 delete process.env.CRAWLFORGE_CREATOR_MODE;

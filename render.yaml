@@ -13,6 +13,9 @@ services:
     dockerContext: .
     # Render injects PORT=10000 by default. server.js / Dockerfile already
     # default to 10000, so explicit listening on $PORT works without changes.
+    # The HTTP transport binds 0.0.0.0 here automatically because Render sets
+    # RENDER=true (it defaults to loopback 127.0.0.1 everywhere else, so a local
+    # `--http` is not LAN-exposed). Set MCP_HTTP_HOST to override the bind.
     healthCheckPath: /health
     autoDeploy: true
     envVars:
