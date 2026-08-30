@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<!--
+  Condensed capture of https://next-intl.dev/docs/routing/setup (Nextra 4 +
+  Tailwind), reduced to the structure that reproduces the defect:
+
+    - `nextra-content` on <article> (matches okMaybeItsACandidate, so the
+      article itself survives — this is why the prose came back and the loss
+      looked like a complete page)
+    - `code.nextra-code` inline spans, deleted by unlikelyCandidates' `extra`
+    - `div.nextra-code … overflow-hidden` code wrappers, deleted by the
+      `hidden` inside Tailwind's overflow utility docking 25 class weight
+    - a `nextra-callout` carrying the "legacy API" warning
+
+  Prose is padded so Readability comfortably clears its character threshold and
+  picks the article without retrying with FLAG_STRIP_UNLIKELYS cleared, which is
+  what makes the loss silent on the real page.
+-->
+<html lang="en">
+<head><title>Setup locale-based routing – Internationalization (i18n) for Next.js</title></head>
+<body>
+<div class="__className_f367f3">
+<div class="_mx-auto _flex _max-w-[90rem]">
+
+<nav class="nextra-toc _order-last _w-64 _shrink-0">
+  <ul class="_px-4 nextra-scrollbar _overflow-y-auto">
+    <li><a href="#initial-setup"><code class="nextra-code">src/i18n/routing.ts</code></a></li>
+    <li><a href="#static-rendering"><code class="nextra-code">src/proxy.ts</code></a></li>
+  </ul>
+</nav>
+
+<article class="_w-full _break-words nextra-content _flex _min-w-0 _justify-center">
+<main class="_w-full _min-w-0 _max-w-6xl _px-6 _pt-4">
+
+<h1>Setup locale-based routing</h1>
+
+<p>In order to use unique pathnames for every language that your app supports, <code class="nextra-code" dir="ltr">next-intl</code> can be used to handle the following routing setups, and the choice between them depends on how your deployment is organised, how your marketing team wants the URLs to read, and whether you already own the country-level domains involved.</p>
+
+<ol>
+  <li>Prefix-based routing (e.g. <code class="nextra-code" dir="ltr">/en/about</code>)</li>
+  <li>Domain-based routing (e.g. <code class="nextra-code" dir="ltr">en.example.com/about</code>)</li>
+</ol>
+
+<p>In either case, <code class="nextra-code" dir="ltr">next-intl</code> integrates with the App Router by using a top-level dynamic segment that can be used to provide content in different languages, and the remainder of this page walks through the four files involved, in the order you will want to create them, with the configuration for each one explained as it appears.</p>
+
+<h2 id="initial-setup">Initial setup</h2>
+
+<p>To get started with locale-based routing, we will set up the following files, beginning with a central routing configuration that every other file reads from, so that the list of supported locales and the default locale are declared exactly once and stay consistent across the proxy, the navigation helpers and the request configuration.</p>
+
+<div class="Steps_root__Agcge">
+<div class="nextra-code relative overflow-hidden rounded-md bg-primary-700/5">
+<pre class="nextra-focus overflow-x-auto py-4 subpixel-antialiased" tabindex="0" data-language="ts"><code class="nextra-code" dir="ltr"><span><span>import</span><span> {defineRouting} </span><span>from</span><span> 'next-intl/routing'</span><span>;</span></span>
+<span></span>
+<span><span>export</span><span> const</span><span> routing</span><span> =</span><span> defineRouting</span><span>({</span></span>
+<span><span>  locales: ['en', 'de'],</span></span>
+<span><span>  defaultLocale: 'en'</span></span>
+<span><span>});</span></span></code></pre>
+</div>
+
+<p>Depending on your requirements, you may wish to customize your routing configuration later, adding domain definitions or per-locale pathnames, but it is easier to finish the setup with the defaults in place first and confirm that a request actually reaches the right page before layering anything else on top of it.</p>
+
+<div class="nextra-code relative overflow-hidden rounded-md bg-primary-700/5">
+<pre class="nextra-focus overflow-x-auto py-4 subpixel-antialiased" tabindex="0" data-language="ts"><code class="nextra-code" dir="ltr"><span><span>import</span><span> createMiddleware </span><span>from</span><span> 'next-intl/middleware'</span><span>;</span></span>
+<span><span>export</span><span> default</span><span> createMiddleware</span><span>(routing);</span></span></code></pre>
+</div>
+</div>
+
+<h2 id="static-rendering">Static rendering</h2>
+
+<div class="nextra-callout _overflow-x-auto _mt-6 _rounded-lg _border">
+<div class="_select-none _text-xl">⚠️</div>
+<div class="_w-full _min-w-0 _leading-7"><code class="nextra-code" dir="ltr">setRequestLocale</code> is a legacy API that was added until <code class="nextra-code" dir="ltr">next/root-params</code> was introduced. It is still supported for backwards compatibility, but it is recommended to use <code class="nextra-code" dir="ltr">next/root-params</code> instead.</div>
+</div>
+
+<p>When using locale-based routing, <code class="nextra-code" dir="ltr">next-intl</code> will currently opt into dynamic rendering when APIs like <code class="nextra-code" dir="ltr">useTranslations</code> are used in Server Components. This is a limitation that we aim to remove in the future, but as a stopgap solution there is a temporary API that can be used to enable static rendering for the routes that need it.</p>
+
+<div class="nextra-code relative overflow-hidden rounded-md bg-primary-700/5">
+<pre class="nextra-focus overflow-x-auto py-4 subpixel-antialiased" tabindex="0" data-language="tsx"><code class="nextra-code" dir="ltr"><span><span>import</span><span> {setRequestLocale} </span><span>from</span><span> 'next-intl/server'</span><span>;</span></span>
+<span></span>
+<span><span>export</span><span> default</span><span> async</span><span> function</span><span> LocaleLayout</span><span>({children, params}) {</span></span>
+<span><span>  const</span><span> {locale} </span><span>=</span><span> await</span><span> params;</span></span>
+<span><span>  // Enable static rendering</span></span>
+<span><span>  setRequestLocale</span><span>(locale);</span></span>
+<span><span>}</span></span></code></pre>
+</div>
+
+<p>Keep in mind that the locale you pass to it should be validated in your root layout, that you need to call this function in every page and every layout that you intend to enable static rendering for, and that it has to run before you invoke any other function from the library or the request-scoped store will not have been populated yet.</p>
+
+</main>
+</article>
+
+<footer class="nextra-footer _bg-gray-100">
+  <p>Presented by Crowdin. Hosted on Vercel.</p>
+</footer>
+
+</div>
+</div>
+</body>
+</html>
