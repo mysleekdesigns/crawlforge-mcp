@@ -105,7 +105,7 @@ const taskStore = createTaskStore({ logger });
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "5.5.2",
+  version: "5.5.3",
   description: "Production-ready MCP server with 29 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -1412,7 +1412,13 @@ registerToolIfEnabled("stealth_mode", {
         result = { disabled: true };
         break;
       case 'create_context': {
-        const contextData = await stealthBrowserManager.createStealthContext(stealthConfig);
+        // Forward the tool-level engine the same way operation:"scrape" does —
+        // without it, create_context always ran on chromium whatever the caller
+        // asked for ("playwright" is this tool's public name for chromium).
+        const contextData = await stealthBrowserManager.createStealthContext({
+          ...(stealthConfig || {}),
+          engine: engine === 'camoufox' ? 'camoufox' : 'chromium'
+        });
         // The full fingerprint is ~4 KB of canvas noise arrays and WebGL
         // extension lists no caller acts on. Summarise by default; verbose:true
         // still returns all of it for debugging a detection failure.

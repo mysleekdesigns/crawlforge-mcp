@@ -5,6 +5,16 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.5.3] - 2026-08-30
+
+Patch release from a 69-call live sweep of all 29 tools against sites not used in any earlier round. Two defects, both found by verifying engine behavior and field values rather than trusting success flags.
+
+### Fixed
+
+- **`stealth_mode` silently ran Chromium when `engine: "camoufox"` was requested and a browser was already running.** `createStealthContext` only called `launchStealthBrowser` when no browser existed, skipping the engine-mismatch guard inside it — so the first playwright scrape in a server's lifetime pinned every later camoufox request to Chromium. The result looked healthy (real content, no error), and user-agent strings cannot expose it because the fingerprint randomizer assigns Chrome-like UAs to Firefox and vice versa; a `CSS.supports('-moz-appearance')` probe was needed to prove which engine served the page. The context path now always routes through `launchStealthBrowser`, whose guard tears down a mismatched browser and relaunches the requested engine. `create_context` additionally never forwarded the tool-level `engine` parameter at all — it does now, mapped the same way `operation: "scrape"` maps it.
+
+- **`extract_structured` returned a confident placeholder for a required field whose value is plainly on the page.** On git-scm.com, Readability's main-content pass drops the version box, so the model saw no version and answered `"N/A"` with confidence 0.9. The 5.5.1 full-text retry never fired because it triggers on provenance-nulled required fields, and a placeholder carries no digits for the guard to check. Required fields answered with a placeholder (`null`, empty, `N/A`, `none`, `unknown`, `not available/found/specified`) now count as missing: they trigger the same single full-text retry, and a retry is kept only when strictly fewer required fields are missing, so a retry can never make the result worse. git-scm.com now returns the correct version with `provenance.verified: 1`.
+
 ## [5.5.2] - 2026-08-30
 
 Patch release fixing a silent content loss in main-content extraction that affected documentation sites in particular — the pages an agent is most likely to scrape.

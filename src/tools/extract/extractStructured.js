@@ -192,6 +192,14 @@ export class ExtractStructuredTool {
       // the model was shown would null every correct price.
       const fullSource = `${html}\n${textContent}`;
 
+      // A model that saw no answer sometimes fills a required field with a
+      // placeholder ("N/A", "unknown") instead of null. That carries no digits,
+      // so the provenance guard has nothing to check and the retry below never
+      // fired — git-scm.com is the case that found this: Readability drops the
+      // version box, the model answered "N/A", and the page plainly says 2.55.0.
+      const isPlaceholder = (v) => v == null ||
+        (typeof v === 'string' && (v.trim() === '' || /^(n\/?a|none|null|unknown|not (available|found|specified))$/i.test(v.trim())));
+
       /** Run the guard over one extraction and describe what it did. */
       const applyGuard = (result) => {
         const checked = verifyNumericProvenance(result.data || {}, fullSource);
@@ -201,9 +209,14 @@ export class ExtractStructuredTool {
         const nulledRequired = checked.unverified
           .map((entry) => entry.path)
           .filter((path) => (schema.required || []).includes(path));
+        // Retry currency: required fields with no usable answer, whether the
+        // guard nulled them or the model handed back a placeholder.
+        const missingRequired = (schema.required || [])
+          .filter((path) => nulledRequired.includes(path) || isPlaceholder(checked.data?.[path]));
         return {
           checked,
           nulledRequired,
+          missingRequired,
           result: {
             ...result,
             data: checked.data,
@@ -234,7 +247,7 @@ export class ExtractStructuredTool {
         // which is exactly what the guard will accept. Only a strictly better
         // result is kept, so a retry can never make the answer worse.
         const shownText = mainContentText($, html, url) || textContent;
-        if (guarded.nulledRequired.length > 0 && shownText !== textContent && textContent) {
+        if (guarded.missingRequired.length > 0 && shownText !== textContent && textContent) {
           try {
             const llm = this._ensureLLMManager(llmConfig || {});
             const retry = await llm.extractStructured(textContent, schema, {
@@ -243,7 +256,7 @@ export class ExtractStructuredTool {
             });
             if (retry?.method === 'llm') {
               const retryGuarded = applyGuard(retry);
-              if (retryGuarded.nulledRequired.length < guarded.nulledRequired.length) {
+              if (retryGuarded.missingRequired.length < guarded.missingRequired.length) {
                 guarded = retryGuarded;
               }
             }
