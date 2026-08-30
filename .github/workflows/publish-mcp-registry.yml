@@ -40,3 +40,39 @@ jobs:
 
       - name: Publish server to MCP Registry
         run: ./mcp-publisher publish
+
+      # `mcp-publisher publish` exiting 0 only means the registry accepted the
+      # request. Read the version back before calling the release done.
+      #
+      # The registry keeps EVERY published version as its own record under the
+      # same name (23 of them by 5.5.2), newest not guaranteed last, so the only
+      # correct read is: filter to our exact name, then take the record flagged
+      # isLatest. Taking .servers[0] returns a years-old version and reads as a
+      # failed publish.
+      - name: Verify the registry serves the version we just published
+        run: |
+          EXPECTED=$(jq -r '.version' server.json)
+          NAME=$(jq -r '.name' server.json)
+          SEARCH=$(jq -r '.packages[0].identifier' server.json)
+
+          for attempt in $(seq 1 10); do
+            LATEST=$(curl -sSf "https://registry.modelcontextprotocol.io/v0/servers?search=${SEARCH}&limit=100" \
+              | jq -r --arg n "$NAME" '
+                  [ .servers[]
+                    | select(.server.name == $n)
+                    | select(._meta["io.modelcontextprotocol.registry/official"].isLatest == true)
+                    | .server.version ]
+                  | first // ""
+                ')
+
+            if [ "$LATEST" = "$EXPECTED" ]; then
+              echo "MCP Registry serves $NAME $LATEST (isLatest)."
+              exit 0
+            fi
+
+            echo "attempt $attempt: registry isLatest is '${LATEST:-<none>}', want '$EXPECTED' — retrying in 10s"
+            sleep 10
+          done
+
+          echo "::error::MCP Registry did not serve $EXPECTED as isLatest after 10 attempts (last saw '${LATEST:-<none>}')."
+          exit 1
