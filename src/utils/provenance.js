@@ -47,7 +47,7 @@ const CURRENCY_SYMBOLS = /\p{Sc}/gu;
 const NUMERIC_STRING = /^[+-]?\d+(?:[.,]\d{3})*(?:[.,]\d+)?$/;
 
 /** Chained markup between digits (`<span>1</span><span>299</span>`) is welded. */
-const MARKUP_BETWEEN_DIGITS = /(\d)(?:\s*<[^>]{0,120}>\s*)+([\d.,])/g;
+const MARKUP_BETWEEN_DIGITS = /(\d)(?:(?:\s*<[^>]{0,120}>)+\s*)([\d.,])/g;
 const MAX_WELD_PASSES = 3;
 
 /**
