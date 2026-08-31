@@ -13,6 +13,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import { EventEmitter } from 'node:events';
+import { spawnSync } from 'node:child_process';
 import {
   sendWebhookNotification,
   sendSlackNotification,
@@ -69,5 +70,68 @@ describe('track_changes notifier SSRF guard', () => {
 
     assert.ok(error, 'expected the notifier to report an error');
     assert.match(error, /SSRF Protection/);
+  });
+});
+
+describe('track_changes notifier timeout', () => {
+  // Subprocess, because ALLOWED_DOMAINS is read when the guard's config module
+  // is imported — the same reason ssrfGuard.test.js spawns for its redirect
+  // test. The allowlist is what lets this reach a loopback fixture at all.
+  const notifierUrl = new URL('../../src/tools/tracking/trackChanges/notifier.js', import.meta.url)
+    .href;
+
+  test('a webhook endpoint that never answers is abandoned, not awaited forever', () => {
+    const script = `
+      import http from 'node:http';
+      import { EventEmitter } from 'node:events';
+      import { sendWebhookNotification } from '${notifierUrl}';
+
+      // Accepts the connection and then says nothing, ever.
+      const server = http.createServer(() => {});
+
+      server.listen(0, '127.0.0.1', async () => {
+        const port = server.address().port;
+        const emitter = new EventEmitter();
+        let error = null;
+        emitter.on('notificationError', (e) => { error = e.error; });
+
+        const startedAt = Date.now();
+        await sendWebhookNotification(
+          'https://example.com/watched',
+          { significance: 'minor', changeType: 'content_change',
+            summary: { changeDescription: 'x' }, details: {} },
+          { url: 'http://127.0.0.1:' + port + '/hook', enabled: true },
+          emitter
+        );
+        const elapsed = Date.now() - startedAt;
+
+        process.stdout.write(JSON.stringify({ error, elapsed }));
+        server.close(() => process.exit(0));
+      });
+    `;
+
+    const env = {
+      ...process.env,
+      ALLOWED_DOMAINS: '127.0.0.1',
+      TRACK_CHANGES_NOTIFY_TIMEOUT_MS: '400',
+    };
+    delete env.SSRF_PROTECTION_ENABLED;
+
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env,
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+
+    assert.equal(result.status, 0, `subprocess failed: ${result.stderr}`);
+    const parsed = JSON.parse(result.stdout);
+
+    // It has to return, and it has to say why — a silent success would mean the
+    // notification was reported as delivered to an endpoint that never replied.
+    assert.ok(parsed.error, 'expected the notifier to report an error');
+    assert.match(parsed.error, /abort|timeout|timed out/i);
+    // Comfortably under the 30s default: proof the send was bounded by the
+    // signal rather than by the subprocess timeout or the OS.
+    assert.ok(parsed.elapsed < 10000, `took ${parsed.elapsed}ms — the signal did not bound it`);
   });
 });

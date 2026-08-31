@@ -11,6 +11,18 @@ import { identityHeaders } from '../../../utils/fetchIdentity.js';
 import { safeFetch } from '../../../utils/ssrfGuard.js';
 
 /**
+ * How long to wait on a notification endpoint before giving up.
+ *
+ * fetch/undici has no `timeout` RequestInit option, so without an explicit
+ * signal a webhook target that accepts the connection and then never answers
+ * holds the request open forever. These sends are awaited together in
+ * `sendNotifications`, so one unresponsive endpoint stalls every notification
+ * for that change, not just its own. `WebhookDispatcher` hit exactly this and
+ * documents it; 30s matches the default it settled on.
+ */
+const NOTIFY_TIMEOUT_MS = Number(process.env.TRACK_CHANGES_NOTIFY_TIMEOUT_MS) || 30000;
+
+/**
  * Send all enabled notifications for a detected change.
  * @param {string} url
  * @param {Object} changeResult
@@ -52,7 +64,8 @@ export async function sendWebhookNotification(url, changeResult, webhookConfig, 
         ...identityHeaders({ role: 'webhook' }),
         ...webhookConfig.headers
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(NOTIFY_TIMEOUT_MS)
     });
 
     if (!response.ok) {
@@ -97,7 +110,8 @@ export async function sendSlackNotification(url, changeResult, slackConfig, emit
     const response = await safeFetch(slackConfig.webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(NOTIFY_TIMEOUT_MS)
     });
 
     if (!response.ok) {
