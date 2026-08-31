@@ -5,6 +5,28 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.5.6] - 2026-08-30
+
+Security hardening (defense-in-depth). No behaviour change for normal use.
+
+### Security
+- The `--http` transport now binds loopback (`127.0.0.1`) by default instead of
+  `0.0.0.0`, so a local HTTP server is not exposed to the LAN. Managed hosts stay
+  reachable: Render sets `RENDER=true` (binds `0.0.0.0`), and the new
+  `MCP_HTTP_HOST` env var overrides the bind on any other platform.
+- Creator mode bypasses per-request HTTP auth only on a loopback bind. On a
+  public interface the server now authenticates every request and warns at
+  startup, instead of serving an unauthenticated MCP endpoint.
+- A `.env` in the current working directory can no longer set
+  `SSRF_PROTECTION_ENABLED`, `SSRF_STRICT` or `ALLOWED_DOMAINS`. It is read into
+  an isolated object and only non-SSRF keys are copied through, so a `.env`
+  planted in a launch directory cannot weaken the SSRF guard.
+- `setup.js` writes the API-key-bearing MCP client configs with mode `0o600`.
+
+### Changed
+- `crawlforge-extractors` dependency bumped to `^1.5.3` (buffered-body size cap,
+  own-property JSON path traversal).
+
 ## [5.5.5] - 2026-08-30
 
 Security patch.
