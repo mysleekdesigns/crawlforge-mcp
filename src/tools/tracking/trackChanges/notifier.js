@@ -5,6 +5,10 @@
  */
 
 import { identityHeaders } from '../../../utils/fetchIdentity.js';
+// Webhook and Slack targets are caller-supplied URLs, so they go out through the
+// same guard as every other outbound request. WebhookDispatcher already did this;
+// these two senders were the only ones left calling bare fetch.
+import { safeFetch } from '../../../utils/ssrfGuard.js';
 
 /**
  * Send all enabled notifications for a detected change.
@@ -41,7 +45,7 @@ export async function sendWebhookNotification(url, changeResult, webhookConfig, 
       details: webhookConfig.includeContent ? changeResult.details : undefined
     };
 
-    const response = await fetch(webhookConfig.url, {
+    const response = await safeFetch(webhookConfig.url, {
       method: webhookConfig.method || 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -90,7 +94,7 @@ export async function sendSlackNotification(url, changeResult, slackConfig, emit
       username: slackConfig.username || 'Change Tracker'
     };
 
-    const response = await fetch(slackConfig.webhookUrl, {
+    const response = await safeFetch(slackConfig.webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
