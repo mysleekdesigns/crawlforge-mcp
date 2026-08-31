@@ -14,6 +14,7 @@ import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js'; // D3.1
 import { safeFetch } from '../../utils/ssrfGuard.js';
 import { preflightFetch } from '../../utils/robotsGate.js';
 import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
+import { isRemoteTransport } from '../../utils/remoteMode.js';
 
 const ProcessDocumentSchema = z.object({
   source: z.string().min(1),
@@ -147,6 +148,18 @@ export class ProcessDocumentTool {
     try {
       const validated = ProcessDocumentSchema.parse(params);
       const { source, sourceType, options, respect_robots, user_agent } = validated;
+
+      // `file` and `pdf_file` read a path straight off this machine's disk,
+      // which is the point of the tool when you are running it yourself. Served
+      // to a network, it is arbitrary file read on the host, so refuse it there
+      // rather than trusting whoever holds the key. Local use is unaffected.
+      if ((sourceType === 'file' || sourceType === 'pdf_file') && isRemoteTransport()) {
+        throw new Error(
+          `sourceType '${sourceType}' reads a local file and is only available when this server ` +
+            `runs on your own machine (stdio, or HTTP bound to loopback). Pass a URL with ` +
+            `sourceType 'url' or 'pdf_url' instead.`
+        );
+      }
 
       const result = {
         source,
