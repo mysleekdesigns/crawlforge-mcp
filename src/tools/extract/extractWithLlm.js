@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { fetchAndParse } from './_fetchAndParse.js';
 import { ollamaBaseUrl, ollamaHeaders, selectOllamaModel } from '../../utils/ollamaConfig.js';
 import { verifyNumericProvenance } from '../../utils/provenance.js';
+import { fenceUntrusted } from '../../utils/untrustedContent.js';
 // D1.3: SamplingClient for MCP sampling fallback (lazy — only imported if needed)
 let _SamplingClient = null;
 async function getSamplingClient() {
@@ -80,7 +81,9 @@ function buildUserMessage(userPrompt, text, schema) {
   if (schema && Object.keys(schema).length > 0) {
     msg += `Output schema hint:\n${JSON.stringify(schema, null, 2)}\n\n`;
   }
-  msg += `Web page content:\n${body}\n\nReturn only valid JSON.`;
+  // Fenced: the page decides this text, and un-fenced it sat at the same level
+  // as the extraction instruction above it.
+  msg += `${fenceUntrusted(body)}\nReturn only valid JSON.`;
   return { userMessage: msg, truncated, original_length };
 }
 

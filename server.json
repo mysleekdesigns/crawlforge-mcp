@@ -6,13 +6,13 @@
     "url": "https://github.com/mysleekdesigns/crawlforge-mcp",
     "source": "github"
   },
-  "version": "5.5.8",
+  "version": "5.5.9",
   "websiteUrl": "https://www.crawlforge.dev",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "crawlforge-mcp-server",
-      "version": "5.5.8",
+      "version": "5.5.9",
       "transport": {
         "type": "stdio"
       },
