@@ -5,6 +5,17 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.5.8] - 2026-08-31
+
+### Fixed
+- `track_changes` webhook and Slack notifications are now bounded by a timeout.
+  fetch/undici has no `timeout` request option, so an endpoint that accepted the
+  connection and then never answered held the send open indefinitely — and
+  because notifications for a change are awaited together, one unresponsive
+  endpoint stalled the rest of them. Defaults to 30s, matching
+  `WebhookDispatcher`; override with `TRACK_CHANGES_NOTIFY_TIMEOUT_MS`.
+
+
 ## [5.5.7] - 2026-08-31
 
 Security hardening (defense-in-depth). No behaviour change for normal use.
