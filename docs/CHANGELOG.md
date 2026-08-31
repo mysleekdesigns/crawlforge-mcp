@@ -5,6 +5,26 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.5.7] - 2026-08-31
+
+Security hardening (defense-in-depth). No behaviour change for normal use.
+
+### Security
+- `track_changes` notifications now go out through the SSRF guard. The
+  `notification.webhook.url` and `notification.slack.webhookUrl` fields are
+  caller-supplied URLs, and these two senders were the last outbound calls still
+  using bare `fetch` — `WebhookDispatcher` already used `safeFetch`. A monitor
+  could otherwise be pointed at a link-local or private address and made to POST
+  to it on every detected change.
+- `process_document` refuses `sourceType: 'file'` and `'pdf_file'` when the
+  server is bound to a non-loopback interface. Those source types resolve a path
+  against the local filesystem and read it, which is the feature when you run the
+  server yourself and arbitrary file read on the host when it is served to a
+  network. **stdio and loopback-bound HTTP are unaffected** — local use, which is
+  how the overwhelming majority of installs run, behaves exactly as before.
+  Pass a URL with `sourceType: 'url'` or `'pdf_url'` on a hosted server.
+
+
 ## [5.5.6] - 2026-08-30
 
 Security hardening (defense-in-depth). No behaviour change for normal use.
