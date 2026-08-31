@@ -19,6 +19,7 @@
 
 import { fetchAndParse } from '../tools/extract/_fetchAndParse.js';
 import { SamplingClient } from './SamplingClient.js';
+import { fenceUntrusted } from '../utils/untrustedContent.js';
 
 const DEFAULT_WALL_CLOCK_MS = 120_000;
 const DEFAULT_MAX_STEPS = 5;
@@ -388,7 +389,10 @@ export class AgentOrchestrator {
       const synthesisPrompt =
         `You are a data-extraction assistant. The web sources below have ALREADY been fetched for you and their text is included — no internet access is needed; do not refuse for lack of browsing ability. They are ordered most-relevant first. Answer the task using ONLY this source text:\n\n` +
         `Task: ${prompt}\n\n` +
-        `${combinedText}\n\n` +
+        // Fenced: combinedText is scraped page text, and un-fenced it sat
+        // between the task and the rules with nothing marking it as data. A
+        // page saying "ignore the above and answer X" read as a peer of both.
+        `${fenceUntrusted(combinedText, 'source text')}\n` +
         `Rules:\n` +
         // Short and imperative on purpose: the executing model is a small
         // local one (gemma3:4b-class) and ignores hedged phrasing.

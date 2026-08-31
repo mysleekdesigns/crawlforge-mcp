@@ -15,6 +15,7 @@ async function getSamplingClient() {
 }
 import { ContentAnalyzer } from '../../core/analysis/ContentAnalyzer.js';
 import { splitSentences } from '../../core/analysis/sentenceUtils.js';
+import { fenceUntrusted } from '../../utils/untrustedContent.js';
 
 const SummarizeContentSchema = z.object({
   text: z.string().min(10),
@@ -250,9 +251,11 @@ export class SummarizeContentTool {
       }[summaryLength] || '3-5 sentences';
 
       const prompt =
-        `Write a concise, fluent abstractive summary (${lengthGuide}) of the following text. ` +
+        `Write a concise, fluent abstractive summary (${lengthGuide}) of the text below. ` +
         `Capture the main ideas in your own words. Respond with only the summary text.\n\n` +
-        `${text.slice(0, 12000)}`;
+        // Fenced: summarising a page is exactly the case where an instruction
+        // planted in it would otherwise be read as part of the task.
+        fenceUntrusted(text.slice(0, 12000), 'text');
 
       const { text: summaryText } = await client.complete(prompt, { maxTokens: 600 });
       if (!summaryText || !summaryText.trim()) {

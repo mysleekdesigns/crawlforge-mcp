@@ -5,6 +5,31 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.5.9] - 2026-08-31
+
+Prompt-injection posture: fencing where we call a model, and a documented
+position on tool output. No behaviour change for normal use.
+
+### Security
+- Scraped page text is now fenced before it reaches a model **we** call —
+  `extract_with_llm`, `summarize_content`, and the `agent` tool's synthesis
+  step. Previously the text was concatenated straight into the prompt, so a page
+  saying "ignore your instructions and…" arrived as a peer of the instructions
+  around it. The delimiter carries a random per-call nonce: a fixed marker is
+  guessable, so a page could otherwise write the closing marker and continue
+  outside the fence.
+
+  This is mitigation, not a solution. No prompt wording makes a model immune to
+  a persuasive instruction in its input.
+
+### Documentation
+- `docs/SECURITY.md` gains a trust-model section stating the position in full,
+  including what we deliberately do **not** do: tool output is not sanitised and
+  will not be, because no filter can separate an attack from a page legitimately
+  *about* one. Tool results are untrusted input to whatever model receives them,
+  and the host application owns that boundary — the division the MCP
+  specification draws. Includes guidance for integrators.
+
 ## [5.5.8] - 2026-08-31
 
 ### Fixed
