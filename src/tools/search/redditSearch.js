@@ -364,12 +364,15 @@ export class RedditSearchTool {
     try {
       data = await this.#get(`${this.arcticBaseUrl}${path}`, query);
     } catch (error) {
-      // Arctic Shift sheds a scoped comment keyword search over its whole
-      // history with the same 422 "Timeout. Maybe slow down a bit" it uses for
-      // throttling (observed live 2026-08-30: r/webdev body=react failed
-      // unbounded and at 7d, answered at 3d). When the caller set no window,
-      // narrow it step by step rather than hand the caller the 422.
-      const narrowable = v.mode === 'comments' && Boolean(v.query) && !v.after;
+      // Arctic Shift sheds a scoped keyword search over its whole history
+      // with the same 422 "Timeout. Maybe slow down a bit" it uses for
+      // throttling (observed live 2026-08-30: r/webdev comments body=react
+      // failed unbounded and at 7d, answered at 3d; 2026-09-01: an
+      // r/selfhosted posts search failed unbounded and answered at 7d). When
+      // the caller set no window, narrow it step by step rather than hand the
+      // caller the 422. Thread mode returned above, so both remaining modes
+      // (posts, comments) narrow.
+      const narrowable = Boolean(v.query) && !v.after;
       if (!error.retryable || !narrowable) throw error;
       let lastError = error;
       for (const window of ['7d', '3d', '1d']) {
@@ -386,7 +389,7 @@ export class RedditSearchTool {
       if (!data) {
         throw new Error(
           `${lastError.message} — Arctic Shift timed out at every window (full history, 7d, 3d, 1d), ` +
-          'so its comment search is under load right now. Retry later, pass a narrower after/before, or scope to one post with link_id.'
+          'so its search is under load right now. Retry later, pass a narrower after/before, or scope to one post with link_id.'
         );
       }
       notes.push(`Arctic Shift timed out searching the full history; results are limited to the last ${windowApplied}. Pass after/before to choose the window.`);

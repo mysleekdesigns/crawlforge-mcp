@@ -701,10 +701,11 @@ describe('reddit_search Reddit-wide keyword search', () => {
   });
 });
 
-describe('reddit_search scoped comment search window ladder', () => {
-  // Arctic Shift answers a scoped comment keyword search over its whole
-  // history with the same 422 "Timeout" it uses for throttling; observed live
-  // 2026-08-30 (r/webdev body=react: unbounded and 7d failed, 3d answered).
+describe('reddit_search scoped search window ladder', () => {
+  // Arctic Shift answers a scoped keyword search over its whole history with
+  // the same 422 "Timeout" it uses for throttling; observed live 2026-08-30
+  // (r/webdev comments body=react: unbounded and 7d failed, 3d answered) and
+  // 2026-09-01 (an r/selfhosted posts search: unbounded failed, 7d answered).
   const throttled = () => ({
     ok: false, status: 422, statusText: 'Unprocessable Entity',
     headers: { get: () => null },
@@ -727,7 +728,21 @@ describe('reddit_search scoped comment search window ladder', () => {
     assert.deepEqual(requests.map(r => r.url.searchParams.get('after')), [null, null, '7d', '3d']);
   });
 
-  test('is not applied when the caller chose a window, and never to a posts search', async () => {
+  test('a scoped posts search narrows too (r/selfhosted regression)', async () => {
+    stubFetch((url) => (new URL(url).searchParams.get('after') === '7d'
+      ? okResponse({ data: [RAW_POST] })
+      : throttled()));
+    const tool = new RedditSearchTool({ retryDelayMs: 0 });
+
+    const result = await tool.execute({ query: 'paperless', subreddit: 'selfhosted', mode: 'posts', limit: 5 });
+
+    assert.equal(result.count, 1);
+    assert.equal(result.window_applied, '7d');
+    assert.match(result.notes.join('\n'), /limited to the last 7d/);
+    assert.deepEqual(requests.map(r => r.url.searchParams.get('after')), [null, null, '7d']);
+  });
+
+  test('is not applied when the caller chose a window', async () => {
     stubFetch(throttled);
     const tool = new RedditSearchTool({ retryDelayMs: 0 });
 
@@ -736,13 +751,6 @@ describe('reddit_search scoped comment search window ladder', () => {
       /Timeout\. Maybe slow down a bit/
     );
     assert.equal(requests.length, 2, 'the caller\'s window is respected: one attempt plus the throttle retry');
-
-    stubFetch(throttled);
-    await assert.rejects(
-      () => tool.execute({ query: 'react', subreddit: 'webdev', mode: 'posts', limit: 5 }),
-      /Timeout\. Maybe slow down a bit/
-    );
-    assert.equal(requests.length, 2);
   });
 
   test('a non-throttle failure inside the ladder surfaces as itself', async () => {

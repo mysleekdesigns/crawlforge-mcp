@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { load } from 'cheerio';
+import { readBody } from 'crawlforge-extractors';
 import { LLMsTxtAnalyzer } from '../../core/LLMsTxtAnalyzer.js';
 import { Logger } from '../../utils/Logger.js';
 import { getBaseUrl } from '../../utils/urlNormalizer.js';
@@ -382,7 +383,8 @@ export class GenerateLLMsTxtTool {
         headers: { ...gate.headers }
       });
       if (!response.ok) return null;
-      return this.extractHomePageMetadata(await response.text());
+      // Charset-aware read; .text() decodes UTF-8 only.
+      return this.extractHomePageMetadata(await readBody(response));
     } catch {
       return null;
     } finally {

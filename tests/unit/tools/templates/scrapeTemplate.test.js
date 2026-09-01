@@ -238,22 +238,27 @@ const CASES = [
   },
 
   {
+    // Condensed from a live /products capture (2026-09-01): PH folded
+    // /posts/* into /products/* hubs whose data rides in Apollo's
+    // streaming-SSR transport, which is what the template reads now.
     id: 'producthunt-launch',
-    url: 'https://producthunt.com/posts/acme-widget',
+    url: 'https://www.producthunt.com/products/acme-widget',
     html: `<html><head>
-      <meta property="og:title" content="Acme Widget">
+      <meta property="og:title" content="Acme Widget: The best widget yet. | Product Hunt">
       <meta property="og:description" content="The best widget yet.">
       <meta property="og:image" content="https://img.example.com/ph.jpg">
-      <meta property="og:url" content="https://producthunt.com/posts/acme-widget">
+      <meta property="og:url" content="https://www.producthunt.com/products/acme-widget">
     </head><body>
-      <a href="/topics/productivity">Productivity</a>
-      <a data-test="product-link" href="https://acme.example.com">Visit</a>
+      <a href="https://acme.example.com?ref=producthunt" data-test="visit-website-button">Visit website</a>
+      <script>(window[Symbol.for("ApolloSSRDataTransport")] ??= []).push({"rehydrate":{"_R_1":{"data":{"product":{"__typename":"Product","id":"1","slug":"acme-widget","name":"Acme Widget","tagline":"The best widget yet.","description":"A widget.","websiteUrl":"https://acme.example.com","followersCount":42,"reviewsCount":7,"reviewsRating":4.5,"categories":[{"__typename":"ProductCategory","name":"Productivity","slug":"productivity"}]}}}}})</script>
     </body></html>`,
     assert: (data) => {
       assert.equal(data.name, 'Acme Widget');
       assert.equal(data.tagline, 'The best widget yet.');
       assert.deepEqual(data.topics, ['Productivity']);
       assert.equal(data.website, 'https://acme.example.com');
+      assert.equal(data.followers, 42);
+      assert.equal(data.reviews_rating, 4.5);
     }
   },
 

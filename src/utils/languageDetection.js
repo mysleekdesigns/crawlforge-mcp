@@ -214,12 +214,17 @@ export function detectLanguage(text, options = {}) {
 
     const confidence = Math.min(1, 0.5 + (text.length / 500) * 0.5);
 
+    // francAll scores are similarity relative to the winner (whose own score
+    // is 1), while `confidence` above is length-based — two different scales.
+    // Printed raw, a runner-up could read 0.82 against a winner shown at 0.8.
+    // Scaling by the winner's confidence keeps the ranking and the invariant
+    // that no alternative outranks the pick.
     const alternative = francAll(text, { minLength, whitelist: Object.keys(LANGUAGE_NAMES) })
       .slice(1, 4)
       .map(([code, score]) => ({
         code,
         name: LANGUAGE_NAMES[code] || code,
-        confidence: Math.round(score * 100) / 100
+        confidence: Math.round(score * confidence * 100) / 100
       }));
 
     return {
