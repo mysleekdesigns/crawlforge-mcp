@@ -3,6 +3,7 @@
  * URL content fetching and history/stat helper functions.
  */
 
+import { readBody } from 'crawlforge-extractors';
 import { safeFetch } from '../../../utils/ssrfGuard.js';
 import { preflightFetch } from '../../../utils/robotsGate.js';
 import { noteRetryAfter } from '../../../utils/hostRateLimiter.js';
@@ -81,7 +82,10 @@ export async function fetchContent(url, options = {}) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const content = await response.text();
+    // Charset-aware read; .text() decodes UTF-8 only, and mojibake here
+    // would both corrupt the reported diff and fake changes on a page whose
+    // bytes never moved.
+    const content = await readBody(response);
 
     return {
       content,
@@ -96,7 +100,11 @@ export async function fetchContent(url, options = {}) {
       }
     };
   } catch (error) {
-    throw new Error(`Failed to fetch content: ${error.message}`);
+    // undici reports every network failure as bare "fetch failed" and puts
+    // the real reason (ENOTFOUND, ECONNREFUSED, timeout) in error.cause —
+    // without it, a dead host and a typoed domain read identically.
+    const cause = error.cause?.message ? ` (${error.cause.message})` : '';
+    throw new Error(`Failed to fetch content: ${error.message}${cause}`);
   }
 }
 

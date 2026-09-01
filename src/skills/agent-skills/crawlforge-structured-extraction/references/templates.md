@@ -12,7 +12,7 @@ to enumerate at runtime. Cost: 1 credit per call.
 | `youtube-video` | YouTube watch page | title, channel, views, likes, published date, description |
 | `reddit-thread` | Reddit post (read from the Arctic Shift archive, not reddit.com, which blocks plain fetchers) | id, title, subreddit, author, score, upvote_ratio, num_comments, posted, body, link_url, flair, removed. Pass `id` to `reddit_search` with `mode:"thread"` for the comment tree |
 | `hacker-news-front-page` | HN front page | ranked stories: title, URL, points, author, comment count |
-| `producthunt-launch` | Product Hunt launch | name, tagline, upvotes, maker, description |
+| `producthunt-launch` | Product Hunt product page (`/products/...`; old `/posts/...` links redirect there) | name, tagline, description, topics, website, followers, reviews_count, reviews_rating. The /products layout has no product-level vote count — followers and reviews are its engagement numbers |
 | `stackoverflow-question` | Stack Overflow question (read from the keyless Stack Exchange API, not the page) | title, body, votes, views, tags, author, asked, answered, accepted_answer_id, answer_count, top 5 answers (accepted first: votes, author, posted, body) |
 | `npm-package` | npm package page | name, version, description, weekly downloads, license, repo link |
 

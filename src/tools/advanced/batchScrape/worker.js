@@ -5,6 +5,7 @@
  */
 
 import { load } from 'cheerio';
+import { readBody } from 'crawlforge-extractors';
 import { config as appConfig } from '../../../constants/config.js';
 import { ssrfGuard, isSsrfError } from '../../../utils/ssrfGuard.js';
 import { noteRetryAfter } from '../../../utils/hostRateLimiter.js';
@@ -36,7 +37,10 @@ export async function fetchUrl(url, options = {}) {
     if (response.status === 429 || response.status === 503) {
       noteRetryAfter(url, response.headers?.get?.('retry-after'));
     }
-    const html = await readBodyCapped(response, maxBodySize);
+    // crawlforge-extractors' readBody: same size cap, but decoded with the
+    // body's real charset — the local reader this replaces decoded everything
+    // as UTF-8, which turned lua.org's ISO-8859-1 "português" into "portugu�s".
+    const html = await readBody(response, { maxBytes: maxBodySize });
     return { response, html, warnings: gate.warnings };
   } catch (error) {
     if (isSsrfError(error)) throw new Error(error.cause?.message || error.message);
@@ -48,47 +52,6 @@ export async function fetchUrl(url, options = {}) {
     // the initial headers.
     clearTimeout(timeoutId);
   }
-}
-
-/**
- * Read a Response body as text, enforcing maxBodySize (Content-Length
- * pre-check, then a running byte count while streaming). Falls back to plain
- * .text() for responses without a streamable body (e.g. test mocks).
- */
-async function readBodyCapped(response, maxBodySize) {
-  const contentLengthHeader = response.headers?.get?.('content-length') ?? null;
-  if (contentLengthHeader !== null) {
-    const declared = parseInt(contentLengthHeader, 10);
-    if (!isNaN(declared) && declared > maxBodySize) {
-      throw new Error(`Response body too large: Content-Length ${declared} exceeds limit of ${maxBodySize} bytes`);
-    }
-  }
-
-  if (!response.body || typeof response.body.getReader !== 'function') {
-    return response.text();
-  }
-
-  const reader = response.body.getReader();
-  const chunks = [];
-  let totalBytes = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    totalBytes += value.byteLength;
-    if (totalBytes > maxBodySize) {
-      reader.cancel();
-      throw new Error(`Response body too large: exceeded limit of ${maxBodySize} bytes`);
-    }
-    chunks.push(value);
-  }
-
-  const merged = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    merged.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(merged);
 }
 
 /**

@@ -38,6 +38,16 @@ server = http.createServer(async (req, res) => {
   if (p.startsWith('/gate/')) {
     await new Promise((resolve) => gates.set(p, resolve));
   }
+  if (p === '/latin1') {
+    // lua.org regression: an ISO-8859-1 page whose accented characters only
+    // decode correctly when the declared charset is honoured.
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=iso-8859-1' });
+    res.end(Buffer.from(
+      '<html><head><title>Programação em Lua</title></head><body><h1>Programação</h1><p>versão em português</p></body></html>',
+      'latin1'
+    ));
+    return;
+  }
   res.writeHead(200, { 'Content-Type': 'text/html' });
   res.end(`<html><head><title>Page ${p}</title></head><body><h1>Page ${p}</h1></body></html>`);
 });
@@ -122,6 +132,20 @@ describe('BatchScrapeTool (real module) — sync mode', () => {
     assert.equal(result.totalUrls, 2);
     assert.equal(result.successfulUrls, 2);
     assert.equal(result.results.length, 2);
+  });
+
+  test('an ISO-8859-1 page decodes with its declared charset (lua.org regression)', async () => {
+    const tool = makeTool();
+    const result = await tool.execute({
+      urls: [`${baseUrl}/latin1`],
+      mode: 'sync',
+      formats: ['text'],
+      delayBetweenRequests: 0
+    });
+    assert.equal(result.successfulUrls, 1);
+    const text = result.results[0].content.text;
+    assert.match(text, /versão em português/, 'accented characters must survive decoding');
+    assert.doesNotMatch(text, /�/, 'no replacement characters');
   });
 
   test('a failing URL (connection refused) is reported without failing the whole batch', async () => {

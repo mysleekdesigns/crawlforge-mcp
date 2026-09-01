@@ -128,6 +128,44 @@ test('a lower-specificity show rule does not override a hide rule', () => {
   assert.doesNotMatch($.text(), /Sold out/, 'the more specific hide rule wins the cascade');
 });
 
+test('a rule nested inside another rule never reads as top-level', () => {
+  // legalblogs.wolterskluwer.com ships native CSS nesting:
+  //   .aside-container.is-closed .aside-header{ ... a{display:none;} }
+  // The inner rule hides links only in a closed sidebar pane; the flat regex
+  // this guards against read it as a bare a{display:none} and deleted 56 of
+  // the article's 68 anchors before markdown conversion.
+  const css =
+    '.aside-container.is-closed .aside-header{display:block;padding:inherit;h6{display:none;}a{display:none;}}' +
+    '.gone{display:none}';
+  const { hide } = collectVisibilitySelectors(css);
+  const selectors = hide.map(r => r.selector);
+  assert.ok(!selectors.includes('a'), 'nested a{display:none} must not become top-level');
+  assert.ok(!selectors.includes('h6'), 'nested h6{display:none} must not become top-level');
+  assert.ok(selectors.includes('.gone'), 'rules after a nested block still parse');
+
+  const $ = load('<p>see the ruling <a href="https://example.org/a">here</a> and <a href="https://example.org/b">here</a></p>');
+  stripHiddenFromDom($, { css });
+  assert.equal($('a').length, 2, 'article anchors survive nested hide rules');
+});
+
+test('declarations before and after a nested block still count', () => {
+  // The rule's own display:none must survive the nested-block skip, wherever
+  // the nested block sits among the declarations.
+  const css = '.overlay{display:none;a{color:red}}.badge{span{color:blue}display:none}';
+  const { hide } = collectVisibilitySelectors(css);
+  const selectors = hide.map(r => r.selector);
+  assert.ok(selectors.includes('.overlay'), 'declaration before the nested block is kept');
+  assert.ok(selectors.includes('.badge'), 'declaration after the nested block is kept');
+  assert.ok(!selectors.includes('a') && !selectors.includes('span'));
+});
+
+test('an unclosed rule at end of input is dropped', () => {
+  // Linked stylesheets are size-capped upstream, so truncation mid-rule is
+  // real; a partial body must not produce a hide rule.
+  const { hide } = collectVisibilitySelectors('.kept{display:none}.truncated{display:none;');
+  assert.deepEqual(hide.map(r => r.selector), ['.kept']);
+});
+
 test('progressive-enhancement no-js rules never hide content', () => {
   // Themes ship <html class="no-js"> and swap it to "js" on load, so static
   // markup always looks like the no-JS case.

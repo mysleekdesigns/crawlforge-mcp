@@ -5,6 +5,56 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.6.0] - 2026-09-01
+
+Everything found by the Round 12 live regression (29 tools, all-new sites,
+2026-09-01), fixed. Three defects, one archive-availability gap, two cosmetics.
+
+### Fixed
+- **`scrape` no longer silently drops inline links on pages whose CSS uses
+  native nesting.** The hidden-content stripper parsed stylesheets with a flat
+  regex that read a nested rule as a top-level one: legalblogs.wolterskluwer.com
+  ships `.aside-container.is-closed .aside-header{ … a{display:none;} }` — links
+  hidden only in a closed sidebar pane — and the stripper read the inner rule as
+  a bare `a{display:none}`, deleting 56 of an article's 68 anchors (text and
+  URL both) before markdown conversion. The rule scanner is now depth-aware:
+  only top-level declarations are honoured and nested blocks are skipped —
+  conservative, since a skipped hide rule keeps content. A rule left unclosed by
+  the stylesheet size cap is dropped for the same reason.
+- **`batch_scrape`, `crawl_deep`, `generate_llms_txt` and `track_changes` now
+  decode non-UTF-8 pages correctly.** Their fetch paths read bodies with plain
+  UTF-8 decoding, so lua.org (ISO-8859-1) came back as "portugu�s" in batch text
+  and "Programa��o" in generated llms.txt while `extract_text` on the same URL
+  was clean. All four now read through crawlforge-extractors' `readBody` — the
+  same charset-aware, size-capped reader the single-page tools and the REST API
+  already used. For `track_changes`, mojibake would also have faked diffs on
+  pages whose bytes never moved.
+- **`track_changes` names the cause of a fetch failure.** undici reports every
+  network failure as bare "fetch failed" with the real reason in `error.cause`;
+  a dead host and a typoed domain read identically until now.
+
+### Changed
+- **`reddit_search` extends the 7d/3d/1d window ladder to scoped POSTS
+  searches.** Arctic Shift sheds a full-history posts search with the same 422
+  "Timeout" it uses for throttling (an r/selfhosted search failed unbounded and
+  answered at 7d, observed live 2026-09-01); only comment searches narrowed
+  before. `window_applied` reports which window answered, as it did for
+  comments.
+- **`analyze_content` language alternatives can no longer print a higher
+  confidence than the picked language.** The pick's confidence is length-based
+  while alternatives carried franc's relative-similarity scores — two scales in
+  one field (Italian picked at 0.8 with an alternative printing 0.82).
+  Alternatives are now scaled by the pick's confidence, preserving their order.
+- **crawlforge-extractors 1.5.3 → 1.6.0** (see that repo's v1.6.0 release
+  notes): `producthunt-launch` reworked for Product Hunt's /products layout
+  (reads the Apollo streaming-SSR transport; `votes` — gone from the layout —
+  replaced by `followers`/`reviews_count`/`reviews_rating`), `amazon-product`
+  names Amazon's HTTP-200 captcha interstitial instead of returning a silent
+  all-null record, every entity template refuses an all-empty record,
+  `ashby-jobs` descriptions become opt-in via `descriptions: true` with
+  `company` reporting the board slug, and `extract_embedded_state` learns the
+  ApolloSSRDataTransport source.
+
 ## [5.5.9] - 2026-08-31
 
 Prompt-injection posture: fencing where we call a model, and a documented

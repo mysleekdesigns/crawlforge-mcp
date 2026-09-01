@@ -1,4 +1,5 @@
 import { load } from 'cheerio';
+import { readBody } from 'crawlforge-extractors';
 import { QueueManager } from '../queue/QueueManager.js';
 import { CacheManager } from '../cache/CacheManager.js';
 import { RateLimiter } from '../../utils/rateLimiter.js';
@@ -366,7 +367,9 @@ export class BFSCrawler {
         throw new Error(`Non-HTML content type: ${contentType}`);
       }
 
-      const html = await response.text();
+      // readBody decodes with the body's real charset — response.text() is
+      // UTF-8-only and mangled ISO-8859-1 pages ("portugu�s" on lua.org).
+      const html = await readBody(response);
       return this.parsePage(html, url);
     } catch (error) {
       clearTimeout(timeoutId);

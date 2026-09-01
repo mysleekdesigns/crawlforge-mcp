@@ -113,6 +113,61 @@ function specificity(selector) {
 }
 
 /**
+ * Iterate a stylesheet's top-level rules as {selector, body}, skipping any
+ * block nested inside a rule's body.
+ *
+ * The flat regex this replaces — ([^{}]+)\{([^{}]*)\} — had no concept of
+ * native CSS nesting, so it read a nested rule as a top-level one under its
+ * inner selector. legalblogs.wolterskluwer.com ships
+ *   .cg-splitpane-aside-container.cg-is-closed .cg-splitpane-aside-header-cstm{
+ *     ... h6{display:none;} a{display:none;} }
+ * — links hidden only in a closed sidebar pane — which the stripper read as a
+ * bare a{display:none} and deleted 56 of an article's 68 anchors. Nested rules
+ * are skipped rather than resolved: expanding them into full descendant
+ * selectors needs a real CSS parser, and skipping errs on keeping content.
+ * A rule left unclosed at end of input (stylesheets are size-capped upstream,
+ * so truncation mid-rule is real) is dropped for the same reason.
+ */
+function* topLevelRules(css) {
+  const n = css.length;
+  let i = 0;
+  let selStart = 0;
+  while (i < n) {
+    const ch = css[i];
+    if (ch === '{') {
+      const selector = css.slice(selStart, i);
+      let depth = 1;
+      let j = i + 1;
+      let segStart = j;
+      let body = '';
+      while (j < n && depth > 0) {
+        const c = css[j];
+        if (c === '{') {
+          if (depth === 1) {
+            // The text since the last ';' is the nested rule's selector, not a
+            // declaration of this rule — keep only the completed declarations.
+            const seg = css.slice(segStart, j);
+            body += seg.slice(0, seg.lastIndexOf(';') + 1);
+          }
+          depth++;
+        } else if (c === '}') {
+          depth--;
+          if (depth === 1) segStart = j + 1;
+          else if (depth === 0) body += css.slice(segStart, j);
+        }
+        j++;
+      }
+      if (depth === 0) yield { selector, body };
+      i = j;
+      selStart = j;
+    } else {
+      if (ch === '}') selStart = i + 1; // stray close — resync
+      i++;
+    }
+  }
+}
+
+/**
  * Parse CSS into rules that hide content and rules that re-show it, each
  * carrying the specificity and source order a browser would use to resolve
  * the conflict.
@@ -125,13 +180,9 @@ export function collectVisibilitySelectors(css) {
   if (!css) return { hide, show };
 
   const flat = stripConditionalBlocks(css);
-  const rule = /([^{}]+)\{([^{}]*)\}/g;
-  let m;
   let order = 0;
 
-  while ((m = rule.exec(flat)) !== null) {
-    const selectorList = m[1];
-    const body = m[2];
+  for (const { selector: selectorList, body } of topLevelRules(flat)) {
     order++;
 
     const display = /(?:^|[;{\s])display\s*:\s*([a-z-]+)/i.exec(body);

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { load } from 'cheerio';
+import { readBody } from 'crawlforge-extractors';
 import { MapSiteTool } from '../tools/crawl/mapSite.js';
 import { CrawlDeepTool } from '../tools/crawl/crawlDeep.js';
 import { normalizeUrl, getBaseUrl } from '../utils/urlNormalizer.js';
@@ -240,7 +241,7 @@ export class LLMsTxtAnalyzer {
       // Look for API documentation references
       const mainPageResponse = await this.fetchWithTimeout(baseUrl);
       if (mainPageResponse.ok) {
-        const html = await mainPageResponse.text();
+        const html = await readBody(mainPageResponse);
         const $ = load(html);
         
         // Find API documentation links
@@ -490,7 +491,7 @@ export class LLMsTxtAnalyzer {
       const robotsUrl = `${baseUrl}/robots.txt`;
       const response = await this.fetchWithTimeout(robotsUrl);
       if (response.ok) {
-        return await response.text();
+        return await readBody(response);
       }
     } catch {
       // No robots.txt found
@@ -677,7 +678,9 @@ export class LLMsTxtAnalyzer {
       }
 
       const contentType = response.headers.get('content-type') || '';
-      const html = await response.text();
+      // Charset-aware read; .text() decodes UTF-8 only and mangled
+      // ISO-8859-1 page titles in the generated llms.txt.
+      const html = await readBody(response);
       const $ = load(html);
 
       // Check for forms
