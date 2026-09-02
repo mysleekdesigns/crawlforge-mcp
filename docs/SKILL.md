@@ -285,8 +285,8 @@ Returns titles, URLs, snippets. Supports `lang`, `site` (domain filter),
 
 ## reddit_search (cost: 5)
 
-reddit.com 403-blocks direct scraping, so this queries the Arctic Shift and
-PullPush community archives instead (free, no Reddit credentials).
+reddit.com 403-blocks direct scraping, so this reads the Arctic Shift community
+archive instead (free, no Reddit credentials).
 
 ```json
 {
@@ -297,8 +297,10 @@ PullPush community archives instead (free, no Reddit credentials).
 
 Modes: `posts` (default), `comments`, and `thread` (a post plus its nested
 comment tree via `link_id`). Scope with `subreddit`/`author` for near-real-time
-results (Arctic Shift); an unscoped `query` searches all of Reddit via PullPush
-(best-effort — it rate-limits aggressively). `after`/`before` accept ISO dates,
+results (Arctic Shift); an unscoped `query` searches all of Reddit via web
+discovery — a site-restricted web search finds posts, then they are read from the
+archive by ID (max 10 per call, ordered by relevance, and `after`/`before` do not
+apply on that path). `after`/`before` accept ISO dates,
 epoch seconds, or offsets like `"7d"`. Scores of posts under ~36h old read 0/1
 until the archive backfills. Space calls out rather than firing them in
 parallel — the archives shed load under concurrent bursts.

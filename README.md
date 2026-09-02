@@ -192,7 +192,7 @@ CrawlForge requires a CrawlForge API key — **every tool is metered and consume
 | `summarize_content` | 4 | Generate intelligent summaries |
 | `crawl_deep` | 4 | Deep crawl entire websites |
 | `search_web` | 5 | Search the web using Google Search API |
-| `reddit_search` | 5 | Search Reddit posts/comments or read a full thread — reddit.com blocks direct scraping, so this queries the Arctic Shift + PullPush community archives (free, no Reddit credentials). A Reddit-wide search spends a web search to discover posts, so it is priced with `search_web` |
+| `reddit_search` | 5 | Search Reddit posts/comments or read a full thread — reddit.com blocks direct scraping, so this reads the Arctic Shift community archive (free, no Reddit credentials). A Reddit-wide search spends a web search to discover posts, so it is priced with `search_web` |
 | `serp_rank` | 5 | Check where a domain ranks in Google's **real organic SERP** for a keyword (the position `search_web` can't give). Powered by DataForSEO (`DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD`, billed to your own DataForSEO account). Returns `{ configured:false }` and charges **0** credits until configured |
 | `batch_scrape` | 5 | Process multiple URLs simultaneously |
 | `scrape_with_actions` | 5 | Browser automation chains |
