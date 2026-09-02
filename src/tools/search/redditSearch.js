@@ -166,12 +166,12 @@ export class RedditSearchTool {
         throw new Error('source:"reddit_api" needs Reddit app credentials — set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET (create a "script" app at https://www.reddit.com/prefs/apps)');
       }
       if (v.mode === 'comments') {
-        throw new Error('the official Reddit API has no comment full-text search — use comments mode with source:"arctic_shift"/"pullpush", or read a whole thread with mode:"thread"');
+        throw new Error('the official Reddit API has no comment full-text search — use comments mode with source:"arctic_shift" (scoped) or "web_discovery" (unscoped), or read a whole thread with mode:"thread"');
       }
       order = ['reddit_api'];
     } else if (v.source === 'arctic_shift') {
       if (!arcticPossible) {
-        throw new Error('Arctic Shift cannot keyword-search across all of Reddit — add a subreddit or author scope, or use source:"pullpush"');
+        throw new Error('Arctic Shift cannot keyword-search across all of Reddit — add a subreddit or author scope, or drop source so auto routes the query to web_discovery');
       }
       order = ['arctic_shift'];
     } else if (v.source === 'pullpush') {

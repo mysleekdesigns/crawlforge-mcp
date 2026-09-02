@@ -133,7 +133,7 @@ export class RedditOfficialApiAdapter {
     // The official API cannot honor an arbitrary date range (only coarse `t`
     // buckets). Reject so `auto` mode falls back to the archives, which can.
     if (v.after || v.before) {
-      throw new Error('official Reddit API cannot filter by date range — unset after/before, or use source:"arctic_shift"/"pullpush"');
+      throw new Error('official Reddit API cannot filter by date range — unset after/before, or use source:"arctic_shift" (scoped searches only — date filters need an archive)');
     }
     const sr = stripNamePrefix(subreddit);
     const au = stripNamePrefix(author);

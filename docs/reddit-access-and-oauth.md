@@ -136,7 +136,9 @@ REDDIT_USER_AGENT="CrawlForge-MCP/5.1.0 (by /u/yourname)"
 ```
 Reconnect the MCP server. `reddit_search` then uses the official API first for
 posts/thread; everything else is unchanged. Force it with `source:"reddit_api"`,
-or force an archive with `source:"arctic_shift"`/`"pullpush"`.
+or force a backend with `source:"arctic_shift"` (scoped) or `source:"web_discovery"`
+(unscoped Reddit-wide). `source:"pullpush"` still reaches PullPush, but it stopped
+serving automated clients in August 2026.
 
 ## 5. Open questions before shipping (need a maintainer decision)
 
