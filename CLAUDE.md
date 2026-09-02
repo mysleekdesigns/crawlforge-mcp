@@ -75,11 +75,6 @@ npm run setup
 # Or provide API key via environment:
 export CRAWLFORGE_API_KEY="your_api_key_here"
 
-# Creator Mode (for package maintainer only)
-# Set your creator secret in .env file:
-# CRAWLFORGE_CREATOR_SECRET=your-secret-uuid
-# This enables unlimited access for development/testing
-
 # Run the server (production)
 npm start
 
