@@ -6,7 +6,9 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — all three shipped in v4.1.0 — without breaking any existing MCP tools or the current setup flow.
 
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-03
+
+**Unreleased (docs, on `development`)** — `CLAUDE.md` tool inventory corrected against the live registrations in `server.js`: the count was stale at 28 (5 inline + 23 advanced) and both lists were missing entries. Ground truth is **29 tools = 6 inline + 23 advanced**; `extract_embedded_state` added to the basic list and `get_batch_results` to the advanced list, which had carried only 22 names under a "(23)" heading. "Current Version" moved 5.3.0 -> 5.6.0. Docs only, no code change, no version bump.
 
 **Unreleased (prototype, on `development`)** — optional **official Reddit Data API passthrough** for `reddit_search`. Opt-in via `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` (user's own Reddit "script" app); **unconfigured behavior is byte-for-byte unchanged**. App-only OAuth (`client_credentials`) → `oauth.reddit.com` serves `posts`/`thread` requests with live scores and complete comment trees on the user's own free 100-QPM quota, preferred in `auto` mode with the Arctic Shift/PullPush archives as fallback. Deliberate limits fall back to the archives: no comment full-text search, no date-range filter (Reddit exposes only coarse `t` buckets). New `source:"reddit_api"`. New files: `src/tools/search/redditNormalize.js` (shared normalizers) + `src/tools/search/adapters/redditOfficialApi.js` (mirrors the DataForSEO bring-your-own-creds pattern). 1026 unit tests pass / 0 fail (+10 new), MCP compliance 100%. **NOT released** — no version bump/publish; open questions (credit cost, private-user grant, website credit parity, docs sweep) in `docs/reddit-access-and-oauth.md`. Research on why reddit.com can't be scraped directly (4-layered block) and the realistic access paths in 2026 is in the same doc.
 
