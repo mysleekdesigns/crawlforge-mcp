@@ -5,6 +5,59 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.6.3] - 2026-09-04
+
+Everything found by the Round 16 live regression (29 tools, 18 templates,
+all-new sites, 2026-09-04), fixed. Five defects and three of the quality gaps;
+the extractors side ships as crawlforge-extractors 1.6.3.
+
+### Fixed
+- **`analyze_content` keeps non-ASCII letters.** Entity, topic and keyword
+  extraction used `[A-Z]`/`[a-z0-9]` classes, so "Universität" came back as
+  "Universit", "Wisłą" as "Wis" and "Środkowej" was dropped outright; topic
+  cleaning cut a trailing ą/ł/ż off every Polish word. Every letter class is
+  now a Unicode property (`\p{L}`, `\p{Lu}`, `\p{N}`), with a lookbehind where
+  `\b` used to be — `\b` stays ASCII-only even under the `u` flag.
+- **The stealth fingerprint is one coherent display.** The screen and the
+  viewport were drawn from the size pool independently (a 1536×864 window on a
+  1366×768 screen), the device scale factor was a random float (1.7, which
+  Chromium reports as 1.7000000476837158 and a 1408.0000305175781px screen),
+  outerWidth/outerHeight equalled the inner size (a window with no toolbar),
+  10% of fingerprints emulated mobile under a desktop user agent, and the
+  timezone was a random US persona beside whatever zone the machine is in —
+  pixelscan called the fingerprint inconsistent and both it and iphey called
+  the timezone spoofed. The screen is drawn first and the window derived from
+  it as a maximised browser (viewport = screen minus taskbar and toolbar,
+  outer = available area), the scale factor is the one that size is seen at
+  (1 / 1.25 / 1.5, 2 on a Mac), mobile emulation is off, and the timezone
+  persona follows the host's own zone when it has one. A container on UTC
+  keeps the persona — set `TZ` there to the zone the egress address
+  geolocates to. Fonts remain the host's (font enumeration through
+  measureText is not spoofable) and Playwright's CDP session remains
+  detectable; those two are the limits of this layer.
+- **WebGL2 contexts report the spoofed GPU.** Only `webgl`/`experimental-webgl`
+  contexts went through the renderer wrapper; iphey read the GPU through a
+  webgl2 context and printed "SwiftShader" under a Windows user agent. The
+  unmasked vendor/renderer are now answered on both context prototypes.
+- **`stealth_mode` scrape no longer reports a crashed or closed page as an
+  empty success.** The three document reads were each wrapped in
+  `.catch(() => '')`, so a renderer that crashed during the wait came back as
+  `success:true` with an empty title and body. A page that cannot be read is
+  now an error naming whether it crashed or was closed, and a document that
+  rendered no title and no text is `success:false` with the reason (a longer
+  `wait_for`, or an empty response). The body text is read through
+  `document.body` rather than `innerText('body')`, which waited a full 30s
+  for a `<body>` on frameset documents.
+- **A thin Readability article is not the main content.** `scrape` at its
+  default `onlyMainContent:true` returned ~150 of gnome.org's 1,666 visible
+  characters, and `extract_content` returned libreoffice.org's 509-character
+  "Welcome" box at confidence 0.9. When Readability keeps under 1,500
+  characters that are under 35% of the page's visible text, `scrape` uses the
+  whole page and says so in `warnings`, and `extract_content` hands off to the
+  boilerplate-removal fallback with a `fallback_reason` that says why.
+- **`localization` `configure_country` lists each language once** — it
+  returned `["de", "de", "en"]` for a `de` request.
+
 ## [5.6.2] - 2026-09-04
 
 Everything found by the Round 15 live regression (29 tools, 18 templates,

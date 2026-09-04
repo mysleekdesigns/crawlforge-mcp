@@ -106,7 +106,7 @@ const taskStore = createTaskStore({ logger });
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "5.6.2",
+  version: "5.6.3",
   description: "Production-ready MCP server with 29 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -1392,6 +1392,15 @@ registerToolIfEnabled("stealth_mode", {
         if (challenge) {
           result.blocked = challenge;
           result.error = `${challenge.vendor} served a challenge page instead of the content (${challenge.evidence}); the stealth browser did not pass it.`;
+        } else if (!scraped.title && !String(scraped.text || '').trim()) {
+          // A document with no title and no text is not a scraped page; it
+          // is a render that has not happened yet (or an empty response).
+          // Reported as success it reads like a page with nothing on it.
+          result.success = false;
+          result.error =
+            `The stealth browser reached ${scraped.url} but the document rendered no title and no text` +
+            ` after ${wait_for || 0}ms of extra wait (${(scraped.html || '').length} bytes of HTML).` +
+            ' A JavaScript-rendered page needs a longer wait_for; an empty document means the server sent nothing to render.';
         }
 
         // Screenshots follow the same crawlforge://screenshot/{id} pattern as

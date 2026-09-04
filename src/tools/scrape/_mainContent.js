@@ -40,6 +40,7 @@
 
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
+import { load } from 'cheerio';
 
 // How much of a table's text is compared against the article to decide whether
 // Readability already kept it. Long enough to be unique to that table.
@@ -224,6 +225,36 @@ export function extractMainContent(html, url) {
     title,
     tablesRecovered: recovered.length
   };
+}
+
+// Below both of these, Readability's article is a fragment of the page, not
+// its main content.
+export const THIN_MAIN_CONTENT = { maxChars: 1500, maxShare: 0.35 };
+
+function visibleTextLength(html) {
+  const $ = load(html);
+  $('script, style, noscript, template').remove();
+  return $('body').text().replace(/\s+/g, ' ').trim().length;
+}
+
+/**
+ * Readability keeps ONE dense block and drops the rest. On a landing page
+ * that block is a fraction of what the visitor reads: gnome.org came back as
+ * ~150 of 1,666 visible characters and libreoffice.org as its 509-character
+ * "Welcome" box, both reported at full confidence (R16, 2026-09-04). A short
+ * article on a page with much more visible text is not the main content.
+ *
+ * @param {string} mainHtml - Readability's article HTML
+ * @param {string} pageHtml - the whole page
+ * @returns {{ kept: number, visible: number }|null} the two lengths when the
+ *   article is thin, null when it is the page's main content
+ */
+export function isThinMainContent(mainHtml, pageHtml) {
+  const kept = visibleTextLength(mainHtml || '');
+  if (kept >= THIN_MAIN_CONTENT.maxChars) return null;
+  const visible = visibleTextLength(pageHtml || '');
+  if (visible === 0 || kept / visible >= THIN_MAIN_CONTENT.maxShare) return null;
+  return { kept, visible };
 }
 
 export default extractMainContent;

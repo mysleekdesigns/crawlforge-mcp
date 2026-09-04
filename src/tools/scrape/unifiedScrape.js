@@ -12,7 +12,7 @@
 
 import { z } from 'zod';
 import { fetchAndParse } from '../extract/_fetchAndParse.js';
-import { extractMainContent } from './_mainContent.js';
+import { extractMainContent, isThinMainContent } from './_mainContent.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 import { stripHiddenFromDom } from '../../utils/hiddenContent.js';
 import { extractBlockText } from '../basic/extractText.js';
@@ -234,6 +234,15 @@ export class UnifiedScrapeTool {
       if (main.tablesRecovered > 0) {
         warnings.push(
           `mainContent: re-attached ${main.tablesRecovered} data table(s) that main-content extraction had dropped`
+        );
+      }
+      // A thin article on a landing page is not the main content (gnome.org
+      // came back as ~150 of 1,666 visible characters, R16): use the page.
+      const thin = main.html ? isThinMainContent(main.html, html) : null;
+      if (thin) {
+        mainHtml = html;
+        warnings.push(
+          `mainContent: main-content extraction kept ${thin.kept} of ${thin.visible} visible characters; the whole page is used instead`
         );
       }
       return mainHtml;

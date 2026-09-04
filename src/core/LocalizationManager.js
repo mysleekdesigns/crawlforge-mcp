@@ -308,7 +308,7 @@ export class LocalizationManager extends EventEmitter {
     
     // Generate comprehensive browser locale with RTL support
     const browserLocale = {
-      languages: [language, langCode, 'en'],
+      languages: [...new Set([language, langCode, 'en'])],
       timezone: timezone,
       locale: language,
       currency: currency,
@@ -777,7 +777,7 @@ export class LocalizationManager extends EventEmitter {
   async generateNavigatorProperties(localizationConfig) {
     return {
       language: localizationConfig.language,
-      languages: [localizationConfig.language, localizationConfig.language.split('-')[0], 'en'],
+      languages: [...new Set([localizationConfig.language, localizationConfig.language.split('-')[0], 'en'])],
       platform: 'Win32',
       userAgent: localizationConfig.userAgent || this.generateUserAgent(localizationConfig.countryCode),
       cookieEnabled: true,
@@ -923,7 +923,7 @@ export class LocalizationManager extends EventEmitter {
     if (!config) return null;
     
     return {
-      languages: [config.language, config.language.split("-")[0], "en"],
+      languages: [...new Set([config.language, config.language.split("-")[0], "en"])],
       timezone: config.timezone,
       currency: config.currency,
       dateFormat: this.getDateFormat(countryCode),

@@ -398,7 +398,7 @@ export class ContentAnalyzer {
     const freq = {};
     const sentenceWords = sentences.map(sentence => {
       const words = nlp(sentence).terms().out('array')
-        .map(w => w.toLowerCase().replace(/[^a-z0-9]/g, ''))
+        .map(w => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, ''))
         .filter(w => w.length > 2 && !this.isStopWord(w));
       words.forEach(w => { freq[w] = (freq[w] || 0) + 1; });
       return words;
@@ -471,7 +471,7 @@ export class ContentAnalyzer {
       
       allPhrases.forEach(phrase => {
         // Strip edge punctuation and skip phrases made only of stop words
-        const cleaned = phrase.toLowerCase().trim().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+        const cleaned = phrase.toLowerCase().trim().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
         const words = cleaned.split(/\s+/);
         if (cleaned.length > 2 && words.some(w => !this.isStopWord(w))) {
           phraseCount[cleaned] = (phraseCount[cleaned] || 0) + 1;
@@ -550,7 +550,7 @@ export class ContentAnalyzer {
       // (corporate suffix or organization-headed alias definition).
       const demotedAcronyms = [];
       organizations = organizations.filter(e => {
-        if (/^[A-Z]{2,}$/.test(e) && !this.hasOrganizationEvidence(e, text)) {
+        if (/^\p{Lu}{2,}$/u.test(e) && !this.hasOrganizationEvidence(e, text)) {
           demotedAcronyms.push(e);
           return false;
         }
@@ -565,11 +565,14 @@ export class ContentAnalyzer {
         ...people, ...places, ...organizations, ...other
       ].map(e => e.toLowerCase()));
 
-      const properNouns = (text.match(/\b[A-Z][a-zA-Z.]+(?:\s+[A-Z][a-zA-Z.]+)*/g) || [])
+      // Unicode classes, not [A-Z]: the ASCII version cut "Universität" to
+      // "Universit" and "Wisłą" to "Wis" and dropped "Środkowej" outright (R16).
+      // \b stays ASCII-only even under the u flag, hence the lookbehind.
+      const properNouns = (text.match(/(?<![\p{L}\p{N}])\p{Lu}[\p{L}.]+(?:\s+\p{Lu}[\p{L}.]+)*/gu) || [])
         // Split matches that crossed a sentence boundary ("XPath. In") — a
         // period after a lowercase letter followed by a capital is a sentence
         // end, while abbreviations ("U.S. Holdings") stay intact.
-        .flatMap(n => n.split(/(?<=[a-z]\.)\s+(?=[A-Z])/));
+        .flatMap(n => n.split(/(?<=\p{Ll}\.)\s+(?=\p{Lu})/u));
       const supplemental = this.dedupeEntities(properNouns.map(n => this.cleanEntityText(n)))
         .filter(n => n.length > 1
           && !existingEntities.has(n.toLowerCase())
@@ -656,7 +659,7 @@ export class ContentAnalyzer {
       
       [...nouns, ...verbs, ...adjectives].forEach(term => {
         // Strip leading/trailing punctuation but preserve internal periods (e.g. Node.js)
-        const cleaned = term.toLowerCase().trim().replace(/^[^a-z0-9]+|[^a-z0-9.]+$/gi, '').replace(/\.+$/, '');
+        const cleaned = term.toLowerCase().trim().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}.]+$/gu, '').replace(/\.+$/, '');
         if (cleaned.length > 2 && !this.isStopWord(cleaned)) {
           termFreq[cleaned] = (termFreq[cleaned] || 0) + 1;
 
@@ -893,7 +896,7 @@ export class ContentAnalyzer {
       entity = entity.replace(/[\s"'‘’“”`)\]}>,;:!?«»–—-]+$/, '');
       if (entity.endsWith('.')) {
         const lastToken = entity.split(/\s+/).pop();
-        const isAbbreviation = /^(?:[A-Za-z]\.)+$/.test(lastToken)
+        const isAbbreviation = /^(?:\p{L}\.)+$/u.test(lastToken)
           || /^(?:inc|corp|ltd|co|llc|jr|sr|st|mr|mrs|ms|dr|no|vs?)\.$/i.test(lastToken);
         if (!isAbbreviation) {
           entity = entity.replace(/\.+$/, '');
@@ -944,13 +947,13 @@ export class ContentAnalyzer {
     if (entity.includes(' ')) return false;
     const lower = entity.toLowerCase();
     if (this.isStopWord(lower)) return true;
-    if (!/^[A-Z][a-z]+$/.test(entity)) return false;
+    if (!/^\p{Lu}\p{Ll}+$/u.test(entity)) return false;
 
     // Word also appears in lowercase → ordinary word, capitalized only by position
-    if (new RegExp(`(?:^|[^A-Za-z])${lower}(?:[^A-Za-z]|$)`).test(text)) return true;
+    if (new RegExp(`(?:^|\\P{L})${lower}(?:\\P{L}|$)`, 'u').test(text)) return true;
 
     // Keep only if at least one occurrence is NOT at a sentence start
-    const occurrence = new RegExp(`\\b${entity}\\b`, 'g');
+    const occurrence = new RegExp(`(?<![\\p{L}\\p{N}])${entity}(?![\\p{L}\\p{N}])`, 'gu');
     let match;
     while ((match = occurrence.exec(text)) !== null) {
       const before = text.slice(0, match.index).replace(/[\s"'‘’“”()[\]]+$/, '');
@@ -975,13 +978,13 @@ export class ContentAnalyzer {
    * a corporate suffix follows it ("IBM Corp"), or it is introduced as the
    * alias of an organization-headed name ("American Airlines (AA)",
    * "French Data Protection Authority (CNIL)").
-   * @param {string} acronym - ALL-CAPS candidate (already /^[A-Z]{2,}$/)
+   * @param {string} acronym - ALL-CAPS candidate (already /^\p{Lu}{2,}$/u)
    * @param {string} text - Full source text
    * @returns {boolean} - True if the text corroborates the org classification
    */
   hasOrganizationEvidence(acronym, text) {
     const corporateSuffix = new RegExp(
-      `\\b${acronym},?\\s+(?:Inc|Corp|Corporation|Company|Co|Ltd|LLC|Group)\\.?(?:[^a-zA-Z]|$)`
+      `(?<!\\p{L})${acronym},?\\s+(?:Inc|Corp|Corporation|Company|Co|Ltd|LLC|Group)\\.?(?:\\P{L}|$)`, 'u'
     );
     if (corporateSuffix.test(text)) return true;
 
