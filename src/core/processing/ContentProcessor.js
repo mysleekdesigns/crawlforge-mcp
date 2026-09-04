@@ -8,6 +8,7 @@ import { JSDOM } from 'jsdom';
 import * as cheerio from 'cheerio';
 import { z } from 'zod';
 import { ContentQualityAssessor } from '../../utils/contentUtils.js';
+import { recoverDroppedTables } from '../../tools/scrape/_mainContent.js';
 
 const ContentProcessorSchema = z.object({
   html: z.string(),
@@ -30,7 +31,8 @@ const ReadabilityResult = z.object({
   byline: z.string().nullable(),
   dir: z.string().nullable(),
   siteName: z.string().nullable(),
-  lang: z.string().nullable()
+  lang: z.string().nullable(),
+  tablesRecovered: z.number()
 });
 
 export class ContentProcessor {
@@ -78,16 +80,28 @@ export class ContentProcessor {
 
         const article = reader.parse();
         if (article) {
+          // Readability keeps one article candidate and drops every data
+          // table outside it — scrape_with_actions returned CoinMarketCap's
+          // historical-data page as its FAQ copy with no table (2026-09-04).
+          // Re-attach what it dropped, as scrape's main-content path does.
+          const recovered = recoverDroppedTables(html, url, article.textContent);
+          const content = recovered.length > 0
+            ? `${article.content}\n${recovered.map((table) => table.html).join('\n')}`
+            : article.content;
+          const textContent = recovered.length > 0
+            ? `${article.textContent}\n${recovered.map((table) => table.text).join('\n')}`
+            : article.textContent;
           result.readability = {
             title: article.title,
-            content: article.content,
-            textContent: article.textContent,
-            length: article.length,
+            content,
+            textContent,
+            length: textContent.length,
             excerpt: article.excerpt,
             byline: article.byline,
             dir: article.dir,
             siteName: article.siteName,
-            lang: article.lang
+            lang: article.lang,
+            tablesRecovered: recovered.length
           };
 
           // Calculate readability score
