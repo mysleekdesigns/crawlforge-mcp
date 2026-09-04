@@ -158,6 +158,26 @@ export function isCjkText(text) {
   return cjkScriptCounts(text).share >= CJK_SCRIPT_THRESHOLD;
 }
 
+// Scripts written without spaces between words. Thai, Lao, Khmer and Burmese
+// need the same dictionary segmentation CJK gets; on the whitespace split a
+// 290-character Thai paragraph counted as 4 words (R15, 2026-09-04).
+const UNSPACED_SCRIPT_RE = /[\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/gu;
+
+/**
+ * True when the text needs Intl.Segmenter to find word boundaries — a CJK
+ * script, or one of the South-East Asian scripts that write no word spaces.
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function needsWordSegmentation(text) {
+  if (isCjkText(text)) return true;
+  const letters = (text.match(/\p{L}/gu) || []).length;
+  if (letters === 0) return false;
+  const unspaced = (text.match(UNSPACED_SCRIPT_RE) || []).length;
+  return unspaced / letters >= CJK_SCRIPT_THRESHOLD;
+}
+
 /**
  * Detect the language of a piece of text.
  *

@@ -140,47 +140,50 @@ export class StealthBrowserManager {
       }
     };
 
-    // Enhanced User agent pools with realistic patterns
+    // User agent pools. Chrome majors track the bundled Chromium (151 at
+    // playwright-core 1.62) and Firefox tracks the Camoufox build (135): a
+    // UA thirty majors behind the engine — the pool sat at 119–121 while
+    // Chrome 152 shipped — is a staleness tell for anything that reads
+    // sec-ch-ua (R15, 2026-09-04).
     this.userAgentPools = {
       chrome: {
         windows: [
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-          'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36'
         ],
         macos: [
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36'
         ],
         linux: [
-          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
+          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36'
         ]
       },
       firefox: {
         windows: [
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0'
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0'
         ],
         macos: [
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:122.0) Gecko/20100101 Firefox/122.0',
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0'
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:135.0) Gecko/20100101 Firefox/135.0'
         ],
         linux: [
-          'Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0',
-          'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0'
+          'Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0',
+          'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0'
         ]
       },
       safari: {
         macos: [
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15'
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15'
         ]
       }
     };
-    
+
     // Operating system distributions for realistic user agent selection
     this.osDistribution = {
       windows: 0.75,
@@ -467,8 +470,10 @@ export class StealthBrowserManager {
         height: fingerprint.screen.height
       },
       
-      // Bypass various detections
-      bypassCSP: true,
+      // bypassCSP is deliberately NOT set: ignoring a page's Content Security
+      // Policy is "invalid behavior for a normal browser" and rebrowser's
+      // bot detector flags it red (R15, 2026-09-04). Every init script here
+      // goes through addInitScript/evaluate, which need no CSP bypass.
       javaScriptEnabled: true
     };
 
@@ -704,10 +709,10 @@ export class StealthBrowserManager {
    * @param {string} [userAgent] — the selected user agent string
    */
   generateSecChUaHeader(userAgent = '') {
-    // Extract Chrome major version from the UA (e.g. "Chrome/121.0.0.0" → "121").
-    // Fall back to 121 if the UA is not a Chrome UA.
+    // Extract Chrome major version from the UA (e.g. "Chrome/151.0.0.0" → "151").
+    // Fall back to the bundled Chromium major if the UA is not a Chrome UA.
     const match = userAgent.match(/Chrome\/(\d+)/i);
-    const version = match ? match[1] : '121';
+    const version = match ? match[1] : '151';
 
     const brands = [
       { brand: 'Not_A Brand', version: '8' },
@@ -1282,6 +1287,26 @@ export class StealthBrowserManager {
           Object.defineProperty(pluginArray, plugin.name, { value: plugin });
         });
         Object.defineProperty(navigator, 'plugins', { get: () => pluginArray });
+
+        // Real Chrome pairs those plugins with two navigator.mimeTypes entries
+        // (application/pdf, text/pdf). Five plugins beside an empty mimeTypes
+        // is its own tell — infosimples' detect-headless read "5 plugins /
+        // 0 mime types" (R15, 2026-09-04).
+        if (typeof MimeTypeArray !== 'undefined') {
+          const mimeTypeArray = Object.create(MimeTypeArray.prototype);
+          const mimeTypes = Array.from(plugins[0]);
+          Object.defineProperties(mimeTypeArray, {
+            length: { value: mimeTypes.length },
+            item: { value: (index) => mimeTypes[index] || null },
+            namedItem: { value: (type) => mimeTypes.find((m) => m.type === type) || null },
+            [Symbol.iterator]: { value: function* () { yield* mimeTypes; } }
+          });
+          mimeTypes.forEach((mimeType, index) => {
+            Object.defineProperty(mimeTypeArray, index, { value: mimeType, enumerable: true });
+            Object.defineProperty(mimeTypeArray, mimeType.type, { value: mimeType });
+          });
+          Object.defineProperty(navigator, 'mimeTypes', { get: () => mimeTypeArray });
+        }
       }
 
       // Override languages with the fingerprint's own locale — a hardcoded
@@ -1849,46 +1874,33 @@ export class StealthBrowserManager {
   }
 
   /**
+   * Whether a request is dropped before it leaves the browser. Only the
+   * advanced level sheds assets, never by URL and never the document itself.
+   * @param {string} resourceType - Playwright's request.resourceType()
+   * @param {string} level - stealth level
+   * @returns {boolean}
+   */
+  static shouldAbortRequest(resourceType, level) {
+    if (level !== 'advanced') return false;
+    if (!['image', 'font', 'stylesheet'].includes(resourceType)) return false;
+    // Allow some images/fonts to maintain realism
+    return Math.random() >= 0.3;
+  }
+
+  /**
    * Apply page-level stealth measures
    */
   async applyPageStealthMeasures(page, config, fingerprint) {
-    // Enhanced resource blocking with stealth considerations
+    // Resource routing. Nothing is aborted by URL any more: the old list
+    // blocked challenges.cloudflare.com and every URL containing "selenium",
+    // "webdriver" or "puppeteer" — the first meant a Cloudflare challenge
+    // could never complete (the interstitial named the blocked host), the
+    // second killed the top-level navigation to www.selenium.dev on every
+    // stealth path (R15, 2026-09-04). A vendor script that never loads is a
+    // louder tell than one that runs.
     await page.route('**/*', route => {
-      const resourceType = route.request().resourceType();
-      const url = route.request().url();
-      
-      // Block known bot detection resources
-      const blockedDomains = [
-        'botd.fpjs.io',
-        'challenges.cloudflare.com',
-        'datadome.co',
-        'perimeterx.net',
-        'distilnetworks.com'
-      ];
-      
-      if (blockedDomains.some(domain => url.includes(domain))) {
+      if (StealthBrowserManager.shouldAbortRequest(route.request().resourceType(), config.level)) {
         route.abort();
-        return;
-      }
-
-      // Don't block detection-related resources that might be expected
-      if (url.includes('webdriver') || url.includes('selenium') || url.includes('puppeteer')) {
-        route.abort();
-        return;
-      }
-
-      // Selective resource blocking based on level
-      if (config.level === 'advanced') {
-        if (['image', 'font', 'stylesheet'].includes(resourceType)) {
-          // Allow some images/fonts to maintain realism
-          if (Math.random() < 0.3) {
-            route.continue();
-          } else {
-            route.abort();
-          }
-        } else {
-          route.continue();
-        }
       } else {
         route.continue();
       }

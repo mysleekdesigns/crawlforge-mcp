@@ -226,7 +226,7 @@ const CASES = [
       assert.equal(story.score, '120');
       assert.equal(story.author, 'alice');
       assert.equal(story.posted, '3 hours ago');           // age text, not the item?id= permalink
-      assert.equal(story.comments, '42\u00a0comments'); // comments link (HN uses &nbsp;), not the age anchor
+      assert.equal(story.comments, '42');                  // "42&nbsp;comments" link, not the age anchor \u2014 a bare count since extractors 1.6.2
       // Job posts have no score/author/comments link — only the age anchor.
       const job = data.stories[1];
       assert.equal(job.id, '222');

@@ -120,7 +120,12 @@ function extractStructuredData($, selectors) {
   return extracted;
 }
 
-function generateFormats($, html, formats) {
+export function generateFormats($, html, formats) {
+  // Script, style, noscript and template bodies are never rendered text.
+  // Left in, the text format carried an entire theme-toggle script
+  // (erlang.org/downloads) and CSS rules (opennet.ru) — R15, 2026-09-04.
+  // `html` below is the raw document and stays untouched.
+  $('script, style, noscript, template').remove();
   const content = {};
   if (formats.includes('html')) content.html = html;
   if (formats.includes('text')) content.text = $('body').text().replace(/\s+/g, ' ').trim();

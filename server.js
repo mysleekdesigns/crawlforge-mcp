@@ -33,6 +33,7 @@ import { LocalizationManager } from "./src/core/LocalizationManager.js";
 // Stealth scrape: format conversion + the pre-fetch compliance gate (G5/G6/G7)
 import * as cheerio from "cheerio";
 import { htmlToMarkdown } from "./src/utils/htmlToMarkdown.js";
+import { detectChallengePage } from "./src/utils/challengeDetection.js";
 import { browserPreflight } from "./src/utils/robotsGate.js";
 import { memoryMonitor } from "./src/utils/MemoryMonitor.js";
 import { config, validateConfig, getToolConfig } from "./src/constants/config.js";
@@ -105,7 +106,7 @@ const taskStore = createTaskStore({ logger });
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "5.6.1",
+  version: "5.6.2",
   description: "Production-ready MCP server with 29 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -1377,12 +1378,21 @@ registerToolIfEnabled("stealth_mode", {
           stealthConfig
         });
 
+        // A bot-wall interstitial arrives as HTTP 200 with a title and prose
+        // of its own; reported as a successful scrape it hid the block for
+        // three rounds (R10 Q1 → R15). Name it — the content is still returned
+        // so the caller can see what the site served.
+        const challenge = detectChallengePage(scraped);
         result = {
-          success: true,
+          success: !challenge,
           url: scraped.url,
           title: scraped.title,
           content: stealthScrapeFormats(formats, scraped)
         };
+        if (challenge) {
+          result.blocked = challenge;
+          result.error = `${challenge.vendor} served a challenge page instead of the content (${challenge.evidence}); the stealth browser did not pass it.`;
+        }
 
         // Screenshots follow the same crawlforge://screenshot/{id} pattern as
         // scrape and scrape_with_actions, so the base64 never bloats the result.
@@ -1452,6 +1462,12 @@ registerToolIfEnabled("stealth_mode", {
               ok: response ? response.ok() : null,
               title: await page.title().catch(() => null)
             };
+            const challenge = detectChallengePage({
+              title: navigation.title || '',
+              html: await page.content().catch(() => ''),
+              text: await page.innerText('body').catch(() => '')
+            });
+            if (challenge) navigation.blocked = challenge;
           }
         } finally {
           // No operation can ever reference this page again — keeping it open

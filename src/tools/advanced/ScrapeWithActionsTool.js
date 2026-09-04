@@ -618,6 +618,8 @@ export class ScrapeWithActionsTool extends EventEmitter {
     for (const stateData of capturedStates) {
       try {
         const $ = load(stateData.html);
+        // Never rendered as text — the same strip the batch worker does (R15).
+        $('script, style, noscript, template').remove();
 
         const state = {
           capturePoint: stateData.afterActionIndex + 1,
@@ -688,6 +690,8 @@ export class ScrapeWithActionsTool extends EventEmitter {
       // over the post-action DOM here, the one place every caller reads.
       if (chainResult?.finalHtml && (params.extractionOptions?.selectors || params.formats?.includes('text'))) {
         const $ = load(chainResult.finalHtml);
+        // Never rendered as text — the same strip the batch worker does (R15).
+        $('script, style, noscript, template').remove();
         extractResult.content = extractResult.content || {};
         if (params.extractionOptions?.selectors) {
           extractResult.content.extracted = this.extractWithSelectors($, params.extractionOptions.selectors);
