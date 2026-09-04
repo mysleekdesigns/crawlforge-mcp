@@ -10,6 +10,7 @@ import { load } from 'cheerio';
 
 // Import existing tool for content extraction
 import ExtractContentTool from '../extract/extractContent.js';
+import { elementText } from '../../utils/elementText.js';
 
 // Recording / replay helpers
 import {
@@ -798,12 +799,15 @@ export class ScrapeWithActionsTool extends EventEmitter {
       try {
         const elements = $(selector);
         
+        // elementText keeps table structure (one line per row, cells joined
+        // by " | "); cheerio's .text() ran CoinMarketCap's history table into
+        // "DateOpen*HighLowClose**…" (2026-09-04).
         if (elements.length === 0) {
           extracted[key] = null;
         } else if (elements.length === 1) {
-          extracted[key] = elements.text().trim();
+          extracted[key] = elementText($, elements.get(0));
         } else {
-          extracted[key] = elements.map((_, el) => $(el).text().trim()).get();
+          extracted[key] = elements.map((_, el) => elementText($, el)).get();
         }
       } catch (error) {
         extracted[key] = { error: `Invalid selector: ${selector}` };

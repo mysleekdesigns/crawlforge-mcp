@@ -415,3 +415,40 @@ describe('scrapeWithActions — a rendered data table survives the markdown and 
     assert.match(result.content.text, /MMM \| 3M/, 'text keeps the row with its cells delimited');
   });
 });
+
+describe('scrapeWithActions — extractionOptions.selectors keep table structure', () => {
+  // coinmarketcap.com/currencies/bitcoin/historical-data/ (2026-09-04): a
+  // `table` selector came back as one string with every cell run together —
+  // "DateOpen*HighLowClose**VolumeMarket CapSep 03, 2026$77,300.17…" — which
+  // is what cheerio's .text() does. Rows and cells need delimiters.
+  const HISTORY_HTML = `<html><body><nav>Menu</nav><div id="wrap"><h2>Bitcoin Price History</h2>
+<table><thead><tr><th>Date</th><th>Open*</th><th>High</th></tr></thead>
+<tbody><tr><td>Sep 03, 2026</td><td>$77,300.17</td><td>$82,262.21</td></tr>
+<tr><td>Sep 02, 2026</td><td>$77,402.14</td><td>$77,737.55</td></tr></tbody></table>
+<p>* Earliest data in range</p></div></body></html>`;
+
+  function toolWith(finalHtml) {
+    return new ScrapeWithActionsTool({
+      actionExecutor: makeFakeExecutor({ onExecute: (url, chain) => makeFakeChainResult(chain.actions, { finalHtml, finalUrl: url }) }),
+      enableLogging: false
+    });
+  }
+
+  test('a table, a row, and an element wrapping a table are delimited; other selectors are unchanged', async () => {
+    const result = await toolWith(HISTORY_HTML).execute({
+      url: 'https://example.com/history',
+      actions: [WAIT_ACTION],
+      formats: ['json'],
+      captureScreenshots: false,
+      extractionOptions: { selectors: { table: 'table', body: 'tbody', firstRow: 'tbody tr:first-child', wrapper: '#wrap', dates: 'tbody td:first-child', heading: 'h2' } }
+    });
+    assert.equal(result.success, true, result.error);
+    const x = result.content.json.extracted;
+    assert.equal(x.table, 'Date | Open* | High\nSep 03, 2026 | $77,300.17 | $82,262.21\nSep 02, 2026 | $77,402.14 | $77,737.55');
+    assert.equal(x.body, 'Sep 03, 2026 | $77,300.17 | $82,262.21\nSep 02, 2026 | $77,402.14 | $77,737.55', 'a row group renders only its own rows');
+    assert.equal(x.firstRow, 'Sep 03, 2026 | $77,300.17 | $82,262.21');
+    assert.equal(x.wrapper, 'Bitcoin Price History\nDate | Open* | High\nSep 03, 2026 | $77,300.17 | $82,262.21\nSep 02, 2026 | $77,402.14 | $77,737.55\n* Earliest data in range');
+    assert.deepEqual(x.dates, ['Sep 03, 2026', 'Sep 02, 2026'], 'a multi-match selector still returns an array of cell strings');
+    assert.equal(x.heading, 'Bitcoin Price History');
+  });
+});
