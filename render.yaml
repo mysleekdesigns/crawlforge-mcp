@@ -40,6 +40,15 @@ services:
       # or lower it with the plan size. (npm/local users keep the default 10.)
       - key: MAX_BROWSER_CONTEXTS
         value: "6"
+      # The stealth fingerprint's timezone persona follows the host's own zone
+      # (StealthBrowserManager.hostTimezone, 5.6.3) — that is where the egress
+      # address geolocates, and a JavaScript timezone that disagrees with the
+      # IP is the first thing pixelscan and iphey flag. A container's zone is
+      # UTC, which the code treats as "unknown" and falls back to a random US
+      # persona. This box is in Oregon, so its addresses geolocate to Pacific
+      # time. Move this with the region.
+      - key: TZ
+        value: America/Los_Angeles
       # CRAWLFORGE_API_KEY must be set in the dashboard (it's a secret).
       # Add it manually under "Environment" → "Add Environment Variable".
       - key: CRAWLFORGE_API_KEY
