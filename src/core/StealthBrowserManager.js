@@ -16,6 +16,9 @@ import { BrowserContextPool } from './BrowserContextPool.js';
 import { safeGoto } from '../utils/ssrfGuard.js';
 import { detectChallengePage } from '../utils/challengeDetection.js';
 
+// Grace given to a document that rendered no title and no text (see _waitOutEmptyDocument).
+export const EMPTY_DOCUMENT_GRACE_MS = 8000;
+
 const StealthConfigSchema = z.object({
   level: z.enum(['basic', 'medium', 'advanced']).default('medium'),
   randomizeFingerprint: z.boolean().default(true),
@@ -2024,6 +2027,35 @@ export class StealthBrowserManager {
    * that navigation to reach domcontentloaded. A challenge that never passes
    * is left to challengeDetection to report as blocked.
    */
+  /**
+   * A document with no title and no text right after domcontentloaded is
+   * usually a page that has not painted yet: a self-solving bot wall the
+   * vendor list does not name (booking.com's chal_t redirect), or a client-
+   * rendered shell (carvana.com, chewy.com). Round 18 (2026-09-04) reported
+   * every one of them as "rendered no title and no text after 0ms" while a
+   * 6-second wait in scrape_with_actions returned the full page. Give an
+   * empty document one bounded grace period to fill in — or to navigate on —
+   * before it is read. Returns the milliseconds waited (0 when the document
+   * already had content).
+   */
+  async _waitOutEmptyDocument(page, { timeoutMs = EMPTY_DOCUMENT_GRACE_MS } = {}) {
+    const hasContent = () =>
+      Boolean((document.title && document.title.trim()) || (document.body && document.body.innerText.trim()));
+    let empty;
+    try {
+      empty = !(await page.evaluate(hasContent));
+    } catch {
+      return 0;
+    }
+    if (!empty) return 0;
+    const started = Date.now();
+    await page.waitForFunction(hasContent, null, { timeout: timeoutMs }).catch(() => {});
+    await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
+    // What filled the document may itself be a challenge that navigates on.
+    await this._waitOutChallenge(page);
+    return Date.now() - started;
+  }
+
   async _waitOutChallenge(page, { timeoutMs = 8000 } = {}) {
     let title;
     try {
@@ -2046,9 +2078,21 @@ export class StealthBrowserManager {
       const page = await this.createStealthPage(contextId);
       let crashed = false;
       page.on('crash', () => { crashed = true; });
+      // The HTTP status of the document finally read: the navigation's own
+      // response, then whatever a challenge or redirect navigated on to.
+      // Edmunds' "403 - Access Denied" and Lufthansa's 404 came back as
+      // success:true because nothing looked at the status (R18, 2026-09-04).
+      let status = null;
+      page.on('response', (response) => {
+        try {
+          const request = response.request();
+          if (request.isNavigationRequest() && request.frame() === page.mainFrame()) status = response.status();
+        } catch { /* a detached frame; keep the last status */ }
+      });
       // SSRF guard at the navigation boundary: the stealth engine resolves DNS
       // itself, so a URL/host-only check would miss rebinding to private/metadata IPs.
-      await safeGoto(page, url, { waitUntil: 'domcontentloaded' });
+      const response = await safeGoto(page, url, { waitUntil: 'domcontentloaded' });
+      if (response && status === null) status = response.status();
       if (wait_for > 0) await page.waitForTimeout(wait_for);
       // Cloudflare's and Vercel's JavaScript challenges solve themselves in a
       // real browser and then reload the page. camoufox on lesswrong.com was
@@ -2056,6 +2100,7 @@ export class StealthBrowserManager {
       // up, so the interstitial came back as success:true (R17, 2026-09-04).
       // An auto-solving challenge gets one bounded wait to finish first.
       await this._waitOutChallenge(page);
+      const gracedMs = await this._waitOutEmptyDocument(page);
 
       // A failure to read the document is a failure. With every read wrapped
       // in .catch(() => ''), a renderer that crashed or a page closed during
@@ -2082,7 +2127,7 @@ export class StealthBrowserManager {
         ? await page.screenshot({ encoding: 'base64', fullPage: false }).catch(() => null)
         : null;
 
-      return { success: true, url, title, text, html, screenshot: shot };
+      return { success: true, url, title, text, html, screenshot: shot, status, gracedMs };
     } finally {
       await this.closeContext(contextId).catch(() => {});
     }

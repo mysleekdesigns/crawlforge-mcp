@@ -381,6 +381,7 @@ export class ActionExecutor extends EventEmitter {
         url,
         finalUrl: executionContext.finalUrl || url,
         finalHtml: executionContext.finalHtml,
+        navigationStatus: executionContext.page?.__crawlforgeNavigation?.status ?? null,
         executionTime: Date.now() - startTime,
         results: executionContext.results,
         screenshots: executionContext.screenshots,
@@ -1171,7 +1172,7 @@ export class ActionExecutor extends EventEmitter {
     // hostname-based checks alone would miss DNS-rebinding/private-IP targets.
     await assertUrlAllowed(url, { resolveDns: true });
 
-    await page.goto(url, {
+    const response = await page.goto(url, {
       waitUntil: options.waitUntil || 'domcontentloaded',
       timeout: options.timeout || 30000
     });
@@ -1182,6 +1183,14 @@ export class ActionExecutor extends EventEmitter {
     if (/^https?:\/\//i.test(landedUrl)) {
       await assertUrlAllowed(landedUrl, { resolveDns: true });
     }
+
+    // Remembered on the page so the chain result can report the status of
+    // the last navigation: tesla.com's Akamai denial ran a full action chain
+    // and came back success:true (R18, 2026-09-04).
+    let status = null;
+    try { status = response ? response.status() : null; } catch { status = null; }
+    page.__crawlforgeNavigation = { url: landedUrl, status };
+    return { url: landedUrl, status };
   }
 
   /**

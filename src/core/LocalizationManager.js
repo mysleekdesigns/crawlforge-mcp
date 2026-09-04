@@ -262,7 +262,7 @@ export class LocalizationManager extends EventEmitter {
       timezone: validatedInput.timezone || countryData.timezone,
       currency: validatedInput.currency || countryData.currency,
       searchDomain: countryData.searchDomain,
-      acceptLanguage: this.buildAcceptLanguageHeader(validatedInput.language || countryData.language),
+      acceptLanguage: this.buildAcceptLanguageHeader(validatedInput.language || countryData.language, validatedInput.countryCode),
       customHeaders: validatedInput.customHeaders || {},
       geoLocation: validatedInput.geoLocation,
       proxySettings: validatedInput.proxySettings,
@@ -601,8 +601,18 @@ export class LocalizationManager extends EventEmitter {
     return await this.configureCountry(countryCode);
   }
   
-  buildAcceptLanguageHeader(language) {
-    const langCode = language.split('-')[0];
+  /**
+   * The header a browser in `countryCode` sends for `language`. A bare
+   * language takes the country as its region — configure_country GB used to
+   * answer en-US (R18, 2026-09-04) because the country never reached here.
+   */
+  buildAcceptLanguageHeader(language, countryCode) {
+    const [langCode, region] = String(language).split('-');
+    const cc = region || (countryCode ? String(countryCode).toUpperCase() : null);
+    if (cc) {
+      const tag = `${langCode}-${cc}`;
+      return langCode === 'en' ? `${tag},en;q=0.9` : `${tag},${langCode};q=0.9,en;q=0.8`;
+    }
     return LANGUAGE_MAPPINGS[langCode] || `${language},${langCode};q=0.9,en;q=0.8`;
   }
   

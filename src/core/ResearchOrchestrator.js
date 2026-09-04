@@ -79,6 +79,41 @@ const MAX_CONFLICT_PAIRS = 40;
  * - Advanced provenance tracking and activity logging
  * - Smart URL prioritization based on content quality
  */
+// A research topic is often a paragraph ("Why does X get stuck on Y and what
+// makes Z pass it in 2026: A, B, C, D and known working approaches"). Google
+// answers a 40-word query with nothing: the same run found 1 source from the
+// paragraph and 8 from a six-word restatement (R18, 2026-09-04). The full
+// topic still steers the LLM expansion and the relevance ranking; the search
+// backend gets a keyword-dense form of it.
+export const SEARCH_TOPIC_MAX_WORDS = 12;
+export const SEARCH_QUERY_MAX_WORDS = 16;
+const TOPIC_STOPWORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'of', 'to', 'in', 'on', 'for', 'with', 'from', 'by', 'as', 'at', 'into',
+  'what', 'why', 'how', 'when', 'where', 'which', 'who', 'whom', 'whose', 'that', 'this', 'these', 'those',
+  'does', 'do', 'did', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'it', 'its', 'their', 'there', 'they',
+  'can', 'could', 'should', 'would', 'will', 'may', 'might', 'get', 'gets', 'make', 'makes', 'made', 'about',
+  'known', 'required', 'versus', 'vs', 'i', 'we', 'you', 'my', 'our', 'your', 'me', 'us', 'them', 'not', 'no', 'so'
+]);
+
+export function compactSearchTopic(topic) {
+  const clean = String(topic || '').replace(/\s+/g, ' ').trim();
+  const words = clean.split(' ').filter(Boolean);
+  if (words.length <= SEARCH_TOPIC_MAX_WORDS) return clean;
+  const bare = clean.replace(/[“”"'`()[\]{}:;,?!.]/g, ' ').split(/\s+/).filter(Boolean);
+  const kept = [];
+  for (const word of bare) {
+    if (TOPIC_STOPWORDS.has(word.toLowerCase())) continue;
+    kept.push(word);
+    if (kept.length >= SEARCH_TOPIC_MAX_WORDS) break;
+  }
+  return (kept.length > 0 ? kept : bare.slice(0, SEARCH_TOPIC_MAX_WORDS)).join(' ');
+}
+
+export function clampSearchQuery(query, maxWords = SEARCH_QUERY_MAX_WORDS) {
+  const words = String(query || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  return (words.length > maxWords ? words.slice(0, maxWords) : words).join(' ');
+}
+
 export class ResearchOrchestrator extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -374,9 +409,17 @@ export class ResearchOrchestrator extends EventEmitter {
         });
       }
 
-      // Add research-specific query variations
-      const researchVariations = this.generateResearchVariations(topic);
-      const allQueries = [...new Set([topic, ...expandedQueries, ...researchVariations])];
+      // Add research-specific query variations. The search backend sees the
+      // keyword-dense form of a long topic; every query is clamped to what a
+      // search engine answers.
+      const searchTopic = compactSearchTopic(topic);
+      if (searchTopic !== topic) {
+        this.logger.info('Long research topic compacted for search', { topic, searchTopic });
+      }
+      const researchVariations = this.generateResearchVariations(searchTopic);
+      const allQueries = [...new Set(
+        [searchTopic, ...expandedQueries, ...researchVariations].map((q) => clampSearchQuery(q)).filter(Boolean)
+      )];
 
       // Rank queries by research relevance with semantic understanding
       const rankedQueries = await this.rankResearchQueriesWithSemantics(allQueries, topic);
@@ -390,7 +433,7 @@ export class ResearchOrchestrator extends EventEmitter {
     } catch (error) {
       this.logger.warn('Topic expansion failed, using original topic', { error: error.message });
       this.metrics.queryExpansionTime += Date.now() - startTime;
-      return [topic];
+      return [compactSearchTopic(topic)];
     }
   }
 

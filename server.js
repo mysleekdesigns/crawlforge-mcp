@@ -34,6 +34,7 @@ import { LocalizationManager } from "./src/core/LocalizationManager.js";
 import * as cheerio from "cheerio";
 import { htmlToMarkdown } from "./src/utils/htmlToMarkdown.js";
 import { detectChallengePage } from "./src/utils/challengeDetection.js";
+import { stealthDocumentVerdict } from "./src/utils/stealthVerdict.js";
 import { browserPreflight } from "./src/utils/robotsGate.js";
 import { memoryMonitor } from "./src/utils/MemoryMonitor.js";
 import { config, validateConfig, getToolConfig } from "./src/constants/config.js";
@@ -106,7 +107,7 @@ const taskStore = createTaskStore({ logger });
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "5.6.8",
+  version: "5.6.9",
   description: "Production-ready MCP server with 29 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -1404,28 +1405,20 @@ registerToolIfEnabled("stealth_mode", {
 
         // A bot-wall interstitial arrives as HTTP 200 with a title and prose
         // of its own; reported as a successful scrape it hid the block for
-        // three rounds (R10 Q1 → R15). Name it — the content is still returned
-        // so the caller can see what the site served.
-        const challenge = detectChallengePage(scraped);
+        // three rounds (R10 Q1 → R15). An HTTP error page and a short
+        // error-titled placeholder did the same in R18. Name each — the
+        // content is still returned so the caller can see what the site served.
+        const verdict = stealthDocumentVerdict(scraped, { waitedMs: (wait_for || 0) + (scraped.gracedMs || 0) });
         result = {
-          success: !challenge,
+          success: verdict.success,
           url: scraped.url,
           title: scraped.title,
+          status: verdict.status,
           content: stealthScrapeFormats(formats, scraped)
         };
-        if (challenge) {
-          result.blocked = challenge;
-          result.error = `${challenge.vendor} served a challenge page instead of the content (${challenge.evidence}); the stealth browser did not pass it.`;
-        } else if (!scraped.title && !String(scraped.text || '').trim()) {
-          // A document with no title and no text is not a scraped page; it
-          // is a render that has not happened yet (or an empty response).
-          // Reported as success it reads like a page with nothing on it.
-          result.success = false;
-          result.error =
-            `The stealth browser reached ${scraped.url} but the document rendered no title and no text` +
-            ` after ${wait_for || 0}ms of extra wait (${(scraped.html || '').length} bytes of HTML).` +
-            ' A JavaScript-rendered page needs a longer wait_for; an empty document means the server sent nothing to render.';
-        }
+        if (verdict.blocked) result.blocked = verdict.blocked;
+        if (verdict.error) result.error = verdict.error;
+        if (scraped.gracedMs > 0) result.waited_for_render_ms = scraped.gracedMs;
 
         // Screenshots follow the same crawlforge://screenshot/{id} pattern as
         // scrape and scrape_with_actions, so the base64 never bloats the result.
