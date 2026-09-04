@@ -49,6 +49,22 @@ const PAGES = {
       <p>${'Across the fleet those changes freed roughly one hundred terabytes of memory, with no measurable latency cost. '.repeat(6)}</p>
     </article>
     <footer><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Use</a></footer>
+  </body></html>`,
+  // racket-lang.org-style page: the answer lives in a banner outside the
+  // article, which Readability drops.
+  '/banner': `<html><head><title>Racket</title></head><body>
+    <nav><a href="#main">Skip to content</a></nav>
+    <div class="announce">Racket version 9.3 is available.</div>
+    <main><h1>Racket, the Language-Oriented Programming Language</h1>
+      <p>${'Racket is a general-purpose programming language and a platform for language creation. '.repeat(8)}</p>
+    </main>
+  </body></html>`,
+  // Long enough that main content plus page text overflows the budget.
+  '/long-article': `<html><head><title>A very long article | Example Blog</title></head><body>
+    <nav><a href="#main">Skip to content</a></nav>
+    <header><h1>A very long article</h1></header>
+    <article><p>${'Each of these sentences is part of an article that runs well past the budget the model is shown. '.repeat(160)}</p></article>
+    <footer><a href="/privacy">Privacy Policy</a></footer>
   </body></html>`
 };
 
@@ -200,9 +216,11 @@ describe('extractStructured tool (real module, CSS fallback — no LLM configure
 // ---------------------------------------------------------------------------
 // LLM path. The whole-body textContent fetchAndParse returns was handed
 // straight to the model, which answered from the first heading-shaped string
-// it saw — "Skip to content" on the Cloudflare blog post. A stubbed LLM
-// captures what the tool actually sends, so these tests pin the input, not a
-// model's answer.
+// it saw — "Skip to content" on the Cloudflare blog post. Main content alone
+// then hid the racket-lang.org version banner, which Readability drops. The
+// model now reads the main content first and the page text after it, when
+// both fit the budget. A stubbed LLM captures what the tool actually sends,
+// so these tests pin the input, not a model's answer.
 // ---------------------------------------------------------------------------
 
 /** Replace the tool's LLMManager with a stub; returns the captured input. */
@@ -218,8 +236,8 @@ function stubLlm(tool, result) {
   return captured;
 }
 
-describe('extractStructured — the LLM is fed main content, not page chrome', () => {
-  test('the input opens with the headline and carries no nav or footer chrome', async () => {
+describe('extractStructured — the LLM reads main content first, then the page', () => {
+  test('the input opens with the headline; nav and footer chrome come after the article', async () => {
     const tool = new ExtractStructuredTool();
     const captured = stubLlm(tool, { data: { headline: 'x' }, valid: true, validationErrors: [] });
 
@@ -232,9 +250,44 @@ describe('extractStructured — the LLM is fed main content, not page chrome', (
       captured.input.startsWith('How we saved 100 terabytes of memory'),
       `expected the headline first, got: ${JSON.stringify(captured.input.slice(0, 80))}`
     );
+    assert.match(captured.input, /per-entry footprint/, 'the article body is still there');
+    const article = captured.input.indexOf('per-entry footprint');
+    assert.ok(captured.input.indexOf('Skip to content') > article, 'nav chrome only after the article');
+    assert.ok(captured.input.indexOf('Privacy Policy') > article, 'footer chrome only after the article');
+  });
+
+  test('a banner Readability drops is still in view, after the main content', async () => {
+    const tool = new ExtractStructuredTool();
+    const captured = stubLlm(tool, { data: { version: 'x' }, valid: true, validationErrors: [] });
+
+    await tool.execute({
+      url: `${baseUrl}/banner`,
+      schema: { type: 'object', properties: { version: { type: 'string' } }, required: ['version'] }
+    });
+
+    assert.ok(captured.input.startsWith('Racket, the Language-Oriented'), 'the main content leads');
+    assert.match(captured.input, /Racket version 9\.3 is available/);
+    // The whole page follows the main content: its nav text is there, after
+    // the article.
+    assert.ok(
+      captured.input.indexOf('Skip to content') > captured.input.indexOf('language creation'),
+      'the page text follows the main content'
+    );
+  });
+
+  test('a page too long for both gets main content alone, whole', async () => {
+    const tool = new ExtractStructuredTool();
+    const captured = stubLlm(tool, { data: { headline: 'x' }, valid: true, validationErrors: [] });
+
+    await tool.execute({
+      url: `${baseUrl}/long-article`,
+      schema: { type: 'object', properties: { headline: { type: 'string' } }, required: ['headline'] }
+    });
+
+    assert.ok(captured.input.startsWith('A very long article'));
     assert.doesNotMatch(captured.input, /Skip to content/);
     assert.doesNotMatch(captured.input, /Privacy Policy/);
-    assert.match(captured.input, /per-entry footprint/, 'the article body is still there');
+    assert.ok(captured.input.length > 15000, `the whole article is shown, got ${captured.input.length} chars`);
   });
 
   test('a non-markup body (text/plain) is passed through whole', async () => {

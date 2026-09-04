@@ -228,6 +228,28 @@ function literalReadings(value) {
   return [...spellings];
 }
 
+/** A version with two or more dot-separated numeric segments, inside prose. */
+const EMBEDDED_VERSION = /(?<![\w.])v?\d+(?:\.\d+){2,}(?![\w.])/gi;
+
+/**
+ * The spellings of every version-shaped token inside a prose string, or null
+ * when the value is not prose or carries none. "Racket 5.1.0" on a page that
+ * says 9.3 is the case that found this: the whole value is prose, so
+ * `literalReadings` left it alone, and the fabricated version rode through.
+ *
+ * @param {*} value
+ * @returns {string[][]|null} one spelling list per token
+ */
+function embeddedVersionReadings(value) {
+  if (typeof value !== 'string' || !/\s/.test(value.trim())) return null;
+  const tokens = value.match(EMBEDDED_VERSION);
+  if (!tokens) return null;
+  return tokens.map((token) => {
+    const lower = token.toLowerCase();
+    return [...new Set([lower, lower.replace(VERSION_PREFIX, '')])];
+  });
+}
+
 /**
  * Replace every numeric value that is not present in the source with null.
  *
@@ -286,8 +308,22 @@ export function verifyNumericProvenance(data, source) {
     // Not a number, but possibly a version/date/SKU-shaped literal, which is
     // the other thing a model invents when the page does not say.
     const literals = literalReadings(node);
-    if (literals === null) return node;
-    if (inSource(literals)) {
+    if (literals !== null) {
+      if (inSource(literals)) {
+        verified++;
+        return node;
+      }
+      unverified.push({ path: path || '(root)', value: node, reason: 'not_found_in_source' });
+      return null;
+    }
+
+    // Prose that carries a version-shaped token ("Racket 5.1.0"): the words
+    // may be the model's own re-wording, but the token has exactly one
+    // spelling and is checked like a bare one. Decimals ("1.5 million") and
+    // bare integers stay prose — a model may legitimately re-word those.
+    const embedded = embeddedVersionReadings(node);
+    if (embedded === null) return node;
+    if (embedded.every((spellings) => inSource(spellings))) {
       verified++;
       return node;
     }

@@ -140,7 +140,12 @@ describe('LLMManager + Ollama', () => {
     assert.equal(result.method, 'llm');
     assert.deepEqual(result.data, { title: 'Widget Pro', price: '$49.99' });
     assert.equal(result.valid, true);
-    assert.equal(lastChatBody.format, 'json', 'output must be constrained to JSON');
+    // R14: the decoder gets the caller's shape with every field nullable and
+    // no `required`, so "not stated" can be answered as null, not invented.
+    assert.equal(lastChatBody.format.type, 'object', 'output must be constrained to the schema');
+    assert.deepEqual(lastChatBody.format.properties.title.type, ['string', 'null']);
+    assert.deepEqual(lastChatBody.format.properties.price.type, ['string', 'null']);
+    assert.equal(lastChatBody.format.required, undefined, 'required must not reach the decoder');
     assert.equal(lastChatBody.stream, false);
   });
 

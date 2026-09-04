@@ -428,9 +428,13 @@ export class LocalizationManager extends EventEmitter {
    * @param {string} countryCode - Target country code
    * @returns {string} - JavaScript injection code
    */
-  async generateTimezoneSpoof(countryCode = null) {
+  async generateTimezoneSpoof(countryCode = null, timezone = null) {
     const targetCountry = countryCode || this.currentSettings.countryCode;
-    const config = await this.getLocalizationConfig(targetCountry);
+    let config = await this.getLocalizationConfig(targetCountry);
+    // An explicit IANA timezone wins over the country default: the tool
+    // accepted `timezone` and silently answered with the configured country's
+    // zone (Asia/Tokyo asked, Europe/Berlin returned — R14).
+    if (timezone) config = { ...config, timezone };
     
     const timezoneOffset = this.getTimezoneOffset(config.timezone);
     

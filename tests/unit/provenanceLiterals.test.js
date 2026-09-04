@@ -50,6 +50,35 @@ describe('provenance literals — a fabricated identifier is nulled', () => {
   }
 });
 
+describe('provenance literals — a version inside prose is checked too (R14)', () => {
+  test('the round-14 fabrication is caught: "Racket 5.1.0" on a page that says 9.3', () => {
+    const r = first({ version: 'Racket 5.1.0' }, 'Racket version 9.3 is available. (random 5) 1/2');
+    assert.equal(r.value, null);
+    assert.equal(r.nulled, 1);
+    assert.equal(r.unverified[0].reason, 'not_found_in_source');
+  });
+
+  test('a version the page states survives inside prose', () => {
+    const r = first({ version: 'SQLite Version 3.53.4 is current' });
+    assert.equal(r.value, 'SQLite Version 3.53.4 is current');
+    assert.equal(r.verified, 1);
+  });
+
+  test('a v-prefixed version in prose matches the bare spelling on the page', () => {
+    const r = first({ note: 'release v4.0.6 shipped' });
+    assert.equal(r.note ?? r.value, 'release v4.0.6 shipped');
+    assert.equal(r.nulled, 0);
+  });
+
+  test('decimals and integers in prose are still left alone', () => {
+    for (const prose of ['about 1.5 million users', 'costs 3 dollars', 'version 2.7 series']) {
+      const r = first({ field: prose }, 'nothing numeric here');
+      assert.equal(r.value, prose, `${prose} is prose and must survive`);
+      assert.equal(r.nulled, 0);
+    }
+  });
+});
+
 describe('provenance literals — an identifier that IS on the page survives', () => {
   const present = {
     'version as written': '3.53.4',

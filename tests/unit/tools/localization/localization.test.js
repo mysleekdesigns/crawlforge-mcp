@@ -88,6 +88,14 @@ describe('LocalizationManager.generateTimezoneSpoof', () => {
     const script = await manager.generateTimezoneSpoof();
     assert.ok(script.includes('Europe/London'));
   });
+
+  test('an explicit timezone wins over the configured country (R14: Asia/Tokyo asked, Berlin returned)', async () => {
+    const manager = await makeManager();
+    await manager.configureCountry('DE');
+    const script = await manager.generateTimezoneSpoof(null, 'Asia/Tokyo');
+    assert.ok(script.includes("targetTimezone = 'Asia/Tokyo'"), 'script must embed the requested timezone');
+    assert.ok(!script.includes('Europe/Berlin'));
+  });
 });
 
 describe('LocalizationManager health-check interval cleanup (setupHealthChecks leak fix)', () => {

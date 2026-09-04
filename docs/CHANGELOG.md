@@ -5,6 +5,70 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.6.1] - 2026-09-03
+
+Everything found by the Round 14 live regression (29 tools, all-new sites,
+2026-09-03), fixed. Six defects plus two gaps the fixes uncovered.
+
+### Fixed
+- **`extract_structured` reads the whole page, not only Readability's main
+  content.** Main content alone hid the version banner on racket-lang.org — the
+  answer sits in the page chrome — and a model that never sees the answer fills
+  a required field with the nearest heading, the page title, which the
+  provenance guard cannot fault because it carries no digits. The model now
+  reads the main content first and the whole page after it when both fit a
+  24k-character budget (it was 6k, which cut a 20k-character article to its
+  first third); the article still leads, so the Cloudflare blog headline case
+  stays right. Verified live: racket-lang.org 9.3, rust-lang.org 1.98.1, both
+  provenance-verified.
+- **LLM extraction decoders can answer null.** `extract_structured`,
+  `extract_with_llm` and `scrape`'s json format sent Ollama a bare `'json'`
+  format, or the schema with `required`, so a model shown content that never
+  stated a field invented one — `scrape` json returned "Racket 5.1.0" for a
+  version the page states as 9.3. Every property is now nullable for the
+  decoder, `required` is withheld from it, and the prompts say to answer null
+  for anything the content does not state. Both validators treat a null in a
+  field the schema does not require as valid (it read as "expected number, got
+  object") and a null required field as missing. `scrape`'s json format also
+  shows the model the main content first and the whole page after it, the
+  same way `extract_structured` now does, so the banner is in view: racket
+  answers 9.3.
+- **The provenance guard checks version strings inside prose.** "Racket 5.1.0"
+  rode past it because only whole-value versions were checked; a token with two
+  or more dots inside prose is now verified against the page and nulled when
+  absent. Decimals and plain integers in prose are left alone.
+- **HTTP page fetches no longer send `Accept-Language: *`.** Node's fetch adds
+  it when none is set, and Amazon answers the honest `CrawlForge/…` identity
+  with a captcha interstitial whenever ANY Accept-Language rides along — `*`,
+  en-US, de-DE, a full browser list — while serving the page when it is absent
+  (bisected header by header with curl, reproduced with Node's fetch). fetch
+  cannot omit the header, so the gate sends it empty, which Amazon treats as
+  absent. `amazon-product` on amazon.de and amazon.in returns the product
+  again. amazon.com still refuses this identity from some networks regardless
+  of headers; the template names that captcha rather than returning nulls.
+- **`agent` no longer searches for "```".** A fenced plan list leaked the fence
+  markers as two of three search queries; fences, wrapping quotes and lines
+  with no letter or digit are stripped from the plan.
+- **`stealth_mode`'s Chromium fingerprint is coherent.** bot.sannysoft.com
+  showed a Firefox User-Agent on Chromium (navigator.vendor "Google Inc.",
+  window.chrome present), deviceMemory 32 where Chrome caps at 8, a plain-Array
+  plugins list, and a nulled WEBGL_debug_renderer_info that threw a TypeError.
+  Chromium now draws a Chrome User-Agent only (Camoufox keeps its own),
+  deviceMemory is 8 or 4, the fallback plugins are a real `PluginArray`, and
+  the WebGL wrapper spoofs the unmasked vendor and renderer and tolerates a
+  canvas with no WebGL context. Sannysoft now: 5 plugins, PluginArray passed,
+  CHR_MEMORY ok, no failures.
+- **`localization generate_timezone_spoof` honours an explicit `timezone`.**
+  Asia/Tokyo asked, Berlin answered — only `countryCode` was read.
+- **`hacker-news-front-page` strips "1 point" too** (crawlforge-extractors
+  1.6.1; the regex stripped only " points"). Also from 1.6.1: `amazon-product`
+  reads the currency off the price string ("52,02USD", "₹1,950.00", a bare
+  "$" told apart by marketplace) when the page ships no buy-box currencyCode
+  input — amazon.de and amazon.in book pages don't.
+
+### Changed
+- `crawlforge-extractors` ^1.6.1.
+
 ## [5.6.0] - 2026-09-01
 
 Everything found by the Round 12 live regression (29 tools, all-new sites,

@@ -281,19 +281,21 @@ export class UnifiedScrapeTool {
       if (fmt && typeof fmt === 'object' && fmt.type === 'json') {
         try {
           const extractWithLlm = await this._getExtractWithLlm();
-          let text;
-          if (onlyMainContent) {
-            text = htmlToMarkdown(getMainHtml());
-          } else {
-            // Script and template bodies are never rendered, but $('body').text()
-            // includes them — on a Shopify storefront that was 179KB of
-            // JavaScript, more than the page's real text, and it carried the
-            // very "Sold out" strings the strip had just removed from the DOM.
-            const { load } = await import('cheerio');
-            const $visible = load(html);
-            $visible('script, style, noscript, template').remove();
-            text = $visible('body').text().replace(/\s+/g, ' ').trim();
-          }
+          // Script and template bodies are never rendered, but $('body').text()
+          // includes them — on a Shopify storefront that was 179KB of
+          // JavaScript, more than the page's real text, and it carried the
+          // very "Sold out" strings the strip had just removed from the DOM.
+          const { load } = await import('cheerio');
+          const $visible = load(html);
+          $visible('script, style, noscript, template').remove();
+          const pageText = $visible('body').text().replace(/\s+/g, ' ').trim();
+          // Main content first, then the whole page: Readability drops the page
+          // chrome, and racket-lang.org states its version there — shown the
+          // main content alone, the model answered "Racket" for a version the
+          // page gives as 9.3 (R14). The article still leads.
+          const text = onlyMainContent
+            ? `${htmlToMarkdown(getMainHtml())}\n\n${pageText}`
+            : pageText;
           const result = await extractWithLlm.execute({
             content: text,
             prompt: fmt.prompt || 'Extract structured data from this page content.',

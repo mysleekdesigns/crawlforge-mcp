@@ -135,6 +135,29 @@ export async function robotsPreflight(url, options = {}) {
  *   warnings: string[], overridden: boolean }>}
  * @throws {BlockedHostError|RobotsDisallowedError}
  */
+/**
+ * The headers an HTTP page fetch carries: identity, the Web Bot Auth signature
+ * when one is configured, and an EMPTY Accept-Language.
+ *
+ * Node's fetch adds `Accept-Language: *` whenever the caller sets none. Amazon
+ * answers this identity with a captcha interstitial when ANY Accept-Language
+ * rides along — `*`, en-US, de-DE, a full browser list — and serves the page
+ * when the header is absent (R14, bisected header by header with curl, then
+ * reproduced with Node's fetch). fetch offers no way to leave the header out,
+ * but an empty value is sent as-is instead of `*`, and Amazon treats empty as
+ * absent. The identity stays honest; no language preference is claimed.
+ * @param {string} [userAgent]
+ * @param {Record<string,string>} [signature]
+ * @returns {Record<string,string>}
+ */
+export function outboundHeaders(userAgent, signature = {}) {
+  return {
+    ...identityHeaders({ userAgent }),
+    'Accept-Language': '',
+    ...signature
+  };
+}
+
 export async function preflightFetch(url, options = {}) {
   const decision = await robotsPreflight(url, options);
   if (!decision.allowed) {
@@ -153,7 +176,7 @@ export async function preflightFetch(url, options = {}) {
   const signature = signRequestHeaders(url) || {};
 
   return {
-    headers: { ...identityHeaders({ userAgent: decision.userAgent }), ...signature },
+    headers: outboundHeaders(decision.userAgent, signature),
     userAgent: decision.userAgent,
     warnings: decision.warnings,
     overridden: decision.overridden

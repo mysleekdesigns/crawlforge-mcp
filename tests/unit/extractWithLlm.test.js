@@ -409,14 +409,37 @@ describe('ExtractWithLlm', () => {
         provider: 'ollama'
       });
       assert.ok(result.success, `should succeed, got: ${JSON.stringify(result)}`);
-      // Phase 2: the Ollama branch now normalizes via buildInputSchema (same
-      // as the Anthropic branch), which spreads the schema over
-      // { additionalProperties: true } and pins type: 'object'.
+      // Phase 2: the Ollama branch normalizes via buildInputSchema (same as
+      // the Anthropic branch): spread over { additionalProperties: true },
+      // type pinned to 'object'. R14: every property is nullable and
+      // `required` is withheld from the decoder, so a model shown content
+      // that never states a field can answer null instead of inventing one.
       assert.deepEqual(
         capturedBody.format,
-        { additionalProperties: true, ...schema, type: 'object' },
-        'schema should be passed as normalized JSON Schema format object'
+        { additionalProperties: true, type: 'object', properties: { x: { type: ['number', 'null'] } } },
+        'schema should be passed as a nullable, required-free JSON Schema format object'
       );
+    });
+  });
+
+  test('23. a null in a field the schema does not require is valid; a null required field is not', async () => {
+    await withEnv({}, async () => {
+      mockFetch(async () => ({ status: 200, body: ollamaSuccess({ version: null, name: 'Racket' }) }));
+      const properties = { version: { type: 'string' }, name: { type: 'string' } };
+      const optional = await new Tool().execute({
+        content: 'Racket, the language', prompt: 'extract', provider: 'ollama',
+        schema: { type: 'object', properties }
+      });
+      assert.ok(optional.success, JSON.stringify(optional));
+      assert.equal(optional.valid, true, (optional.validationErrors || []).join('; '));
+
+      const required = await new Tool().execute({
+        content: 'Racket, the language', prompt: 'extract', provider: 'ollama',
+        schema: { type: 'object', properties, required: ['version'] }
+      });
+      assert.ok(required.success, JSON.stringify(required));
+      assert.equal(required.valid, false);
+      assert.match(required.validationErrors.join('; '), /^version:/);
     });
   });
 
