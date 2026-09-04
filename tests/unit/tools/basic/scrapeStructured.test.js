@@ -49,7 +49,14 @@ before(async () => {
       <a href="mailto:sales@example.com">Sales</a>
       <a href="mailto:support@example.com">Support</a>
       <a href="/about">About (no @)</a>
-    </body></html>`
+    </body></html>`,
+    // coinmarketcap.com/currencies/bitcoin/historical-data/ shape (2026-09-04):
+    // a selector that matches a table must not run every cell together.
+    '/history': `<html><body><nav>Menu</nav><div id="wrap"><h2>Bitcoin Price History</h2>
+<table><thead><tr><th>Date</th><th>Open*</th><th>High</th></tr></thead>
+<tbody><tr><td>Sep 03, 2026</td><td>$77,300.17</td><td>$82,262.21</td></tr>
+<tr><td>Sep 02, 2026</td><td>$77,402.14</td><td>$77,737.55</td></tr></tbody></table>
+<p>* Earliest data in range</p></div></body></html>`
   };
   server = http.createServer((req, res) => {
     const path = req.url.split('?')[0];
@@ -107,5 +114,46 @@ describe('scrapeStructuredHandler', () => {
 
     assert.ok(data.data.broken?.error, 'expected the broken selector to report a field-level error');
     assert.ok(Array.isArray(data.data.ok) || typeof data.data.ok === 'string', 'the other field must still resolve normally');
+  });
+});
+
+describe('scrapeStructuredHandler — selectors keep table structure', () => {
+  // Same gap scrape_with_actions closed in 5.6.5: cheerio's .text() has no
+  // cell boundaries, so a `table` selector came back as
+  // "DateOpen*HighLowClose**…Sep 03, 2026$77,300.17…". A table, a row group
+  // or a row now renders one line per row with cells joined by " | ", an
+  // element wrapping a table renders it that way in place, and every other
+  // selector is unchanged (src/utils/elementText.js).
+  const ROWS = 'Sep 03, 2026 | $77,300.17 | $82,262.21\nSep 02, 2026 | $77,402.14 | $77,737.55';
+
+  test('a table, a row, and an element wrapping a table are delimited; other selectors are unchanged', async () => {
+    const result = await scrapeStructuredHandler({
+      url: `${baseUrl}/history`,
+      selectors: { table: 'table', body: 'tbody', firstRow: 'tbody tr:first-child', wrapper: '#wrap', dates: 'tbody td:first-child', heading: 'h2' }
+    });
+    const data = parseResult(result);
+
+    assert.equal(data.data.table, `Date | Open* | High\n${ROWS}`);
+    assert.equal(data.data.body, ROWS, 'a row group renders only its own rows');
+    assert.equal(data.data.firstRow, 'Sep 03, 2026 | $77,300.17 | $82,262.21');
+    assert.equal(data.data.wrapper, `Bitcoin Price History\nDate | Open* | High\n${ROWS}\n* Earliest data in range`);
+    assert.deepEqual(data.data.dates, ['Sep 03, 2026', 'Sep 02, 2026'], 'a multi-match selector still returns an array of cell strings');
+    assert.equal(data.data.heading, 'Bitcoin Price History');
+    assert.equal(data.elements_found.table, 1);
+  });
+
+  test('row mode: a field that names the row itself renders the row with cell delimiters', async () => {
+    const result = await scrapeStructuredHandler({
+      url: `${baseUrl}/history`,
+      row_selector: 'tbody tr',
+      selectors: { row: 'tr', date: 'td:first-child' }
+    });
+    const data = parseResult(result);
+
+    assert.equal(data.rows_found, 2);
+    assert.deepEqual(data.data, [
+      { row: 'Sep 03, 2026 | $77,300.17 | $82,262.21', date: 'Sep 03, 2026' },
+      { row: 'Sep 02, 2026 | $77,402.14 | $77,737.55', date: 'Sep 02, 2026' }
+    ]);
   });
 });

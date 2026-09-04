@@ -11,6 +11,7 @@ import { ssrfGuard, isSsrfError } from '../../../utils/ssrfGuard.js';
 import { noteRetryAfter } from '../../../utils/hostRateLimiter.js';
 import { preflightFetch } from '../../../utils/robotsGate.js';
 import { htmlToMarkdown } from '../../../utils/htmlToMarkdown.js';
+import { elementText } from '../../../utils/elementText.js';
 
 /**
  * Fetch a URL with AbortController timeout (SSRF-guarded + per-host throttled).
@@ -111,8 +112,8 @@ function extractStructuredData($, selectors) {
     try {
       const elements = $(selector);
       if (elements.length === 0) extracted[key] = null;
-      else if (elements.length === 1) extracted[key] = elements.text().trim();
-      else extracted[key] = elements.map((_, el) => $(el).text().trim()).get();
+      else if (elements.length === 1) extracted[key] = elementText($, elements.get(0));
+      else extracted[key] = elements.map((_, el) => elementText($, el)).get();
     } catch {
       extracted[key] = { error: `Invalid selector: ${selector}` };
     }

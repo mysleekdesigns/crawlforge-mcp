@@ -5,6 +5,22 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.6.6] - 2026-09-04
+
+### Fixed
+- **`batch_scrape` selectors and `scrape_structured` keep table structure.**
+  Both read matched elements with cheerio's `.text()`, so a selector that
+  matched a table returned one string with every cell run together
+  (`DateOpen*HighLowClose**VolumeMarket CapSep 03, 2026$77,300.17…`) — the
+  same gap 5.6.5 closed for `scrape_with_actions`, left open there because
+  that release was scoped to one tool. Both now read elements through the
+  shared helper (`src/utils/elementText.js`): a table, a row group or a row
+  renders one line per row with cells joined by ` | `, an element that wraps
+  a table renders each table that way in place, and every other selector —
+  including `selector@attr` and `row_selector` records — is unchanged. In
+  `scrape_structured`'s row mode a field that names the row itself
+  (`row_selector: "tbody tr"`, field `"tr"`) now yields the delimited row.
+
 ## [5.6.5] - 2026-09-04
 
 ### Fixed
