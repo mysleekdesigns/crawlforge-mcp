@@ -41,7 +41,7 @@ export class BFSCrawler {
     // Session context for cookie jar + persistent headers (null = stateless)
     this.sessionContext = sessionContext;
 
-    this.visited = new Set();
+    this.visited = new Map(); // normalized key -> the URL as fetched
     this.results = [];
     this.errors = [];
     this.filterDecisions = []; // Track filtering decisions for analysis
@@ -135,7 +135,7 @@ export class BFSCrawler {
     }
 
     return {
-      urls: Array.from(this.visited),
+      urls: Array.from(this.visited.values()),
       results: this.results,
       errors: this.errors,
       stats: this.getStats(),
@@ -154,6 +154,9 @@ export class BFSCrawler {
     if (this.visited.has(normalizedUrl)) {
       return;
     }
+    // The form that goes on the wire: a bare origin gains its root "/",
+    // everything else (a trailing slash included) stays as written.
+    try { url = new URL(url).href; } catch { /* normalizeUrl accepted it; leave it */ }
 
     // Only the seed is queued at depth 0; children are always depth >= 1.
     const isSeed = depth === 0;
@@ -180,7 +183,11 @@ export class BFSCrawler {
     // Check robots.txt through the shared gate, so this crawl reuses the same
     // cached robots.txt every other tool fetched (and honours the platform
     // blocklist, which no per-request flag can switch off).
-    const gate = await robotsPreflight(normalizedUrl, {
+    // Fetch, resolve links and ask robots about the URL as written: the
+    // normalized form drops a trailing slash, and globalpetrolprices.com
+    // answers /gasoline_prices/ with 200 and /gasoline_prices with 404
+    // (R18, 2026-09-04). The normalized form is the dedupe and cache key only.
+    const gate = await robotsPreflight(url, {
       respectRobots: this.respectRobots,
       userAgent: this.userAgent,
       tool: 'crawl_deep'
@@ -192,9 +199,9 @@ export class BFSCrawler {
       // stay silent: skipping disallowed links is the normal case.
       if (isSeed) {
         this.errors.push({
-          url: normalizedUrl,
+          url,
           depth,
-          error: new RobotsDisallowedError(normalizedUrl).message,
+          error: new RobotsDisallowedError(url).message,
           code: 'ROBOTS_DISALLOWED',
           timestamp: new Date().toISOString()
         });
@@ -209,7 +216,7 @@ export class BFSCrawler {
     if (this.visited.size >= this.maxPages || this.visited.has(normalizedUrl)) {
       return;
     }
-    this.visited.add(normalizedUrl);
+    this.visited.set(normalizedUrl, url);
 
     try {
       // Check cache first
@@ -242,7 +249,7 @@ export class BFSCrawler {
         }
 
         // Fetch the page
-        pageData = await this.fetchPage(normalizedUrl);
+        pageData = await this.fetchPage(url);
         
         // Cache the result
         if (cacheKey) await this.cache.set(cacheKey, pageData);
@@ -255,18 +262,18 @@ export class BFSCrawler {
         const $page = pageData.originalHtml ? load(pageData.originalHtml) : null;
         const pageBodyText = $page ? $page('body').text() : '';
         for (const link of pageData.links) {
-          const absoluteUrl = this.resolveUrl(link, normalizedUrl);
+          const absoluteUrl = this.resolveUrl(link, url);
           if (absoluteUrl) {
             // Extract anchor text and context from link
             const linkMetadata = this.extractLinkMetadata(link, $page, pageBodyText);
-            this.linkAnalyzer.addLink(normalizedUrl, absoluteUrl, linkMetadata);
+            this.linkAnalyzer.addLink(normalizedUrl, normalizeUrl(absoluteUrl), linkMetadata);
           }
         }
       }
 
       // Process the page
       const result = {
-        url: normalizedUrl,
+        url,
         depth,
         title: pageData.title,
         contentLength: pageData.content?.length || 0,
@@ -286,8 +293,8 @@ export class BFSCrawler {
         for (const link of pageData.links) {
           if (this.visited.size >= this.maxPages) break;
           
-          const absoluteUrl = this.resolveUrl(link, normalizedUrl);
-          if (absoluteUrl && !this.visited.has(absoluteUrl)) {
+          const absoluteUrl = this.resolveUrl(link, url);
+          if (absoluteUrl && !this.visited.has(normalizeUrl(absoluteUrl))) {
             // Not awaited: this task already holds a queue slot, so awaiting a
             // child would keep that slot pinned for the rest of the recursive
             // crawl (starving other tasks when concurrency <= depth, and making
@@ -306,7 +313,7 @@ export class BFSCrawler {
       }
     } catch (error) {
       this.errors.push({
-        url: normalizedUrl,
+        url,
         depth,
         error: error.message,
         timestamp: new Date().toISOString()
@@ -425,8 +432,11 @@ export class BFSCrawler {
         if (!this.followExternal && linkUrl.origin !== this.baseUrl.origin) {
           return null;
         }
-        
-        return normalizeUrl(link);
+
+        // Keep the URL as the site wrote it (trailing slash included); only
+        // the fragment goes. Dedupe happens on normalizeUrl() at the caller.
+        linkUrl.hash = '';
+        return linkUrl.toString();
       }
       
       // Handle relative URLs
@@ -437,7 +447,8 @@ export class BFSCrawler {
         return null;
       }
       
-      return normalizeUrl(resolved.toString());
+      resolved.hash = '';
+      return resolved.toString();
     } catch {
       return null;
     }

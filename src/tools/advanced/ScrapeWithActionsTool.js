@@ -10,6 +10,7 @@ import { load } from 'cheerio';
 
 // Import existing tool for content extraction
 import ExtractContentTool from '../extract/extractContent.js';
+import { stealthDocumentVerdict } from '../../utils/stealthVerdict.js';
 import { elementText } from '../../utils/elementText.js';
 import { pageTitle } from '../../utils/pageTitle.js';
 
@@ -464,14 +465,28 @@ export class ScrapeWithActionsTool extends EventEmitter {
 
     const executionTime = Date.now() - sessionContext.startTime;
 
+    // The chain ran; whether the document it ended on is the page is a
+    // separate question. A bot wall, an HTTP error page or an error-titled
+    // placeholder is named as such (R18, 2026-09-04: tesla.com's Akamai
+    // denial completed every action and reported success).
+    const verdict = stealthDocumentVerdict({
+      url: chainResult?.finalUrl || params.url,
+      title: finalContent?.title || finalContent?.metadata?.title || '',
+      text: finalContent?.content?.text || '',
+      html: chainResult?.finalHtml || '',
+      status: chainResult?.navigationStatus ?? null
+    }, { allowEmpty: true });
+
     return {
-      success: chainResult.success,
+      success: chainResult.success && verdict.success,
       sessionId: sessionContext.id,
       url: params.url,
       executionTime,
 
       // Include error message if action chain failed
-      error: chainResult.error || undefined,
+      error: chainResult.error || verdict.error || undefined,
+      ...(verdict.blocked ? { blocked: verdict.blocked } : {}),
+      ...(verdict.status !== null ? { httpStatus: verdict.status } : {}),
 
       actionResults,
       totalActions: params.actions.length,

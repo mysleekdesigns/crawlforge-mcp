@@ -396,6 +396,13 @@ export class RedditSearchTool {
     }
     const rows = Array.isArray(data.data) ? data.data : [];
     const results = v.mode === 'posts' ? rows.map(normalizePost) : rows.map(normalizeComment);
+    // Arctic Shift ANDs every term: "Toyota Camry 2026 out the door price paid"
+    // found nothing in r/askcarsales while "Camry OTD" found eight (R18).
+    if (results.length === 0 && v.query && v.query.trim().split(/\s+/).length > 4) {
+      notes.push(
+        `Arctic Shift matches every word of the query, so a long natural-language query (${v.query.trim().split(/\s+/).length} words) usually finds nothing. Retry with two or three keywords.`
+      );
+    }
     return {
       source: 'arctic_shift', mode: v.mode,
       query: v.query ?? null, subreddit: subreddit ?? null, author: author ?? null,

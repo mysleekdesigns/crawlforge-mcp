@@ -148,11 +148,16 @@ describe('D5: a stealth page that cannot be read is an error, not a blank succes
     assert.doesNotMatch(body, /innerText\('body'\)/);
   });
 
-  test('the tool names a document that rendered no title and no text', () => {
+  test('the tool names a document that rendered no title and no text', async () => {
     const src = read('server.js');
     const scrape = src.slice(src.indexOf("case 'scrape': {"), src.indexOf("case 'create_context'"));
-    assert.match(scrape, /rendered no title and no text/);
-    assert.match(scrape, /result\.success = false/);
+    // R18 moved the verdict into src/utils/stealthVerdict.js; the case delegates to it.
+    assert.match(scrape, /stealthDocumentVerdict\(scraped/);
+    assert.match(scrape, /success: verdict\.success/);
+    const { stealthDocumentVerdict } = await import('../../src/utils/stealthVerdict.js');
+    const verdict = stealthDocumentVerdict({ url: 'https://example.com/', title: '', text: '', html: '' }, { waitedMs: 0 });
+    assert.equal(verdict.success, false);
+    assert.match(verdict.error, /rendered no title and no text/);
   });
 });
 

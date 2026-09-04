@@ -16,6 +16,7 @@ import { safeFetch } from '../../utils/ssrfGuard.js';
 import { preflightFetch } from '../../utils/robotsGate.js';
 import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
 import { markPreflightRefusal } from '../../server/requestContext.js';
+import { shopifyProductFromJsonLd } from './shopifyJsonLdFallback.js';
 
 /**
  * A caller mistake caught before anything is fetched: no template matches the
@@ -144,6 +145,13 @@ export class ScrapeTemplateTool {
         if (response.status === 429 || response.status === 503) {
           noteRetryAfter(fetchUrl, response.headers.get('retry-after'));
         }
+        // shopify-product reads /products/<handle>.json; a store that refuses
+        // that endpoint (gymshark.com: 403) or a handle that no longer exists
+        // (allbirds.com: 404 after a redirect to a collection) still has the
+        // public product page, whose JSON-LD carries the price (R18).
+        if (templateId === 'shopify-product' && url && fetchUrl !== url && [401, 403, 404, 410].includes(response.status)) {
+          return await this.shopifyPageFallback({ url, tpl, status: response.status, gate, respect_robots, user_agent, timeout });
+        }
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       html = await response.text();
@@ -179,6 +187,54 @@ export class ScrapeTemplateTool {
 
     return gate.warnings.length > 0 ? { ...result, warnings: gate.warnings } : result;
   }
+  /**
+   * Read the product page itself when the .json endpoint was refused. The
+   * page goes through the same robots gate and SSRF guard as any fetch.
+   */
+  async shopifyPageFallback({ url, tpl, status, respect_robots, user_agent, timeout }) {
+    const pageGate = await preflightFetch(url, {
+      respectRobots: respect_robots,
+      userAgent: user_agent,
+      tool: 'scrape_template'
+    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    let response;
+    try {
+      response = await safeFetch(url, { signal: controller.signal, headers: { ...pageGate.headers } });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    if (!response.ok) {
+      throw new Error(
+        `HTTP ${status} from the products.json endpoint, and the product page ${url} answered HTTP ${response.status} too.`
+      );
+    }
+    const finalUrl = response.url || url;
+    const html = await response.text();
+    const parsed = shopifyProductFromJsonLd(html, finalUrl);
+    if (!parsed.found) {
+      throw new Error(
+        `HTTP ${status} from the products.json endpoint, and ${parsed.reason}` +
+        (finalUrl !== url ? ` (the page redirected to ${finalUrl})` : '') + '.'
+      );
+    }
+    const warnings = [
+      `The store answered /products/<handle>.json with HTTP ${status}; this record was read from the product page's schema.org JSON-LD instead. ` +
+      'Per-variant inventory, compare-at prices and option names are not in JSON-LD, so those fields are null.',
+      ...pageGate.warnings
+    ];
+    return {
+      template: tpl.id,
+      template_name: tpl.name,
+      url,
+      fetchedUrl: finalUrl,
+      data: parsed.data,
+      extractedAt: new Date().toISOString(),
+      warnings
+    };
+  }
+
 }
 
 export default ScrapeTemplateTool;
