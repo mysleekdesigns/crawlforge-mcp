@@ -838,9 +838,11 @@ prompt (elicitation). CLI: `crawlforge crawl https://docs.example.com --depth 3 
 
 ## Cost note
 
-Cheapest first: `fetch_url`, `extract_text`, `extract_links`,
-`extract_metadata` = 1 credit · `scrape`, `extract_content`, `map_site` =
-2 · `crawl_deep` = 4 (grows with `max_pages`). Prefer one `scrape` call over
-several single-format calls when you need multiple formats.
+`scrape` (2 credits) is the default page read: one fetch returns every format
+you ask for. `fetch_url`, `extract_text`, `extract_links`, `extract_metadata`
+(1 each) are cheaper only when one of them is the whole job; `fetch_url` followed
+by an `extract_*` call on the same URL is a double fetch that costs more than one
+`scrape`. `extract_content`, `map_site` = 2 · `crawl_deep` = 4 (grows with
+`max_pages`). Never re-fetch a page whose content is already in the conversation.
 
 See [tool reference](references/tool-reference.md) for the full parameter list.
