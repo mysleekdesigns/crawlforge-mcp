@@ -5,6 +5,25 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.6.4] - 2026-09-04
+
+### Fixed
+- **`scrape_with_actions`, `extract_content` and `process_document` keep the
+  data tables Readability drops.** Readability keeps one article candidate and
+  discards every table outside it; `scrape` had been re-attaching those since
+  the S&P 500 constituents table went missing, but the shared content
+  processor behind these three tools ran its own Readability pass without the
+  recovery. Found on CoinMarketCap's historical-data page (2026-09-04): the
+  action chain's wait for `table tbody tr` succeeded, and the `markdown` and
+  `text` formats then came back as the page's FAQ copy with no table at all —
+  a silent loss, since the prose read as complete. The recovery now lives in
+  one exported helper (`recoverDroppedTables`) used by both paths. Recovered
+  tables render as pipe tables in markdown and as one line per row with cells
+  joined by ` | ` in text (a bare `textContent` runs the cells together:
+  `DateOpen*HighLowClose**…`). The result reports `tablesRecovered` and, on
+  `extract_content`, the same `mainContent: re-attached N data table(s)`
+  warning `scrape` emits.
+
 ## [5.6.3] - 2026-09-04
 
 Everything found by the Round 16 live regression (29 tools, 18 templates,
