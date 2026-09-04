@@ -41,7 +41,7 @@ const {
   ResearchOrchestrator, compactSearchTopic, clampSearchQuery, SEARCH_TOPIC_MAX_WORDS, SEARCH_QUERY_MAX_WORDS
 } = await import('../../src/core/ResearchOrchestrator.js');
 const { LocalizationManager } = await import('../../src/core/LocalizationManager.js');
-const { shopifyProductFromJsonLd } = await import('../../src/tools/templates/shopifyJsonLdFallback.js');
+const { shopifyProductFromJsonLd } = await import('crawlforge-extractors');
 const { ScrapeTemplateTool } = await import('../../src/tools/templates/ScrapeTemplateTool.js');
 const { RedditSearchTool } = await import('../../src/tools/search/redditSearch.js');
 const { _resetRobotsGate } = await import('../../src/utils/robotsGate.js');

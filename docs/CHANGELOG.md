@@ -5,6 +5,18 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.6.10] - 2026-09-04
+
+Ships with crawlforge-extractors 1.6.5.
+
+### Changed
+- **The Shopify JSON-LD fallback is the shared reader.** 5.6.9 shipped
+  `shopifyProductFromJsonLd` as a private copy in this package; it now lives in
+  crawlforge-extractors 1.6.5, which the REST API reads too, so the two
+  surfaces cannot drift. Same behaviour, one change: a variant's `id` prefers
+  the per-variant `mpn` (gymshark's per-size id) over a `sku` shared by the
+  whole group.
+
 ## [5.6.9] - 2026-09-04
 
 Round 18 live regression: pricing across travel, auto and retail sites (656

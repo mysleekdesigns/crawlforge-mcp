@@ -11,12 +11,11 @@
  * one call — the registry builds the URL, this tool fetches it.
  */
 
-import { TemplateRegistry, retiredTemplate } from 'crawlforge-extractors';
+import { TemplateRegistry, retiredTemplate, shopifyProductFromJsonLd } from 'crawlforge-extractors';
 import { safeFetch } from '../../utils/ssrfGuard.js';
 import { preflightFetch } from '../../utils/robotsGate.js';
 import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
 import { markPreflightRefusal } from '../../server/requestContext.js';
-import { shopifyProductFromJsonLd } from './shopifyJsonLdFallback.js';
 
 /**
  * A caller mistake caught before anything is fetched: no template matches the
