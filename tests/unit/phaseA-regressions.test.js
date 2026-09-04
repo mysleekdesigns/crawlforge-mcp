@@ -147,7 +147,8 @@ describe('A1.7 scrape_template hacker-news-front-page', () => {
     assert.equal(s.title, 'Story A');
     assert.equal(s.score, '123');           // " points" stripped
     assert.equal(s.author, 'alice');
-    assert.ok(s.comments && /comments/.test(s.comments), `comments should be populated, got: ${s.comments}`);
+    // "45&nbsp;comments" is a bare count since extractors 1.6.2 (R15), like score.
+    assert.equal(s.comments, '45', `comments should be the bare count, got: ${s.comments}`);
   });
 });
 

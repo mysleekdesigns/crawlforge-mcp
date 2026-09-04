@@ -5,6 +5,57 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.6.2] - 2026-09-04
+
+Everything found by the Round 15 live regression (29 tools, 18 templates,
+all-new sites, 2026-09-04), fixed. Five defects and four of the quality gaps.
+
+### Fixed
+- **`batch_scrape` text no longer carries script and style bodies.** The
+  batch worker took the body text with nothing removed, so erlang.org's
+  downloads page ended with its whole theme-toggle script and opennet.ru's
+  with its CSS rules; `extract_text` on the same pages was clean. Script,
+  style, noscript and template elements are dropped before the text and
+  markdown formats are built (the html format is the raw document, as
+  before). `scrape_with_actions` had the same gap in its intermediate-state
+  text and short-page fallback.
+- **The stealth browser can reach www.selenium.dev again — and any URL that
+  mentions selenium, webdriver or puppeteer.** The stealth page router aborted
+  every request whose URL contained one of those words, the top-level
+  navigation included, so every stealth path (`stealth_mode` scrape,
+  `create_context` → `create_page`, `scrape_with_actions` with
+  `browserOptions.stealth`) failed there with `net::ERR_FAILED`. It also
+  aborted `challenges.cloudflare.com`, which meant a Cloudflare challenge could
+  never complete: the interstitial itself named the blocked host. No request
+  is aborted by URL any more.
+- **A challenge interstitial is reported as a block, not a scrape.**
+  `stealth_mode` scrape returns `success:false` with `blocked:{vendor,
+  evidence}` and an `error` when the page is a Cloudflare "Just a moment...",
+  an Amazon captcha, a DataDome or PerimeterX challenge or an Akamai
+  access-denied page; the content is still returned. `create_page` reports the
+  same under `navigation.blocked`.
+- **`bypassCSP` is no longer set on stealth contexts.** Ignoring a page's
+  Content Security Policy is invalid behaviour for a real browser and
+  rebrowser's bot detector flagged it; nothing here needed it.
+- **Stealth fingerprint coherence.** The plugin fallback now also defines
+  `navigator.mimeTypes` (two PDF entries, as Chrome reports beside its five
+  plugins — detect-headless read "5 plugins / 0 mime types"); the user-agent
+  pools track the bundled engines (Chrome 149–151, Firefox 135) instead of
+  Chrome 119–121.
+- **`analyze_content` counts Thai, Lao, Khmer and Burmese words.** Only CJK
+  scripts reached Intl.Segmenter; a 290-character Thai paragraph was counted
+  as 4 words.
+
+### Changed
+- `crawlforge-extractors` 1.6.2: `amazon-product` rebuilds the price from the
+  whole/fraction spans when the offscreen string carries no decimal separator
+  (amazon.com.au rendered "$1105" for A$11.05 — a price 100× too high that
+  every guard accepted); `template:"auto"` recognises every Amazon marketplace
+  the extractor handles (amazon.co.jp, .es, .in, .it, …); `hacker-news`
+  `comments` is a bare count ("2 comments" → "2", "discuss" → "0"), the shape
+  `score` already had; `extract_embedded_state` reads `window.__preloadedData`
+  (nytimes.com).
+
 ## [5.6.1] - 2026-09-03
 
 Everything found by the Round 14 live regression (29 tools, all-new sites,

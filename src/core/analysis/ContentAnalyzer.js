@@ -6,7 +6,8 @@
 import {
   LANGUAGE_NAMES,
   cjkScriptCounts as sharedCjkScriptCounts,
-  detectLanguage as sharedDetectLanguage
+  detectLanguage as sharedDetectLanguage,
+  needsWordSegmentation
 } from '../../utils/languageDetection.js';
 import nlp from 'compromise';
 import { z } from 'zod';
@@ -168,7 +169,9 @@ export class ContentAnalyzer {
    * @returns {string[]} - Word tokens
    */
   tokenizeWords(text) {
-    return this.isCjkText(text)
+    // CJK and the unspaced South-East Asian scripts (Thai, Lao, Khmer,
+    // Burmese) have no word spaces to split on.
+    return needsWordSegmentation(text)
       ? this.segmentWords(text)
       : text.split(/\s+/).filter(w => w.length > 0);
   }
