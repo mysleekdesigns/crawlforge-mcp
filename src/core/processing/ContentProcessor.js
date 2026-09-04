@@ -9,6 +9,7 @@ import * as cheerio from 'cheerio';
 import { z } from 'zod';
 import { ContentQualityAssessor } from '../../utils/contentUtils.js';
 import { recoverDroppedTables } from '../../tools/scrape/_mainContent.js';
+import { pageTitle } from '../../utils/pageTitle.js';
 
 const ContentProcessorSchema = z.object({
   html: z.string(),
@@ -303,7 +304,7 @@ export class ContentProcessor {
   extractMetadata(html) {
     const $ = cheerio.load(html);
     const metadata = {
-      title: $('title').text().trim() || null,
+      title: pageTitle($) || null,
       description: null,
       keywords: null,
       author: null,
@@ -474,7 +475,7 @@ export class ContentProcessor {
 
     return {
       content: mainContent,
-      title: $('title').text().trim() || null,
+      title: pageTitle($) || null,
       headings: this.extractHeadings($),
       length: mainContent ? mainContent.length : 0
     };

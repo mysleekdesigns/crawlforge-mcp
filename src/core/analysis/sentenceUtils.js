@@ -3,10 +3,13 @@
  * domain names, and other common patterns that contain periods.
  */
 
-// CJK / fullwidth sentence terminators. Unlike the ASCII '.' these are
-// unambiguous — no abbreviation, decimal or initial uses them — and CJK text
-// puts no whitespace after them, so they split on a zero-width boundary.
-const CJK_TERMINATORS = '。．！？；';
+// CJK / fullwidth sentence terminators, plus the Devanagari danda (।) and
+// double danda (॥) that end Hindi, Marathi, Nepali and Sanskrit sentences —
+// a Hindi paragraph of five sentences counted as one (R17, 2026-09-04).
+// Unlike the ASCII '.' these are unambiguous — no abbreviation, decimal or
+// initial uses them — and CJK text puts no whitespace after them, so they
+// split on a zero-width boundary.
+const CJK_TERMINATORS = '。．！？；।॥';
 
 // Common abbreviations that should not trigger sentence splits
 const ABBREVIATIONS = new Set([
@@ -33,16 +36,16 @@ export function splitSentences(text) {
 
   // Split by potential sentence boundaries: . ! ? and the CJK terminators
   // But be smart about abbreviations, numbers, and domain-like patterns
-  const tokens = text.split(/(?<=[.!?])\s+|(?<=[。．！？；])\s*/);
+  const tokens = text.split(/(?<=[.!?])\s+|(?<=[。．！？；।॥])\s*/);
 
   for (const token of tokens) {
     const combined = current ? current + ' ' + token : token;
 
     // Check if the current chunk ends with something that looks like a sentence end
-    const endMatch = combined.match(/([.!?。．！？；])\s*$/);
+    const endMatch = combined.match(/([.!?。．！？；।॥])\s*$/);
     if (endMatch) {
       // Check if the period is likely NOT a sentence boundary
-      const beforePeriod = combined.replace(/[.!?。．！？；]\s*$/, '');
+      const beforePeriod = combined.replace(/[.!?。．！？；।॥]\s*$/, '');
       const lastWord = beforePeriod.split(/\s+/).pop() || '';
       const lastWordLower = lastWord.toLowerCase().replace(/[^a-z]/g, '');
 

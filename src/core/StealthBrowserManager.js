@@ -14,6 +14,7 @@ import crypto from 'crypto';
 import HumanBehaviorSimulator from '../utils/HumanBehaviorSimulator.js';
 import { BrowserContextPool } from './BrowserContextPool.js';
 import { safeGoto } from '../utils/ssrfGuard.js';
+import { detectChallengePage } from '../utils/challengeDetection.js';
 
 const StealthConfigSchema = z.object({
   level: z.enum(['basic', 'medium', 'advanced']).default('medium'),
@@ -290,10 +291,19 @@ export class StealthBrowserManager {
       this.browser = null;
     }
 
-    // C2: if the requested engine differs from the running browser, tear it down first.
+    // C2: the requested engine differs from the running browser. Park the
+    // running one instead of closing it: closing took every live context in
+    // it along, so a create_context on Chromium followed by any camoufox
+    // scrape left the caller's contextId pointing at a closed browser
+    // ("Target page, context or browser has been closed", R17 2026-09-04).
+    // Each engine keeps its own browser; cleanup() closes the parked ones.
     if (this.browser && this._launchedEngine && this._launchedEngine !== validatedConfig.engine) {
-      await this.browser.close().catch(() => {});
-      this.browser = null;
+      this._parkedBrowsers ??= new Map();
+      this._parkedBrowsers.set(this._launchedEngine, this.browser);
+      const parked = this._parkedBrowsers.get(validatedConfig.engine);
+      this._parkedBrowsers.delete(validatedConfig.engine);
+      this.browser = parked && parked.isConnected() ? parked : null;
+      this._launchedEngine = this.browser ? validatedConfig.engine : null;
     }
 
     if (this.browser) {
@@ -484,7 +494,14 @@ export class StealthBrowserManager {
       // Policy is "invalid behavior for a normal browser" and rebrowser's
       // bot detector flags it red (R15, 2026-09-04). Every init script here
       // goes through addInitScript/evaluate, which need no CSP bypass.
-      javaScriptEnabled: true
+      javaScriptEnabled: true,
+
+      // Init scripts never reach a service worker, whose navigator therefore
+      // reported the real "HeadlessChrome/151 (Macintosh)" beside a spoofed
+      // Windows Chrome main thread (bot.incolumitas.com, R17 2026-09-04).
+      // Blocking registration removes that vantage point; a page's content
+      // does not depend on its service worker on a first, uncached visit.
+      serviceWorkers: 'block'
     };
 
     // camoufox's Firefox build predates the Browser.setDefaultViewport fields
@@ -499,6 +516,7 @@ export class StealthBrowserManager {
       delete contextOptions.isMobile;
       delete contextOptions.hasTouch;
       delete contextOptions.screen;
+      delete contextOptions.serviceWorkers;
     }
 
     const context = await this.browser.newContext(contextOptions);
@@ -1605,6 +1623,79 @@ export class StealthBrowserManager {
           });
         }
       }, fingerprint.hardware);
+
+      // Init scripts never run inside a dedicated Worker, so a detector that
+      // compares navigator in a worker with the main thread saw the real
+      // platform, deviceMemory and hardwareConcurrency beside the spoofed
+      // ones (bot.incolumitas.com "inconsistentWebWorkerNavigatorPropery",
+      // R17 2026-09-04). At the advanced level, classic workers start from a
+      // blob that patches WorkerNavigator and then importScripts() the real
+      // script; relative importScripts/fetch inside such a worker resolve
+      // against the original script URL. Module workers, data:/blob: worker
+      // URLs and a CSP that refuses blob workers fall through to the native
+      // constructor untouched. camoufox spoofs workers itself.
+      if (config.level === 'advanced' && this._launchedEngine !== 'camoufox') {
+        await context.addInitScript(({ hardware, locale }) => {
+          const NativeWorker = window.Worker;
+          if (typeof NativeWorker !== 'function') return;
+          const primary = locale.split('-')[0];
+          const languages = primary === locale ? [locale] : [locale, primary];
+          const spoof = JSON.stringify({
+            hardwareConcurrency: hardware.hardwareConcurrency,
+            platform: hardware.platform,
+            deviceMemory: hardware.deviceMemory,
+            languages,
+            language: locale
+          });
+          const prelude = (scriptUrl) =>
+            `(() => {
+              const spoof = ${spoof};
+              const proto = self.WorkerNavigator && self.WorkerNavigator.prototype;
+              const define = (key, value) => {
+                try { Object.defineProperty(proto, key, { get: () => value, configurable: true }); } catch (e) {}
+              };
+              if (proto) {
+                define('hardwareConcurrency', spoof.hardwareConcurrency);
+                define('platform', spoof.platform);
+                if ('deviceMemory' in self.navigator) define('deviceMemory', spoof.deviceMemory);
+                define('languages', spoof.languages);
+                define('language', spoof.language);
+              }
+              const base = ${JSON.stringify(scriptUrl)};
+              const resolve = (u) => { try { return new URL(String(u), base).href; } catch (e) { return u; } };
+              const nativeImport = self.importScripts;
+              self.importScripts = (...urls) => nativeImport.apply(self, urls.map(resolve));
+              const nativeFetch = self.fetch;
+              if (typeof nativeFetch === 'function') {
+                self.fetch = (input, init) => nativeFetch.call(self, typeof input === 'string' ? resolve(input) : input, init);
+              }
+              if (self.XMLHttpRequest) {
+                const nativeOpen = self.XMLHttpRequest.prototype.open;
+                self.XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                  return nativeOpen.call(this, method, resolve(url), ...rest);
+                };
+              }
+            })();
+            importScripts(${JSON.stringify(scriptUrl)});`;
+          const Wrapped = function Worker(scriptURL, options) {
+            try {
+              const isModule = options && options.type === 'module';
+              const absolute = new URL(String(scriptURL), location.href).href;
+              if (!isModule && /^https?:/.test(absolute)) {
+                const blob = new Blob([prelude(absolute)], { type: 'text/javascript' });
+                return new NativeWorker(URL.createObjectURL(blob), options);
+              }
+            } catch (e) {
+              // CSP refused the blob URL or the URL failed to parse: native worker.
+            }
+            return new NativeWorker(scriptURL, options);
+          };
+          Wrapped.prototype = NativeWorker.prototype;
+          Object.defineProperty(Wrapped, 'name', { value: 'Worker' });
+          Wrapped.toString = () => 'function Worker() { [native code] }';
+          window.Worker = Wrapped;
+        }, { hardware: fingerprint.hardware, locale: config.locale });
+      }
     }
 
     // Font spoofing
@@ -1926,6 +2017,27 @@ export class StealthBrowserManager {
    * @param {Object} [params.stealthConfig]     — stealth configuration overrides
    * @returns {Promise<{success:boolean, url:string, title:string, text:string, html:string, screenshot:?string}>}
    */
+  /**
+   * If the document is a self-solving bot-wall interstitial (its title is a
+   * known challenge title), wait up to timeoutMs for the title to change —
+   * the challenge script navigates to the real page when it passes — and for
+   * that navigation to reach domcontentloaded. A challenge that never passes
+   * is left to challengeDetection to report as blocked.
+   */
+  async _waitOutChallenge(page, { timeoutMs = 8000 } = {}) {
+    let title;
+    try {
+      title = await page.title();
+    } catch {
+      return;
+    }
+    if (!detectChallengePage({ title })) return;
+    await page
+      .waitForFunction((t) => document.title !== t, title, { timeout: timeoutMs })
+      .catch(() => {});
+    await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
+  }
+
   async scrapeWithStealth({ url, engine, wait_for = 0, screenshot = false, stealthConfig = {} } = {}) {
     if (!url) throw new Error('scrapeWithStealth requires a url');
 
@@ -1938,6 +2050,12 @@ export class StealthBrowserManager {
       // itself, so a URL/host-only check would miss rebinding to private/metadata IPs.
       await safeGoto(page, url, { waitUntil: 'domcontentloaded' });
       if (wait_for > 0) await page.waitForTimeout(wait_for);
+      // Cloudflare's and Vercel's JavaScript challenges solve themselves in a
+      // real browser and then reload the page. camoufox on lesswrong.com was
+      // read while the "Vercel Security Checkpoint" interstitial was still
+      // up, so the interstitial came back as success:true (R17, 2026-09-04).
+      // An auto-solving challenge gets one bounded wait to finish first.
+      await this._waitOutChallenge(page);
 
       // A failure to read the document is a failure. With every read wrapped
       // in .catch(() => ''), a renderer that crashed or a page closed during
@@ -2195,9 +2313,18 @@ export class StealthBrowserManager {
     }
 
     // Close browser; if close hangs, kill the process so the OS reclaims it.
+    // Browsers parked by an engine switch are closed the same way.
+    const browsers = [];
     if (this.browser) {
-      const browser = this.browser;
+      browsers.push(this.browser);
       this.browser = null;
+    }
+    if (this._parkedBrowsers) {
+      browsers.push(...this._parkedBrowsers.values());
+      this._parkedBrowsers.clear();
+    }
+    this._launchedEngine = null;
+    for (const browser of browsers) {
       const closed = await withDeadline(browser.close(), 5000);
       if (!closed) {
         try {

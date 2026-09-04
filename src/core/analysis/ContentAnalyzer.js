@@ -204,6 +204,9 @@ export class ContentAnalyzer {
       if (analysisOptions.detectLanguage) {
         result.language = await this.detectLanguage(text, analysisOptions);
       }
+      // Topic and keyword extraction pick their tokenizer by language: the
+      // English noun-phrase matcher returns whole clauses for anything else.
+      analysisOptions.detectedLanguage = result.language?.code || null;
 
       // Text summarization
       if (analysisOptions.summarize) {
@@ -440,12 +443,34 @@ export class ContentAnalyzer {
    * @param {Object} options - Extraction options
    * @returns {Promise<Array>} - Array of topics
    */
+  /**
+   * Whether topic/keyword extraction must rank segmented content words
+   * instead of running the English noun-phrase matcher. compromise knows no
+   * grammar but English: on CJK text it emits whole multi-sentence runs as
+   * one "phrase", and on Hindi or Finnish it returned clause-length
+   * "keywords" such as "kaupungissa asuu noin 680 000 ihmistä" (R17,
+   * 2026-09-04). Any detected non-English language, or a text whose letters
+   * are mostly non-Latin, takes the word-frequency path.
+   * @param {string} text
+   * @param {{ detectedLanguage?: string|null }} options
+   * @returns {boolean}
+   */
+  needsSegmentedTerms(text, options = {}) {
+    if (this.isCjkText(text)) return true;
+    const lang = options.detectedLanguage;
+    if (lang && lang !== 'und' && lang !== 'eng' && lang !== 'sco') return true;
+    const letters = text.match(/\p{L}/gu);
+    if (!letters || letters.length === 0) return false;
+    const latin = text.match(/\p{Script=Latin}/gu) || [];
+    return latin.length / letters.length < 0.5;
+  }
+
   async extractTopics(text, options = {}) {
     try {
       // compromise noun-phrase matching is English-only: on CJK text it emits
       // whole multi-sentence runs as one "phrase". Use dictionary-segmented
       // content words, ranked by RAKE-style relative salience like below.
-      if (this.isCjkText(text)) {
+      if (this.needsSegmentedTerms(text, options)) {
         const termFreq = this.cjkContentWordFrequencies(text);
         const maxFreq = Math.max(1, ...Object.values(termFreq));
         return Object.entries(termFreq)
@@ -632,7 +657,7 @@ export class ContentAnalyzer {
     try {
       // compromise is English-only: on CJK text it returns whole multi-sentence
       // runs as single "terms". Rank dictionary-segmented content words instead.
-      if (this.isCjkText(text)) {
+      if (this.needsSegmentedTerms(text, options)) {
         const termFreq = this.cjkContentWordFrequencies(text);
         const totalTerms = Object.values(termFreq).reduce((sum, freq) => sum + freq, 0);
         return Object.entries(termFreq)
@@ -1027,7 +1052,13 @@ export class ContentAnalyzer {
       '也是', '就是', '我们', '你们', '他们', '她们', '它们', '这个', '那个',
       '这些', '那些', '一个', '一些', '以及', '或者', '但是', '因为', '所以',
       '如果', '没有', '可以', '已经', '通过', '由于', '对于', '其中', '并且',
-      '而且', '虽然', '什么', '自己', '这里', '那里'
+      '而且', '虽然', '什么', '自己', '这里', '那里',
+      // Japanese particles, auxiliaries and formal nouns the segmenter emits
+      // as tokens ("ます", "です" led kakaku.com keywords in R17, 2026-09-04)
+      'ます', 'です', 'てい', 'って', 'ので', 'から', 'まで', 'など', 'また',
+      'する', 'いる', 'ある', 'こと', 'これ', 'それ', 'ため', 'よう', 'として',
+      'について', 'という', 'られ', 'れる', 'でき', 'ました', 'ません', 'した',
+      'その', 'この', 'あの', 'もの', 'ところ', 'ここ', 'そこ'
     ];
 
     return cjkStopWords.includes(word);

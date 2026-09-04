@@ -11,6 +11,7 @@ import { load } from 'cheerio';
 // Import existing tool for content extraction
 import ExtractContentTool from '../extract/extractContent.js';
 import { elementText } from '../../utils/elementText.js';
+import { pageTitle } from '../../utils/pageTitle.js';
 
 // Recording / replay helpers
 import {
@@ -625,7 +626,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
         const state = {
           capturePoint: stateData.afterActionIndex + 1,
           url: stateData.url,
-          title: $('title').text().trim(),
+          title: pageTitle($),
           timestamp: stateData.timestamp,
           content: {}
         };

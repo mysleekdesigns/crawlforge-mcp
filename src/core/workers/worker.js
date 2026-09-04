@@ -9,6 +9,7 @@ import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import compromise from 'compromise';
 import { franc } from 'franc';
+import { pageTitle } from '../../utils/pageTitle.js';
 
 // Task handlers
 const taskHandlers = {
@@ -93,7 +94,7 @@ async function handleParseHtml(data) {
   // Extract text content
   if (extractText) {
     result.text = $('body').text().trim();
-    result.title = $('title').text().trim();
+    result.title = pageTitle($);
   }
 
   // Extract links

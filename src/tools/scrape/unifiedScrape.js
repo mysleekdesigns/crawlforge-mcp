@@ -16,6 +16,7 @@ import { extractMainContent, isThinMainContent } from './_mainContent.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 import { stripHiddenFromDom } from '../../utils/hiddenContent.js';
 import { extractBlockText } from '../basic/extractText.js';
+import { pageTitle } from '../../utils/pageTitle.js';
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
@@ -132,7 +133,7 @@ function extractMetadataFromDom($, pageUrl) {
 
   const title =
     $('meta[property="og:title"]').attr('content') ||
-    $('title').text().trim() ||
+    pageTitle($) ||
     $('h1').first().text().trim() || '';
 
   const ogTags = {};

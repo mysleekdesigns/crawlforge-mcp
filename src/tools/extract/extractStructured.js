@@ -56,6 +56,8 @@ function mainContentText($, html, url) {
 
 /** Characters of page text the model is shown; about 6k tokens. */
 const SHOWN_TEXT_BUDGET = 24000;
+/** Characters of the whole-page text kept when main content would crowd it out. */
+const PAGE_HEAD_RESERVE = 6000;
 
 /**
  * The text the model reads: main content first, then the whole page when both
@@ -78,11 +80,19 @@ const SHOWN_TEXT_BUDGET = 24000;
  * @param {string} textContent - whole-page text from fetchAndParse
  * @returns {string}
  */
-function shownText($, html, url, textContent) {
+export function shownText($, html, url, textContent) {
   const main = mainContentText($, html, url);
   if (!main) return textContent;
-  if (main.length + textContent.length > SHOWN_TEXT_BUDGET) return main;
-  return `${main}\n\n${textContent}`;
+  if (main.length + textContent.length <= SHOWN_TEXT_BUDGET) return `${main}\n\n${textContent}`;
+  // Over budget: the article still leads, but the head of the whole-page
+  // text keeps its reserved slice. That head is the site chrome — the nav
+  // that reads "Install (6.3.3)" on swift.org while the main content's table
+  // is titled "Previous Releases" and starts at 6.3.2 — and the link-heavy
+  // lists Readability drops, such as the version list on gradle.org/releases,
+  // where main content alone answered nothing at all (R17, 2026-09-04).
+  const head = textContent.slice(0, PAGE_HEAD_RESERVE);
+  const mainCut = main.slice(0, Math.max(0, SHOWN_TEXT_BUDGET - head.length - 2));
+  return `${mainCut}\n\n${head}`;
 }
 
 /**

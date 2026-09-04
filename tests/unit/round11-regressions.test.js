@@ -37,11 +37,16 @@ const fakeBrowser = (onClose) => ({
 });
 
 describe('R11.1 engine mismatch guard in launchStealthBrowser', () => {
-  test('camoufox request tears down a running chromium browser and relaunches', async () => {
+  // R17 (2026-09-04) changed the mismatch action from close to park: closing
+  // took every live context along, so a create_context id from before a
+  // camoufox scrape pointed at a closed browser. The running browser is kept
+  // for its engine and a fresh one is launched for the requested engine.
+  test('camoufox request parks a running chromium browser and launches camoufox', async () => {
     const manager = new StealthBrowserManager();
     let closed = false;
     const launches = [];
-    manager.browser = fakeBrowser(() => { closed = true; });
+    const chromiumBrowser = fakeBrowser(() => { closed = true; });
+    manager.browser = chromiumBrowser;
     manager._launchedEngine = 'chromium';
     manager._doLaunchStealthBrowser = async (config) => {
       launches.push(config.engine);
@@ -50,9 +55,11 @@ describe('R11.1 engine mismatch guard in launchStealthBrowser', () => {
       return manager.browser;
     };
 
-    await manager.launchStealthBrowser({ engine: 'camoufox' });
-    assert.equal(closed, true, 'running chromium browser must be closed');
-    assert.deepEqual(launches, ['camoufox'], 'a camoufox launch must replace it');
+    const camoufoxBrowser = await manager.launchStealthBrowser({ engine: 'camoufox' });
+    assert.equal(closed, false, 'the running chromium browser stays open for its contexts');
+    assert.notEqual(camoufoxBrowser, chromiumBrowser);
+    assert.deepEqual(launches, ['camoufox'], 'a camoufox launch is added beside it');
+    assert.equal(manager._parkedBrowsers.get('chromium'), chromiumBrowser, 'chromium is parked by engine');
   });
 
   test('matching engine reuses the running browser without a relaunch', async () => {

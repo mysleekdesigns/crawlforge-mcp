@@ -8,6 +8,7 @@ import { ResultRanker } from '../search/ranking/ResultRanker.js';
 import { safeFetch } from '../../utils/ssrfGuard.js';
 import { CRAWLFORGE_USER_AGENT } from '../../utils/fetchIdentity.js';
 import { preflightFetch } from '../../utils/robotsGate.js';
+import { pageTitle } from '../../utils/pageTitle.js';
 
 // Lazy singleton — avoids creating a CacheManager timer per request
 let _ranker = null;
@@ -280,7 +281,7 @@ export class MapSiteTool {
           const $ = load(html);
           
           metadataMap.set(url, {
-            title: $('title').text().trim(),
+            title: pageTitle($),
             description: $('meta[name="description"]').attr('content') || '',
             keywords: $('meta[name="keywords"]').attr('content') || '',
             h1: $('h1').first().text().trim(),

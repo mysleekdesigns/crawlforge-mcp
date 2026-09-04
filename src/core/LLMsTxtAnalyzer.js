@@ -9,6 +9,7 @@ import { safeFetch } from '../utils/ssrfGuard.js';
 import { resolveUserAgent } from '../utils/fetchIdentity.js';
 import { preflightFetch } from '../utils/robotsGate.js';
 import { noteRetryAfter } from '../utils/hostRateLimiter.js';
+import { pageTitle } from '../utils/pageTitle.js';
 
 const logger = new Logger('LLMsTxtAnalyzer');
 
@@ -722,7 +723,7 @@ export class LLMsTxtAnalyzer {
         type: 'static', 
         confidence: 0.7,
         metadata: { 
-          title: $('title').text().trim(),
+          title: pageTitle($),
           contentLength: html.length 
         }
       };

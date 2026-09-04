@@ -12,6 +12,7 @@ import { noteRetryAfter } from '../../../utils/hostRateLimiter.js';
 import { preflightFetch } from '../../../utils/robotsGate.js';
 import { htmlToMarkdown } from '../../../utils/htmlToMarkdown.js';
 import { elementText } from '../../../utils/elementText.js';
+import { pageTitle } from '../../../utils/pageTitle.js';
 
 /**
  * Fetch a URL with AbortController timeout (SSRF-guarded + per-host throttled).
@@ -133,7 +134,7 @@ export function generateFormats($, html, formats) {
   if (formats.includes('markdown')) content.markdown = buildMarkdown($);
   if (formats.includes('json')) {
     content.json = {
-      title: $('title').text().trim(),
+      title: pageTitle($),
       headings: extractHeadings($),
       links: extractLinks($),
       images: extractImages($),
@@ -144,7 +145,7 @@ export function generateFormats($, html, formats) {
 }
 
 function buildMarkdown($) {
-  const title = $('title').text().trim();
+  const title = pageTitle($);
 
   const selectors = ['article', 'main', '.content', '#content', '.post-content', '.entry-content'];
   let $body = null;
@@ -203,7 +204,7 @@ function extractImages($) {
 
 function extractMetadata($) {
   const m = {};
-  m.title = $('title').text().trim();
+  m.title = pageTitle($);
   m.description = $('meta[name="description"]').attr('content') || '';
   m.og = {};
   $('meta[property^="og:"]').each((_, el) => {

@@ -40,6 +40,17 @@ const CHALLENGES = [
     title: /^access denied/i,
     markers: /errors\.edgesuite\.net/i,
     evidence: 'an Akamai access-denied page'
+  },
+  {
+    // Vercel's Attack Challenge Mode answers with HTTP 429, an
+    // x-vercel-mitigated: challenge header and a JavaScript interstitial
+    // titled "Vercel Security Checkpoint" (lesswrong.com, hashicorp.com,
+    // bombas.com, R17 2026-09-04). Chromium solves it and reloads; camoufox
+    // was left on the interstitial, which then read as a successful scrape.
+    vendor: 'vercel',
+    title: /^vercel security checkpoint/i,
+    markers: /vercel\.link\/security-checkpoint|_vercel\/challenge|x-vercel-challenge-token/i,
+    evidence: 'a Vercel Security Checkpoint page'
   }
 ];
 

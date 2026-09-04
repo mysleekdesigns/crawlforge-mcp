@@ -34,7 +34,11 @@ const DEFAULT_MAX_URLS = 10;
 function isRelevant(text, query) {
   if (!text || !query) return true; // fail-open
   const lc = text.toLowerCase();
-  return query.toLowerCase().split(/\s+/).some(term => term.length > 3 && lc.includes(term));
+  // Terms are compared bare: the quoted entity in `npm package "commander"?`
+  // arrived as `"commander"?` and matched nothing (R17, 2026-09-04).
+  return query.toLowerCase().split(/\s+/)
+    .map(term => term.replace(/[^\p{L}\p{N}]/gu, ''))
+    .some(term => term.length > 3 && lc.includes(term));
 }
 
 /**
@@ -43,6 +47,46 @@ function isRelevant(text, query) {
 function truncate(text, maxChars = 8000) {
   if (!text || text.length <= maxChars) return text;
   return text.slice(0, maxChars) + '\n[...truncated]';
+}
+
+/**
+ * Literal provenance check: every version, date and large number in the
+ * answer must appear somewhere in the fetched source text. Returns the raw
+ * strings that do not (deduplicated, in answer order). Comparison is
+ * case-insensitive with whitespace and thousands separators removed, so
+ * "6.3.3" matches "6.3.3" and "1,234" matches "1 234". URLs in the answer are
+ * ignored: they are citations, not claims.
+ */
+const MONTHS = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*';
+const VALUE_PATTERNS = [
+  /\b\d+\.\d+(?:\.\d+){0,2}\b/g,                                   // versions 1.2 / 1.2.3 / 1.2.3.4
+  /\b\d{4}-\d{2}-\d{2}\b/g,                                          // ISO dates
+  new RegExp(`\\b${MONTHS}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s+\\d{4}\\b`, 'gi'), // January 18, 2024
+  new RegExp(`\\b\\d{1,2}(?:st|nd|rd|th)?\\s+${MONTHS}\\.?\\s+\\d{4}\\b`, 'gi'),   // 18 January 2024
+  /\b\d{1,3}(?:,\d{3})+\b|\b\d{4,}\b/g,                              // 1,234 / 12345
+];
+
+function normalizeValue(value) {
+  return value.toLowerCase().replace(/[\s,]/g, '');
+}
+
+export function unverifiedValues(answer, sourceText) {
+  if (!answer) return [];
+  const stripped = answer.replace(/https?:\/\/\S+/g, ' ');
+  const haystack = normalizeValue(sourceText || '');
+  const missing = [];
+  const seen = new Set();
+  for (const pattern of VALUE_PATTERNS) {
+    for (const match of stripped.matchAll(pattern)) {
+      const raw = match[0];
+      const key = normalizeValue(raw);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      if (!haystack.includes(key)) missing.push(raw);
+    }
+  }
+  // "2024" inside an already-flagged "January 18, 2024" is the same claim.
+  return missing.filter((v, i) => !missing.some((o, j) => j !== i && o.length > v.length && o.includes(v)));
 }
 
 /**
@@ -222,6 +266,17 @@ export class AgentOrchestrator {
     } catch {
       // Sampling unavailable — use raw prompt
     }
+    // A quoted term in the prompt ("commander") is the thing being asked
+    // about. A planner told to search the bare entity reduced
+    // 'npm package "commander"' to "npm", fetched only npm's own docs and
+    // answered from memory (R17, 2026-09-04). Every query carries the quoted
+    // terms.
+    const quotedTerms = [...prompt.matchAll(/"([^"\n]{2,60})"/g)].map(m => m[1].trim()).filter(Boolean);
+    if (quotedTerms.length > 0) {
+      searchQueries = searchQueries.map(q =>
+        quotedTerms.every(t => q.toLowerCase().includes(t.toLowerCase())) ? q : `${q} ${quotedTerms.join(' ')}`.trim()
+      );
+    }
 
     // ── GATHER (search) ───────────────────────────────────────────────────────
     const urlQueue = [...seedUrls]; // start with any user-provided seeds
@@ -238,6 +293,8 @@ export class AgentOrchestrator {
       if (!priorityUrls.includes(url)) priorityUrls.push(url);
     }
     const searchResults = [];
+    /** url -> { title, text }: the engine's excerpt, evidence of last resort for a page that cannot be fetched. */
+    const excerpts = new Map();
 
     if (urlQueue.length < capUrls) {
       try {
@@ -253,6 +310,11 @@ export class AgentOrchestrator {
               for (const r of parsed.results) {
                 if (r.link && !urlQueue.includes(r.link)) urlQueue.push(r.link);
                 searchResults.push({ query: q, title: r.title || '', url: r.link || '', snippet: r.snippet || '' });
+                // What the engine saw of the page: the snippet plus the
+                // page's own meta description, which for npmjs.com carries
+                // "Latest version: 15.0.0" while the snippet does not.
+                const excerpt = [r.snippet, r.pagemap?.metatags?.description].filter(Boolean).join(' ');
+                if (r.link && excerpt && !excerpts.has(r.link)) excerpts.set(r.link, { title: r.title || '', text: excerpt });
               }
             }
           } catch { /* skip failed search */ }
@@ -318,7 +380,17 @@ export class AgentOrchestrator {
           text: truncate(textContent),
           step
         });
-      } catch { /* skip unreachable URL */ }
+      } catch {
+        // The page is out of reach (challenge page, 403, timeout) but the
+        // search engine's excerpt of it is not: npmjs.com's "Latest version:
+        // 15.0.0" sat in the snippet while every fetch of the package page was
+        // challenged, and the run ended with no evidence at all (R17,
+        // 2026-09-04). Keep a relevant snippet as evidence, labelled as one.
+        const excerpt = excerpts.get(url);
+        if (excerpt && isRelevant(excerpt.text, prompt)) {
+          evidence.push({ url, title: excerpt.title, text: excerpt.text, snippet: true, step });
+        }
+      }
     }
 
     // ── SHAPE ─────────────────────────────────────────────────────────────────
@@ -340,7 +412,7 @@ export class AgentOrchestrator {
       .sort((a, b) => b._score - a._score);
     const perSourceCap = Math.max(1500, Math.floor(12000 / Math.max(evidence.length, 1)));
     const combinedText = orderedEvidence
-      .map(e => `--- Source: ${e.url} ---\n${truncate(e.text, perSourceCap)}`)
+      .map(e => `--- Source: ${e.url}${e.snippet ? ' (search-result snippet; the page itself could not be fetched)' : ''} ---\n${truncate(e.text, perSourceCap)}`)
       .join('\n\n');
 
     if (!combinedText.trim()) {
@@ -386,6 +458,7 @@ export class AgentOrchestrator {
     let answer = null;
     let degraded = false;
     let degradedReason;
+    let unverified = [];
 
     try {
       // Wording matters for small local models (llama3.2-class): without the
@@ -414,6 +487,34 @@ export class AgentOrchestrator {
 
       const { text } = await this._getSamplingClient().complete(synthesisPrompt, { maxTokens: 1024 });
       answer = text;
+
+      // A small model fills gaps from memory: "Swift 5.9.3", "commander 8.6.2
+      // published January 18, 2024" — none of it on any fetched page (R17,
+      // 2026-09-04). Versions, dates and counts in the answer must appear in
+      // the source text; what does not gets one corrective rewrite, and
+      // whatever still remains is named in the answer and in `provenance`.
+      unverified = unverifiedValues(answer, combinedText);
+      if (unverified.length > 0) {
+        const retryPrompt =
+          `${synthesisPrompt}\n\nYour previous answer was:\n${fenceUntrusted(answer, 'previous answer')}\n` +
+          `It contains values that appear nowhere in the source text: ${unverified.map(v => `"${v}"`).join(', ')}. ` +
+          `Rewrite the answer. Keep only values that the sources state, spelled as the sources spell them. ` +
+          `Where the sources do not state a value, say that it is not stated instead of guessing.`;
+        try {
+          const { text: rewritten } = await this._getSamplingClient().complete(retryPrompt, { maxTokens: 1024 });
+          if (rewritten && rewritten.trim()) {
+            answer = rewritten;
+            unverified = unverifiedValues(answer, combinedText);
+          }
+        } catch {
+          // Keep the first answer; it is flagged below.
+        }
+      }
+      if (unverified.length > 0) {
+        answer +=
+          `\n\nProvenance warning: ${unverified.map(v => `"${v}"`).join(', ')} ` +
+          `${unverified.length === 1 ? 'does' : 'do'} not appear in the fetched sources and may be invented.`;
+      }
     } catch (err) {
       degraded = true;
       degradedReason = `LLM synthesis unavailable: ${err.message}`;
@@ -425,11 +526,12 @@ export class AgentOrchestrator {
       success: true,
       answer,
       search_results: searchResults,
-      evidence: degraded ? evidence : evidence.map(e => ({ url: e.url })),
+      evidence: degraded ? evidence : evidence.map(e => (e.snippet ? { url: e.url, snippet: true } : { url: e.url })),
       degraded,
       reason: degradedReason,
       steps: step,
-      urls_fetched: urlsFetched
+      urls_fetched: urlsFetched,
+      provenance: { checked: !degraded, unverified }
     };
   }
 

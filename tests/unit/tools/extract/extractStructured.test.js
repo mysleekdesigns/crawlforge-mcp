@@ -275,7 +275,10 @@ describe('extractStructured — the LLM reads main content first, then the page'
     );
   });
 
-  test('a page too long for both gets main content alone, whole', async () => {
+  // R17 (2026-09-04): main content alone hid the page head, where swift.org
+  // keeps the current release ("Install (6.3.3)") and the article body listed
+  // the previous one. The head of the whole page now follows a cut article.
+  test('a page too long for both gets the main content first, then the page head', async () => {
     const tool = new ExtractStructuredTool();
     const captured = stubLlm(tool, { data: { headline: 'x' }, valid: true, validationErrors: [] });
 
@@ -285,9 +288,10 @@ describe('extractStructured — the LLM reads main content first, then the page'
     });
 
     assert.ok(captured.input.startsWith('A very long article'));
-    assert.doesNotMatch(captured.input, /Skip to content/);
-    assert.doesNotMatch(captured.input, /Privacy Policy/);
-    assert.ok(captured.input.length > 15000, `the whole article is shown, got ${captured.input.length} chars`);
+    const article = captured.input.indexOf('Each of these sentences');
+    assert.ok(captured.input.indexOf('Skip to content') > article, 'the page head follows the article');
+    assert.ok(captured.input.length > 15000, `most of the article is shown, got ${captured.input.length} chars`);
+    assert.ok(captured.input.length <= 24000, `within the shown-text budget, got ${captured.input.length} chars`);
   });
 
   test('a non-markup body (text/plain) is passed through whole', async () => {
