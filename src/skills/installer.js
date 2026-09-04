@@ -37,6 +37,10 @@ const __dirname = dirname(__filename);
 // New source of truth: one folder per skill, each containing a SKILL.md.
 const AGENT_SKILLS_DIR = join(__dirname, 'agent-skills');
 
+// The version an installed skill reports. Read from package.json rather than
+// the SKILL.md files, whose metadata.version sat at 4.8.0 through 5.6.x.
+const PKG_VERSION = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf8')).version;
+
 // Pre-4.8.0 bare files that may linger in ~/.claude/skills (migration cleanup).
 const LEGACY_SKILL_FILES = [
   'crawlforge-mcp.md',
@@ -89,8 +93,23 @@ export function concatenateSkills() {
     .join('\n\n---\n\n');
 }
 
+/**
+ * Rewrite metadata.version in a SKILL.md's frontmatter to the package version,
+ * so an installed copy always says which release wrote it.
+ * @param {string} skillMdPath
+ * @param {string} [version]
+ */
+export function stampSkillVersion(skillMdPath, version = PKG_VERSION) {
+  const raw = readFileSync(skillMdPath, 'utf8');
+  const m = raw.match(/^---\n[\s\S]*?\n---/);
+  if (!m) return;
+  const fm = m[0].replace(/(\n\s*version:\s*)[^\n]+/, `$1${version}`);
+  if (fm !== m[0]) writeFileSync(skillMdPath, fm + raw.slice(m[0].length), 'utf8');
+}
+
 function copySkillFolder(srcDir, destDir) {
   cpSync(srcDir, destDir, { recursive: true, force: true });
+  stampSkillVersion(join(destDir, 'SKILL.md'));
 }
 
 /**

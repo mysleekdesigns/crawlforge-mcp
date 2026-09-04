@@ -2,7 +2,7 @@
 name: crawlforge-change-tracking
 description: "Monitors web pages for changes over time with CrawlForge's track_changes tool. Use when the user wants to track changes to a page, watch a URL, monitor competitor pricing, detect when content updates, get notified of regulation or product-availability changes, or diff a page against a saved baseline. Workflow: create a baseline with operation create_baseline, then periodically compare with operation compare to get a change percentage and a diff; supports CSS-selector scoping, webhooks, and scheduled monitoring."
 metadata:
-  version: 4.8.0
+  version: 5.6.6
   source: crawlforge-mcp-server
 ---
 

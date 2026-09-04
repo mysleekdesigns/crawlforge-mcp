@@ -8,7 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  listAgentSkills, readSkillBody, concatenateSkills, install, uninstall, cleanupLegacyClaudeSkills,
+  listAgentSkills, readSkillBody, concatenateSkills, install, uninstall, cleanupLegacyClaudeSkills, stampSkillVersion,
 } from '../../src/skills/installer.js';
 
 describe('listAgentSkills + frontmatter validity', () => {
@@ -99,5 +99,25 @@ describe('install / idempotency / migration / uninstall', () => {
     const removed = cleanupLegacyClaudeSkills(skillsDir);
     assert.ok(removed.some((p) => p.endsWith('crawlforge-cli.md')));
     assert.ok(existsSync(join(skillsDir, 'keep-me.md')), 'unrelated file kept');
+  });
+});
+
+describe('version stamping', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
+  test('every installed SKILL.md carries the package version, whatever the repo file says', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'cf-skills-stamp-'));
+    await install({ target: 'claude-code', homeDir: home, force: true });
+    for (const s of listAgentSkills()) {
+      const raw = readFileSync(join(home, '.claude', 'skills', s.name, 'SKILL.md'), 'utf8');
+      const v = raw.match(/^---\n[\s\S]*?\n\s*version:\s*([^\n]+)/)?.[1]?.trim();
+      assert.equal(v, pkg.version, `${s.name} installed version`);
+    }
+  });
+  test('stampSkillVersion rewrites only the frontmatter version line', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cf-skills-stamp2-'));
+    const p = join(dir, 'SKILL.md');
+    writeFileSync(p, '---\nname: x\nmetadata:\n  version: 1.0.0\n---\n\nBody mentions version: 1.0.0 too.\n');
+    stampSkillVersion(p, '9.9.9');
+    assert.equal(readFileSync(p, 'utf8'), '---\nname: x\nmetadata:\n  version: 9.9.9\n---\n\nBody mentions version: 1.0.0 too.\n');
   });
 });

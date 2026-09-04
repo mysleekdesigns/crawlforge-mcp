@@ -2,7 +2,7 @@
 name: crawlforge-deep-research
 description: "Runs multi-source web research and autonomous question-answering with CrawlForge's deep_research, agent, search_web, and reddit_search tools. Use when the user wants to research a topic, do a deep dive, compare competitors, gather facts with citations, answer a question from the web, search the web, or get a synthesized report from many sources, or search Reddit posts, comments, and threads. deep_research expands queries, fetches and dedupes sources, then synthesizes; agent autonomously plans searches and navigation from a plain-English prompt with no URLs needed; search_web returns ranked results; reddit_search searches Reddit via community archives (reddit.com blocks scrapers). Caps costs via max_urls and confirms before expensive runs."
 metadata:
-  version: 4.8.0
+  version: 5.6.6
   source: crawlforge-mcp-server
 ---
 
