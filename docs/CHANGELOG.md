@@ -5,6 +5,81 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.6.9] - 2026-09-04
+
+Round 18 live regression: pricing across travel, auto and retail sites (656
+URLs pre-flighted, ~200 calls over all 29 tools). Ships with
+crawlforge-extractors 1.6.4, unchanged. Limits found and not fixed in code:
+`extract_structured` has no `model` parameter, and gemma3:4b misread
+delta.com's baggage fees ($0/$45 for $45/$55) where `extract_with_llm` with
+`model: 'gemma3:12b'` read them correctly; `extract_embedded_state` cannot
+read a Nuxt 2 function-wrapped `__NUXT__` payload (hostelworld.com) and says
+so; bestbuy.com resets the HTTP/2 connection for both stealth engines
+(Akamai, at the TLS level) and travel.state.gov's Cloudflare Turnstile is
+interactive and IP-scored, so neither engine passes it and the result is
+`blocked: { vendor: 'cloudflare' }`; target.com paints its price about 5 s
+after a non-empty document, so pass `wait_for: 5000`.
+
+### Fixed
+- **`stealth_mode` reports HTTP error pages and soft blocks as failures.**
+  Edmunds' "403 - Access Denied", Lufthansa's 404 "Page not found", Home
+  Depot's "Error Page" and Hilton's "Something went wrong" all came back
+  `success: true`: nothing looked at the navigation's HTTP status, and
+  neither the challenge-vendor check (5.6.2) nor the empty-document check
+  (5.6.3) matches a titled error page. The result now carries `status`, the
+  HTTP status of the document finally read after any challenge or redirect;
+  a status of 400 or above is `success: false` with the reason, and a short
+  document with an error title on a 200 is reported as a soft block. The
+  content is still returned so the caller can read what the site served.
+  `scrape_with_actions` applies the same verdict to the document its chain
+  ended on: tesla.com's Akamai denial had run every action and reported
+  success, and is now `success: false` with `blocked: { vendor: 'akamai' }`
+  and `httpStatus: 403`.
+- **`stealth_mode` waits for an empty document to fill in.** booking.com's
+  self-solving `chal_t` redirect and the carvana, chewy, tesla and costco
+  JavaScript shells were read straight after `domcontentloaded` and reported
+  "rendered no title and no text after 0ms", while a 6-second `wait_for`
+  returned the full page. A document with no title and no text now gets up
+  to 8 s to paint or to navigate on, and the result says how long it waited
+  in `waited_for_render_ms`. The Plaza's room rates on booking.com arrive
+  with no `wait_for` after about 3 s.
+- **`crawl_deep` fetches URLs as the site wrote them.** The crawler fetched
+  the normalized form of every URL, which drops a trailing slash;
+  globalpetrolprices.com answers `/gasoline_prices/` with 200 and
+  `/gasoline_prices` with 404, so a root crawl returned one page and four
+  errors. The normalized form is now only the dedupe and cache key; the
+  request, the robots check, link resolution and the reported `url` use the
+  URL as written (a bare origin gains its root `/`).
+- **`deep_research` on a long topic reaches more than one source.** A
+  45-word paragraph topic went verbatim to the search backend and found one
+  URL; a seven-word restatement found eight. A topic over 12 words is reduced
+  to its first 12 content words for search (stopwords and punctuation
+  dropped), every generated query is clamped to 16 words, and the full topic
+  still steers the LLM expansion and the relevance ranking. The same
+  paragraph now yields 12 sources.
+- **`localization` `configure_country` sets Accept-Language for the
+  country.** GB answered `en-US,en;q=0.9` because the country never reached
+  the header builder; it now answers `en-GB,en;q=0.9`, and a bare language
+  takes the configured country as its region (`de-DE,de;q=0.9,en;q=0.8`).
+
+### Changed
+- **`scrape_template` `shopify-product` falls back to the product page's
+  JSON-LD.** gymshark.com answers `/products/<handle>.json` with 403 while
+  the product page is public and carries a schema.org ProductGroup with a
+  priced Product per size; allbirds.com redirected a retired handle to a
+  collection page, so the `.json` URL was a bare 404. On a 401, 403, 404 or
+  410 from the JSON endpoint the tool reads the product page's JSON-LD
+  (Product, ProductGroup with `hasVariant`, AggregateOffer) and returns the
+  record with `source: 'json-ld'` and a warning naming the fallback;
+  per-variant inventory, compare-at prices and option names are not in
+  JSON-LD, so those fields are null. A handle that redirected to a
+  collection is reported as such instead of "HTTP 404".
+- **`reddit_search` explains an empty Arctic Shift result.** Arctic Shift
+  matches every word of the query, so "Toyota Camry 2026 out the door price
+  paid" found nothing in r/askcarsales while "Camry OTD" found eight. Zero
+  results for a query longer than four words now carry a note saying so and
+  suggesting two or three keywords.
+
 ## [5.6.8] - 2026-09-04
 
 Round 17 live regression: all 29 tools and 18 templates on sites new to the
