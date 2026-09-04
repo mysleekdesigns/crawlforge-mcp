@@ -5,6 +5,23 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Changed
+- **Tool selection surface rewritten to stop unnecessary calls.** A 30-day
+  invocation-log review found 21% of session calls repeated a call already
+  made with identical params, and the most common pair was `fetch_url`
+  followed by an `extract_*` tool on the same URL — a chain the tool
+  descriptions and the `getting-started` prompt taught in so many words.
+  The server `instructions` (the only routing text a Claude Code session
+  sees before its first tool search) are now a decision ladder with credit
+  costs, a never-re-fetch rule and a one-call-per-page rule; every tool
+  description leads with when to use it, names the tool to use instead for
+  the cases it is not for, and states its cost (a test pins each number to
+  `getToolCost`); `scrape` and `search_web` carry
+  `_meta["anthropic/alwaysLoad"]` so the first call needs no tool-search
+  round-trip; and every error result now ends with a `Next step:` line
+  (`src/server/fallbackHints.js`, applied by `withAuth`) naming the tool
+  to try next, so a failure is not followed by a blind retry.
+
 ## [5.6.6] - 2026-09-04
 
 ### Fixed
