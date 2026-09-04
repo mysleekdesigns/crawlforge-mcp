@@ -34,6 +34,8 @@ let baseUrl;
 /** Canned /api/chat replies; the last one repeats. */
 let replies = [];
 let callCount = 0;
+/** The last /api/chat request body, for pinning what the model was shown. */
+let lastRequest = null;
 
 const SMALL_PAGE = '<html><body><h1>Widget Pro</h1><p>Price: $49.99</p></body></html>';
 // Comfortably past extract_with_llm's 50,000-character input cap.
@@ -42,12 +44,23 @@ const LONG_PAGE =
   '<p>Filler paragraph with enough words to add up quickly.</p>'.repeat(1200) +
   '<p>Price: $49.99</p></body></html>';
 
+// racket-lang.org-shaped: the answer lives in a banner outside the article,
+// which Readability drops.
+const BANNER_PAGE =
+  '<html><head><title>Widget</title></head><body>' +
+  '<nav><a href="#main">Skip to content</a></nav>' +
+  '<div class="announce">Version 9.3 is available.</div>' +
+  '<main><h1>Widget Pro</h1>' +
+  '<p>Widget Pro is a general-purpose widget and a platform for widget creation. </p>'.repeat(8) +
+  '</main></body></html>';
+
 const SCHEMA = { type: 'object', properties: { title: { type: 'string' }, price: { type: 'string' } } };
 
 before(async () => {
   pageServer = http.createServer((req, res) => {
     const path = req.url.split('?')[0];
-    const body = path === '/long' ? LONG_PAGE : path === '/page' ? SMALL_PAGE : null;
+    const body =
+      path === '/long' ? LONG_PAGE : path === '/page' ? SMALL_PAGE : path === '/banner' ? BANNER_PAGE : null;
     if (!body) {
       res.writeHead(404);
       res.end();
@@ -64,6 +77,7 @@ before(async () => {
       let body = '';
       req.on('data', (c) => (body += c));
       req.on('end', () => {
+        lastRequest = JSON.parse(body);
         const content = replies[Math.min(callCount, replies.length - 1)];
         callCount++;
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -88,6 +102,7 @@ after(async () => {
 beforeEach(() => {
   callCount = 0;
   replies = [];
+  lastRequest = null;
 });
 
 const scrape = (path, opts = {}) =>
@@ -149,5 +164,19 @@ describe('UnifiedScrapeTool — json format failure reporting', () => {
       !(result.warnings || []).some((w) => w.startsWith('json:')),
       `expected no json warnings, got: ${JSON.stringify(result.warnings)}`
     );
+  });
+});
+
+describe('UnifiedScrapeTool — what the json format shows the model', () => {
+  test('onlyMainContent: the main content leads and the whole page follows', async () => {
+    // Shown the main content alone, the model answered "Racket" for a version
+    // racket-lang.org states as 9.3 in a banner Readability drops (R14).
+    replies = ['{"title":"Widget Pro","price":null}'];
+    const result = await scrape('/banner', { onlyMainContent: true });
+    assert.ok(result.success, JSON.stringify(result));
+    const shown = lastRequest.messages.find((m) => m.role === 'user').content;
+    assert.match(shown, /Version 9\.3 is available/, 'the banner is in view');
+    assert.match(shown, /Skip to content/, 'the whole page follows');
+    assert.ok(shown.indexOf('Widget Pro') < shown.indexOf('Skip to content'), 'the main content leads');
   });
 });

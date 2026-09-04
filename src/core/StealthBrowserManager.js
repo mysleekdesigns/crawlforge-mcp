@@ -616,6 +616,14 @@ export class StealthBrowserManager {
 
     // Select browser based on distribution and OS compatibility
     let availableBrowsers = { ...this.browserDistribution };
+    // The engine decides the pool. Chromium exposes navigator.vendor
+    // "Google Inc.", window.chrome and Chrome's PDF viewer plugins, so a
+    // Firefox or Safari User-Agent on it contradicts what the page can see —
+    // sannysoft printed a Firefox UA beside "Chrome: present" (R14). Camoufox
+    // presents its own Firefox identity and never draws from this pool.
+    if (config.engine !== 'camoufox') {
+      availableBrowsers = { chrome: 1 };
+    }
     if (selectedOS === 'linux' && availableBrowsers.safari) {
       delete availableBrowsers.safari;
       // Redistribute safari's weight
@@ -1005,7 +1013,9 @@ export class StealthBrowserManager {
       processor: selectedProcessor.name,
       architecture: 'x86_64',
       memory: Math.floor(Math.random() * 24) + 8, // 8-32 GB
-      deviceMemory: Math.pow(2, Math.floor(Math.random() * 3) + 3), // 8, 16, or 32 GB
+      // navigator.deviceMemory is capped at 8 in every Chromium build, so 16
+      // or 32 is a value no real browser reports (sannysoft CHR_MEMORY: FAIL).
+      deviceMemory: Math.random() < 0.7 ? 8 : 4,
       platform: this.selectRealisticPlatform(selectedOS)
     };
   }
@@ -1215,29 +1225,64 @@ export class StealthBrowserManager {
         })
       });
 
-      // Override plugin array
-      Object.defineProperty(navigator, 'plugins', {
-        get: function() {
-          const plugins = [
-            {
-              0: {
-                type: "application/x-google-chrome-pdf",
-                suffixes: "pdf",
-                description: "Portable Document Format"
-              },
-              description: "Portable Document Format",
-              filename: "internal-pdf-viewer",
-              length: 1,
-              name: "Chrome PDF Plugin"
-            }
-          ];
-          plugins.item = function(index) { return this[index] || null; };
-          plugins.namedItem = function(name) { 
-            return this.find(plugin => plugin.name === name) || null; 
-          };
-          return plugins;
-        }
-      });
+      // Plugin list. New headless Chromium already reports the same five PDF
+      // viewer entries as a real PluginArray, and replacing them with a plain
+      // Array fails the "plugins is of type PluginArray" check every scanner
+      // runs. Only an empty list — the legacy headless tell — is replaced.
+      if (navigator.plugins.length === 0 && typeof PluginArray !== 'undefined') {
+        // Built on the real prototypes so `instanceof PluginArray`, the
+        // toStringTag and the DOM-style accessors all hold — a plain Array here
+        // failed bot.sannysoft.com's "plugins is of type PluginArray" check.
+        // The five entries are what every desktop Chrome reports.
+        const mimeSpecs = [
+          { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
+          { type: 'text/pdf', suffixes: 'pdf', description: 'Portable Document Format' }
+        ];
+        const makePlugin = (name) => {
+          const plugin = Object.create(Plugin.prototype);
+          const mimeTypes = mimeSpecs.map((spec) => {
+            const mimeType = Object.create(MimeType.prototype);
+            Object.defineProperties(mimeType, {
+              type: { value: spec.type },
+              suffixes: { value: spec.suffixes },
+              description: { value: spec.description },
+              enabledPlugin: { get: () => plugin }
+            });
+            return mimeType;
+          });
+          Object.defineProperties(plugin, {
+            name: { value: name },
+            filename: { value: 'internal-pdf-viewer' },
+            description: { value: 'Portable Document Format' },
+            length: { value: mimeTypes.length },
+            item: { value: (index) => mimeTypes[index] || null },
+            namedItem: { value: (type) => mimeTypes.find((m) => m.type === type) || null },
+            [Symbol.iterator]: { value: function* () { yield* mimeTypes; } }
+          });
+          mimeTypes.forEach((mimeType, index) => {
+            Object.defineProperty(plugin, index, { value: mimeType, enumerable: true });
+            Object.defineProperty(plugin, mimeType.type, { value: mimeType });
+          });
+          return plugin;
+        };
+        const plugins = [
+          'PDF Viewer', 'Chrome PDF Viewer', 'Chromium PDF Viewer',
+          'Microsoft Edge PDF Viewer', 'WebKit built-in PDF'
+        ].map(makePlugin);
+        const pluginArray = Object.create(PluginArray.prototype);
+        Object.defineProperties(pluginArray, {
+          length: { value: plugins.length },
+          item: { value: (index) => plugins[index] || null },
+          namedItem: { value: (name) => plugins.find((p) => p.name === name) || null },
+          refresh: { value: () => {} },
+          [Symbol.iterator]: { value: function* () { yield* plugins; } }
+        });
+        plugins.forEach((plugin, index) => {
+          Object.defineProperty(pluginArray, index, { value: plugin, enumerable: true });
+          Object.defineProperty(pluginArray, plugin.name, { value: plugin });
+        });
+        Object.defineProperty(navigator, 'plugins', { get: () => pluginArray });
+      }
 
       // Override languages with the fingerprint's own locale — a hardcoded
       // en-US here contradicts navigator.language and Accept-Language whenever
@@ -1367,14 +1412,23 @@ export class StealthBrowserManager {
         HTMLCanvasElement.prototype.getContext = function(contextType, contextAttributes) {
           const ctx = getContext.call(this, contextType, contextAttributes);
           
-          if (contextType === 'webgl' || contextType === 'experimental-webgl') {
+          // Headless Chromium without a GPU path answers getContext('webgl')
+          // with null; wrapping it threw a TypeError where a real browser
+          // returns null, which is itself a tell.
+          if (ctx && (contextType === 'webgl' || contextType === 'experimental-webgl')) {
             const originalGetParameter = ctx.getParameter;
+            // Real Chrome answers VENDOR/RENDERER with "WebKit"/"WebKit WebGL";
+            // the GPU identity lives behind WEBGL_debug_renderer_info as the
+            // UNMASKED_VENDOR_WEBGL (37445) / UNMASKED_RENDERER_WEBGL (37446)
+            // parameters. Those are what a scanner reads, so those are spoofed.
+            const UNMASKED_VENDOR_WEBGL = 37445;
+            const UNMASKED_RENDERER_WEBGL = 37446;
             ctx.getParameter = function(parameter) {
               // Spoof specific WebGL parameters
-              if (parameter === ctx.RENDERER) {
+              if (parameter === UNMASKED_RENDERER_WEBGL) {
                 return webglConfig.renderer;
               }
-              if (parameter === ctx.VENDOR) {
+              if (parameter === UNMASKED_VENDOR_WEBGL) {
                 return webglConfig.vendor;
               }
               if (parameter === ctx.VERSION) {
@@ -1387,13 +1441,10 @@ export class StealthBrowserManager {
               return originalGetParameter.call(this, parameter);
             };
             
-            const originalGetExtension = ctx.getExtension;
-            ctx.getExtension = function(name) {
-              if (webglConfig.extensions.includes(name)) {
-                return originalGetExtension.call(this, name) || {};
-              }
-              return null;
-            };
+            // getExtension is left alone: returning null for an extension the
+            // fingerprint's list did not name made WEBGL_debug_renderer_info
+            // vanish, and a page that reads it threw a TypeError where a real
+            // browser reports a GPU (sannysoft "WebGL Vendor: Error", R14).
           }
           
           return ctx;

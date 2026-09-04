@@ -1,4 +1,5 @@
 import { OpenAIProvider } from './OpenAIProvider.js';
+import { extractionFormat } from '../../utils/extractionFormat.js';
 import { AnthropicProvider } from './AnthropicProvider.js';
 import { OllamaProvider } from './OllamaProvider.js';
 import { Logger } from '../../utils/Logger.js';
@@ -919,7 +920,7 @@ Return the list and nothing else.`;
     const schemaFields = Object.keys(schema.properties || {}).length;
     const scaledTokens = Math.min(2000, Math.max(maxTokens, schemaFields * 100 + 500));
 
-    const systemPrompt = `You are a structured data extraction expert. Extract data from the provided content and return ONLY valid JSON that conforms to the given JSON Schema. Do not include any explanation or markdown — only the raw JSON object.`;
+    const systemPrompt = `You are a structured data extraction expert. Extract data from the provided content and return ONLY valid JSON that conforms to the given JSON Schema. Use null for any field the content does not state — never guess, infer, or fill a value from memory. Do not include any explanation or markdown — only the raw JSON object.`;
 
     const schemaStr = JSON.stringify(schema, null, 2);
     const guidance = userPrompt ? `\n\nExtraction guidance: ${userPrompt}` : '';
@@ -937,9 +938,11 @@ Extract the data and return valid JSON:`;
         systemPrompt,
         maxTokens: scaledTokens,
         temperature: 0.1,
-        // Constrain the output to a parseable object. Small local models
-        // otherwise wrap the JSON in prose and the parse below throws.
-        format: 'json'
+        // Constrain the output to the caller's shape with every field
+        // nullable, so a model shown content that does not state a field can
+        // answer null instead of being decoded into an invented string. Small
+        // local models otherwise wrap the JSON in prose and the parse throws.
+        format: extractionFormat(schema)
       });
 
       // Strip markdown code fences if present
@@ -972,7 +975,9 @@ Extract the data and return valid JSON:`;
     const required = schema.required || [];
 
     for (const field of required) {
-      if (!(field in data)) {
+      // The decoder is told to answer null for a field the content never
+      // states, so a null here is "not filled in", the same as absent.
+      if (!(field in data) || data[field] === null) {
         errors.push(`Missing required field: ${field}`);
       }
     }
@@ -980,6 +985,10 @@ Extract the data and return valid JSON:`;
     for (const [key, fieldSchema] of Object.entries(properties)) {
       if (key in data) {
         const value = data[key];
+        // A null in a field the schema does not require is the honest answer
+        // for content that never states it, not a type error (typeof null is
+        // 'object', which used to read as "expected number, got object").
+        if (value === null) continue;
         const expectedType = fieldSchema.type;
         if (expectedType) {
           const actualType = Array.isArray(value) ? 'array' : typeof value;

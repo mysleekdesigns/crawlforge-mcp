@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { fetchAndParse } from './_fetchAndParse.js';
 import { ollamaBaseUrl, ollamaHeaders, selectOllamaModel } from '../../utils/ollamaConfig.js';
 import { verifyNumericProvenance } from '../../utils/provenance.js';
+import { extractionFormat } from '../../utils/extractionFormat.js';
 import { fenceUntrusted } from '../../utils/untrustedContent.js';
 // D1.3: SamplingClient for MCP sampling fallback (lazy — only imported if needed)
 let _SamplingClient = null;
@@ -164,16 +165,12 @@ function extractBalancedJson(str) {
  * as an object schema.
  */
 function buildInputSchema(schema) {
-  if (schema && (schema.type === 'object' || schema.properties)) {
-    return { additionalProperties: true, ...schema, type: 'object' };
-  }
-  // Flat hint map → object schema with string-typed properties for any
-  // non-object hint values (Anthropic requires a valid JSON Schema).
-  const properties = {};
-  for (const [key, val] of Object.entries(schema || {})) {
-    properties[key] = (val && typeof val === 'object') ? val : { type: 'string' };
-  }
-  return { type: 'object', properties, additionalProperties: true };
+  // Every field nullable, no `required`: the decoder must be allowed to say
+  // "not stated" — a required string it cannot leave null becomes an
+  // invention (R14: `scrape` json on racket-lang.org answered "Racket 5.1.0"
+  // for a page that says 9.3). The caller's schema still drives validation.
+  const format = extractionFormat(schema);
+  return format === 'json' ? { type: 'object', properties: {}, additionalProperties: true } : format;
 }
 
 /**
@@ -189,7 +186,7 @@ function jsonSchemaToZod(schema) {
   if (!isJsonSchema) {
     const shape = {};
     for (const [key, val] of Object.entries(schema)) {
-      shape[key] = jsonSchemaToZod(typeof val === 'string' ? { type: val } : val).optional();
+      shape[key] = jsonSchemaToZod(typeof val === 'string' ? { type: val } : val).nullable().optional();
     }
     return z.object(shape).passthrough();
   }
@@ -206,7 +203,11 @@ function jsonSchemaToZod(schema) {
       const required = Array.isArray(schema.required) ? schema.required : [];
       for (const [key, val] of Object.entries(schema.properties || {})) {
         const field = jsonSchemaToZod(val);
-        shape[key] = required.includes(key) ? field : field.optional();
+        // The model is told to answer null for a field the content never
+        // states, so null is the honest answer for a field the schema does
+        // not require — not a type violation. A required field stays strict:
+        // null there is exactly what the caller needs to hear about.
+        shape[key] = required.includes(key) ? field : field.nullable().optional();
       }
       return z.object(shape).passthrough();
     }
@@ -561,7 +562,8 @@ export class ExtractWithLlm {
     }
 
     const systemMessage =
-      'You extract structured data from web content per the user\'s instructions. Return JSON only.';
+      'You extract structured data from web content per the user\'s instructions. Return JSON only. ' +
+      'Use null for any field the content does not state — never guess, infer, or fill a value from memory.';
 
     const { userMessage, truncated: inputTruncated, original_length } = buildUserMessage(prompt, text, schema);
 

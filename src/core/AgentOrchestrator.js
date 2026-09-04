@@ -203,7 +203,13 @@ export class AgentOrchestrator {
       const { text } = await this._getSamplingClient().complete(planPrompt, { maxTokens: 200 });
       const lines = text.split('\n')
         .map(l => l.replace(/^[-*\d.)\s]+/, '').trim())
+        // A model that fences its list ("```\nq1\nq2\n```") or quotes each
+        // query leaks the fence and quote characters into the queries; the
+        // R14 Julia run spent two of its three searches on the literal "```".
+        .map(l => l.replace(/^```\w*\s*|\s*```$/g, '').replace(/^[`"']+|[`"']+$/g, '').trim())
         .filter(Boolean)
+        // A line with no letter or digit left is punctuation, not a query.
+        .filter(l => /[\p{L}\p{N}]/u.test(l))
         // Drop preamble/garbage lines ("Here are 3 concise web search queries:", …)
         // so they never become search query #1 and poison the URL queue.
         .filter(l =>

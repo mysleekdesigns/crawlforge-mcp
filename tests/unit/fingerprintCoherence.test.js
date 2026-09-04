@@ -243,3 +243,30 @@ describe('stealth fingerprint coherence', () => {
     assert.ok(fullBytes > 3000, `full fingerprint is only ${fullBytes} bytes — is it still worth trimming?`);
   });
 });
+
+describe('R14: the Chromium engine never presents another browser\'s identity', () => {
+  test('every user agent drawn for the Chromium engine is a Chrome UA, and deviceMemory is a value Chrome can report', () => {
+    const manager = new StealthBrowserManager();
+    for (let i = 0; i < 500; i++) {
+      const fp = manager.generateAdvancedFingerprint({ locale: 'en-US', useRandomUserAgent: true, engine: 'chromium' });
+      assert.match(fp.userAgent, /Chrome\/\d+/, `Chromium presented a non-Chrome UA: ${fp.userAgent}`);
+      assert.ok(!/Firefox|Version\/\d+.*Safari/.test(fp.userAgent), `foreign browser UA on Chromium: ${fp.userAgent}`);
+      assert.ok([4, 8].includes(fp.hardware.deviceMemory), `deviceMemory ${fp.hardware.deviceMemory} is not a Chrome value`);
+    }
+  });
+
+  test('engine left unset means Chromium and draws the same pool', () => {
+    const manager = new StealthBrowserManager();
+    for (let i = 0; i < 200; i++) {
+      const fp = manager.generateAdvancedFingerprint({ locale: 'en-US', useRandomUserAgent: true });
+      assert.match(fp.userAgent, /Chrome\/\d+/);
+    }
+  });
+
+  test('an explicit customUserAgent is still honoured verbatim', () => {
+    const manager = new StealthBrowserManager();
+    const ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:122.0) Gecko/20100101 Firefox/122.0';
+    const fp = manager.generateAdvancedFingerprint({ locale: 'en-US', useRandomUserAgent: true, customUserAgent: ua });
+    assert.equal(fp.userAgent, ua);
+  });
+});

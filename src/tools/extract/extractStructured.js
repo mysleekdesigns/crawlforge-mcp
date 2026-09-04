@@ -54,6 +54,37 @@ function mainContentText($, html, url) {
   return [title, flattenBodyText(load(mainHtml))].filter(Boolean).join('\n');
 }
 
+/** Characters of page text the model is shown; about 6k tokens. */
+const SHOWN_TEXT_BUDGET = 24000;
+
+/**
+ * The text the model reads: main content first, then the whole page when both
+ * fit the budget.
+ *
+ * Main content alone is what keeps the Cloudflare blog's headline from being
+ * "Skip to content", but Readability also drops the page chrome, and that is
+ * where racket-lang.org announces "Racket version 9.3 is available". A model
+ * that never sees the answer fills a required field with the nearest heading,
+ * which the provenance guard cannot fault because it carries no digits, and
+ * the full-text retry below never fires because nothing was nulled. Showing
+ * the page text after the main content puts the banner in view while the
+ * article still leads. A page too long for both gets main content alone, up
+ * to the budget — the old 6000-character cap cut a 20k-character article to
+ * its first third.
+ *
+ * @param {import('cheerio').CheerioAPI} $
+ * @param {string} html
+ * @param {string} url
+ * @param {string} textContent - whole-page text from fetchAndParse
+ * @returns {string}
+ */
+function shownText($, html, url, textContent) {
+  const main = mainContentText($, html, url);
+  if (!main) return textContent;
+  if (main.length + textContent.length > SHOWN_TEXT_BUDGET) return main;
+  return `${main}\n\n${textContent}`;
+}
+
 /**
  * Missing, null, blank string or empty array — what "the extraction did not
  * fill this field in" looks like across every extraction method.
@@ -147,6 +178,9 @@ export class ExtractStructuredTool {
         tool: 'extract_structured'
       });
 
+      // What the model reads — see shownText().
+      const shown = shownText($, html, url, textContent);
+
       // Step 3: Try LLM extraction first
       let extractionResult = null;
       let extractionMethod = 'llm';
@@ -160,9 +194,9 @@ export class ExtractStructuredTool {
         // local Ollama was never used.
         llmAvailable = await llm.ready();
         if (llmAvailable) {
-          const result = await llm.extractStructured(mainContentText($, html, url) || textContent, schema, {
+          const result = await llm.extractStructured(shown, schema, {
             prompt: prompt || '',
-            maxContentLength: 6000
+            maxContentLength: SHOWN_TEXT_BUDGET
           });
           // extractStructured swallows LLM failures and returns its keyword
           // fallback. Only accept the result as an LLM extraction when it
@@ -246,13 +280,12 @@ export class ExtractStructuredTool {
         // So when a REQUIRED field is nulled, retry once on the full page text,
         // which is exactly what the guard will accept. Only a strictly better
         // result is kept, so a retry can never make the answer worse.
-        const shownText = mainContentText($, html, url) || textContent;
-        if (guarded.missingRequired.length > 0 && shownText !== textContent && textContent) {
+        if (guarded.missingRequired.length > 0 && shown !== textContent && textContent) {
           try {
             const llm = this._ensureLLMManager(llmConfig || {});
             const retry = await llm.extractStructured(textContent, schema, {
               prompt: prompt || '',
-              maxContentLength: 6000
+              maxContentLength: SHOWN_TEXT_BUDGET
             });
             if (retry?.method === 'llm') {
               const retryGuarded = applyGuard(retry);
