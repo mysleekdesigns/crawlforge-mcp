@@ -5,6 +5,21 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.6.5] - 2026-09-04
+
+### Fixed
+- **`scrape_with_actions` `extractionOptions.selectors` keep table structure.**
+  A selector that matched a table returned one string with every cell run
+  together — CoinMarketCap's historical-data table came back as
+  `DateOpen*HighLowClose**VolumeMarket CapSep 03, 2026$77,300.17…`
+  (2026-09-04) — because cheerio's `.text()` has no cell boundaries. A table,
+  a row group or a row now renders one line per row with cells joined by
+  ` | ` (the same convention the text format uses for a recovered table), an
+  element that wraps a table renders each table that way in place, and every
+  other selector is unchanged. The helper (`src/utils/elementText.js`) is
+  shared; `batch_scrape`'s selector extraction and `scrape_structured` read
+  matched elements the same way and are not yet on it.
+
 ## [5.6.4] - 2026-09-04
 
 ### Fixed
