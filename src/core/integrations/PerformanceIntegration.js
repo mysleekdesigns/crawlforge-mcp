@@ -8,6 +8,7 @@ import WorkerPool from '../workers/WorkerPool.js';
 import ConnectionPool from '../connections/ConnectionPool.js';
 import StreamProcessor from '../processing/StreamProcessor.js';
 import { config } from '../../constants/config.js';
+import { pageTitle } from '../../utils/pageTitle.js';
 
 let performanceManagerInstance = null;
 let workerPoolInstance = null;
@@ -279,7 +280,7 @@ async function parseHtmlSync(html, options = {}) {
 
   if (options.extractText !== false) {
     result.text = $('body').text().trim();
-    result.title = $('title').text().trim();
+    result.title = pageTitle($);
   }
 
   if (options.extractLinks) {

@@ -13,6 +13,7 @@ import { load } from 'cheerio';
 import { diffWords, diffLines, diffChars } from 'diff';
 import { structureSignature, structuralSimilarity } from 'crawlforge-extractors';
 import { calculateSimilarity as calculateContentSimilarity } from '../tools/tracking/trackChanges/differ.js';
+import { pageTitle } from '../utils/pageTitle.js';
 
 const ChangeTrackingSchema = z.object({
   url: z.string().url(),
@@ -892,7 +893,7 @@ export class ChangeTracker extends EventEmitter {
   
   extractMetadata($, options) {
     const metadata = {
-      title: $('title').text() || '',
+      title: pageTitle($) || '',
       headings: [],
       links: [],
       images: [],

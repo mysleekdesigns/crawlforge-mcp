@@ -12,6 +12,8 @@ import { isThinMainContent } from '../scrape/_mainContent.js';
 import { safeFetch } from '../../utils/ssrfGuard.js';
 import { preflightFetch } from '../../utils/robotsGate.js';
 import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
+import { readBody } from 'crawlforge-extractors';
+import { config as appConfig } from '../../constants/config.js';
 
 const ExtractContentSchema = z.object({
   url: z.string().url(),
@@ -196,7 +198,9 @@ export class ExtractContentTool {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        html = await response.text();
+        // readBody decodes with the body's real charset; response.text() is
+        // UTF-8-only and mangled Shift_JIS pages (R17, 2026-09-04).
+        html = await readBody(response, { maxBytes: appConfig.fetch.maxBodySize });
         pageTitle = this.extractTitleFromHTML(html);
       }
       }

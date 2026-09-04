@@ -11,6 +11,7 @@
  */
 
 import { load } from 'cheerio';
+import { readBody } from 'crawlforge-extractors';
 import { safeFetch } from '../../utils/ssrfGuard.js';
 import { config } from '../../constants/config.js';
 import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
@@ -23,8 +24,15 @@ const DEFAULT_TIMEOUT_MS = 15000;
  * the same cap _fetch.js applies to basic tools, so a large/hostile response
  * (multi-hundred-MB file, endpoint streaming zeros) can't be buffered whole
  * into a JS string and handed to cheerio/JSDOM/Turndown downstream.
- * Content-Length is checked up front; actual bytes read are counted as a
- * backstop for servers that omit or lie about it.
+ *
+ * Decoding goes through crawlforge-extractors' readBody, which honours the
+ * Content-Type charset and the <meta charset> sniff. The local reader it
+ * replaces decoded every body as UTF-8, so scrape, extract_structured,
+ * extract_embedded_state, extract_with_llm and agent all returned mojibake
+ * for Shift_JIS pages (kakaku.com, vector.co.jp, 2ch.sc — R17, 2026-09-04)
+ * while batch_scrape and extract_metadata, already on readBody, read them
+ * correctly. Content-Length is checked up front; actual bytes read are
+ * counted as a backstop for servers that omit or lie about it.
  * @param {Response} response
  * @returns {Promise<string>}
  */
@@ -47,30 +55,7 @@ async function readTextWithSizeCap(response) {
     return response.text();
   }
 
-  const reader = response.body.getReader();
-  const chunks = [];
-  let totalBytes = 0;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    totalBytes += value.byteLength;
-    if (totalBytes > maxBodySize) {
-      reader.cancel();
-      throw new Error(
-        `Response body too large: exceeded limit of ${maxBodySize} bytes`
-      );
-    }
-    chunks.push(value);
-  }
-
-  const mergedBytes = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    mergedBytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(mergedBytes);
+  return readBody(response, { maxBytes: maxBodySize });
 }
 
 /**

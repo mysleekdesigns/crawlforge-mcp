@@ -11,6 +11,7 @@ import { safeFetch } from '../../utils/ssrfGuard.js';
 import { robotsPreflight, RobotsDisallowedError } from '../../utils/robotsGate.js';
 import { throttleHost } from '../../utils/hostRateLimiter.js';
 import { CRAWLFORGE_USER_AGENT, identityHeaders } from '../../utils/fetchIdentity.js';
+import { pageTitle } from '../../utils/pageTitle.js';
 
 const logger = new Logger('BFSCrawler');
 
@@ -381,7 +382,7 @@ export class BFSCrawler {
     const $ = load(html);
     
     // Extract title
-    const title = $('title').text().trim() || $('h1').first().text().trim() || '';
+    const title = pageTitle($) || $('h1').first().text().trim() || '';
     
     // Extract main content
     $('script, style, noscript').remove();

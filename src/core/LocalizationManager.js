@@ -679,11 +679,15 @@ export class LocalizationManager extends EventEmitter {
       return this.timezoneCache.get(timezone);
     }
     
-    // Calculate dynamically if not cached
+    // Calculate dynamically if not cached. Compare the target zone against
+    // UTC, never against the host zone: the old form added the host offset
+    // once more, so America/Sao_Paulo came out as -420 from a UTC-4 host
+    // (R17, 2026-09-04). Both wall-clock strings are parsed the same way, so
+    // the difference is the zone's current offset in minutes.
     const now = new Date();
-    const utc = new Date(now.getTime() + (now.getTimezoneOffset() * 60000));
-    const targetTime = new Date(utc.toLocaleString('en-US', { timeZone: timezone }));
-    const offset = (targetTime.getTime() - utc.getTime()) / (1000 * 60);
+    const asTarget = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
+    const asUtc = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
+    const offset = Math.round((asTarget.getTime() - asUtc.getTime()) / 60000);
     
     this.timezoneCache.set(timezone, offset);
     return offset;
@@ -1344,10 +1348,13 @@ export class LocalizationManager extends EventEmitter {
     }
     
     // CJK script detection
+    // Kana and Hangul are tested before the unified ideographs: Japanese
+    // text is full of kanji, so a chinese-first order labelled every
+    // Japanese page "chinese" (R17, 2026-09-04).
     const cjkPatterns = {
-      chinese: /[\u4E00-\u9FFF]/,
       japanese: /[\u3040-\u309F\u30A0-\u30FF]/,
-      korean: /[\uAC00-\uD7AF]/
+      korean: /[\uAC00-\uD7AF]/,
+      chinese: /[\u4E00-\u9FFF]/
     };
     
     for (const [script, pattern] of Object.entries(cjkPatterns)) {

@@ -5,6 +5,81 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.6.8] - 2026-09-04
+
+Round 17 live regression: all 29 tools and 18 templates on sites new to the
+runbook (~150 calls). Ships with crawlforge-extractors 1.6.4.
+
+### Fixed
+- **Shift_JIS and other non-UTF-8 pages decode correctly on every fetch
+  path.** `scrape`, `extract_structured`, `extract_embedded_state`,
+  `extract_with_llm`, `agent`, `crawl_deep` and `extract_content` read bodies
+  with `response.text()`, which is UTF-8 only, so kakaku.com, vector.co.jp
+  and 2ch.sc came back as mojibake while `batch_scrape` and
+  `extract_metadata`, already on the shared `readBody`, read them. The
+  shared fetch helper and `extract_content` now go through `readBody`, which
+  honours the Content-Type charset and the `<meta charset>` sniff; the sniff
+  window grew from 1,024 to 8,192 bytes because vector.co.jp declares its
+  charset at byte 1,293.
+- **`agent` no longer invents versions and dates.** Small local models fill
+  gaps from memory ("commander 8.6.2 published January 18, 2024" on a page
+  that says 15.0.0). Every version, date and count in the synthesised answer
+  must appear in the fetched source text; what does not gets one corrective
+  rewrite, and anything still unsupported is named in the answer and in a
+  new `provenance: { checked, unverified[] }` field. Quoted terms in the
+  prompt (`"commander"`) are kept in every search query so the planner
+  cannot reduce `npm package "commander"` to a generic search, and when a
+  result page cannot be fetched (npmjs.com challenges every fetch) its
+  search snippet stands in as evidence, labelled as such, instead of the
+  run ending with no evidence at all. A small local model can still pick a
+  grounded but wrong value from a tutorial; the guard rules out invented
+  ones.
+- **A Vercel Security Checkpoint is reported as blocked.** The HTTP 429
+  interstitial (title "Vercel Security Checkpoint", lesswrong.com) passed as
+  a successful stealth scrape carrying the checkpoint's own title. It is now
+  a `blocked: { vendor: 'vercel' }` result, and `stealth_mode` waits up to
+  8 s for a challenge title to change before reading the page, so Chromium
+  gets the time it needs to clear the checkpoint.
+- **Switching stealth engines keeps existing contexts alive.** A camoufox
+  request closed the running Chromium browser and every live context in it,
+  so a `create_context` id from before the switch failed with "Target page,
+  context or browser has been closed". The running browser is now parked per
+  engine and reused on the way back; `cleanup` closes both.
+- **`generate_timezone_spoof` offset is measured against UTC.** The old
+  arithmetic added the host's own offset once more, so America/Sao_Paulo
+  came out as -420 from a UTC-4 host. It reads -180 from any host.
+- **Page titles never include inline SVG titles.** Twelve call sites read
+  `$('title')`, which cheerio concatenates with every `<svg><title>` in the
+  body ("Roc — a fast, friendly, functional languageGitHubYouTube…" on
+  roc-lang.org). All read the head title through `src/utils/pageTitle.js`,
+  the fix `extract_metadata` got on 2026-08-26.
+- **Stealth hardware spoof reaches Web Workers.** Init scripts never run in
+  a worker, so a detector comparing `navigator` inside a worker with the
+  main thread saw the real platform and core count beside the spoofed ones
+  (bot.incolumitas.com). At the advanced level, classic workers start from a
+  blob that patches `WorkerNavigator` and then imports the real script;
+  service workers are blocked at the context so they offer no vantage point.
+  camoufox spoofs workers itself and is left alone.
+
+### Changed
+- **`extract_structured` keeps the page head beside a long article.** When
+  the main content filled the 24k-character budget the whole-page text was
+  dropped, and with it swift.org's nav "Install (6.3.3)"; the model answered
+  with the previous release from the article. Up to 6,000 characters of the
+  page head now follow a cut article.
+- **`analyze_content` outside English.** Keywords and topics for Hindi,
+  Finnish and every other non-English language come from word segmentation
+  instead of the English noun-phrase matcher, which returned whole clauses;
+  the Devanagari danda (।, ॥) ends a sentence; Japanese particles and
+  auxiliaries (ます, です, こと…) are no longer keywords.
+- **`localization` auto_detect tests kana and hangul before ideographs**, so
+  Japanese text is no longer labelled "chinese".
+- **crawlforge-extractors 1.6.4:** `amazon-product` reads SEK (.se), TRY
+  (.com.tr), AED, EGP and SAR prices and localised bylines ("Av George
+  Orwell (Författare)", "Marke: Sony"); `hacker-news-front-page` returns
+  absolute `item?id=` URLs on /ask and /show; `extract_embedded_state` reads
+  bracket-notation assignments and tumblr's `window['___INITIAL_STATE___']`.
+
 ## [5.6.7] - 2026-09-04
 
 ### Changed
