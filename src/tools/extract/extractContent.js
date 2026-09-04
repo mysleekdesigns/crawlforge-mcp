@@ -8,6 +8,7 @@ import { ContentProcessor } from '../../core/processing/ContentProcessor.js';
 import { BrowserProcessor } from '../../core/processing/BrowserProcessor.js';
 import { HTMLCleaner, ContentQualityAssessor } from '../../utils/contentUtils.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js'; // D3.1
+import { isThinMainContent } from '../scrape/_mainContent.js';
 import { safeFetch } from '../../utils/ssrfGuard.js';
 import { preflightFetch } from '../../utils/robotsGate.js';
 import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
@@ -215,8 +216,18 @@ export class ExtractContentTool {
         }
       });
 
-      // Step 3: Extract and format content
-      if (processingResult.readability) {
+      // Step 3: Extract and format content.
+      // Readability keeps one dense block; on a landing page that is a
+      // fraction of the visible text (libreoffice.org came back as its
+      // 509-character "Welcome" box at confidence 0.9, R16). A thin article
+      // is handed to the boilerplate-removal fallback and named as such.
+      const thin = processingResult.readability
+        ? isThinMainContent(processingResult.readability.content, html)
+        : null;
+      if (thin) {
+        processingResult.fallback_content = this.contentProcessor.extractFallbackContent(html);
+      }
+      if (processingResult.readability && !thin) {
         result.readability = processingResult.readability;
         result.content = {
           text: processingResult.readability.textContent || processingResult.readability.content,
@@ -234,7 +245,9 @@ export class ExtractContentTool {
           text: processingResult.fallback_content.content
         };
         result.extractionMethod = 'fallback_boilerplate_removal';
-        result.fallback_reason = 'Readability did not detect an article; used boilerplate-removal fallback';
+        result.fallback_reason = thin
+          ? `Readability kept only ${thin.kept} of ${thin.visible} visible characters (a landing page, not an article); used boilerplate-removal fallback`
+          : 'Readability did not detect an article; used boilerplate-removal fallback';
         result.confidence = 0.5;
         result.finalUrl = url;
       } else {

@@ -198,17 +198,27 @@ export class StealthBrowserManager {
       safari: 0.15
     };
 
-    // Realistic viewport sizes with market distribution
+    // Screen sizes (CSS pixels) with market distribution. The screen is the
+    // root of the display — the window is derived from it in generateDisplay.
+    // 1536×864 and 1280×720 are 1920×1080 panels at 125% / 150% scaling, so
+    // each size names the device scale factors it is really seen at.
     this.viewportSizes = [
-      { width: 1920, height: 1080, weight: 0.25 }, // Most common
-      { width: 1366, height: 768, weight: 0.20 },  // Second most common
-      { width: 1536, height: 864, weight: 0.15 },
-      { width: 1440, height: 900, weight: 0.12 },
-      { width: 1280, height: 720, weight: 0.10 },
-      { width: 1600, height: 900, weight: 0.08 },
-      { width: 1024, height: 768, weight: 0.05 },  // Legacy but still used
-      { width: 2560, height: 1440, weight: 0.03 }, // High-res displays
-      { width: 3840, height: 2160, weight: 0.02 }  // 4K displays
+      { width: 1920, height: 1080, weight: 0.27, dpr: [1] },     // Most common
+      { width: 1366, height: 768, weight: 0.20, dpr: [1] },      // Second most common
+      { width: 1536, height: 864, weight: 0.15, dpr: [1.25] },
+      { width: 1440, height: 900, weight: 0.12, dpr: [1] },
+      { width: 1280, height: 720, weight: 0.10, dpr: [1.5, 1] },
+      { width: 1600, height: 900, weight: 0.08, dpr: [1] },
+      { width: 1024, height: 768, weight: 0.05, dpr: [1] },      // Legacy but still used
+      { width: 2560, height: 1440, weight: 0.03, dpr: [1] }      // High-res displays
+    ];
+    // Retina Macs report their "looks like" size at a scale factor of 2.
+    this.macScreenSizes = [
+      { width: 1440, height: 900, weight: 0.35, dpr: [2] },
+      { width: 1512, height: 982, weight: 0.25, dpr: [2] },
+      { width: 1728, height: 1117, weight: 0.15, dpr: [2] },
+      { width: 1680, height: 1050, weight: 0.10, dpr: [2] },
+      { width: 1920, height: 1080, weight: 0.15, dpr: [1, 2] }   // External display
     ];
     
     // Mobile viewport sizes for mobile emulation
@@ -516,14 +526,17 @@ export class StealthBrowserManager {
     const selectedOS = this.selectOS(config);
     const persona = this.selectLocalePersona(config);
     const userAgent = this.selectRealisticUserAgent(config, selectedOS);
+    const display = this.generateDisplay(selectedOS, config);
     const fingerprint = {
       userAgent,
       locale: persona.locale,
-      viewport: config.customViewport || this.selectWeightedViewport(),
+      viewport: display.viewport,
       timezone: config.timezone || persona.timezone,
-      deviceScaleFactor: this.randomFloat(1, 2, 1),
-      isMobile: Math.random() < 0.1, // 10% mobile
-      hasTouch: Math.random() < 0.15, // 15% touch
+      deviceScaleFactor: display.deviceScaleFactor,
+      // Every user agent in the pool is a desktop one; mobile emulation under
+      // it (10% of fingerprints until R16) contradicted the UA outright.
+      isMobile: false,
+      hasTouch: selectedOS === 'windows' && Math.random() < 0.15, // touch laptops
       colorScheme: Math.random() < 0.3 ? 'dark' : 'light',
       reducedMotion: Math.random() < 0.1 ? 'reduce' : 'no-preference',
       forcedColors: Math.random() < 0.05 ? 'active' : 'none',
@@ -537,7 +550,8 @@ export class StealthBrowserManager {
       fonts: this.generateAdvancedFontList(selectedOS),
       plugins: this.generateAdvancedPluginList(),
       geolocation: this.generateRealisticGeolocation(persona),
-      screen: this.generateAdvancedScreenProperties(),
+      screen: display.screen,
+      window: display.window,
       battery: this.generateBatteryFingerprint()
     };
 
@@ -575,7 +589,17 @@ export class StealthBrowserManager {
     // An unmodelled locale still gets a coherent timezone/geolocation pair.
     const pool = exact.length ? exact : (sameLanguage.length ? sameLanguage : this.localePersonas);
 
-    const persona = pool[Math.floor(Math.random() * pool.length)];
+    // The host's own zone is where the egress address is. A persona drawn at
+    // random put America/Chicago in JavaScript beside a Florida IP, and both
+    // pixelscan and iphey called the timezone spoofed (R16, 2026-09-04). So a
+    // persona in the host zone is preferred — from the requested locale's
+    // pool, or from any locale when nothing beyond the default was asked for.
+    // An explicit config.timezone still overrides in the caller.
+    const hostZone = this.hostTimezone();
+    const inHostZone = (personas) => (hostZone ? personas.find((p) => p.timezone === hostZone) : undefined);
+    const persona = inHostZone(pool)
+      || (requested.toLowerCase() === 'en-us' ? inHostZone(this.localePersonas) : undefined)
+      || pool[Math.floor(Math.random() * pool.length)];
     return { ...persona, locale: requested };
   }
 
@@ -648,10 +672,58 @@ export class StealthBrowserManager {
   }
 
   /**
-   * Select viewport size based on weights
+   * One display for the whole fingerprint: the screen is drawn from the pool
+   * and the window derived from it as a maximised browser — viewport width is
+   * the screen width, viewport height the available height minus the browser
+   * chrome, outer size the available area. The screen and the viewport used
+   * to be drawn from the pool independently and the scale factor was a random
+   * float, so a 1536×864 window sat on a 1366×768 screen at a scale of 1.7
+   * (which Chromium reports as 1.7000000476837158 and a 1408.0000305175781px
+   * screen) — pixelscan's "Your browser fingerprint is inconsistent" (R16,
+   * 2026-09-04). A custom viewport gets the smallest pooled screen it fits on.
    */
-  selectWeightedViewport() {
-    return this.weightedRandomFromArray(this.viewportSizes);
+  generateDisplay(selectedOS, config = {}) {
+    const chrome = selectedOS === 'macos' ? 87 : 85;
+    const taskbar = selectedOS === 'macos' ? 25 : (selectedOS === 'linux' ? 27 : 40);
+    const pool = selectedOS === 'macos' ? this.macScreenSizes : this.viewportSizes;
+
+    let screen;
+    let viewport;
+    if (config.customViewport) {
+      viewport = { width: config.customViewport.width, height: config.customViewport.height };
+      const needed = { width: viewport.width, height: viewport.height + chrome + taskbar };
+      screen = pool
+        .filter((s) => s.width >= needed.width && s.height >= needed.height)
+        .sort((a, b) => a.width * a.height - b.width * b.height)[0]
+        || { ...needed, dpr: [1] };
+    } else {
+      screen = this.weightedRandomFromArray(pool);
+      viewport = { width: screen.width, height: screen.height - taskbar - chrome };
+    }
+
+    return {
+      viewport,
+      deviceScaleFactor: screen.dpr[Math.floor(Math.random() * screen.dpr.length)],
+      screen: {
+        width: screen.width,
+        height: screen.height,
+        availWidth: screen.width,
+        availHeight: screen.height - taskbar,
+        colorDepth: 24,
+        pixelDepth: 24,
+        orientation: { angle: 0, type: 'landscape-primary' }
+      },
+      window: { outerWidth: viewport.width, outerHeight: viewport.height + chrome }
+    };
+  }
+
+  /**
+   * The machine's own timezone, or null when it is the UTC of a container —
+   * set TZ on such a host to the zone its egress address geolocates to.
+   */
+  hostTimezone() {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return zone && zone !== 'UTC' && !/^(?:Etc|GMT)/.test(zone) ? zone : null;
   }
 
   /**
@@ -1139,25 +1211,6 @@ export class StealthBrowserManager {
     };
   }
 
-  /**
-   * Generate advanced screen properties
-   */
-  generateAdvancedScreenProperties() {
-    const viewport = this.selectWeightedViewport();
-    
-    return {
-      width: viewport.width,
-      height: viewport.height,
-      availWidth: viewport.width,
-      availHeight: viewport.height - (30 + Math.floor(Math.random() * 20)), // Account for taskbar
-      colorDepth: Math.random() < 0.95 ? 24 : 32,
-      pixelDepth: 24,
-      orientation: {
-        angle: 0,
-        type: 'landscape-primary'
-      }
-    };
-  }
 
   /**
    * Generate battery API fingerprint
@@ -1474,6 +1527,21 @@ export class StealthBrowserManager {
           
           return ctx;
         };
+
+        // A webgl2 context (and any OffscreenCanvas context) never passed
+        // through the wrapper above: iphey read the GPU through webgl2 and
+        // printed "SwiftShader" under a Windows user agent (R16, 2026-09-04).
+        // The two unmasked parameters are answered on the prototypes, where
+        // every context of either kind reads them.
+        for (const Context of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
+          if (!Context || !Context.prototype) continue;
+          const getParameter = Context.prototype.getParameter;
+          Context.prototype.getParameter = function(parameter) {
+            if (parameter === 37446) return webglConfig.renderer;
+            if (parameter === 37445) return webglConfig.vendor;
+            return getParameter.call(this, parameter);
+          };
+        }
       }, fingerprint.webGL);
     }
 
@@ -1568,7 +1636,7 @@ export class StealthBrowserManager {
     }
 
     // Screen resolution spoofing
-    await context.addInitScript((screenConfig) => {
+    await context.addInitScript(({ screen: screenConfig, window: windowConfig }) => {
       Object.defineProperties(screen, {
         width: { value: screenConfig.width, configurable: true },
         height: { value: screenConfig.height, configurable: true },
@@ -1577,7 +1645,18 @@ export class StealthBrowserManager {
         colorDepth: { value: screenConfig.colorDepth, configurable: true },
         pixelDepth: { value: screenConfig.pixelDepth, configurable: true }
       });
-    }, fingerprint.screen);
+      // Headless Chromium reports outerWidth/outerHeight equal to the inner
+      // size — a window with no tabs and no toolbar.
+      if (windowConfig) {
+        Object.defineProperty(window, 'outerWidth', { get: () => windowConfig.outerWidth, configurable: true });
+        Object.defineProperty(window, 'outerHeight', { get: () => windowConfig.outerHeight, configurable: true });
+      }
+    }, {
+      screen: fingerprint.screen,
+      // camoufox runs without a fixed viewport (see createStealthContext), so
+      // an outer size derived from one would contradict the real window.
+      window: this._launchedEngine === 'camoufox' ? null : fingerprint.window
+    });
 
     // Timezone spoofing
     if (config.spoofTimezone) {
@@ -1853,16 +1932,34 @@ export class StealthBrowserManager {
     const { contextId } = await this.createStealthContext({ ...stealthConfig, engine });
     try {
       const page = await this.createStealthPage(contextId);
+      let crashed = false;
+      page.on('crash', () => { crashed = true; });
       // SSRF guard at the navigation boundary: the stealth engine resolves DNS
       // itself, so a URL/host-only check would miss rebinding to private/metadata IPs.
       await safeGoto(page, url, { waitUntil: 'domcontentloaded' });
       if (wait_for > 0) await page.waitForTimeout(wait_for);
 
-      const [title, html, text] = await Promise.all([
-        page.title().catch(() => ''),
-        page.content().catch(() => ''),
-        page.innerText('body').catch(() => '')
-      ]);
+      // A failure to read the document is a failure. With every read wrapped
+      // in .catch(() => ''), a renderer that crashed or a page closed during
+      // the wait (iphey.com under software GL, R16 2026-09-04) came back as
+      // success:true with an empty title and body — indistinguishable from a
+      // page that rendered nothing. The body text is read through evaluate,
+      // not innerText('body'): a frameset document has no <body>, and
+      // innerText waited its full 30s for one before throwing.
+      let title; let html; let text;
+      try {
+        [title, html, text] = await Promise.all([
+          page.title(),
+          page.content(),
+          page.evaluate(() => (document.body ? document.body.innerText : ''))
+        ]);
+      } catch (error) {
+        const what = crashed ? 'crashed' : (page.isClosed() ? 'was closed' : 'could not be read');
+        throw new Error(
+          `The stealth page ${what} before its content could be read (${String(error.message).split('\n')[0]}). ` +
+          'The page did not render; retry, or use scrape_with_actions for a page this heavy.'
+        );
+      }
       const shot = screenshot
         ? await page.screenshot({ encoding: 'base64', fullPage: false }).catch(() => null)
         : null;
