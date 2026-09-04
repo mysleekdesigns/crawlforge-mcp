@@ -9,6 +9,7 @@
 
 import { load } from 'cheerio';
 import { fetchWithTimeout } from './_fetch.js';
+import { elementText } from '../../utils/elementText.js';
 
 // Matches a trailing "@attr" suffix (e.g. "@href", "@data-id") — the attribute
 // name must look like a real attribute, not the "@" of a CSS attribute-value
@@ -73,7 +74,7 @@ function extractRows($, { row_selector, selectors, max_results }) {
           record[field] = null;
           continue;
         }
-        record[field] = attribute ? (el.attr(attribute) ?? null) : el.text().trim();
+        record[field] = attribute ? (el.attr(attribute) ?? null) : elementText($, el.get(0));
         matchCounts[field] += 1;
       } catch (selectorError) {
         record[field] = {
@@ -145,7 +146,7 @@ export async function scrapeStructuredHandler({ url, selectors, row_selector, ma
             if (attribute) {
               return $(el).attr(attribute) ?? null;
             }
-            return $(el).text().trim();
+            return elementText($, el);
           };
 
           if (elements.length === 1) {

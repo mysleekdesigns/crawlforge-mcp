@@ -10,9 +10,8 @@
  * of a recovered table), an element that wraps a table renders each table that
  * way in place, and anything else is .text().trim(), unchanged.
  *
- * batchScrape/worker.js extractStructuredData and scrapeStructured read
- * matched elements with the same .text().trim() and have the same gap; they
- * do not use this yet.
+ * batch_scrape's selector extraction (batchScrape/worker.js) and
+ * scrape_structured read matched elements through this helper too (5.6.6).
  */
 
 const ROW_GROUPS = new Set(['table', 'thead', 'tbody', 'tfoot']);
