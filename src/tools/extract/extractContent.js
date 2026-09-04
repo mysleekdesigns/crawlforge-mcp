@@ -235,6 +235,11 @@ export class ExtractContentTool {
         result.extractionMethod = 'readability';
         result.confidence = 0.9;
         result.finalUrl = url;
+        if (processingResult.readability.tablesRecovered > 0) {
+          (result.warnings ||= []).push(
+            `mainContent: re-attached ${processingResult.readability.tablesRecovered} data table(s) that main-content extraction had dropped`
+          );
+        }
 
         // Convert to markdown if requested
         if (options.outputFormat === 'markdown') {

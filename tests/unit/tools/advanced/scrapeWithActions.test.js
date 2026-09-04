@@ -15,6 +15,9 @@
 
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 // Local-loopback allowlist so ActionExecutor's real SSRF pre-flight
 // (assertUrlAllowed, exercised by the browser-lifecycle tests below) doesn't
@@ -390,5 +393,25 @@ describe('ActionExecutor browser lifecycle (real module — src/core/ActionExecu
       await executor.destroy();
       await executor.browserProcessor.localizationManager?.cleanup();
     }
+  });
+});
+
+describe('scrapeWithActions — a rendered data table survives the markdown and text formats', () => {
+  // coinmarketcap.com/currencies/bitcoin/historical-data/ (2026-09-04): the
+  // action chain waited for the table to render, and the markdown/text formats
+  // then dropped it — Readability keeps the FAQ block and the table is not in
+  // its candidate. Same defect, same fixture as extractContent.test.js.
+  const SP500_URL = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies';
+  const sp500Html = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../scrape/fixtures/sp500-condensed.html'), 'utf8');
+
+  test('the post-action page keeps its table in both formats', async () => {
+    const tool = new ScrapeWithActionsTool({
+      actionExecutor: makeFakeExecutor({ onExecute: (url, chain) => makeFakeChainResult(chain.actions, { finalHtml: sp500Html, finalUrl: url }) }),
+      enableLogging: false
+    });
+    const result = await tool.execute({ url: SP500_URL, actions: [WAIT_ACTION], formats: ['markdown', 'text'], captureScreenshots: false });
+    assert.equal(result.success, true, result.error);
+    assert.match(result.content.markdown, /^\|\s*\[MMM\]\([^)]+\)\s*\|/m, "3M's row renders as a pipe-table row");
+    assert.match(result.content.text, /MMM \| 3M/, 'text keeps the row with its cells delimited');
   });
 });

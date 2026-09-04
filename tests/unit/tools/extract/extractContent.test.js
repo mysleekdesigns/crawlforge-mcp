@@ -12,6 +12,14 @@
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { ExtractContentTool } from '../../../../src/tools/extract/extractContent.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+// Wikipedia's *List of S&P 500 companies*, condensed — the page whose payload
+// Readability drops (see tests/unit/tools/scrape/mainContent.test.js).
+const SP500_URL = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies';
+const sp500Html = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../scrape/fixtures/sp500-condensed.html'), 'utf8');
 
 function articleHtml({ title = 'Test Article', paragraphs = 6 } = {}) {
   const body = 'This is a long paragraph of article content that should be picked up by Readability as the main content of the page. '.repeat(paragraphs);
@@ -102,5 +110,30 @@ describe('extractContent tool (real module)', () => {
     assert.equal(await tool.shouldUseJavaScript('https://example.com/docs#install'), false);
     assert.equal(await tool.shouldUseJavaScript('https://example.com/app/dashboard'), true);
     assert.equal(await tool.shouldUseJavaScript('https://example.com/apple-pie'), false);
+  });
+});
+
+describe('extractContent — data tables Readability drops', () => {
+  // scrape_with_actions on coinmarketcap.com/currencies/bitcoin/historical-data/
+  // (2026-09-04): the wait on `table tbody tr` succeeded, then the markdown and
+  // text formats came back as the page's FAQ copy with no table at all.
+  // `scrape` had already been taught to re-attach dropped data tables
+  // (_mainContent.js); this pipeline had not.
+  test('markdown and text carry the table the article candidate left out', async () => {
+    const tool = new ExtractContentTool();
+    const result = await tool.execute({ url: SP500_URL, html: sp500Html, options: { outputFormat: 'markdown' } });
+    assert.equal(result.success, true, result.error);
+    assert.equal(result.extractionMethod, 'readability');
+    assert.equal(result.readability.tablesRecovered, 1);
+    assert.match(result.content.markdown, /^\|\s*\[MMM\]\([^)]+\)\s*\|/m, "3M's row renders as a pipe-table row");
+    assert.match(result.content.markdown, /Abbott/, 'and so does a later row');
+    assert.match(result.content.text, /MMM \| 3M/, 'text keeps the row with its cells delimited');
+  });
+
+  test('a normal article reports no recovered tables and is unchanged', async () => {
+    const tool = new ExtractContentTool();
+    const result = await tool.execute({ url: 'https://example.com/article', html: articleHtml(), options: { outputFormat: 'markdown' } });
+    assert.equal(result.readability.tablesRecovered, 0);
+    assert.doesNotMatch(result.content.markdown, /<table/);
   });
 });

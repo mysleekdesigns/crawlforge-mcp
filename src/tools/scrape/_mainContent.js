@@ -35,7 +35,10 @@
  *    12th sits inside a collapsed `<details>`, which Readability drops whole
  *    and which this deliberately does not try to rescue.
  *
- * Shared by unifiedScrape (wants HTML) and extractStructured (wants text).
+ * Shared by unifiedScrape (wants HTML) and extractStructured (wants text);
+ * the table recovery alone is also used by ContentProcessor, which runs its
+ * own Readability pass for extract_content, scrape_with_actions and
+ * process_document.
  */
 
 import { JSDOM } from 'jsdom';
@@ -170,6 +173,61 @@ function isDataTable(table) {
 }
 
 /**
+ * A data table's text with its structure kept: one line per row, cells joined
+ * by " | ". A bare `textContent` runs every cell together
+ * ("DateOpen*HighLowClose**…"), which is what scrape_with_actions' selector
+ * extraction handed back for CoinMarketCap's history table.
+ * @param {HTMLTableElement} table
+ * @returns {string}
+ */
+function tableText(table) {
+  return Array.from(table.rows)
+    .map((row) => Array.from(row.cells).map((cell) => normalizeWhitespace(cell.textContent || '')).join(' | '))
+    .filter((line) => line.length > 0)
+    .join('\n');
+}
+
+/**
+ * The data tables in `html` that a Readability pass left out of its article.
+ *
+ * Readability mutates the document it is handed — the dropped tables are
+ * already gone by the time parse() returns — so this parses the original HTML
+ * again. Shared by every caller that runs Readability itself: extractMainContent
+ * below, and ContentProcessor, whose consumers (extract_content,
+ * scrape_with_actions, process_document) lost tables the same way until
+ * 2026-09-04, when scrape_with_actions returned CoinMarketCap's historical-data
+ * page as its FAQ copy — the wait for the table rows had succeeded, and the
+ * markdown then had no table at all.
+ *
+ * @param {string} html - the page's HTML
+ * @param {string} [url] - document URL, used as the base for relative links
+ * @param {string} [keptText] - the article's textContent, so a table Readability
+ *   did keep is not attached a second time
+ * @returns {{ html: string, text: string }[]} each dropped table's outerHTML and
+ *   its row-per-line text; empty when there is nothing to recover
+ */
+export function recoverDroppedTables(html, url, keptText = '') {
+  // Nothing to recover, and no reason to pay for a second parse.
+  if (!/<table[\s>]/i.test(html)) return [];
+  try {
+    const fresh = new JSDOM(html, { url });
+    const kept = normalizeWhitespace(keptText || '');
+    return Array.from(fresh.window.document.querySelectorAll('table'))
+      // A nested table travels with its parent; re-attaching it separately
+      // would duplicate it.
+      .filter((table) => !table.parentElement?.closest('table'))
+      .filter(isDataTable)
+      .filter((table) => {
+        const signature = normalizeWhitespace(table.textContent || '').slice(0, SIGNATURE_LENGTH);
+        return signature.length > 0 && !kept.includes(signature);
+      })
+      .map((table) => ({ html: table.outerHTML, text: tableText(table) }));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Extract a page's main content, re-attaching data tables Readability dropped.
  *
  * `title` is Readability's article title, which it strips out of `html` — a
@@ -193,32 +251,7 @@ export function extractMainContent(html, url) {
   if (!article || !article.content) return { html: null, title: '', tablesRecovered: 0 };
 
   const title = article.title || '';
-
-  // Nothing to recover, and no reason to pay for a second parse.
-  if (!/<table[\s>]/i.test(html)) {
-    return { html: article.content, title, tablesRecovered: 0 };
-  }
-
-  // Readability mutates the document it is handed — the dropped tables are
-  // already gone from `dom` by the time parse() returns — so recovery has to
-  // parse the original HTML again.
-  let recovered;
-  try {
-    const fresh = new JSDOM(html, { url });
-    const kept = normalizeWhitespace(article.textContent || '');
-    recovered = Array.from(fresh.window.document.querySelectorAll('table'))
-      // A nested table travels with its parent; re-attaching it separately
-      // would duplicate it.
-      .filter((table) => !table.parentElement?.closest('table'))
-      .filter(isDataTable)
-      .filter((table) => {
-        const signature = normalizeWhitespace(table.textContent || '').slice(0, SIGNATURE_LENGTH);
-        return signature.length > 0 && !kept.includes(signature);
-      })
-      .map((table) => table.outerHTML);
-  } catch {
-    return { html: article.content, title, tablesRecovered: 0 };
-  }
+  const recovered = recoverDroppedTables(html, url, article.textContent).map((table) => table.html);
 
   return {
     html: recovered.length > 0 ? `${article.content}\n${recovered.join('\n')}` : article.content,
