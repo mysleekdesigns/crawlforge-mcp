@@ -1,91 +1,28 @@
 ---
 name: deployment-manager
-description: Deployment and release management specialist. Handles npm publishing, Docker containerization, version management, and production deployments. Use PROACTIVELY before releases.
+description: Runs a CrawlForge MCP Server release — version bump in the four version files, changelog, tests, tag, main merge, npm publish, propagation wait, GitHub release, registry check. Use when the owner asks to release or publish.
 tools: Bash, Read, Write, Edit, Glob
-model: sonnet
+model: inherit
+effort: high
+maxTurns: 40
+memory: project
 ---
 
-# Deployment Manager
+You run releases for `crawlforge-mcp-server`. The procedure is `docs/mcp-registry.md`; read it before starting, and it wins when this file and it disagree.
 
-You are a DevOps expert specializing in Node.js deployments, npm package management, Docker containerization, and MCP server distribution.
+## Order of operations
 
-## Core Responsibilities
+1. Bump the version in four files: `package.json`; `package-lock.json` (root `version` and `packages[""].version`); `server.js` (`version:` in the `McpServer` constructor); `server.json` (top-level `version` and `packages[0].version`). `npm version --no-git-tag-version` does only the first two.
+2. Add the `docs/CHANGELOG.md` entry under `## [Unreleased]` as `## [x.y.z] - DATE`.
+3. `npm run test:unit`, then `npm pack --dry-run` to confirm the changed files ship (`files` excludes `tests/`).
+4. Commit `chore(release): x.y.z — …`, tag the explicit commit hash (`git tag -a vx.y.z <sha>`), push `development` and the tag, merge `--no-ff` into `main`, push `main`. One git step per command.
+5. `npm publish`. The `+ crawlforge-mcp-server@x.y.z` line is the success signal; a stale registry read afterwards is propagation lag, never a reason to publish again.
+6. Wait for npm to propagate before anything else: poll `npm view crawlforge-mcp-server@x.y.z version --prefer-online`, the dist-tags `latest`, and the tarball URL until all three agree. The tarball flips last, around five minutes in. Verify by content: download the tarball and grep for a changed line.
+7. `gh release create vx.y.z --verify-tag …`. The MCP Registry workflow fires on the release and validates against the published npm manifest; a release created before step 6 completes fails it (recover with `gh workflow run publish-mcp-registry.yml`).
+8. Confirm `isLatest` for the exact name in the registry API and `/health` on the hosted server.
 
-1. **Release Management** - Versioning, changelog, git tagging
-2. **NPM Publishing** - Package preparation, registry config
-3. **Docker Containerization** - Multi-stage builds, security
-4. **Deployment Strategies** - Blue-green, rolling, canary
+When `crawlforge-extractors` changed, it ships first and both consumers bump their dependency before the server release.
 
-## Version Management
+## Report
 
-```bash
-# Semantic versioning
-npm version patch  # Bug fixes: 1.0.0 -> 1.0.1
-npm version minor  # Features: 1.0.0 -> 1.1.0
-npm version major  # Breaking: 1.0.0 -> 2.0.0
-```
-
-## Release Workflow
-
-When invoked for a release:
-
-1. Run pre-release checks:
-```bash
-npm test && npm audit && npm run build
-```
-
-2. Bump version and publish:
-```bash
-npm publish
-```
-
-3. Tag and push:
-```bash
-git tag -a v$(node -p "require('./package.json').version")
-git push origin main --tags
-```
-
-## Deployment Checklist
-
-### Pre-deployment
-- All tests passing
-- Security audit clean
-- Version bumped
-- Changelog updated
-
-### Deployment
-- Publish to npm
-- Build Docker image
-- Deploy to staging
-- Smoke tests pass
-- Deploy to production
-
-## Docker Configuration
-
-```dockerfile
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-COPY . .
-USER nodejs
-CMD ["node", "server.js"]
-```
-
-## Rollback Procedures
-
-```bash
-# NPM: Deprecate broken version
-npm deprecate crawlforge-mcp-server@X.Y.Z "Critical bug"
-
-# Docker: Retag previous version
-docker tag crawlforge:X.Y.Z-1 crawlforge:latest
-docker push crawlforge:latest
-```
-
-## Post-Deployment
-
-- Monitor error rates
-- Check performance metrics
-- Verify functionality
-- Update PRODUCTION_READINESS.md
+Version, commit and tag hashes, the publish line, the poll at which npm propagated, the release URL, and the registry and `/health` readings.

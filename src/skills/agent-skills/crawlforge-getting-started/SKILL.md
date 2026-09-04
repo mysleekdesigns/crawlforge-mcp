@@ -1,8 +1,8 @@
 ---
 name: crawlforge-getting-started
-description: "Orientation and tool-selection guide for the CrawlForge MCP server's 28 web tools. Use when the user is getting started with CrawlForge, asks which CrawlForge tool to use, how to set up the API key, how skills or the CLI work, what a tool costs in credits, or when one tool fails and a fallback is needed. Routes requests to the right specialized skill (web scraping, deep research, stealth, structured extraction, change tracking, batch automation), and explains MCP-tools-vs-CLI, the Ollama-first LLM fallback chain, and per-tool credit costs."
+description: "Orientation and tool-selection guide for the CrawlForge MCP server's 29 web tools. Use when the user is getting started with CrawlForge, asks which CrawlForge tool to use, how to set up the API key, how skills or the CLI work, what a tool costs in credits, or when one tool fails and a fallback is needed. Routes requests to the right specialized skill (web scraping, deep research, stealth, structured extraction, change tracking, batch automation), and explains MCP-tools-vs-CLI, the Ollama-first LLM fallback chain, and per-tool credit costs."
 metadata:
-  version: 4.8.0
+  version: 5.6.6
   source: crawlforge-mcp-server
 ---
 

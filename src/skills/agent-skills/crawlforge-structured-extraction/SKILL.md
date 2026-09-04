@@ -2,7 +2,7 @@
 name: crawlforge-structured-extraction
 description: "Extracts structured JSON and analyzes content with CrawlForge's extract_structured, extract_with_llm, extract_embedded_state, scrape_structured, scrape_template, process_document, analyze_content, summarize_content, and list_ollama_models tools. Use when the user wants to extract specific fields, pull data into a JSON schema, extract by natural-language prompt, scrape with CSS selectors, read a page's embedded JavaScript state (__NEXT_DATA__, React Server Components, Nuxt, Apollo, Redux), get product, profile, or repo data from known sites (Amazon, LinkedIn, GitHub, YouTube, Reddit, and more), parse a PDF or DOCX, summarize a page, or analyze sentiment, entities, or keywords. Defaults to local Ollama for LLM extraction; OpenAI and Anthropic optional."
 metadata:
-  version: 4.8.0
+  version: 5.6.6
   source: crawlforge-mcp-server
 ---
 

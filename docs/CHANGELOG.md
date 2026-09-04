@@ -5,6 +5,45 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.6.7] - 2026-09-04
+
+### Changed
+- **Tool selection surface rewritten to stop unnecessary calls.** A 30-day
+  invocation-log review found 21% of session calls repeated a call already
+  made with identical params, and the most common pair was `fetch_url`
+  followed by an `extract_*` tool on the same URL — a chain the tool
+  descriptions and the `getting-started` prompt taught in so many words.
+  The server `instructions` (the only routing text a Claude Code session
+  sees before its first tool search) are now a decision ladder with credit
+  costs, a never-re-fetch rule and a one-call-per-page rule; every tool
+  description leads with when to use it, names the tool to use instead for
+  the cases it is not for, and states its cost (a test pins each number to
+  `getToolCost`); `scrape` and `search_web` carry
+  `_meta["anthropic/alwaysLoad"]` so the first call needs no tool-search
+  round-trip; and every error result now ends with a `Next step:` line
+  (`src/server/fallbackHints.js`, applied by `withAuth`) naming the tool
+  to try next, so a failure is not followed by a blind retry.
+  `deep_research` is the third always-loaded tool: with only `scrape` and
+  `search_web` visible at session start, a model asked for a report from
+  several sources fanned out into five searches and seven scrapes instead of
+  one call, so the ladder now also states that cost comparison.
+- **Installed skills carry the package version.** The skills installer
+  stamps `metadata.version` in every installed `SKILL.md` from
+  `package.json` (the repo files had said 4.8.0 through eleven releases);
+  `crawlforge-getting-started` said 28 tools in its description and 29 in
+  its body; `crawlforge-web-scraping`'s cost note led with "cheapest first:
+  fetch_url, extract_text…" — the ordering that produces the double fetch —
+  and now leads with `scrape` as the default page read.
+- **Two measurement scripts.** `npm run usage:report` reads
+  `logs/app.log` and prints the duplicate-call rate and the
+  `fetch_url` → `extract_*` double-fetch pair count; `npm run
+  eval:selection` runs 21 natural-language tasks through `claude -p` and
+  scores first-tool choice, call count, duplicate calls and tool-search
+  calls (21/21 first-tool on the current surface).
+- Repo hygiene with no runtime effect: the seven `.claude/agents` follow
+  Claude 5 conventions with current facts, `CLAUDE.md` reads 5.6.6 and no
+  longer asks for parallel delegation, `toolFilter.js` says 29 tools.
+
 ## [5.6.6] - 2026-09-04
 
 ### Fixed

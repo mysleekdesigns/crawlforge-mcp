@@ -2,7 +2,7 @@
 name: crawlforge-stealth-browsing
 description: "Bypasses bot detection and geo-restrictions with CrawlForge's stealth_mode and localization tools. Use when a site returns 403 or 429, CAPTCHAs, 'please enable JavaScript', or empty content, or is protected by Cloudflare, DataDome, or PerimeterX, or when the user needs region-specific pricing, geo-blocked content, or a specific locale, timezone, or currency. stealth_mode runs a stealth browser (playwright by default, camoufox for advanced fingerprinting) and can screenshot; localization emulates a country and language. Explains when to escalate from a normal scrape to stealth."
 metadata:
-  version: 4.8.0
+  version: 5.6.6
   source: crawlforge-mcp-server
 ---
 

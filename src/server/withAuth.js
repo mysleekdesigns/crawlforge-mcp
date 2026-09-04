@@ -9,6 +9,8 @@
  *   - try/finally guarantees a single `tool invocation` log line per call
  *   - log payload: { toolName, paramHash, durationMs, outcome, creditCost, creatorMode }
  *   - outcome ∈ { 'success' | 'error' | 'insufficient_credits' }
+ *   - error results get a "Next step:" hint naming the tool to try next
+ *     (src/server/fallbackHints.js) so a failure is not followed by a blind retry
  *   - emits an OTel span via src/observability/tracing.js (no-op if disabled)
  *   - increments Prometheus counters via src/observability/metrics.js (if registry passed)
  */
@@ -16,6 +18,7 @@
 import { createHash } from 'node:crypto';
 import { recordToolInvocation } from '../observability/tracing.js';
 import { isInternalRequest, preflightRefusal, requestContext } from './requestContext.js';
+import { appendFallbackHint } from './fallbackHints.js';
 
 export function hashParams(params) {
   try {
@@ -122,6 +125,11 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
           }
         } catch {
           // Cost injection must never break the request path
+        }
+
+        // Selection hint: tell the model what to try instead of the same call.
+        if (isErrorResult) {
+          try { appendFallbackHint(toolName, result); } catch { /* never break the request path */ }
         }
 
         // creditCost === 0 means a genuinely free call (e.g. serp_rank when

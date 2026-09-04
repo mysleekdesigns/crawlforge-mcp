@@ -1,8 +1,8 @@
 # Task Delegation Patterns
 
-## Parallel Task Execution
+## When to Delegate
 
-When launching sub-agents, maximize parallelization:
+Delegate a track only when it is independent of the others and too large for a few tool calls; the current models over-delegate when told to parallelize, so two or three concurrent agents is the usual ceiling. Independent tracks run at the same time:
 
 ```
 Good: Launch mcp-implementation AND testing-validation simultaneously
@@ -36,7 +36,7 @@ Only serialize when there are actual dependencies:
 ### Bug Fix
 
 ```
-1. Research: Use Task(Explore) to find affected code
+1. Research: use the Agent tool with subagent_type Explore to find affected code
 2. Launch mcp-implementation with specific fix instructions
 3. Launch testing-validation to verify fix
 ```

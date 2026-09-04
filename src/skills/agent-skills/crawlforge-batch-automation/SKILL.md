@@ -2,7 +2,7 @@
 name: crawlforge-batch-automation
 description: "Automates large scraping jobs and browser interactions with CrawlForge's batch_scrape, get_batch_results, scrape_with_actions, and generate_llms_txt tools. Use when the user wants to scrape many URLs at once, batch-scrape a list of pages, collect dozens of product, news, or competitor pages, run browser actions (click, type, scroll, wait) before scraping, log in or fill a form before extracting, or generate an llms.txt for a site. Use sync mode for up to about 25 URLs and async with a webhook for large batches; retrieve paginated output with get_batch_results."
 metadata:
-  version: 4.8.0
+  version: 5.6.6
   source: crawlforge-mcp-server
 ---
 
