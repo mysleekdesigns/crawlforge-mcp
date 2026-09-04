@@ -73,10 +73,11 @@ test('no description or prompt teaches a fetch-then-extract chain', () => {
   assert.doesNotMatch(src, /Workflow: search_web -> fetch_url/);
 });
 
-test('scrape and search_web ship their definitions at session start (alwaysLoad)', () => {
+test('scrape, search_web and deep_research ship their definitions at session start (alwaysLoad)', () => {
   for (const name of ['scrape', 'search_web']) {
     const re = new RegExp(`registerToolIfEnabled\\("${name}", \\{[\\s\\S]*?_meta: \\{ "anthropic/alwaysLoad": true \\}[\\s\\S]*?\\}, withAuth\\("${name}"`);
     assert.match(src, re, `${name} lacks _meta anthropic/alwaysLoad`);
   }
-  assert.equal((src.match(/"anthropic\/alwaysLoad": true/g) ?? []).length, 2, 'alwaysLoad must stay rare: it costs context in every session');
+  assert.match(src, /registerToolTask\("deep_research", \{[\s\S]*?_meta: \{ "anthropic\/alwaysLoad": true \}/, 'deep_research lacks _meta anthropic/alwaysLoad');
+  assert.equal((src.match(/"anthropic\/alwaysLoad": true/g) ?? []).length, 3, 'alwaysLoad must stay rare: it costs context in every session');
 });
