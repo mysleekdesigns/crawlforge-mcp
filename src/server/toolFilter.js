@@ -1,7 +1,7 @@
 /**
  * toolFilter — client-side tool selection (Phase 6).
  *
- * Lets an MCP client load a subset of the 27 registered tools via env vars,
+ * Lets an MCP client load a subset of the 29 registered tools via env vars,
  * cutting context bloat (mirrors Bright Data / Exa's TOOLS / GROUPS pattern).
  *
  * Pure module: no I/O, no logging; process.env is only read via

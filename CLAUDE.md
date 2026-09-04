@@ -62,7 +62,7 @@ These guidelines are working if: fewer unnecessary changes in diffs, fewer rewri
 
 CrawlForge MCP Server - A professional MCP (Model Context Protocol) server providing 29 web scraping, crawling, and content processing tools (6 inline + 23 advanced).
 
-**Current Version:** 5.6.0
+**Current Version:** 5.6.6
 
 ## Development Commands
 
@@ -307,8 +307,8 @@ try {
 
 ## Project Management Rules
 
-- Always have the project manager work with the appropriate sub agents in parallel
-- Each sub agent must work on their strengths; when done they report to the project manager who updates `docs/PRODUCTION_READINESS.md`
+- Delegate to a sub agent only for a genuinely independent, parallelizable track — not for work finishable in a few tool calls, and never to verify your own output (Claude 5 models over-delegate when told to parallelize)
+- When a phase completes, update `docs/PRODUCTION_READINESS.md`
 - Whenever a phase is completed, push all changes to GitHub
 - Put all documentation md files into the `docs/` folder
 - Every time you finish a phase run the test suites (`npm run test:unit` and `npm test`) and fix all failures before pushing
