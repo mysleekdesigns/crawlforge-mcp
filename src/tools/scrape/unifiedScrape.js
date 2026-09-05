@@ -11,51 +11,53 @@
  */
 
 import { z } from 'zod';
+import { load } from 'cheerio';
+import { documentVerdict } from 'crawlforge-extractors';
+import { SCRAPE_STRING_FORMATS, JsonFormatSchema, FormatSchema } from './formats.js';
 import { fetchAndParse } from '../extract/_fetchAndParse.js';
 import { extractMainContent, isThinMainContent } from './_mainContent.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 import { stripHiddenFromDom } from '../../utils/hiddenContent.js';
 import { extractBlockText } from '../basic/extractText.js';
 import { pageTitle } from '../../utils/pageTitle.js';
+import { noteHostBlocked, clearHostBlocked } from '../../utils/hostRateLimiter.js';
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
-const JsonFormatSchema = z.object({
-  type: z.literal('json'),
-  schema: z.record(z.any()).optional(),
-  prompt: z.string().optional()
-});
+export { SCRAPE_STRING_FORMATS, JsonFormatSchema, FormatSchema };
 
-const FormatSchema = z.union([
-  z.enum(['markdown', 'html', 'rawHtml', 'text', 'links', 'metadata', 'screenshot', 'branding']),
-  JsonFormatSchema
-]);
+// The six public fields in tools/list order, each carrying the description
+// the client sees. server.js spreads this with COMPLIANCE_PARAMS instead of
+// keeping its own copy (Phase 0, 0.3).
+export const SCRAPE_INPUT_SHAPE = {
+  url: z.string().url().describe('The URL to scrape'),
+  formats: z.array(FormatSchema).min(1).optional().default(['markdown']).describe('Formats to return (default: ["markdown"])'),
+  onlyMainContent: z.boolean().optional().default(true).describe('Strip boilerplate via Readability (default: true)'),
+  // Pass-through to fetchAndParse
+  timeoutMs: z.number().min(1000).max(60000).optional().default(15000).describe('Fetch timeout in ms'),
+  // Optional, additive: only consulted when 'branding' / 'screenshot' is requested.
+  brandingOptions: z.object({
+    fetchLinkedCss: z.boolean().optional().default(true).describe('Fetch linked stylesheets for richer color/font extraction'),
+    maxStylesheets: z.number().min(0).max(20).optional().default(10).describe('Max linked stylesheets to fetch')
+  }).optional().describe('Options for the "branding" format'),
+  screenshotOptions: z.object({
+    fullPage: z.boolean().optional().default(false).describe('Capture the full scrollable page'),
+    format: z.enum(['png', 'jpeg']).optional().default('png'),
+    quality: z.number().min(0).max(100).optional().describe('JPEG quality (jpeg only)')
+  }).optional().describe('Options for the "screenshot" format')
+};
 
 export const UnifiedScrapeSchema = z.object({
-  url: z.string().url(),
-  formats: z.array(FormatSchema).min(1).default(['markdown']),
-  onlyMainContent: z.boolean().optional().default(true),
+  ...SCRAPE_INPUT_SHAPE,
   // Remove content a browser would not paint (screen-reader-only labels,
   // state-gated theme badges) before deriving any format. "linked" also fetches
   // the page's stylesheets, which is what resolves class-driven display:none;
   // "inline" uses only the document's own <style> blocks and costs no requests.
   resolveHiddenContent: z.enum(['linked', 'inline', 'off']).optional().default('linked'),
-  // Pass-through to fetchAndParse
-  timeoutMs: z.number().min(1000).max(60000).optional().default(15000),
   // Compliance overrides, per request: identify as yourself for a target you
   // have your own agreement with, and take responsibility for ignoring robots.
   user_agent: z.string().optional(),
-  respect_robots: z.boolean().optional(),
-  // Optional, additive: only consulted when 'branding' / 'screenshot' is requested.
-  brandingOptions: z.object({
-    fetchLinkedCss: z.boolean().optional().default(true),
-    maxStylesheets: z.number().min(0).max(20).optional().default(10)
-  }).optional(),
-  screenshotOptions: z.object({
-    fullPage: z.boolean().optional().default(false),
-    format: z.enum(['png', 'jpeg']).optional().default('png'),
-    quality: z.number().min(0).max(100).optional()
-  }).optional()
+  respect_robots: z.boolean().optional()
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -205,17 +207,59 @@ export class UnifiedScrapeTool {
     const { url, formats, onlyMainContent, timeoutMs, brandingOptions, screenshotOptions, resolveHiddenContent } = validated;
 
     // Single fetch
-    let html, $, finalUrl, fetchWarnings;
+    let html, $, finalUrl, fetchWarnings, status;
     try {
-      ({ html, $, finalUrl, warnings: fetchWarnings } = await fetchAndParse(url, {
+      ({ html, $, finalUrl, warnings: fetchWarnings, status } = await fetchAndParse(url, {
         timeoutMs,
         userAgent: validated.user_agent,
         respectRobots: validated.respect_robots,
         tool: 'scrape',
-        stripTags: [] // we handle boilerplate ourselves
+        stripTags: [], // we handle boilerplate ourselves
+        // A real wall reaches a plain fetch as a 403 with the challenge in
+        // the body; the verdict below needs that body and the status.
+        errorDocuments: true
       }));
     } catch (err) {
       throw new Error(`scrape: fetch failed for ${url}: ${err.message}`);
+    }
+
+    // A bot wall, an HTTP error page, an empty shell or an error placeholder
+    // arrives with a title and prose of its own; reported as a successful
+    // scrape it hid the block for three rounds (producthunt.com, R10 Q1 →
+    // R15). The stealth path has named these since 5.6.2; this path never
+    // looked, and threw away every non-2xx body before it could (Phase 0,
+    // 0.1). Scripts stay in $ for the rawHtml and metadata formats,
+    // so the text is measured on a copy without them — the vendor tables
+    // count the characters a reader would see, as the browser path does.
+    // Nothing below runs on a failed verdict: a screenshot would launch a
+    // browser on the wall and branding would fetch its stylesheets.
+    const title = pageTitle($);
+    const $visible = load(html);
+    $visible('script, style, noscript, template').remove();
+    const verdict = documentVerdict(
+      { url: finalUrl, title, text: $visible('body').text(), html, status },
+      { fetcher: 'a plain fetch', rendered: false, contentReturned: false }
+    );
+    // Host memory (0.6): remember the vendor that walled this host, keyed by
+    // the URL the caller passed as well as the final one when a redirect
+    // moved hosts, since a later call looks it up by what it was given.
+    const hosts = [finalUrl, url];
+    if (verdict.blocked) {
+      for (const h of hosts) noteHostBlocked(h, verdict.blocked.vendor);
+    } else if (verdict.success) {
+      for (const h of hosts) clearHostBlocked(h);
+    }
+    if (!verdict.success) {
+      return {
+        success: false,
+        url: finalUrl,
+        status,
+        title,
+        error: verdict.error,
+        ...(verdict.blocked ? { blocked: verdict.blocked } : {}),
+        content: {},
+        warnings: fetchWarnings.length > 0 ? fetchWarnings : undefined
+      };
     }
 
     // Resolve <base href> once per document (if present) so link resolution

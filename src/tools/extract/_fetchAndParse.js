@@ -6,8 +6,8 @@
  *   extractContent.js      (uses native fetch directly but can adopt this)
  *   processDocument.js     (URL sources)
  *
- * Returns { html, $, textContent, finalUrl, warnings } so callers don't repeat
- * the same fetch/cheerio/cleanup boilerplate.
+ * Returns { html, $, textContent, finalUrl, warnings, status } so callers don't
+ * repeat the same fetch/cheerio/cleanup boilerplate.
  */
 
 import { load } from 'cheerio';
@@ -124,7 +124,8 @@ export function flattenBodyText($) {
  * @param {string}   [options.apiKey]         — hashed into the audit row
  * @param {number}   [options.timeoutMs]
  * @param {string[]} [options.stripTags]   — additional tags to strip (default: script, style, noscript, iframe, svg)
- * @returns {Promise<{ html: string, $: import('cheerio').CheerioAPI, textContent: string, finalUrl: string, warnings: string[] }>}
+ * @param {boolean}  [options.errorDocuments] — return a non-2xx HTML/text body with its status instead of throwing
+ * @returns {Promise<{ html: string, $: import('cheerio').CheerioAPI, textContent: string, finalUrl: string, warnings: string[], status: number }>}
  */
 export async function fetchAndParse(url, options = {}) {
   const {
@@ -133,7 +134,8 @@ export async function fetchAndParse(url, options = {}) {
     tool,
     apiKey,
     timeoutMs = DEFAULT_TIMEOUT_MS,
-    stripTags = ['script', 'style', 'noscript', 'iframe', 'svg']
+    stripTags = ['script', 'style', 'noscript', 'iframe', 'svg'],
+    errorDocuments = false
   } = options;
 
   // robots.txt / blocklist gate + per-host throttle. Throws if it refuses.
@@ -148,16 +150,23 @@ export async function fetchAndParse(url, options = {}) {
     signal: AbortSignal.timeout(timeoutMs)
   });
 
+  const contentType = response.headers?.get?.('content-type') || null;
+  const classification = classifyContentType(contentType);
+
   if (!response.ok) {
     // Honour a back-off the host asked for before giving up on this request.
     if (response.status === 429 || response.status === 503) {
       noteRetryAfter(url, response.headers?.get?.('retry-after'));
     }
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    // A real challenge page reaches a plain fetch as a 403 with the wall in
+    // the body (producthunt.com, travel.state.gov, edmunds.com, 2026-09-05).
+    // scrape opts in to read that body so its verdict can name the vendor
+    // (Phase 0, 0.1); every other caller keeps the throw, and a binary error
+    // body still throws.
+    if (!errorDocuments || classification === 'binary') {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
   }
-
-  const contentType = response.headers?.get?.('content-type') || null;
-  const classification = classifyContentType(contentType);
 
   if (classification === 'binary') {
     throw new Error(
@@ -171,7 +180,7 @@ export async function fetchAndParse(url, options = {}) {
   // HTML parser risks misinterpreting substrings (e.g. a "<script>" value
   // inside a JSON string) as real tags and stripping/mangling content.
   if (classification === 'text') {
-    return { html, $: load(''), textContent: html.trim(), finalUrl: response.url, warnings };
+    return { html, $: load(''), textContent: html.trim(), finalUrl: response.url, warnings, status: response.status };
   }
 
   const $ = load(html);
@@ -182,5 +191,5 @@ export async function fetchAndParse(url, options = {}) {
 
   const textContent = flattenBodyText($);
 
-  return { html, $, textContent, finalUrl: response.url, warnings };
+  return { html, $, textContent, finalUrl: response.url, warnings, status: response.status };
 }

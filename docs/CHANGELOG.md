@@ -5,6 +5,55 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.6.11] - 2026-09-05
+
+Ships with crawlforge-extractors 1.7.0. Phase 0 of the 2026 feature plan: the
+foundations the query-scoped formats, result handles and opt-in escalation
+build on. Nothing here changes a tool's parameters.
+
+### Fixed
+- **`scrape` reports a challenge page, an empty shell or an error placeholder
+  as a failure.** A bot wall arrives with a title and prose of its own — as
+  HTTP 200 on some sites, as a 403 from producthunt.com, travel.state.gov and
+  edmunds.com — and the plain fetch never looked at either: a 200 wall was
+  `success: true` and a 403 wall was a bare "HTTP 403: Forbidden" with the
+  body thrown away, even after `stealth_mode` learned to name walls (5.6.2)
+  and error pages (5.6.9). The verdict the stealth path runs now runs here
+  too, on the error document as well: a Cloudflare, Amazon, DataDome,
+  PerimeterX, Akamai or Vercel wall is `success: false` with
+  `blocked: { vendor, evidence }` and the HTTP `status` it came with; a 403
+  with no vendor on the page is named as an IP-reputation or WAF block, a 404
+  as a missing URL; a document with no title and no text or a short
+  error-titled page is `success: false` with the reason. No format is
+  produced for a failed verdict (a `screenshot` would have launched a browser
+  on the wall), the call bills the error rate, and the `Next step:` line
+  names `stealth_mode`. A 429 or 503 still records the host's `Retry-After`.
+  The vendor tables moved to crawlforge-extractors so the REST `scrape` route
+  returns the same verdict.
+- **Usage reports carry the real client version.** Every report said `3.0.3`,
+  the version the field was written against; support could not tell which
+  client a customer ran. It is now the package version, on the pending-usage
+  replay path too.
+- **Text typed into a form never leaves the process.** `maskSecrets` masked by
+  key name only, so the `text` of a `type` action and the `value` of a `fill`
+  action in `scrape_with_actions` reached the usage report in clear. Those, and
+  any `login` or `credentials` object, are masked before the report is sent.
+
+### Changed
+- **One `scrape` schema.** The input schema was declared three times (the
+  registration, the tool module, the output schema's format list); it is
+  declared once in the tool module and imported by the other two, and a
+  snapshot test holds `tools/list` byte-identical to the previous release. A
+  format with no output shape now fails at startup instead of drifting.
+- **A tool can report what it actually spent.** `setActualCost(n)` on the
+  request context; the charge is `min(reported, projected)`, an error result
+  still bills the half rate and a refusal still bills zero. Nothing reports
+  yet — the opt-in escalation that skips a doomed plain fetch will.
+- **Per-host memory of blocks.** The host rate limiter remembers
+  `{ blockedUntil, vendor }` for 24 hours after a blocked verdict, bounded to
+  1,000 hosts, cleared by the next clean fetch. In memory only; nothing reads
+  it yet.
+
 ## [5.6.10] - 2026-09-04
 
 Ships with crawlforge-extractors 1.6.5.

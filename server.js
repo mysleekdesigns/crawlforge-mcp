@@ -26,7 +26,7 @@ import { DeepResearchTool } from "./src/tools/research/deepResearch.js";
 import { TrackChangesTool } from "./src/tools/tracking/trackChanges/index.js";
 import { GenerateLLMsTxtTool } from "./src/tools/llmstxt/generateLLMsTxt.js";
 import { ScrapeTemplateTool } from "./src/tools/templates/ScrapeTemplateTool.js"; // D3.3
-import { UnifiedScrapeTool } from "./src/tools/scrape/unifiedScrape.js"; // D4 D1
+import { UnifiedScrapeTool, SCRAPE_INPUT_SHAPE } from "./src/tools/scrape/unifiedScrape.js"; // D4 D1
 import { AgentTool } from "./src/tools/agent/agent.js"; // D4 D2
 import { StealthBrowserManager } from "./src/core/StealthBrowserManager.js";
 import { LocalizationManager } from "./src/core/LocalizationManager.js";
@@ -107,7 +107,7 @@ const taskStore = createTaskStore({ logger });
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "5.6.10",
+  version: "5.6.11",
   description: "Production-ready MCP server with 29 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -1048,27 +1048,9 @@ registerToolIfEnabled("scrape", {
   // Claude Code tool search loads only names + instructions at session start; this flag
   // ships the full definition too, so the first call needs no ToolSearch round-trip.
   _meta: { "anthropic/alwaysLoad": true },
+  // The tool module owns the schema (0.3); this is the same shape it validates with.
   inputSchema: {
-    url: z.string().url().describe("The URL to scrape"),
-    formats: z.array(z.union([
-      z.enum(["markdown", "html", "rawHtml", "text", "links", "metadata", "screenshot", "branding"]),
-      z.object({
-        type: z.literal("json"),
-        schema: z.record(z.any()).optional().describe("JSON schema for extraction"),
-        prompt: z.string().optional().describe("Extraction instruction for the LLM")
-      })
-    ])).min(1).optional().default(["markdown"]).describe("Formats to return (default: [\"markdown\"])"),
-    onlyMainContent: z.boolean().optional().default(true).describe("Strip boilerplate via Readability (default: true)"),
-    timeoutMs: z.number().min(1000).max(60000).optional().default(15000).describe("Fetch timeout in ms"),
-    brandingOptions: z.object({
-      fetchLinkedCss: z.boolean().optional().default(true).describe("Fetch linked stylesheets for richer color/font extraction"),
-      maxStylesheets: z.number().min(0).max(20).optional().default(10).describe("Max linked stylesheets to fetch")
-    }).optional().describe("Options for the \"branding\" format"),
-    screenshotOptions: z.object({
-      fullPage: z.boolean().optional().default(false).describe("Capture the full scrollable page"),
-      format: z.enum(["png", "jpeg"]).optional().default("png"),
-      quality: z.number().min(0).max(100).optional().describe("JPEG quality (jpeg only)")
-    }).optional().describe("Options for the \"screenshot\" format"),
+    ...SCRAPE_INPUT_SHAPE,
     ...COMPLIANCE_PARAMS
   },
   outputSchema: OUTPUT_SCHEMAS.scrape
@@ -1089,6 +1071,11 @@ registerToolIfEnabled("scrape", {
         return shot;
       });
     }
+    // A blocked verdict (0.1) is an error result: withAuth bills it at the
+    // error rate and appends the hint naming stealth_mode, and the SDK skips
+    // outputSchema validation on isError. The JSON body still carries the
+    // verdict (success:false, error, blocked) the way stealth_mode's does.
+    if (result.success === false) return { ...dualOutput(result), isError: true };
     return dualOutput(result);
   } catch (error) {
     return { content: [{ type: "text", text: `Scrape failed: ${error.message}` }], isError: true };

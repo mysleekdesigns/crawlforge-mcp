@@ -15,6 +15,7 @@
  */
 
 import { z } from 'zod';
+import { SCRAPE_STRING_FORMATS } from '../tools/scrape/formats.js';
 
 // `_cost` is injected by withAuth into the legacy JSON-text copy of the
 // result (never into structuredContent directly) — included here anyway so
@@ -58,18 +59,40 @@ const scrapeMetadataShape = z.object({
   url: z.string().optional()
 }).passthrough();
 
+// One content key per string format `scrape` accepts (the "screenshot"
+// format fills `screenshots`), plus `json` for the {type:"json"} object
+// format. Checked against the format list the input schema is built from,
+// so a format added to formats.js without a shape here fails at load
+// instead of shipping a schema that does not describe the result (0.3).
+const scrapeFormatShapes = {
+  markdown: z.string().optional(),
+  html: z.string().optional(),
+  rawHtml: z.string().optional(),
+  text: z.string().optional(),
+  links: scrapeLinksShape.optional(),
+  metadata: scrapeMetadataShape.optional(),
+  branding: z.record(z.unknown()).optional().describe('Static design tokens: colors, fonts, logo'),
+  screenshots: z.array(z.object({}).passthrough()).optional().describe('Present for the "screenshot" format; each item carries a resourceUri once published')
+};
+const scrapeContentKey = (format) => (format === 'screenshot' ? 'screenshots' : format);
+for (const format of SCRAPE_STRING_FORMATS) {
+  if (!scrapeFormatShapes[scrapeContentKey(format)]) {
+    throw new Error(`toolOutputSchemas: scrape format "${format}" has no output shape`);
+  }
+}
+
 const scrapeShape = {
   success: z.boolean().optional().describe('Whether the scrape completed'),
   url: z.string().optional().describe('Final URL after redirects'),
+  status: z.number().optional().describe('HTTP status of the fetch; present when success is false'),
+  title: z.string().optional().describe('Document title; present when success is false'),
+  error: z.string().optional().describe('Why success is false: a challenge page, an empty shell or an error placeholder was served instead of the content'),
+  blocked: z.object({
+    vendor: z.string().optional(),
+    evidence: z.string().optional()
+  }).passthrough().optional().describe('Present when a bot-defence vendor served a challenge page; the fallback hint names the tool to try next'),
   content: z.object({
-    markdown: z.string().optional(),
-    html: z.string().optional(),
-    rawHtml: z.string().optional(),
-    text: z.string().optional(),
-    links: scrapeLinksShape.optional(),
-    metadata: scrapeMetadataShape.optional(),
-    branding: z.record(z.unknown()).optional().describe('Static design tokens: colors, fonts, logo'),
-    screenshots: z.array(z.object({}).passthrough()).optional().describe('Present for the "screenshot" format; each item carries a resourceUri once published'),
+    ...scrapeFormatShapes,
     json: z.unknown().optional().describe('Result of the {type:"json"} format (LLM-structured extraction)')
   }).passthrough().optional().describe('One key per requested format'),
   warnings: z.array(z.string()).optional().describe('Per-format warnings; partial success never fails the whole call'),
