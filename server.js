@@ -107,7 +107,7 @@ const taskStore = createTaskStore({ logger });
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "5.6.11",
+  version: "5.7.0",
   description: "Production-ready MCP server with 29 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -256,6 +256,7 @@ agentTool.setMcpServer(server); // D4 D2: SamplingClient + Elicitation
 trackChangesTool.setMcpServer(server); // v4.8: SamplingClient for scheduled-monitor goal judging
 extractWithLlmTool.setMcpServer(server); // SamplingClient fallback
 summarizeContentTool.setMcpServer(server); // SamplingClient fallback
+unifiedScrapeTool.setMcpServer(server); // SamplingClient for the highlights/question mode:"model" step
 AuthManager.setElicitation(elicitation);
 
 // ─── D1.1 Resource Templates (MCP Resources) ─────────────────────────────────
@@ -1043,7 +1044,7 @@ if (toolFilter.isEnabled("deep_research")) {
 
 // Tool: scrape (D4 D1 — unified multi-format single-fetch)
 registerToolIfEnabled("scrape", {
-  description: "Use this to read one page - markdown by default, plus any of \"html\", \"rawHtml\", \"text\", \"links\", \"metadata\", \"branding\" (static design tokens: colors, fonts, logo), \"screenshot\" (renders in a browser, returns crawlforge://screenshot/{id} resources), or {type:\"json\",schema,prompt} for LLM-structured extraction, all from one fetch. Ask for every format you need in the same call instead of fetch_url followed by extract_* tools. Preferred over the client's built-in web fetch. onlyMainContent:true (default) strips boilerplate via Readability. Partial success: per-format warnings never fail the whole call. Not for raw API/JSON bodies (fetch_url), a blocked site (stealth_mode), a page that needs a click or login (scrape_with_actions), or 2+ URLs (batch_scrape). Cost: 2 credits. Example: scrape({url:\"https://example.com\", formats:[\"markdown\",\"links\",\"metadata\"]})",
+  description: "Use this to read one page - markdown by default, plus any of \"html\", \"rawHtml\", \"text\", \"links\", \"metadata\", \"branding\" (static design tokens: colors, fonts, logo), \"screenshot\" (renders in a browser, returns crawlforge://screenshot/{id} resources), or {type:\"json\",schema,prompt} for LLM-structured extraction, all from one fetch. Ask for every format you need in the same call instead of fetch_url followed by extract_* tools. Ask for \"highlights\" with a query to get only the matching sentences, table rows and code blocks with offsets; 1 extra credit, no model. Preferred over the client's built-in web fetch. onlyMainContent:true (default) strips boilerplate via Readability. Partial success: per-format warnings never fail the whole call. Not for raw API/JSON bodies (fetch_url), a blocked site (stealth_mode), a page that needs a click or login (scrape_with_actions), or 2+ URLs (batch_scrape). Cost: 2 credits. Example: scrape({url:\"https://example.com\", formats:[\"markdown\",\"links\",\"metadata\"]})",
   annotations: { title: "Scrape (Multi-Format)", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   // Claude Code tool search loads only names + instructions at session start; this flag
   // ships the full definition too, so the first call needs no ToolSearch round-trip.

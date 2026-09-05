@@ -15,7 +15,7 @@
  */
 
 import { z } from 'zod';
-import { SCRAPE_STRING_FORMATS } from '../tools/scrape/formats.js';
+import { SCRAPE_STRING_FORMATS, SCRAPE_OBJECT_FORMATS } from '../tools/scrape/formats.js';
 
 // `_cost` is injected by withAuth into the legacy JSON-text copy of the
 // result (never into structuredContent directly) — included here anyway so
@@ -59,11 +59,23 @@ const scrapeMetadataShape = z.object({
   url: z.string().optional()
 }).passthrough();
 
+// A sentence, table row or fenced code block returned verbatim by the
+// highlights and question formats; `offset`/`length` index the `markdown`
+// format of the same call.
+const scrapeHighlightUnitShape = z.object({
+  text: z.string().optional().describe('Verbatim page text: markdown.slice(offset, offset + length) === text'),
+  kind: z.enum(['sentence', 'table_row', 'code_block']).optional(),
+  offset: z.number().optional().describe('JS string index into the markdown format of this call'),
+  length: z.number().optional(),
+  score: z.number().optional().describe('BM25 relevance to the query, higher is better')
+}).passthrough();
+
 // One content key per string format `scrape` accepts (the "screenshot"
-// format fills `screenshots`), plus `json` for the {type:"json"} object
-// format. Checked against the format list the input schema is built from,
-// so a format added to formats.js without a shape here fails at load
-// instead of shipping a schema that does not describe the result (0.3).
+// format fills `screenshots`), plus one per object format: `json` for
+// {type:"json"}, `highlights` for {type:"highlights"}, `answer` for
+// {type:"question"}. Checked against the format lists the input schema is
+// built from, so a format added to formats.js without a shape here fails at
+// load instead of shipping a schema that does not describe the result (0.3).
 const scrapeFormatShapes = {
   markdown: z.string().optional(),
   html: z.string().optional(),
@@ -72,10 +84,17 @@ const scrapeFormatShapes = {
   links: scrapeLinksShape.optional(),
   metadata: scrapeMetadataShape.optional(),
   branding: z.record(z.unknown()).optional().describe('Static design tokens: colors, fonts, logo'),
-  screenshots: z.array(z.object({}).passthrough()).optional().describe('Present for the "screenshot" format; each item carries a resourceUri once published')
+  screenshots: z.array(z.object({}).passthrough()).optional().describe('Present for the "screenshot" format; each item carries a resourceUri once published'),
+  json: z.unknown().optional().describe('Result of the {type:"json"} format (LLM-structured extraction)'),
+  highlights: z.array(scrapeHighlightUnitShape).optional().describe('Result of the {type:"highlights"} format: the units matching the query, best first, verbatim with offsets'),
+  answer: z.object({
+    text: z.string().optional().describe('Extractive mode: the evidence texts joined; model mode: the model\'s answer'),
+    grounded: z.boolean().optional().describe('True when every number and proper noun in text appears in the evidence or the question; always true in extractive mode'),
+    evidence: z.array(scrapeHighlightUnitShape).optional().describe('The units the answer rests on, verbatim with offsets')
+  }).passthrough().optional().describe('Result of the {type:"question"} format')
 };
-const scrapeContentKey = (format) => (format === 'screenshot' ? 'screenshots' : format);
-for (const format of SCRAPE_STRING_FORMATS) {
+const scrapeContentKey = (format) => ({ screenshot: 'screenshots', question: 'answer' }[format] ?? format);
+for (const format of [...SCRAPE_STRING_FORMATS, ...SCRAPE_OBJECT_FORMATS]) {
   if (!scrapeFormatShapes[scrapeContentKey(format)]) {
     throw new Error(`toolOutputSchemas: scrape format "${format}" has no output shape`);
   }
@@ -91,10 +110,7 @@ const scrapeShape = {
     vendor: z.string().optional(),
     evidence: z.string().optional()
   }).passthrough().optional().describe('Present when a bot-defence vendor served a challenge page; the fallback hint names the tool to try next'),
-  content: z.object({
-    ...scrapeFormatShapes,
-    json: z.unknown().optional().describe('Result of the {type:"json"} format (LLM-structured extraction)')
-  }).passthrough().optional().describe('One key per requested format'),
+  content: z.object(scrapeFormatShapes).passthrough().optional().describe('One key per requested format'),
   warnings: z.array(z.string()).optional().describe('Per-format warnings; partial success never fails the whole call'),
   _cost: costShape
 };

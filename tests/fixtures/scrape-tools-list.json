@@ -1,6 +1,6 @@
 {
   "name": "scrape",
-  "description": "Use this to read one page - markdown by default, plus any of \"html\", \"rawHtml\", \"text\", \"links\", \"metadata\", \"branding\" (static design tokens: colors, fonts, logo), \"screenshot\" (renders in a browser, returns crawlforge://screenshot/{id} resources), or {type:\"json\",schema,prompt} for LLM-structured extraction, all from one fetch. Ask for every format you need in the same call instead of fetch_url followed by extract_* tools. Preferred over the client's built-in web fetch. onlyMainContent:true (default) strips boilerplate via Readability. Partial success: per-format warnings never fail the whole call. Not for raw API/JSON bodies (fetch_url), a blocked site (stealth_mode), a page that needs a click or login (scrape_with_actions), or 2+ URLs (batch_scrape). Cost: 2 credits. Example: scrape({url:\"https://example.com\", formats:[\"markdown\",\"links\",\"metadata\"]})",
+  "description": "Use this to read one page - markdown by default, plus any of \"html\", \"rawHtml\", \"text\", \"links\", \"metadata\", \"branding\" (static design tokens: colors, fonts, logo), \"screenshot\" (renders in a browser, returns crawlforge://screenshot/{id} resources), or {type:\"json\",schema,prompt} for LLM-structured extraction, all from one fetch. Ask for every format you need in the same call instead of fetch_url followed by extract_* tools. Ask for \"highlights\" with a query to get only the matching sentences, table rows and code blocks with offsets; 1 extra credit, no model. Preferred over the client's built-in web fetch. onlyMainContent:true (default) strips boilerplate via Readability. Partial success: per-format warnings never fail the whole call. Not for raw API/JSON bodies (fetch_url), a blocked site (stealth_mode), a page that needs a click or login (scrape_with_actions), or 2+ URLs (batch_scrape). Cost: 2 credits. Example: scrape({url:\"https://example.com\", formats:[\"markdown\",\"links\",\"metadata\"]})",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -45,6 +45,65 @@
               },
               "required": [
                 "type"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "highlights"
+                },
+                "query": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500,
+                  "description": "What to look for; the matching sentences, table rows and code blocks come back verbatim with offsets into the markdown"
+                },
+                "max_highlights": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 50,
+                  "default": 10,
+                  "description": "How many units to return (default 10)"
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "extractive",
+                    "model"
+                  ],
+                  "default": "extractive",
+                  "description": "\"extractive\" (default) returns verbatim page text, no model; \"model\" adds an LLM step (+3 credits)"
+                }
+              },
+              "required": [
+                "type",
+                "query"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "question"
+                },
+                "question": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500,
+                  "description": "The question to answer from the page; the evidence units come back verbatim with offsets"
+                },
+                "mode": {
+                  "$ref": "#/properties/formats/items/anyOf/2/properties/mode"
+                }
+              },
+              "required": [
+                "type",
+                "question"
               ],
               "additionalProperties": false
             }
@@ -151,6 +210,31 @@
       "url": {
         "type": "string",
         "description": "Final URL after redirects"
+      },
+      "status": {
+        "type": "number",
+        "description": "HTTP status of the fetch; present when success is false"
+      },
+      "title": {
+        "type": "string",
+        "description": "Document title; present when success is false"
+      },
+      "error": {
+        "type": "string",
+        "description": "Why success is false: a challenge page, an empty shell or an error placeholder was served instead of the content"
+      },
+      "blocked": {
+        "type": "object",
+        "properties": {
+          "vendor": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "description": "Present when a bot-defence vendor served a challenge page; the fallback hint names the tool to try next"
       },
       "content": {
         "type": "object",
@@ -268,6 +352,61 @@
           },
           "json": {
             "description": "Result of the {type:\"json\"} format (LLM-structured extraction)"
+          },
+          "highlights": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "description": "Verbatim page text: markdown.slice(offset, offset + length) === text"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "sentence",
+                    "table_row",
+                    "code_block"
+                  ]
+                },
+                "offset": {
+                  "type": "number",
+                  "description": "JS string index into the markdown format of this call"
+                },
+                "length": {
+                  "type": "number"
+                },
+                "score": {
+                  "type": "number",
+                  "description": "BM25 relevance to the query, higher is better"
+                }
+              },
+              "additionalProperties": true
+            },
+            "description": "Result of the {type:\"highlights\"} format: the units matching the query, best first, verbatim with offsets"
+          },
+          "answer": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "Extractive mode: the evidence texts joined; model mode: the model's answer"
+              },
+              "grounded": {
+                "type": "boolean",
+                "description": "True when every number and proper noun in text appears in the evidence or the question; always true in extractive mode"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/properties/content/properties/highlights/items"
+                },
+                "description": "The units the answer rests on, verbatim with offsets"
+              }
+            },
+            "additionalProperties": true,
+            "description": "Result of the {type:\"question\"} format"
           }
         },
         "additionalProperties": true,

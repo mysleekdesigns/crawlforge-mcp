@@ -58,6 +58,35 @@ Get markdown + links + metadata in a single call:
 a failing format adds a `warnings[]` entry instead of failing the whole call.
 `onlyMainContent` (default `true`) strips boilerplate via Readability.
 
+Query-scoped formats return only the parts of the page that match, verbatim,
+with offsets into the `markdown` of the same call:
+
+```json
+{
+  "tool": "scrape",
+  "params": {
+    "url": "https://example.com/pricing",
+    "formats": [
+      "markdown",
+      { "type": "highlights", "query": "professional plan price", "max_highlights": 5 },
+      { "type": "question", "question": "How much is the professional plan per month?" }
+    ]
+  }
+}
+```
+
+`{ "type": "highlights", "query", "max_highlights"?, "mode"? }` returns
+`content.highlights: [{ text, kind, offset, length, score }]`, best first;
+`kind` is `sentence`, `table_row` or `code_block`, and
+`markdown.slice(offset, offset + length) === text`. `{ "type": "question",
+"question", "mode"? }` returns `content.answer: { text, grounded, evidence }`,
+with `text` the evidence joined and `grounded: true`. Either adds 1 credit once
+per call and calls no model. `"mode": "model"` adds 3 once per call: the model
+chooses the highlights (never rewrites them) or writes the answer, and a
+grounding check sets `grounded: false` when the answer holds a number or a name
+the evidence does not. Ask for `"markdown"` in the same call to quote with a
+locator.
+
 CLI equivalent:
 
 ```bash

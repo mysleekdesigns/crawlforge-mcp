@@ -28,7 +28,7 @@ const tools = [
   'extract_with_llm', 'extract_structured', 'process_document', 'list_ollama_models',
   'get_batch_results', 'map_site', 'track_changes', 'generate_llms_txt', 'search_web',
   'serp_rank', 'crawl_deep', 'batch_scrape', 'scrape_with_actions', 'localization', 'agent',
-  'deep_research', 'stealth_mode'
+  'deep_research', 'stealth_mode', 'extract_embedded_state', 'reddit_search'
 ];
 
 let mismatches = 0;

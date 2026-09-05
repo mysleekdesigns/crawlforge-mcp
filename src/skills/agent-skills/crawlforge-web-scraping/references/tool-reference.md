@@ -8,7 +8,7 @@ CrawlForge credits.
 | Param | Type | Default | Notes |
 |-------|------|---------|-------|
 | `url` | string (URL) | — | Required. |
-| `formats` | array | `["markdown"]` | Any of `markdown`, `html`, `rawHtml`, `text`, `links`, `metadata`, `screenshot`, or `{type:"json", schema?, prompt?}`. |
+| `formats` | array | `["markdown"]` | Any of `markdown`, `html`, `rawHtml`, `text`, `links`, `metadata`, `branding`, `screenshot`, `{type:"json", schema?, prompt?}`, `{type:"highlights", query, max_highlights?, mode?}` (the matching sentences, table rows and code blocks, verbatim, with offsets into the markdown; +1 credit once per call) or `{type:"question", question, mode?}` (an answer assembled from the evidence units; same +1). `mode:"model"` adds 3 credits and needs an LLM route. |
 | `onlyMainContent` | boolean | `true` | Strip boilerplate via Readability. |
 | `timeoutMs` | number | `15000` | 1000–60000. |
 

@@ -5,6 +5,62 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.7.0] - 2026-09-05
+
+Ships with crawlforge-extractors 1.8.0. Phase 1 of the 2026 feature plan: the
+query-scoped formats. `scrape` can now return only the parts of a page that
+answer a query — verbatim, with a locator into the markdown of the same call —
+instead of the whole page.
+
+### Added
+- **`{ type: "highlights", query, max_highlights?, mode? }` format for
+  `scrape`.** The markdown the call produces is cut into sentences, table rows
+  and fenced code blocks (crawlforge-extractors `segmentUnits`), each is scored
+  against the query with BM25 (`rankUnits`: a unit inherits its heading's terms
+  at half weight, a unit containing the whole query is boosted, and a two-word
+  button carries no length advantage over a price line),
+  and the top `max_highlights` (default 10, at most 50) come back as
+  `content.highlights: [{ text, kind, offset, length, score }]`, best first.
+  `text` is the page's own text: `markdown.slice(offset, offset + length) ===
+  text` for the `markdown` format of the same call at the same
+  `onlyMainContent`. When `markdown` is not also requested, a warning says
+  where the offsets point. A query nothing matches returns `[]` and a warning,
+  never an error. Works alongside every other format in the one fetch.
+- **`{ type: "question", question, mode? }` format for `scrape`.**
+  `content.answer: { text, grounded, evidence }`, where `evidence` is the top
+  five units in the same shape. In the default extractive mode `text` is the
+  evidence joined with newlines and `grounded` is `true`: nothing is
+  synthesised.
+- **`mode: "model"` on either format**, opt-in, through the same Ollama →
+  server keys → MCP sampling chain the other LLM tools use, with the page
+  text nonce-fenced before it reaches the model. For `highlights` the model
+  picks which of the top `3 × max_highlights` extractive candidates to keep;
+  the units come back verbatim, in extractive order, and a reply that names
+  no candidate falls back to the extractive top N with a warning. For
+  `question` the model writes an answer from the fenced evidence and the
+  question alone, and a grounding check then requires every number and every
+  proper noun in that answer to appear in the evidence or the question;
+  otherwise `grounded: false` and a warning names the unbacked tokens. With
+  no LLM route at all, the extractive result is returned with a warning.
+- **Pricing.** `scrape` stays 2. A `highlights` or `question` format adds 1
+  once per call; `mode: "model"` adds 3 once per call. Both are in
+  `_cost.projected` before the call (`getToolCost` reads the formats). When
+  the model step does not run — no LLM route, or no more candidates than
+  `max_highlights` for it to choose from — the call reports its actual spend
+  (5.6.11's channel) and the charge drops to the extractive price; the
+  projection is never exceeded.
+- **The `scrape` description** tells a client to ask for `highlights` with a
+  query to get only the matching sentences, table rows and code blocks at 1
+  extra credit and no model, and a `markdown` result over 40,000 characters
+  carries a warning naming the format.
+
+### Changed
+- **The `scrape` `tools/list` fixture** (the 0.3 consolidation gate, which
+  passed) is now the current wire shape, regenerated on each intentional
+  schema change; the output schema declares `content.highlights` and
+  `content.answer`, and an object format without an output shape fails at
+  startup like a string format does.
+
 ## [5.6.11] - 2026-09-05
 
 Ships with crawlforge-extractors 1.7.0. Phase 0 of the 2026 feature plan: the

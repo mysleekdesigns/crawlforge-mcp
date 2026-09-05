@@ -1,24 +1,21 @@
 /**
- * Snapshot test for the `scrape` entry in tools/list (Phase 0, 0.3).
+ * Snapshot test for the `scrape` entry in tools/list.
  *
  * `scrape`'s input schema used to be declared three times — server.js, the
- * tool module and toolOutputSchemas.js — and the copies had already drifted
- * (`.optional().default()` in one, `.default()` in another). 0.3 makes the
- * tool module the single source and server.js an importer. The gate is that
- * the wire output does not move: tests/fixtures/scrape-tools-list.json is the
- * `scrape` entry captured over stdio BEFORE the consolidation and is never
- * regenerated — a difference here means the consolidation is wrong, not the
- * fixture.
+ * tool module and toolOutputSchemas.js — and the copies had already drifted.
+ * Phase 0 (0.3, shipped in 5.6.11) made the tool module the single source,
+ * and this test's gate for it was a fixture captured BEFORE the
+ * consolidation that the wire output had to match byte for byte. That gate
+ * passed.
  *
- * Two comparisons, because 0.1 lands in the same phase:
- *   - everything except `outputSchema` (name, description, inputSchema,
- *     annotations, execution, _meta, icons) must be byte-identical — the
- *     inputSchema is compared as serialized JSON so key order counts too;
- *   - `outputSchema` must equal the fixture PLUS exactly the four optional
- *     properties 0.1 adds for a failed verdict (`status`, `title`, `error`,
- *     `blocked`). The test deletes those from the live schema and then
- *     deep-equals the rest, so any other change to the output schema still
- *     fails.
+ * From 5.7.0 on, tests/fixtures/scrape-tools-list.json is the CURRENT wire
+ * shape of the entry, compared whole: name, description, inputSchema (as
+ * serialized JSON, so key order counts), outputSchema, annotations,
+ * execution, _meta, icons. It is regenerated on each INTENTIONAL schema
+ * change — capture the `scrape` entry from a real stdio tools/list, spawned
+ * the way this file spawns the server — and guards against accidental drift
+ * in between. Regenerated 2026-09-05 for Phase 1's highlights/question
+ * formats.
  *
  * The server is spawned with HOME pointed at a temp dir and an empty creator
  * secret so the real ~/.crawlforge is never read or written.
@@ -36,7 +33,6 @@ import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const FIXTURE = JSON.parse(readFileSync(join(REPO_ROOT, 'tests/fixtures/scrape-tools-list.json'), 'utf8'));
-const VERDICT_PROPERTIES = ['status', 'title', 'error', 'blocked'];
 
 let tempHome;
 let server;
@@ -102,19 +98,21 @@ after(() => {
   if (tempHome) rmSync(tempHome, { recursive: true, force: true });
 });
 
-test('scrape tools/list entry is byte-identical to the fixture outside outputSchema', () => {
-  const { outputSchema: _liveOut, ...liveRest } = live;
-  const { outputSchema: _fixOut, ...fixtureRest } = FIXTURE;
-  assert.equal(JSON.stringify(liveRest.inputSchema), JSON.stringify(fixtureRest.inputSchema));
-  assert.deepEqual(liveRest, fixtureRest);
+test('scrape tools/list entry is byte-identical to the fixture', () => {
+  assert.equal(JSON.stringify(live.inputSchema), JSON.stringify(FIXTURE.inputSchema));
+  assert.deepEqual(live, FIXTURE);
 });
 
-test('scrape outputSchema is the fixture plus only the four optional verdict properties', () => {
-  const liveOut = structuredClone(live.outputSchema);
-  for (const key of VERDICT_PROPERTIES) {
-    assert.ok(liveOut.properties[key], `outputSchema declares ${key}`);
-    assert.ok(!(liveOut.required ?? []).includes(key), `${key} is optional`);
-    delete liveOut.properties[key];
-  }
-  assert.deepEqual(liveOut, FIXTURE.outputSchema);
+test('the formats union carries the highlights and question object schemas, and the output schema their results', () => {
+  const members = live.inputSchema.properties.formats.items.anyOf;
+  const objectTypes = members
+    .filter((m) => m.type === 'object')
+    .map((m) => m.properties.type.const ?? m.properties.type.enum?.[0]);
+  assert.ok(objectTypes.includes('highlights'), `formats.items union has highlights: ${objectTypes}`);
+  assert.ok(objectTypes.includes('question'), `formats.items union has question: ${objectTypes}`);
+
+  const content = live.outputSchema.properties.content.properties;
+  assert.equal(content.highlights.type, 'array');
+  assert.equal(content.answer.type, 'object');
+  assert.deepEqual(Object.keys(content.answer.properties).sort(), ['evidence', 'grounded', 'text']);
 });

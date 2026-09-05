@@ -19,7 +19,7 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
 
 | Tool | Notes |
 |------|-------|
-| `scrape` | Unified multi-format single fetch. |
+| `scrape` | Unified multi-format single fetch. A `highlights` or `question` format adds 1 once per call; `mode:"model"` on one of them adds 3 once. |
 | `scrape_structured` | CSS-selector extraction. |
 | `extract_embedded_state` | Embedded JS state (`__NEXT_DATA__`, RSC, Nuxt, Apollo, Redux). |
 | `extract_content` | Readability-cleaned article. |

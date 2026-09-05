@@ -178,7 +178,7 @@ CrawlForge requires a CrawlForge API key — **every tool is metered and consume
 | `scrape_template` | 1 | Structured data from well-known sites (Amazon, GitHub, LinkedIn, YouTube, Reddit, Hacker News, npm, and more) without writing selectors |
 | `list_ollama_models` | 1 | List the Ollama models installed locally (helps you pick a `model` for `extract_with_llm`) |
 | `get_batch_results` | 1 | Retrieve paginated results for a `batch_scrape` job by `batchId` |
-| `scrape` | 2 | **Unified single-fetch, multi-format extraction.** Pass a `formats` array (markdown/html/rawHtml/text/links/metadata/screenshot/json-schema) plus `onlyMainContent`; one fetch serves every requested format with per-format partial-success warnings |
+| `scrape` | 2 | **Unified single-fetch, multi-format extraction.** Pass a `formats` array (markdown/html/rawHtml/text/links/metadata/screenshot/json-schema, plus `{type:"highlights",query}` and `{type:"question",question}` for only the matching sentences, table rows and code blocks, verbatim with offsets into the markdown: +1 credit once per call, `mode:"model"` +3) plus `onlyMainContent`; one fetch serves every requested format with per-format partial-success warnings |
 | `scrape_structured` | 2 | Extract structured data with CSS selectors |
 | `extract_embedded_state` | 2 | Read a page's embedded JavaScript state — `__NEXT_DATA__`, React Server Component payloads, Nuxt, Apollo, Redux, `<script type="application/json">` — with a `path` to scope the result. No LLM in the extraction path |
 | `extract_content` | 2 | Enhanced content extraction |
