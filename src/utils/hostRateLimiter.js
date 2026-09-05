@@ -18,6 +18,11 @@
  *     request to that host waits instead of retrying straight into the wall.
  * Both are host-scoped and survive RATE_LIMIT_PER_DOMAIN=false: an operator
  * turning off our own throttle is not a licence to ignore the site's.
+ *
+ * The same per-host state remembers the bot-defence vendor that last walled
+ * the host (Phase 0, 0.6). The scrape verdict writes it; Phase 3 reads it
+ * before fetching. In-memory only, bounded to HOST_STATE_MAX hosts with the
+ * least recently touched dropped first.
  */
 import { RateLimiter } from './rateLimiter.js';
 import { config } from '../constants/config.js';
@@ -34,7 +39,10 @@ function limiter() {
   return _limiter;
 }
 
-/** host → { lastRequestAt, notBefore } */
+/** Hosts remembered at once; past this the least recently touched is dropped. */
+export const HOST_STATE_MAX = 1000;
+
+/** host → { lastRequestAt, notBefore, blockedUntil, vendor }, least recently touched first */
 const hostState = new Map();
 
 function hostOf(url) {
@@ -47,10 +55,14 @@ function hostOf(url) {
 
 function stateFor(host) {
   let state = hostState.get(host);
-  if (!state) {
-    state = { lastRequestAt: 0, notBefore: 0 };
-    hostState.set(host, state);
+  if (state) {
+    // Re-insert so Map order stays least recently touched first.
+    hostState.delete(host);
+  } else {
+    state = { lastRequestAt: 0, notBefore: 0, blockedUntil: 0, vendor: null };
+    if (hostState.size >= HOST_STATE_MAX) hostState.delete(hostState.keys().next().value);
   }
+  hostState.set(host, state);
   return state;
 }
 
@@ -103,6 +115,44 @@ export function getHostBackoffMs(url) {
   if (!host) return 0;
   const state = hostState.get(host);
   return state ? Math.max(0, state.notBefore - Date.now()) : 0;
+}
+
+/**
+ * Remember that this URL's host answered with a bot wall. Nothing reads it
+ * yet — Phase 3 will, before fetching.
+ * @param {string} url
+ * @param {string} vendor
+ * @param {{ ttlMs?: number, now?: number }} [options] `now` for deterministic tests
+ */
+export function noteHostBlocked(url, vendor, { ttlMs = 24 * 60 * 60 * 1000, now = Date.now() } = {}) {
+  const host = hostOf(url);
+  if (!host) return;
+  const state = stateFor(host);
+  state.blockedUntil = now + ttlMs;
+  state.vendor = vendor;
+}
+
+/** Forget a block after a clean fetch of the same host. */
+export function clearHostBlocked(url) {
+  const host = hostOf(url);
+  const state = host ? hostState.get(host) : null;
+  if (!state) return;
+  state.blockedUntil = 0;
+  state.vendor = null;
+}
+
+/**
+ * The remembered block for this URL's host, or null when there is none or
+ * it has expired.
+ * @param {string} url
+ * @param {number} [now] epoch ms, for deterministic tests
+ * @returns {{ vendor: string, blockedUntil: number } | null}
+ */
+export function getHostBlock(url, now = Date.now()) {
+  const host = hostOf(url);
+  const state = host ? hostState.get(host) : null;
+  if (!state || state.blockedUntil <= now) return null;
+  return { vendor: state.vendor, blockedUntil: state.blockedUntil };
 }
 
 /**

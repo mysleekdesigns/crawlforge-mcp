@@ -17,7 +17,7 @@
 
 import { createHash } from 'node:crypto';
 import { recordToolInvocation } from '../observability/tracing.js';
-import { isInternalRequest, preflightRefusal, requestContext } from './requestContext.js';
+import { isInternalRequest, preflightRefusal, reportedActualCost, requestContext } from './requestContext.js';
 import { appendFallbackHint } from './fallbackHints.js';
 
 export function hashParams(params) {
@@ -52,6 +52,13 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
       // A throw from the credit check itself (backend down, key rejected, etc.)
       // means the tool never executed and must cost nothing.
       let handlerStarted = false;
+      // A handler may report a lower spend (setActualCost). The projection is
+      // the ceiling the caller saw before the call, so a report can only ever
+      // lower the charge, never raise it.
+      const billable = () => {
+        const reported = reportedActualCost();
+        return reported == null ? creditCost : Math.min(reported, creditCost);
+      };
 
       try {
         // billingExempt covers creator mode and authenticated internal-proxy
@@ -92,9 +99,10 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
         // multi-URL tool that skipped one disallowed URL and still returned a
         // result did real work and bills for it.
         const refused = isErrorResult && preflightRefusal() !== null;
+        const base = billable();
         const charge = creditCost === 0 || refused
           ? 0
-          : (isErrorResult ? Math.max(1, Math.floor(creditCost * 0.5)) : creditCost);
+          : (isErrorResult ? Math.max(1, Math.floor(base * 0.5)) : base);
 
         // D3.5: Surface cost transparency in all tool responses. For internal
         // proxy requests the meaningful balance is the end user's, which only
@@ -135,8 +143,9 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
         // creditCost === 0 means a genuinely free call (e.g. serp_rank when
         // DataForSEO is unconfigured — a no-op). Emit NO usage event at all so
         // the backend has nothing to (re-)price; reporting 0 would still create
-        // a serp_rank record the backend could recompute to full cost.
-        if (!creatorMode && creditCost > 0 && !refused) {
+        // a serp_rank record the backend could recompute to full cost. The
+        // same goes for a handler that reported a 0 spend.
+        if (!creatorMode && creditCost > 0 && !refused && charge > 0) {
           await authManager.reportUsage(toolName, charge, params, isErrorResult ? 500 : 200, Date.now() - startTime);
         }
 
@@ -150,7 +159,7 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
         if (!creatorMode && creditCost > 0 && handlerStarted && preflightRefusal() === null) {
           await authManager.reportUsage(
             toolName,
-            Math.max(1, Math.floor(creditCost * 0.5)),
+            Math.max(1, Math.floor(billable() * 0.5)),
             params,
             500,
             Date.now() - startTime
@@ -204,7 +213,7 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
     // HTTP transport's `internal` flag) is spread in, not replaced — and stdio
     // callers, who have no transport-provided store, get one here.
     return async (params) => requestContext.run(
-      { ...(requestContext.getStore() ?? {}), preflightRefusal: null },
+      { ...(requestContext.getStore() ?? {}), preflightRefusal: null, actualCost: null },
       () => invoke(params)
     );
   };

@@ -47,3 +47,25 @@ export function markPreflightRefusal(code) {
 export function preflightRefusal() {
   return requestContext.getStore()?.preflightRefusal ?? null;
 }
+
+/**
+ * Report what this invocation actually spent, in credits, when that is less
+ * than the projection. A handler that skipped expensive work — Phase 3's
+ * escalation stops at the first tier that succeeds — has no other way to say
+ * so: withAuth otherwise derives the charge from the tool's price alone.
+ *
+ * withAuth clamps the value to the projection. `_cost.projected` is the
+ * ceiling a caller saw before the call, so a report can only ever lower the
+ * charge, never raise it. Non-finite or negative values are ignored.
+ *
+ * @param {number} n credits actually spent
+ */
+export function setActualCost(n) {
+  const store = requestContext.getStore();
+  if (store && Number.isFinite(n) && n >= 0) store.actualCost = n;
+}
+
+/** The actual cost reported for this invocation, or null when unreported. */
+export function reportedActualCost() {
+  return requestContext.getStore()?.actualCost ?? null;
+}

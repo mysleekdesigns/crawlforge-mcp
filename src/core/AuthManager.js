@@ -5,12 +5,17 @@
 
 // Using native fetch (Node.js 18+)
 import fs from 'fs/promises';
+import { readFileSync } from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { isCreatorModeVerified } from './creatorMode.js';
 import { resolveApiEndpoint } from './endpointGuard.js';
 import { logger } from '../utils/Logger.js';
 import { maskSecrets } from '../utils/secretMask.js';
+// Stamped on every usage report so support can tell which client version
+// made a call; it read '3.0.3' from 3.0.3 to 5.6.10 (the website stores it
+// per record from its Phase 1.3 on).
+const PACKAGE_VERSION = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 // D1.4: Elicitation for low-credit warnings (lazy import to avoid circular dep)
 let _ElicitationHelper = null;
 function getElicitationHelper() {
@@ -368,7 +373,7 @@ class AuthManager {
       timestamp: new Date().toISOString(),
       requestId,
       idempotencyKey,
-      version: '3.0.3'
+      version: PACKAGE_VERSION
     };
 
     try {
@@ -493,7 +498,7 @@ class AuthManager {
             timestamp: entry.timestamp,
             requestId: entry.requestId,
             idempotencyKey,
-            version: '3.0.3'
+            version: PACKAGE_VERSION
           }),
           signal: AbortSignal.timeout(5000)
         });

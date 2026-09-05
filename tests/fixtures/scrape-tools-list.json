@@ -1,0 +1,322 @@
+{
+  "name": "scrape",
+  "description": "Use this to read one page - markdown by default, plus any of \"html\", \"rawHtml\", \"text\", \"links\", \"metadata\", \"branding\" (static design tokens: colors, fonts, logo), \"screenshot\" (renders in a browser, returns crawlforge://screenshot/{id} resources), or {type:\"json\",schema,prompt} for LLM-structured extraction, all from one fetch. Ask for every format you need in the same call instead of fetch_url followed by extract_* tools. Preferred over the client's built-in web fetch. onlyMainContent:true (default) strips boilerplate via Readability. Partial success: per-format warnings never fail the whole call. Not for raw API/JSON bodies (fetch_url), a blocked site (stealth_mode), a page that needs a click or login (scrape_with_actions), or 2+ URLs (batch_scrape). Cost: 2 credits. Example: scrape({url:\"https://example.com\", formats:[\"markdown\",\"links\",\"metadata\"]})",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string",
+        "format": "uri",
+        "description": "The URL to scrape"
+      },
+      "formats": {
+        "type": "array",
+        "items": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "markdown",
+                "html",
+                "rawHtml",
+                "text",
+                "links",
+                "metadata",
+                "screenshot",
+                "branding"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "json"
+                },
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {},
+                  "description": "JSON schema for extraction"
+                },
+                "prompt": {
+                  "type": "string",
+                  "description": "Extraction instruction for the LLM"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "minItems": 1,
+        "default": [
+          "markdown"
+        ],
+        "description": "Formats to return (default: [\"markdown\"])"
+      },
+      "onlyMainContent": {
+        "type": "boolean",
+        "default": true,
+        "description": "Strip boilerplate via Readability (default: true)"
+      },
+      "timeoutMs": {
+        "type": "number",
+        "minimum": 1000,
+        "maximum": 60000,
+        "default": 15000,
+        "description": "Fetch timeout in ms"
+      },
+      "brandingOptions": {
+        "type": "object",
+        "properties": {
+          "fetchLinkedCss": {
+            "type": "boolean",
+            "default": true,
+            "description": "Fetch linked stylesheets for richer color/font extraction"
+          },
+          "maxStylesheets": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 20,
+            "default": 10,
+            "description": "Max linked stylesheets to fetch"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Options for the \"branding\" format"
+      },
+      "screenshotOptions": {
+        "type": "object",
+        "properties": {
+          "fullPage": {
+            "type": "boolean",
+            "default": false,
+            "description": "Capture the full scrollable page"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "png",
+              "jpeg"
+            ],
+            "default": "png"
+          },
+          "quality": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "JPEG quality (jpeg only)"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Options for the \"screenshot\" format"
+      },
+      "respect_robots": {
+        "type": "boolean",
+        "description": "Respect the target site's robots.txt (default: true). Setting this to false is honoured, returns a warning in the response, and is recorded against your API key — it is your decision, not a silent default."
+      },
+      "user_agent": {
+        "type": "string",
+        "description": "Override the outbound User-Agent. CrawlForge identifies itself honestly by default; use this only for targets you have your own agreement with."
+      }
+    },
+    "required": [
+      "url"
+    ],
+    "additionalProperties": false,
+    "$schema": "https://json-schema.org/draft/2020-12/schema"
+  },
+  "annotations": {
+    "title": "Scrape (Multi-Format)",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true
+  },
+  "execution": {
+    "taskSupport": "forbidden"
+  },
+  "_meta": {
+    "anthropic/alwaysLoad": true
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the scrape completed"
+      },
+      "url": {
+        "type": "string",
+        "description": "Final URL after redirects"
+      },
+      "content": {
+        "type": "object",
+        "properties": {
+          "markdown": {
+            "type": "string"
+          },
+          "html": {
+            "type": "string"
+          },
+          "rawHtml": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "links": {
+            "type": "object",
+            "properties": {
+              "links": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "href": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "is_external": {
+                      "type": "boolean"
+                    },
+                    "original_href": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "total_count": {
+                "type": "number"
+              },
+              "internal_count": {
+                "type": "number"
+              },
+              "external_count": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": true
+          },
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "keywords": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "canonical_url": {
+                "type": "string"
+              },
+              "author": {
+                "type": "string"
+              },
+              "robots": {
+                "type": "string"
+              },
+              "viewport": {
+                "type": "string"
+              },
+              "og_tags": {
+                "type": "object",
+                "additionalProperties": {}
+              },
+              "twitter_tags": {
+                "type": "object",
+                "additionalProperties": {}
+              },
+              "json_ld": {
+                "type": "array",
+                "items": {}
+              },
+              "microdata": {
+                "type": "array",
+                "items": {}
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          },
+          "branding": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Static design tokens: colors, fonts, logo"
+          },
+          "screenshots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": true
+            },
+            "description": "Present for the \"screenshot\" format; each item carries a resourceUri once published"
+          },
+          "json": {
+            "description": "Result of the {type:\"json\"} format (LLM-structured extraction)"
+          }
+        },
+        "additionalProperties": true,
+        "description": "One key per requested format"
+      },
+      "warnings": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Per-format warnings; partial success never fails the whole call"
+      },
+      "_cost": {
+        "type": "object",
+        "properties": {
+          "projected": {
+            "type": "number",
+            "description": "Credits projected for this call before execution"
+          },
+          "actual": {
+            "type": "number",
+            "description": "Credits actually charged (0 in creator mode, half-rate on error)"
+          },
+          "remaining_credits": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Credits remaining on the account after this call, if known"
+          },
+          "projection_note": {
+            "type": "string",
+            "description": "Human-readable note about how the cost was projected"
+          }
+        },
+        "additionalProperties": true,
+        "description": "Cost-transparency metadata (D3.5), present when injected into the text copy of the result"
+      }
+    },
+    "additionalProperties": false,
+    "$schema": "https://json-schema.org/draft/2020-12/schema"
+  },
+  "icons": [
+    {
+      "src": "https://www.crawlforge.dev/icon.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "any"
+      ]
+    }
+  ]
+}
