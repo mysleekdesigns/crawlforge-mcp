@@ -15,6 +15,80 @@ on:
     types: [published]
 
 jobs:
+  # Build the one-click MCP Bundle and attach it to the GitHub Release.
+  #
+  # Independent of the registry publish below: this packs from the checked-out
+  # source, so it does not wait on npm propagation, and a bundle failure must
+  # not stop the registry from being updated.
+  bundle:
+    name: Build and attach the .mcpb bundle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # attach the .mcpb as a release asset
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Sync manifest.json version to the released package version
+        if: github.event_name == 'release'
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          jq --arg v "$VERSION" '.version = $v' manifest.json > manifest.tmp && mv manifest.tmp manifest.json
+
+      # Production dependencies only. `mcpb pack` does NOT prune devDependencies
+      # — packing after a plain `npm ci` ships jest, c8 and the MCP client SDK
+      # and adds ~6 MB. Playwright's browser binaries install outside
+      # node_modules and are deliberately not bundled.
+      - name: Install production dependencies
+        run: npm ci --omit=dev
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+      - name: Pack the bundle
+        run: |
+          VERSION=$(jq -r '.version' manifest.json)
+          npx -y @anthropic-ai/mcpb@2.1.2 pack . "crawlforge-mcp-server-${VERSION}.mcpb"
+          ls -lh "crawlforge-mcp-server-${VERSION}.mcpb"
+          echo "MCPB_FILE=crawlforge-mcp-server-${VERSION}.mcpb" >> "$GITHUB_ENV"
+
+      # Proves the packed bundle actually starts and speaks MCP before it is
+      # published. A bad .mcpbignore pattern (an unanchored `cache/` matches
+      # src/core/cache/) produces a bundle that packs cleanly and then fails at
+      # startup with ERR_MODULE_NOT_FOUND.
+      - name: Smoke-test the packed bundle
+        run: |
+          npx -y @anthropic-ai/mcpb@2.1.2 unpack "$MCPB_FILE" /tmp/mcpb-check
+          cd /tmp/mcpb-check
+          RESPONSE=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            | timeout 60 node server.js 2>/tmp/mcpb-smoke.err | head -c 400 || true)
+          echo "$RESPONSE"
+          if ! echo "$RESPONSE" | grep -q '"protocolVersion"'; then
+            echo "::error::The packed bundle did not complete an MCP initialize handshake."
+            head -20 /tmp/mcpb-smoke.err
+            exit 1
+          fi
+        env:
+          CRAWLFORGE_API_KEY: bundle-smoke-test
+          CRAWLFORGE_SKIP_STARTUP_VALIDATION: 'true'
+
+      - name: Attach the bundle to the release
+        if: github.event_name == 'release'
+        run: gh release upload "${GITHUB_REF#refs/tags/}" "$MCPB_FILE" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload the bundle as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcpb-bundle
+          path: ${{ env.MCPB_FILE }}
+
   publish:
     runs-on: ubuntu-latest
     permissions:

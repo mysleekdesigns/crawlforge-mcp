@@ -1,0 +1,53 @@
+# Files excluded from the .mcpb bundle. The bundle ships only what `node
+# server.js` needs at runtime: server.js, setup.js, src/, node_modules/ and
+# package.json.
+#
+# Directory patterns are anchored with a leading "/" so they match only the
+# repo root. Unanchored, `cache/` also matches `src/core/cache/` and the packed
+# bundle fails to start with ERR_MODULE_NOT_FOUND on CacheManager.js.
+
+# Secrets — deliberately unanchored, so a stray .env at any depth is caught.
+.env
+.env.*
+!.env.example
+
+# Version control and CI
+/.git/
+/.github/
+/.gitignore
+/.npmignore
+/.claude/
+
+# Tests and test output
+/tests/
+/test-*.js
+/test-*.mjs
+/run-all-tests.sh
+/coverage/
+/test-results/
+
+# Docs and planning (README + LICENSE are kept)
+/docs/
+/plan/
+/PRD.md
+/CLAUDE.md
+
+# Developer tooling not used at runtime
+/scripts/
+/assets/
+/Dockerfile
+/.dockerignore
+/docker-compose.yml
+/render.yaml
+
+# Runtime state written by a previous local run
+/cache/
+/logs/
+/jobs/
+/monitors/
+/snapshots/
+/webhooks/
+
+# Build artifacts
+*.tgz
+*.mcpb

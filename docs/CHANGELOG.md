@@ -5,6 +5,115 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.0.0] - 2026-09-06
+
+Phase 4 of the 2026 feature plan: the MCP 2026-07-28 migration.
+
+A major, for three reasons a caller can see. The `task` parameter is gone, because the SDK
+surface it stood on was deleted rather than moved. `--legacy-http` is gone, four minor versions
+after its deprecation warning said it would be. And the hosted HTTP endpoint's `tools/list` now
+returns what stdio has always returned — sorted, with icons and a schema dialect — which is a
+fix, but it moves output that a client could have pinned.
+
+Underneath, the server moved to the split `@modelcontextprotocol/core` + `/server` + `/node`
+v2 packages and to zod 4. Almost nothing about that is visible from outside, which was the point:
+the risky half of the migration was zod, not MCP, and it was caught by tests rather than by users.
+
+### Added
+- **The 2026-07-28 protocol revision, served on the same `/mcp` endpoint as the 2025 era.**
+  A request carrying the per-request `_meta` envelope (protocol version, `clientInfo`,
+  `clientCapabilities`) plus the SEP-2243 `Mcp-Method` / `Mcp-Name` headers is served
+  statelessly — no handshake, no `Mcp-Session-Id`, a fresh server instance per request, and
+  `server/discover` in place of `initialize`. Everything else keeps the sessionful path it has
+  always used. The era decision is the MCP SDK's own `isLegacyRequest` predicate rather than a
+  local heuristic, so this endpoint can never classify a request differently from the SDK, and
+  both eras are served from one tool definition so they cannot drift apart. Header/body
+  disagreements (`Mcp-Method` or `Mcp-Name` naming something the body does not) are refused with
+  `-32020` on HTTP 400, and a non-JSON `Content-Type` with 415 — before the tool runs, so a
+  refused request is never billed.
+  **This is HTTP only. A stdio connection still negotiates the 2025 era and nothing about it
+  changes.**
+- **`protocolVersions` on `GET /health`** — every revision the endpoint serves, newest first.
+  `status`, `version` and `mode` are unchanged, so existing probes keep working.
+- **A SEP-2549 cache hint on `server/discover`**: `ttlMs: 300000`, `cacheScope: "public"`. The
+  advertisement is identical for every caller and only changes on redeploy, so it is safe for a
+  shared cache. Without the hint the SDK emits the conservative `0` / `"private"`. 2025-era
+  responses are untouched — the hint only exists on the 2026-07-28 encode path.
+- **A `.mcpb` bundle attached to each GitHub Release**, for one-click installation in Claude
+  Desktop. `manifest.json` declares the API key as required user config and the two DataForSEO
+  keys as optional, so the client prompts for them instead of the user hand-editing JSON. The
+  bundle is packed from a production-only install and smoke-tested by unpacking it and completing
+  a real MCP handshake before it is attached.
+- **Conformance testing in CI**, running the official `@modelcontextprotocol/conformance` suite
+  against the Streamable HTTP transport on every push. Scope is honest and narrow: six protocol
+  scenarios over HTTP. The suite has no stdio *server* target at all — its `--command` mode tests
+  MCP clients, not servers — so stdio stays covered by the existing protocol-compliance job.
+
+### Changed
+- **HTTP clients now get the same `tools/list` a stdio client has always got.** The
+  protocol-hygiene wrappers — alphabetical tool ordering, SEP-973 icons, JSON Schema 2020-12
+  dialect stamping, and the SEP-2549 cacheable markers on the ten read-only tools — live on the
+  template server's own protocol instance, not in the registration tables that each HTTP
+  session's server clone copies. An HTTP session was therefore served tools in registration
+  order, with no `icons`, no `$schema` and no cache markers, while stdio had all four. The clone
+  now re-applies them.
+  **This changes what the hosted HTTP endpoint returns on the 2025 era**, which is the path
+  production serves: `tools/list` output is reordered (alphabetical) and gains `icons` and
+  `$schema` on every tool, and `tools/call` results for the ten read-only tools gain
+  `_meta["io.modelcontextprotocol/cacheable"]`. It is additive metadata plus a reordering — no
+  tool, field or behaviour is removed — but a client that pinned the old ordering will see it
+  move.
+- **On a 2026-07-28-era connection, elicitation degrades to proceeding rather than erroring.**
+  That revision has no server→client request channel; the replacement is an `input_required`
+  result a handler returns, which cannot be issued from the middle of a tool's execution. The
+  operation now proceeds unasked, exactly as it does for a client with no elicitation capability
+  — never a failed tool call. This is reachable only over HTTP; stdio is 2025-era only. See
+  `docs/mcp-spec-adoption.md` sections 8 and 9.
+- **The MCP-sampling fallback announces its own deprecation.** When `SamplingClient` falls all
+  the way through to `sampling/createMessage` it now writes one line to stderr (never stdout —
+  that is the JSON-RPC stream) naming SEP-2577 and the removal date, **on or after 2027-07-28**.
+  The fallback chain is unchanged: Ollama, then a server-side API key, then MCP sampling. Run
+  Ollama or set `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` and the rung is never reached.
+- **The MCP SDK moved from `@modelcontextprotocol/sdk` 1.30 to the v2 split packages**
+  (`@modelcontextprotocol/core` + `/server`, with `/node` for the HTTP transport), and zod from
+  3.23 to 4. `zod-to-json-schema` is gone: the one call site now uses the SDK's own
+  `toolInputSchemaJson()`, so the Smithery card mirrors exactly what `tools/list` serves.
+
+### Removed
+- **`params.task` and async task mode on `crawl_deep`, `batch_scrape`, `deep_research` and
+  `agent`.** These were built on the SDK's *experimental* tasks API, and SEP-2663 removed that
+  API outright — v2 deletes the `taskStore` option, the `extra.taskStore` / `taskId` handler
+  context and `registerToolTask`, and on a 2026-era connection an inbound `tasks/get` answers
+  `-32601` even with a handler registered. There was nothing left to migrate to. The four tools
+  no longer advertise `execution.taskSupport` and now run synchronously — which is exactly what
+  every caller who never passed `task` already got. For long work that should not hold a
+  connection open, use `batch_scrape`'s async webhook mode, or `result_handle` / `read_result`.
+- **`CRAWLFORGE_LEGACY_HTTP` / `--legacy-http`, and `src/server/transports/http.js`.** The v3.1
+  stateless HTTP mode was kept behind that flag for a one-release deprecation window that has
+  long since passed — the startup warning still said "will be removed in v3.3.0". The flag was
+  the mode's only entry point, so the mode itself has gone with it. 2025-era clients are
+  unaffected: they are served by the sessionful transport, which has been the default since
+  v3.2.0.
+
+### Fixed
+- **Elicitation prompts reach clients again that had silently stopped getting them.** SDK v2's
+  `Server.elicitInput()` demands a literal `elicitation.form` capability and refuses a client
+  that declared a bare `elicitation: {}` — the shape a 2025-06-18-era client sends — even though
+  the SDK's own capability rule counts a bare declaration as form-capable. Since the SDK upgrade
+  those clients had been throwing into the fail-open path, so `deep_research`, `batch_scrape`,
+  `agent`, `crawl_deep`, `extract_structured` and the low-credit warning all proceeded without
+  ever asking. CrawlForge now applies the SDK's canonical rule and sends the identical request
+  through `Server.request()`. A client declaring only `elicitation.url` correctly still reads as
+  no form support.
+- **A non-string answer to an elicited string field is rejected rather than passed through**,
+  replacing the schema validation the previous send path performed. The caller gets its default.
+- **`npm run test:unit` could report success without running every suite.** The aggregate
+  `node --test --test-force-exit '<glob>'` form was force-exited before the run reported: it
+  printed no summary block at all and still exited 0, so whole suites could vanish without
+  failing anything. It is now one process per file, so every file's exit code counts and the file
+  total is printed — and it is roughly six times faster. CI runs the same script rather than its
+  own copy of the command.
+
 ## [5.10.0] - 2026-09-06
 
 Phase 5 of the 2026 feature plan: batch search, and PII redaction on every

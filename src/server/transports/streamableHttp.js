@@ -1,38 +1,61 @@
 /**
- * Streamable HTTP transport (MCP spec 2025-06-18).
+ * Dual-era Streamable HTTP transport.
  *
- * Single endpoint at /mcp:
- *   - POST /mcp           — JSON-RPC request, response as JSON or SSE stream
- *   - GET  /mcp           — SSE stream for server → client notifications
- *   - DELETE /mcp         — terminate session
+ * One endpoint at /mcp serves both protocol eras, routed by the SDK's own
+ * classification (`isLegacyRequest`) so this module can never disagree with it:
  *
- * Session resumption:
- *   - Server generates a session id and returns it as `Mcp-Session-Id` on init
- *   - Clients re-send `Mcp-Session-Id` on subsequent requests to resume state
+ *   - 2026-07-28 ("modern"): stateless, one server instance per request, each
+ *     request carrying its own `_meta` envelope (protocol version, clientInfo,
+ *     clientCapabilities) plus the SEP-2243 `Mcp-Method` / `Mcp-Name` headers.
+ *     Served by `createMcpHandler(..., { legacy: 'reject' })`, which owns the
+ *     Content-Type gate (415), the header/body cross-checks (-32020) and
+ *     `server/discover`.
+ *   - 2025-era ("legacy"): the sessionful path below — POST /mcp initialize
+ *     issues an `Mcp-Session-Id`, GET /mcp opens the notification SSE stream,
+ *     DELETE /mcp terminates the session. One transport + cloned McpServer per
+ *     session, kept in the `sessions` Map.
  *
  * Auth:
- *   - Bearer / X-API-Key required per request (creator mode bypasses)
+ *   - Bearer / X-API-Key required per request on BOTH eras, before any era
+ *     routing happens (creator mode bypasses, loopback only)
  *   - When OAuth is enabled (CRAWLFORGE_OAUTH_ENABLED=true), OAuth bearer
  *     tokens are validated by the OAuth provider and mapped server-side to
  *     a CrawlForge API key. See src/server/auth/oauth.js.
  *
  * Observability:
  *   - GET /metrics returns Prometheus exposition (when observability enabled)
- *   - GET /health returns liveness probe
- *
- * Replaces the legacy stateless http.js. Old /mcp endpoint behavior is
- * preserved when CRAWLFORGE_LEGACY_HTTP=true (one-release deprecation window);
- * `http.js`'s connectHttp() forwards straight into this module's legacy mode.
+ *   - GET /health returns liveness probe + the protocol revisions served
  */
-import { McpServer } from "@modelcontextprotocol/server";
-import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
+import { McpServer, createMcpHandler, isLegacyRequest, SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/server";
+import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from "@modelcontextprotocol/node";
 import { createServer } from 'node:http';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { requestContext } from '../requestContext.js';
+import { applySpecHygiene } from '../specHygiene.js';
 
 const pkg = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
 const SERVER_VERSION = pkg.version;
+
+/**
+ * Protocol revisions this endpoint serves, newest first: the modern era's
+ * revisions followed by the 2025-era list the SDK negotiates via `initialize`.
+ *
+ * The modern list mirrors the SDK's internal SUPPORTED_MODERN_PROTOCOL_VERSIONS,
+ * which is deliberately not exported. streamableHttp.test.js pins it against a
+ * live `server/discover` result, so an SDK upgrade that adds a revision fails a
+ * test rather than drifting silently.
+ */
+const MODERN_PROTOCOL_VERSIONS = Object.freeze(['2026-07-28']);
+const PROTOCOL_VERSIONS = Object.freeze([...MODERN_PROTOCOL_VERSIONS, ...SUPPORTED_PROTOCOL_VERSIONS]);
+
+/**
+ * SEP-2549 cache hint for the `server/discover` result (2026-07-28 only). The
+ * advertisement is the same for every caller and only changes when the server
+ * is redeployed, so it is `public`; the 5-minute TTL matches the tools/call
+ * hints in specHygiene.js. Without a hint the SDK emits `0` / `'private'`.
+ */
+const DISCOVER_CACHE_HINT = Object.freeze({ ttlMs: 300000, cacheScope: 'public' });
 
 /**
  * Build the `tools` array for the Smithery static server card, straight from
@@ -91,15 +114,28 @@ function buildToolCards(server) {
  * them. `_taskStore` is gone — v2 removed experimental tasks (SEP-2663).
  * Re-check on SDK upgrades.
  *
+ * The same clone backs a 2025-era session and a single 2026-era request, so
+ * both eras serve exactly the same tools — the SDK's "one factory for both
+ * legs" rule.
+ *
+ * applySpecHygiene() runs on the clone because its wrappers live on the
+ * template's own Protocol instance, not in the `_registered*` tables the clone
+ * copies: without this call an HTTP client got unsorted, icon-less tools/list
+ * results and no SEP-2549 cache markers on tools/call, while a stdio client
+ * got all three.
+ *
  * @param {import('@modelcontextprotocol/server').McpServer} templateServer
  */
 function cloneServerForSession(templateServer) {
   const low = templateServer.server;
   // capabilities must survive the clone so the session server advertises the
-  // same surface as the template.
+  // same surface as the template. cacheHints only reaches the 2026-era encode
+  // seam (it rides a symbol-keyed property that is never serialized), so a
+  // 2025-era response is byte-identical with or without it.
   const sessionServer = new McpServer(low._serverInfo, {
     instructions: low._instructions,
-    capabilities: low._capabilities
+    capabilities: low._capabilities,
+    cacheHints: { 'server/discover': DISCOVER_CACHE_HINT }
   });
 
   sessionServer._registeredTools = templateServer._registeredTools;
@@ -112,7 +148,16 @@ function cloneServerForSession(templateServer) {
   if (templateServer._promptHandlersInitialized) sessionServer.setPromptRequestHandlers();
   if (templateServer._completionHandlerInitialized) sessionServer.setCompletionRequestHandler();
 
+  applySpecHygiene(sessionServer);
+
   return sessionServer;
+}
+
+/** Reads a request body to completion as UTF-8. */
+async function readRequestBody(req) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 /** Best-effort close — swallows errors so cleanup never throws into a request handler. */
@@ -132,14 +177,14 @@ function sendRpcError(res, status, code, message) {
 }
 
 /**
- * Stateful, session-aware Streamable HTTP transport.
+ * Dual-era Streamable HTTP transport: stateless 2026-07-28 and sessionful
+ * 2025-era traffic on the same /mcp route.
  *
  * @param {import('@modelcontextprotocol/server').McpServer} server
  * @param {import('../../core/AuthManager.js').default} authManager
  * @param {import('../../utils/Logger.js').logger} logger
  * @param {object} [options]
  * @param {number} [options.port=3000]
- * @param {boolean} [options.legacy=false]  — if true, run in stateless mode (3.1 behavior)
  * @param {object} [options.oauth]          — OAuth provider (see src/server/auth/oauth.js)
  * @param {object} [options.metrics]        — Prometheus registry (see src/observability/metrics.js)
  */
@@ -153,22 +198,37 @@ export async function connectStreamableHttp(server, authManager, logger, options
   if (authManager.isCreatorMode() && !hostIsLoopback) {
     console.error(`WARNING: creator mode is enabled but the server is bound to ${host} (non-loopback) — per-request auth will NOT be bypassed. Bind to 127.0.0.1 to use creator mode.`);
   }
-  const legacy = options.legacy === true;
   const oauthProvider = options.oauth ?? null;
   const metrics = options.metrics ?? null;
 
-  const mode = legacy ? 'legacy-stateless' : 'streamable-stateful';
+  const mode = 'streamable-stateful';
   const toolCount = Object.keys(server._registeredTools ?? {}).length;
 
   // sessionId -> { transport, server }. One StreamableHTTPServerTransport (and
   // therefore one cloned McpServer — see cloneServerForSession) per session.
+  // 2025-era only: the modern era is stateless and holds nothing here.
   const sessions = new Map();
+
+  // 2026-07-28 leg. `legacy: 'reject'` keeps it strict — every 2025-era request
+  // is routed to the sessions Map above by isLegacyRequest before it can reach
+  // this handler, so the modern leg never has to serve one. The SDK owns the
+  // Content-Type gate (415), the Mcp-Method/Mcp-Name cross-checks (-32020 on
+  // 400) and `server/discover`; nothing here re-implements them.
+  const modernHandler = createMcpHandler(() => cloneServerForSession(server), {
+    legacy: 'reject',
+    onerror: (err) => logger.warn('2026-era MCP request rejected', { error: err?.message })
+  });
+  const serveModern = toNodeHandler(modernHandler, {
+    onerror: (err) => logger.error('2026-era MCP request failed', { error: err?.message })
+  });
 
   const httpServer = createServer(async (req, res) => {
     // CORS — Smithery + browser-based MCP clients
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Mcp-Session-Id, mcp-session-id, Authorization, X-API-Key, X-Internal-Secret');
+    // MCP-Protocol-Version / Mcp-Method / Mcp-Name are the 2026-07-28 era's
+    // request headers; the session id headers are the 2025 era's.
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Mcp-Session-Id, mcp-session-id, MCP-Protocol-Version, Mcp-Method, Mcp-Name, Authorization, X-API-Key, X-Internal-Secret');
     res.setHeader('Access-Control-Expose-Headers', 'Mcp-Session-Id, mcp-session-id');
 
     if (req.method === 'OPTIONS') {
@@ -180,7 +240,7 @@ export async function connectStreamableHttp(server, authManager, logger, options
     // Health probe
     if (req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok', version: SERVER_VERSION, mode }));
+      res.end(JSON.stringify({ status: 'ok', version: SERVER_VERSION, mode, protocolVersions: PROTOCOL_VERSIONS }));
       return;
     }
 
@@ -267,38 +327,42 @@ export async function connectStreamableHttp(server, authManager, logger, options
         internal = authResult.internal === true;
       }
 
-      if (legacy) {
-        // Stateless mode: the SDK forbids reusing a transport (or its connected
-        // Server) across requests, so build a fresh pair per request and always
-        // end the response, even on failure.
-        let sessionServer;
-        let reqTransport;
+      // Era routing. Only a POST can carry the 2026-07-28 per-request envelope;
+      // body-less GET/DELETE are 2025 session operations by construction and
+      // isLegacyRequest classifies them as such, so they skip this entirely and
+      // keep their existing behaviour byte-for-byte.
+      //
+      // Reading the body here drains the Node stream, so the parsed value is
+      // handed to whichever leg serves the request. A body that is not valid
+      // JSON classifies legacy (the SDK's own rule), and the 2025 transport
+      // still writes its own parse error — hence the undefined pass-through
+      // rather than an answer invented here.
+      let parsedBody;
+      if (req.method === 'POST') {
         try {
-          sessionServer = cloneServerForSession(server);
-          reqTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-          await sessionServer.connect(reqTransport);
-          await requestContext.run({ internal }, () => reqTransport.handleRequest(req, res));
-        } catch (err) {
-          logger.error('Legacy Streamable HTTP request failed', { error: err?.message });
-          sendRpcError(res, 500, -32603, 'Internal server error');
-        } finally {
-          res.on('close', () => {
-            safeClose(reqTransport);
-            safeClose(sessionServer);
-          });
+          parsedBody = JSON.parse(await readRequestBody(req));
+        } catch {
+          parsedBody = undefined;
         }
-        return;
+
+        if (parsedBody !== undefined) {
+          const probe = await toWebRequest(req, parsedBody);
+          if (!(await isLegacyRequest(probe, parsedBody))) {
+            await requestContext.run({ internal }, () => serveModern(req, res, parsedBody));
+            return;
+          }
+        }
       }
 
-      // Stateful mode: route by Mcp-Session-Id. A request without the header
-      // must be a fresh initialize, which gets its own transport + server pair
+      // 2025 era: route by Mcp-Session-Id. A request without the header must be
+      // a fresh initialize, which gets its own transport + server pair
       // (independent of any prior session's lifecycle) so reconnects/re-inits
       // never hit a stuck 'already initialized' transport.
       const sessionIdHeader = req.headers['mcp-session-id'];
       const existing = sessionIdHeader ? sessions.get(String(sessionIdHeader)) : undefined;
 
       if (existing) {
-        await requestContext.run({ internal }, () => existing.transport.handleRequest(req, res));
+        await requestContext.run({ internal }, () => existing.transport.handleRequest(req, res, parsedBody));
         return;
       }
 
@@ -331,7 +395,7 @@ export async function connectStreamableHttp(server, authManager, logger, options
 
       try {
         await sessionServer.connect(transport);
-        await requestContext.run({ internal }, () => transport.handleRequest(req, res));
+        await requestContext.run({ internal }, () => transport.handleRequest(req, res, parsedBody));
       } catch (err) {
         logger.error('Streamable HTTP session initialization failed', { error: err?.message });
         safeClose(transport);
@@ -349,7 +413,7 @@ export async function connectStreamableHttp(server, authManager, logger, options
     httpServer.listen(port, host, () => {
       const actual = httpServer.address()?.port ?? port;
       console.error(`CrawlForge MCP Server v${SERVER_VERSION} listening on ${host}:${actual} (Streamable HTTP, ${mode})`);
-      console.error(`MCP endpoint:   http://${host}:${actual}/mcp`);
+      console.error(`MCP endpoint:   http://${host}:${actual}/mcp (protocol ${PROTOCOL_VERSIONS.join(', ')})`);
       console.error(`Health check:   http://${host}:${actual}/health`);
       if (metrics) console.error(`Metrics:        http://${host}:${actual}/metrics`);
       if (oauthProvider) console.error(`OAuth discovery: http://${host}:${actual}/.well-known/oauth-authorization-server`);
@@ -360,13 +424,17 @@ export async function connectStreamableHttp(server, authManager, logger, options
   return {
     httpServer,
     sessions,
-    /** Closes every live session's transport + server, then the HTTP server. */
+    /**
+     * Closes every live 2025-era session's transport + server and the modern
+     * leg (aborting in-flight exchanges), then the HTTP server.
+     */
     async close() {
       for (const { transport, server: sessionServer } of sessions.values()) {
         safeClose(transport);
         safeClose(sessionServer);
       }
       sessions.clear();
+      await modernHandler.close().catch(() => {});
       await new Promise((resolve) => httpServer.close(() => resolve()));
     }
   };

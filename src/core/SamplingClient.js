@@ -7,7 +7,9 @@
  * Fallback chain (applied in resolveCompletion):
  *   1. Ollama (local, no API key needed)
  *   2. Server-side API key (OPENAI_API_KEY / ANTHROPIC_API_KEY)
- *   3. MCP sampling request to client
+ *   3. MCP sampling request to client — DEPRECATED in MCP revision 2026-07-28
+ *      (SEP-2577); removal on or after 2027-07-28. Emits a one-line stderr
+ *      deprecation notice when it serves a completion.
  *   4. Error
  */
 
@@ -157,7 +159,11 @@ export class SamplingClient {
           includeContext: 'none',
         });
         const text = samplingResult?.content?.text || '';
-        if (text) return { text, provider: 'sampling' };
+        if (text) {
+          // stderr, never stdout — stdout is the JSON-RPC stream on stdio.
+          console.error('[deprecation] MCP sampling served this completion. Sampling was deprecated in MCP revision 2026-07-28 (SEP-2577); CrawlForge removes this fallback on or after 2027-07-28. Run Ollama or set OPENAI_API_KEY / ANTHROPIC_API_KEY.');
+          return { text, provider: 'sampling' };
+        }
       } catch (_samplingErr) {
         // Sampling not supported or failed
       }

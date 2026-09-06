@@ -34,8 +34,13 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
+      # Calls the same script `npm run test:unit` uses, so CI and a developer's
+      # machine run the unit suite one way. The script runs one node process
+      # per file and explains why in its header — the previous inline
+      # `node --test --test-force-exit $(find ...)` form here had the same
+      # one-process-many-files hazard it was written to avoid.
       - name: Run unit tests
-        run: CRAWLFORGE_CREATOR_SECRET= node --test --test-force-exit $(find tests/unit -name "*.test.js")
+        run: npm run test:unit
         env:
           NODE_ENV: test
 
@@ -55,6 +60,100 @@ jobs:
         env:
           NODE_ENV: test
           CRAWLFORGE_CREATOR_SECRET: test-secret-for-ci
+
+  # Official MCP conformance suite (github.com/modelcontextprotocol/conformance)
+  # against the Streamable HTTP transport.
+  #
+  # HTTP only, by the suite's design: `conformance server` takes a `--url` and
+  # nothing else, so a stdio server cannot be tested by it at all. Stdio stays
+  # covered by the mcp-compliance job above.
+  #
+  # Only the scenarios that apply to a real server run here. The other 26 in
+  # the suite expect the SDKs' reference "everything server" fixture — named
+  # tools (test_simple_text), resources (test://static-text) and prompts
+  # (test_simple_prompt) we do not and should not ship — or capabilities we do
+  # not implement (logging/setLevel, completion/complete). Baselining those as
+  # expected failures would encode "we are not the reference fixture" as 26
+  # permanent entries that CI then fails on if any ever starts passing.
+  conformance-http:
+    name: MCP Conformance (Streamable HTTP)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start the MCP server (Streamable HTTP)
+        run: |
+          # Redirect to a file: a backgrounded process holding the step's
+          # stdout open keeps the step from ever finishing.
+          node server.js --http > /tmp/mcp-server.log 2>&1 &
+          echo "$!" > /tmp/mcp-server.pid
+          if ! timeout 60 bash -c 'until curl -sf http://127.0.0.1:3111/health >/dev/null; do sleep 1; done'; then
+            echo "::error::The MCP server did not become healthy on :3111"
+            cat /tmp/mcp-server.log
+            exit 1
+          fi
+        env:
+          PORT: '3111'
+          NODE_ENV: test
+          CRAWLFORGE_SKIP_STARTUP_VALIDATION: 'true'
+          INTERNAL_PROXY_SECRET: conformance-ci
+
+      # The transport requires a credential on every request and the conformance
+      # runner cannot send headers, so forward through a shim that adds the
+      # internal-proxy header the server already accepts from the website proxy.
+      # Internal requests are billing-exempt, so no key is needed and no credits
+      # are spent. None of the scenarios below invoke a tool.
+      - name: Start the credential-injecting shim
+        run: |
+          cat > /tmp/conformance-shim.mjs <<'SHIM'
+          import { createServer, request } from 'node:http';
+          const UP = 3111, LI = 3112, SECRET = process.env.INTERNAL_PROXY_SECRET;
+          createServer((cReq, cRes) => {
+            const headers = { ...cReq.headers, 'x-internal-secret': SECRET, host: `127.0.0.1:${UP}` };
+            const p = request({ host: '127.0.0.1', port: UP, path: cReq.url, method: cReq.method, headers }, (pRes) => {
+              cRes.writeHead(pRes.statusCode, pRes.headers);
+              pRes.pipe(cRes);
+            });
+            p.on('error', (e) => { cRes.writeHead(502); cRes.end(String(e)); });
+            cReq.pipe(p);
+          }).listen(LI, '127.0.0.1');
+          SHIM
+          node /tmp/conformance-shim.mjs > /tmp/shim.log 2>&1 &
+          echo "$!" > /tmp/shim.pid
+          if ! timeout 30 bash -c 'until curl -sf http://127.0.0.1:3112/health >/dev/null; do sleep 1; done'; then
+            echo "::error::The conformance shim did not come up on :3112"
+            cat /tmp/shim.log
+            exit 1
+          fi
+        env:
+          INTERNAL_PROXY_SECRET: conformance-ci
+
+      - name: Run conformance scenarios
+        run: |
+          failed=0
+          for s in server-initialize ping tools-list resources-list prompts-list server-sse-multiple-streams; do
+            echo "── $s"
+            if ! npx -y @modelcontextprotocol/conformance@0.1.16 server \
+                  --url http://127.0.0.1:3112/mcp --scenario "$s"; then
+              echo "::error::conformance scenario $s failed"
+              failed=$((failed + 1))
+            fi
+          done
+          exit $((failed > 0))
+
+      - name: Stop background processes
+        if: always()
+        run: |
+          for f in /tmp/shim.pid /tmp/mcp-server.pid; do
+            [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null || true
+          done
+          exit 0
 
   coverage:
     name: Test Coverage

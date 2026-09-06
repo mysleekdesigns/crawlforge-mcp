@@ -1,6 +1,6 @@
 {
   "name": "crawlforge-mcp-server",
-  "version": "5.10.0",
+  "version": "6.0.0",
   "mcpName": "io.github.mysleekdesigns/crawlforge-mcp-server",
   "description": "CrawlForge MCP Server - Professional Model Context Protocol server with 30 web scraping, crawling, deep-research, and autonomous-extraction tools. Returns clean Markdown and structured JSON for Claude, Cursor, and any MCP client. Defaults to local Ollama for LLM extraction (no API key needed); OpenAI/Anthropic available as opt-in. Includes a unified multi-format scrape tool, an autonomous agent, pre-built site templates, and Camoufox stealth browsing.",
   "main": "server.js",
@@ -16,7 +16,7 @@
     "setup": "node setup.js",
     "dev": "cross-env NODE_ENV=development node server.js",
     "test": "node tests/integration/mcp-protocol-compliance.test.js",
-    "test:unit": "CRAWLFORGE_CREATOR_SECRET= CACHE_ENABLE_DISK=false node --test --test-force-exit 'tests/unit/**/*.test.js'",
+    "test:unit": "bash scripts/run-unit-tests.sh",
     "test:integration": "CRAWLFORGE_CREATOR_SECRET= CACHE_ENABLE_DISK=false node --test 'tests/integration/tools/*.test.js'",
     "test:coverage": "CRAWLFORGE_CREATOR_SECRET= CACHE_ENABLE_DISK=false c8 --reporter=text --reporter=lcov --include='src/**/*.js' --exclude='src/**/_*.js' --lines=60 --statements=60 --functions=55 --branches=45 node --test --test-force-exit 'tests/unit/*.test.js' 'tests/integration/tools/*.test.js'",
     "test:tools": "node test-tools.js",

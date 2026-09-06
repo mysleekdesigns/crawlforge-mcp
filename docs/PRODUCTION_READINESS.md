@@ -224,7 +224,7 @@ Security: daily npm audit + gitleaks secret scan + CodeQL analysis.
 | `/oauth/token` | POST | OAuth token + refresh |
 | `/oauth/revoke` | POST | OAuth token revocation (RFC 7009) |
 
-The legacy stateless transport from v3.1.x is preserved behind `--legacy-http` for one release and will be removed in v3.3.0.
+The legacy stateless transport from v3.1.x has been removed. `/mcp` serves the 2025 era over the sessionful Streamable HTTP transport and the 2026-07-28 era statelessly on the same route.
 
 ---
 
