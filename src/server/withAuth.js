@@ -71,7 +71,7 @@ export function hashParams(params) {
  */
 export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = null }) {
   return function withAuth(toolName, handler) {
-    const invoke = async (params) => {
+    const invoke = async (params, ctx) => {
       const startTime = Date.now();
       const paramHash = hashParams(params);
       const creatorMode = authManager.isCreatorMode();
@@ -127,7 +127,7 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
         }
 
         handlerStarted = true;
-        const result = await handler(params);
+        const result = await handler(params, ctx);
 
         // Tools catch their own failures and return { isError:true } rather than
         // throwing (the shared pattern in server.js). That is still an ERROR
@@ -275,11 +275,23 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
 
     // Every invocation runs in its own context so the compliance gate can stamp
     // a refusal where the billing decision can see it. Any outer store (the
-    // HTTP transport's `internal` flag) is spread in, not replaced — and stdio
-    // callers, who have no transport-provided store, get one here.
-    return async (params) => requestContext.run(
-      { ...(requestContext.getStore() ?? {}), preflightRefusal: null, actualCost: null },
-      () => invoke(params)
+    // HTTP transport's `internal` flag, the serving McpServer) is spread in,
+    // not replaced — and stdio callers, who have no transport-provided store,
+    // get one here.
+    //
+    // `ctx` is the SDK's per-request context (v2 calls a tool callback with
+    // `(args, ctx)`). It is passed straight through to the handler; existing
+    // 1-arity handlers ignore it. Its request id is stamped on the context so a
+    // server-to-client request sent from inside the tool can ride the same
+    // stream as this call — see servingRequestId() in requestContext.js.
+    return async (params, ctx) => requestContext.run(
+      {
+        ...(requestContext.getStore() ?? {}),
+        preflightRefusal: null,
+        actualCost: null,
+        servingRequestId: ctx?.mcpReq?.id
+      },
+      () => invoke(params, ctx)
     );
   };
 }

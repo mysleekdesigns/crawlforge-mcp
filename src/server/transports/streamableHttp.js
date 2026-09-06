@@ -31,7 +31,7 @@ import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from "
 import { createServer } from 'node:http';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { requestContext } from '../requestContext.js';
+import { requestContext, setServingServer } from '../requestContext.js';
 import { applySpecHygiene } from '../specHygiene.js';
 
 const pkg = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
@@ -214,7 +214,14 @@ export async function connectStreamableHttp(server, authManager, logger, options
   // this handler, so the modern leg never has to serve one. The SDK owns the
   // Content-Type gate (415), the Mcp-Method/Mcp-Name cross-checks (-32020 on
   // 400) and `server/discover`; nothing here re-implements them.
-  const modernHandler = createMcpHandler(() => cloneServerForSession(server), {
+  // The factory runs once per request, inside the requestContext.run() below,
+  // so the clone it builds can be stamped on the store: that clone — never the
+  // template — is the instance this request is actually served from.
+  const modernHandler = createMcpHandler((ctx) => {
+    const requestServer = cloneServerForSession(server);
+    setServingServer(requestServer, ctx?.era ?? 'modern');
+    return requestServer;
+  }, {
     legacy: 'reject',
     onerror: (err) => logger.warn('2026-era MCP request rejected', { error: err?.message })
   });
@@ -362,7 +369,10 @@ export async function connectStreamableHttp(server, authManager, logger, options
       const existing = sessionIdHeader ? sessions.get(String(sessionIdHeader)) : undefined;
 
       if (existing) {
-        await requestContext.run({ internal }, () => existing.transport.handleRequest(req, res, parsedBody));
+        await requestContext.run(
+          { internal, servingServer: existing.server, servingEra: 'legacy' },
+          () => existing.transport.handleRequest(req, res, parsedBody)
+        );
         return;
       }
 
@@ -395,7 +405,10 @@ export async function connectStreamableHttp(server, authManager, logger, options
 
       try {
         await sessionServer.connect(transport);
-        await requestContext.run({ internal }, () => transport.handleRequest(req, res, parsedBody));
+        await requestContext.run(
+          { internal, servingServer: sessionServer, servingEra: 'legacy' },
+          () => transport.handleRequest(req, res, parsedBody)
+        );
       } catch (err) {
         logger.error('Streamable HTTP session initialization failed', { error: err?.message });
         safeClose(transport);

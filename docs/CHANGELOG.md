@@ -5,6 +5,38 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Fixed
+
+- **Elicitation now fires over the HTTP transport.** Both HTTP legs serve from a cloned
+  `McpServer` — one per session on the 2025-era path, one per request on the 2026-07-28 leg — and
+  only a clone is ever connected. `ElicitationHelper` was built against the top-level template,
+  which is never connected, so `getClientCapabilities()` and `getNegotiatedProtocolVersion()` both
+  returned `undefined`, `supported` was always false, and every HTTP session silently proceeded
+  unasked. The transport now stamps the serving clone on the request context and the helper
+  resolves it from there, falling back to the injected instance on stdio. Broken since v3.2.0;
+  stdio was never affected.
+
+  Clients that declare form-capable elicitation over 2025-era HTTP will now see the confirmations
+  for `deep_research` (over 50 URLs), `batch_scrape` (sync mode, over 25 URLs), `crawl_deep` (over
+  500 pages), `agent` (`model: "pro"`) and `extract_structured` (no LLM configured with more than
+  three required fields), plus the low-credit "proceed anyway?" prompt. Clients that declare no
+  elicitation capability are unaffected — including the website REST proxy, which sends
+  `capabilities: {}` and is billing-exempt, so it never reaches the credit check that prompts.
+  2026-07-28 clients still proceed unasked: that revision has no server-to-client request channel.
+
+### Changed
+
+- `withAuth` now forwards the SDK's per-request `ctx` to the wrapped tool handler. The MCP SDK v2
+  calls a tool callback with `(args, ctx)`, and the wrapper was 1-arity, so no tool or helper could
+  see the protocol era, the elicitation answers or the request id. Existing 1-arity handlers are
+  unchanged — JavaScript ignores the extra argument — and no billing behaviour changed.
+
+- An elicitation prompt is now sent with `relatedRequestId` set to the in-flight `tools/call` id,
+  taken from that forwarded `ctx`. Without it the 2025-era HTTP transport routes a server-to-client
+  request to the standalone GET SSE stream and drops it outright when the client never opened one,
+  turning a prompt into a silent 60-second timeout. The stdio transport ignores the option, so
+  stdio is byte-identical.
+
 ## [6.0.0] - 2026-09-06
 
 Phase 4 of the 2026 feature plan: the MCP 2026-07-28 migration.
