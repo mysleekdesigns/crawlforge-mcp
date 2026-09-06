@@ -14,6 +14,8 @@ import { logger } from '../utils/Logger.js';
 import { maskSecrets } from '../utils/secretMask.js';
 import { scrapeFormatSurcharge } from '../tools/scrape/formats.js';
 import { scrapeEscalationSurcharge } from '../tools/scrape/escalation.js';
+import { searchQueryCount } from '../tools/search/batchSearch.js';
+import { redactionSurcharge, REDACT_PII_MODEL_CREDITS } from '../server/redaction.js';
 // Stamped on every usage report so support can tell which client version
 // made a call; it read '3.0.3' from 3.0.3 to 5.6.10 (the website stores it
 // per record from its Phase 1.3 on).
@@ -626,6 +628,11 @@ class AuthManager {
       return costs.search_web;
     }
 
+    // redact_pii's regex pass is free; its opt-in model pass adds 3 once per
+    // call, on every tool that offers the param. The rule lives with the
+    // schema that declares it (src/server/redaction.js).
+    const redaction = redactionSurcharge(tool, params);
+
     // The query-scoped formats (highlights, question) add 1 once per call,
     // and mode:"model" adds 3 once; escalate:true adds the stealth browser's
     // own 5, since that is the ceiling the call may reach. The base price in
@@ -633,10 +640,17 @@ class AuthManager {
     // that declare the params.
     if (tool === 'scrape') {
       const { query, model } = scrapeFormatSurcharge(params?.formats);
-      return costs.scrape + query + model + scrapeEscalationSurcharge(params?.escalate);
+      return costs.scrape + query + model + scrapeEscalationSurcharge(params?.escalate) + redaction;
     }
 
-    return costs[tool] ?? 1;
+    // search_web's batch form (5.1) runs one backend search per query, so it
+    // is priced as that many search_web calls. The count rule lives with the
+    // schema that declares `queries` (src/tools/search/batchSearch.js).
+    if (tool === 'search_web') {
+      return costs.search_web * searchQueryCount(params?.queries) + redaction;
+    }
+
+    return (costs[tool] ?? 1) + redaction;
   }
 
   /**
@@ -677,6 +691,13 @@ class AuthManager {
         note = `Lower-bound estimate. crawl_deep cost grows with page count (${maxPages} max).`;
         break;
       }
+      case 'search_web': {
+        const queryCount = searchQueryCount(params?.queries);
+        note = queryCount > 1
+          ? `5 per query, ${queryCount} queries — exactly what ${queryCount} separate calls cost. A query that fails before it reaches a backend is not billed.`
+          : 'Fixed cost per invocation.';
+        break;
+      }
       case 'extract_with_llm':
         note = 'External LLM API call billed by your LLM provider, separate from the credit cost.';
         break;
@@ -706,6 +727,12 @@ class AuthManager {
       }
       default:
         note = 'Fixed cost per invocation.';
+    }
+
+    // redact_pii applies to nine different tools, so its note is appended
+    // rather than owned by any one case.
+    if (redactionSurcharge(toolName, params) > 0) {
+      note += ` redact_pii mode:"model" adds ${REDACT_PII_MODEL_CREDITS} once for the PERSON/LOCATION pass; the charge drops back when no LLM route answered.`;
     }
 
     return { projected, note };

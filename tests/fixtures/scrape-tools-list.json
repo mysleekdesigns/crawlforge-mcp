@@ -199,6 +199,44 @@
         "minimum": 1000,
         "maximum": 10000000,
         "description": "Largest result to return inline, in characters of its JSON. Over it, the call returns a preview plus a result_handle for read_result instead of the whole result (default 40,000; env CRAWLFORGE_MAX_INLINE_CHARS)"
+      },
+      "redact_pii": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "entities": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Which classes to redact, case-insensitive: EMAIL, PHONE, FINANCIAL, SECRET, plus PERSON and LOCATION when mode is \"model\". Omitted or empty means all four regex classes (and both model classes in \"model\" mode). An unknown name, or a model-only name without mode:\"model\", is rejected"
+              },
+              "replace_style": {
+                "type": "string",
+                "enum": [
+                  "tag",
+                  "mask",
+                  "remove"
+                ],
+                "description": "\"tag\" (default) writes <EMAIL>, \"mask\" writes [REDACTED], \"remove\" deletes the value"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "fast",
+                  "model"
+                ],
+                "description": "\"fast\" (default) is regex only and free; \"model\" adds an Ollama NER pass for PERSON and LOCATION (+3 credits once per call)"
+              }
+            },
+            "additionalProperties": false
+          }
+        ],
+        "description": "Redact personal data from the text this call returns, before it reaches your context window. true means the free regex pass over EMAIL, PHONE, FINANCIAL and SECRET. The result carries redaction:{entities,count}. Default: off"
       }
     },
     "required": [
@@ -458,6 +496,36 @@
           "type": "string"
         },
         "description": "Per-format warnings; partial success never fails the whole call"
+      },
+      "redaction": {
+        "type": "object",
+        "properties": {
+          "entities": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "How many spans were replaced, by entity class; a class with no hits is omitted"
+          },
+          "count": {
+            "type": "number",
+            "description": "Total spans replaced"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "fast",
+              "model"
+            ],
+            "description": "\"fast\" is the free regex pass; \"model\" added an Ollama NER pass for PERSON and LOCATION"
+          },
+          "model_ran": {
+            "type": "boolean",
+            "description": "mode \"model\" only: whether a model actually answered. False means no LLM route existed and the model surcharge was not charged"
+          }
+        },
+        "additionalProperties": true,
+        "description": "Present when redact_pii was set: what was redacted from the text of this result"
       },
       "preview": {
         "type": "string",

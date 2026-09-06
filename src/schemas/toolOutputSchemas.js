@@ -42,6 +42,16 @@ const resultHandleShape = {
   expires_at: z.string().optional().describe('When the stored result is dropped (ISO 8601)')
 };
 
+// ── redact_pii (Phase 5, 5.3) ───────────────────────────────────────────────
+
+// What the redaction stage reports back on every tool that offers redact_pii.
+const redactionShape = z.object({
+  entities: z.record(z.number()).optional().describe('How many spans were replaced, by entity class; a class with no hits is omitted'),
+  count: z.number().optional().describe('Total spans replaced'),
+  mode: z.enum(['fast', 'model']).optional().describe('"fast" is the free regex pass; "model" added an Ollama NER pass for PERSON and LOCATION'),
+  model_ran: z.boolean().optional().describe('mode "model" only: whether a model actually answered. False means no LLM route existed and the model surcharge was not charged')
+}).passthrough().optional().describe('Present when redact_pii was set: what was redacted from the text of this result');
+
 // ── scrape ──────────────────────────────────────────────────────────────────
 
 const scrapeLinkShape = z.object({
@@ -131,6 +141,7 @@ const scrapeShape = {
   }).passthrough().optional().describe('Present when escalated is true: the stealth engine that ran, and the bot-defence vendor the plain fetch hit (null when the block named none)'),
   content: z.object(scrapeFormatShapes).passthrough().optional().describe('One key per requested format'),
   warnings: z.array(z.string()).optional().describe('Per-format warnings; partial success never fails the whole call'),
+  redaction: redactionShape,
   ...resultHandleShape,
   _cost: costShape
 };
@@ -272,8 +283,20 @@ const searchWebResultShape = z.object({
   metadata: z.record(z.unknown()).optional()
 }).passthrough();
 
+// The batch form (5.1): one entry per query, in the order they were given.
+// Each carries the same fields a single-query call returns, plus the query
+// itself — or `error` when that one query failed and the others did not.
+const searchWebBatchEntryShape = z.object({
+  query: z.string().optional(),
+  error: z.string().optional().describe('Present when this query failed; the other queries in the batch are unaffected'),
+  results: z.array(searchWebResultShape).optional()
+}).passthrough();
+
 const searchWebShape = {
   query: z.string().optional(),
+  queries: z.array(z.string()).optional().describe('Batch form: the queries that ran, in order'),
+  count: z.number().optional().describe('Batch form: how many queries ran'),
+  results_by_query: z.array(searchWebBatchEntryShape).optional().describe('Batch form: one entry per query, in order'),
   effective_query: z.string().optional().describe('Present when query expansion changed the query actually used'),
   expanded_queries: z.array(z.string()).optional(),
   results: z.array(searchWebResultShape).optional(),
@@ -302,6 +325,7 @@ const searchWebShape = {
     query_expansion: z.record(z.unknown()).nullable().optional(),
     localization_applied: z.boolean().optional()
   }).passthrough().optional(),
+  redaction: redactionShape,
   _cost: costShape
 };
 
@@ -380,6 +404,7 @@ const crawlDeepShape = {
   }).passthrough().optional(),
   crawled_at: z.string().optional().describe('When the pages were actually fetched (ISO 8601)'),
   cached: z.boolean().optional().describe('True when this response was replayed from an earlier crawl rather than crawled now; crawled_at gives its age'),
+  redaction: redactionShape,
   ...resultHandleShape,
   _cost: costShape
 };

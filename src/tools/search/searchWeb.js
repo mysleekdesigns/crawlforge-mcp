@@ -8,6 +8,10 @@ import { SearchResultCache } from './ranking/SearchResultCache.js';
 import LocalizationManager from '../../core/LocalizationManager.js';
 import { isCreatorModeVerified } from '../../core/creatorMode.js';
 import { searchViaSearxng } from './providers/searxng.js';
+import { MAX_SEARCH_QUERIES, SEARCH_WEB_CREDITS, EXACTLY_ONE_QUERY_MESSAGE } from './batchSearch.js';
+import { setActualCost } from '../../server/requestContext.js';
+
+const BatchQueriesSchema = z.array(z.string().min(1)).min(1).max(MAX_SEARCH_QUERIES);
 
 const SearchWebSchema = z.object({
   query: z.string().min(1),
@@ -126,7 +130,47 @@ export class SearchWebTool {
     });
   }
 
+  /**
+   * Run 1-10 queries through the single-query pipeline and key the results by
+   * query (5.1). Sequential: each entry is a separate billed backend search,
+   * and firing ten at once at the provider buys nothing but rate limits.
+   *
+   * @param {object} params the call's params, `queries` included
+   * @returns {Promise<{queries: string[], count: number, results_by_query: object[]}>}
+   */
+  async _executeBatch(params) {
+    const { queries, query: _ignored, ...rest } = params;
+    const parsed = BatchQueriesSchema.parse(queries);
+
+    const results_by_query = [];
+    let ran = 0;
+    for (const query of parsed) {
+      try {
+        results_by_query.push({ query, ...await this.execute({ ...rest, query }) });
+        ran++;
+      } catch (error) {
+        // One failed query does not sink the other nine.
+        results_by_query.push({ query, error: error.message });
+      }
+    }
+
+    // The projection is 5 per query; a query that failed before it reached a
+    // backend did no work and must not be billed for one (G4). The projection
+    // is the ceiling, so this only ever lowers the charge.
+    setActualCost(SEARCH_WEB_CREDITS * ran);
+
+    return { queries: parsed, count: parsed.length, results_by_query };
+  }
+
   async execute(params) {
+    // Batch form (5.1). Handled above the provider short-circuit below, so
+    // the SearXNG branch runs each query through the same path the default
+    // provider does.
+    const hasQuery = params?.query !== undefined;
+    const hasQueries = params?.queries !== undefined;
+    if (hasQuery === hasQueries) throw new Error(EXACTLY_ONE_QUERY_MESSAGE);
+    if (hasQueries) return await this._executeBatch(params);
+
     try {
       const validated = SearchWebSchema.parse(params);
 
