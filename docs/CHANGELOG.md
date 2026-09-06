@@ -61,6 +61,17 @@ Nothing leaves the machine.
   `max_inline_chars` parameter and `read_result` tool, with Redis-backed
   1-hour storage.
 
+### Fixed
+- **`reddit_search` and `extract_embedded_state` can be selected by name.** Neither
+  had been added to `TOOL_GROUPS` (`src/server/toolFilter.js`) when it shipped, so
+  `CRAWLFORGE_TOOLS=reddit_search` or `=extract_embedded_state` was reported as an
+  unknown name and the tool was left out. `reddit_search` now belongs to the
+  `search` group and `extract_embedded_state` to `extract`; the groups cover all
+  30 tools.
+- **The startup banner counts `extract_embedded_state`.** Its "Tools available"
+  line had omitted the tool since 5.4.0, so a full install reported 29 of 29
+  where it now reports 30 of 30.
+
 ## [5.7.0] - 2026-09-05
 
 Ships with crawlforge-extractors 1.8.0. Phase 1 of the 2026 feature plan: the

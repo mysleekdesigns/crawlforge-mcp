@@ -1742,7 +1742,7 @@ async function runServer() {
   console.error("Search enabled: true (via CrawlForge proxy)");
 
   const allTools = [
-    "fetch_url", "extract_text", "extract_links", "extract_metadata", "scrape_structured",
+    "fetch_url", "extract_text", "extract_links", "extract_metadata", "scrape_structured", "extract_embedded_state",
     "search_web", "serp_rank", "reddit_search", "crawl_deep", "map_site",
     "extract_content", "process_document", "summarize_content", "analyze_content",
     "batch_scrape", "get_batch_results", "read_result", "scrape_with_actions",

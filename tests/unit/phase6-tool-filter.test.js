@@ -6,10 +6,10 @@
  *
  * No network, no process.env mutation — env is always injected explicitly.
  *
- * Note: TOOL_GROUPS sums to 28 unique tool names against the 30 tools
- * server.js registers: reddit_search and extract_embedded_state are absent
- * from the groups (a pre-existing gap, not fixed here); Phase 2 added
- * read_result to `basic`.
+ * TOOL_GROUPS covers every one of the 30 tools server.js registers. Phase 2
+ * added read_result to `basic`; reddit_search (search) and
+ * extract_embedded_state (extract) had been missing from the groups since
+ * they were added, so neither could be selected by name in CRAWLFORGE_TOOLS.
  */
 
 import { test, describe } from 'node:test';
@@ -29,8 +29,15 @@ describe('TOOL_GROUPS', () => {
     assert.deepEqual(dupes, []);
   });
 
-  test('flattened union covers 28 tool names (30 registered minus the two ungrouped ones)', () => {
-    assert.equal(ALL_TOOL_NAMES.length, 28);
+  test('flattened union covers all 30 registered tool names', () => {
+    assert.equal(ALL_TOOL_NAMES.length, 30);
+  });
+
+  test('reddit_search and extract_embedded_state are selectable by name', () => {
+    const filter = createToolFilter({ CRAWLFORGE_TOOLS: 'reddit_search, extract_embedded_state' });
+    assert.equal(filter.isEnabled('reddit_search'), true);
+    assert.equal(filter.isEnabled('extract_embedded_state'), true);
+    assert.deepEqual(filter.summary().unknown, []);
   });
 });
 
@@ -140,10 +147,9 @@ describe('createToolFilter — union + dependency rule', () => {
   // Phase 2: a tool whose large results come back as a result_handle names
   // read_result in its hint, so that tool must be registered alongside it.
   test('enabling any inline-threshold tool force-enables read_result', () => {
-    // extract_embedded_state is also an inline-threshold tool but is absent
-    // from TOOL_GROUPS (the pre-existing gap noted above), so it cannot be
-    // named in CRAWLFORGE_TOOLS at all and is not exercised here.
-    for (const tool of ['scrape', 'fetch_url', 'crawl_deep', 'batch_scrape', 'stealth_mode', 'deep_research', 'extract_content', 'process_document', 'scrape_with_actions']) {
+    // extract_embedded_state never truncates but still returns a handle, so
+    // it brings read_result too.
+    for (const tool of ['scrape', 'fetch_url', 'crawl_deep', 'batch_scrape', 'stealth_mode', 'deep_research', 'extract_content', 'process_document', 'scrape_with_actions', 'extract_embedded_state']) {
       const filter = createToolFilter({ CRAWLFORGE_TOOLS: tool });
       assert.equal(filter.isEnabled(tool), true);
       assert.equal(filter.isEnabled('read_result'), true, `${tool} alone must bring read_result`);

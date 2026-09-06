@@ -300,16 +300,20 @@ Both may be set together (the union is exposed). Leaving both unset exposes all 
 (the default, unchanged). Unknown tool names or group names are ignored, with a warning
 logged to stderr. Enabling the `batch_scrape` tool (by name or via the `batch` group)
 automatically enables `get_batch_results`, since the latter is only useful to retrieve the
-former's paginated results.
+former's paginated results. Likewise, enabling any tool that can return a `result_handle`
+(`scrape`, `fetch_url`, `extract_content`, `crawl_deep`, `batch_scrape`, `stealth_mode`,
+`scrape_with_actions`, `process_document`, `deep_research`, `extract_embedded_state`)
+automatically enables `read_result`, so the hint on a truncated result never names an
+unregistered tool.
 
 **Groups:**
 
 | Group | Tools |
 |---|---|
-| `basic` | `fetch_url`, `extract_text`, `extract_links`, `extract_metadata`, `scrape_structured` |
-| `search` | `search_web`, `serp_rank` |
+| `basic` | `fetch_url`, `extract_text`, `extract_links`, `extract_metadata`, `scrape_structured`, `read_result` |
+| `search` | `search_web`, `serp_rank`, `reddit_search` |
 | `crawl` | `crawl_deep`, `map_site` |
-| `extract` | `extract_content`, `process_document`, `summarize_content`, `analyze_content`, `extract_structured`, `extract_with_llm`, `list_ollama_models` |
+| `extract` | `extract_content`, `process_document`, `summarize_content`, `analyze_content`, `extract_structured`, `extract_with_llm`, `list_ollama_models`, `extract_embedded_state` |
 | `batch` | `batch_scrape`, `get_batch_results`, `scrape_with_actions` |
 | `research` | `deep_research` |
 | `tracking` | `track_changes` |
