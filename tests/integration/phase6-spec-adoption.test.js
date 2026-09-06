@@ -8,7 +8,7 @@
  *     handshake still valid
  *   - tools/list: sorted ascending by name; every inputSchema carries the
  *     2020-12 $schema; every tool has an icons array; the 6 named tools carry
- *     an outputSchema; the 4 long-running tools have execution.taskSupport
+ *     an outputSchema; async tasks are retired (no execution.taskSupport)
  *     === 'optional'
  *   - tools/call fetch_url with an invalid URL resolves as a JSON-RPC result
  *     with isError:true (SEP-1303), not a thrown protocol error, over the
@@ -93,7 +93,7 @@ class McpStdioClient {
 
         settleReject(new Error(
           `server.js exited before printing the stdio ready banner (code=${code}, signal=${signal}). ` +
-          `This is expected if a Phase 6 module server.js imports (e.g. src/server/taskSupport.js, ` +
+          `This is expected if a Phase 6 module server.js imports (e.g. src/server/specHygiene.js, ` +
           `src/server/toolFilter.js, src/server/specHygiene.js) has not landed yet — ` +
           `treat as PENDING IMPLEMENTATION rather than a regression.\n` +
           `--- stderr ---\n${this.stderrBuffer}`
@@ -227,12 +227,13 @@ test('Phase 6 (live server): initialize + tools/list spec adoption + tools/call 
       assert.ok(tool.outputSchema && typeof tool.outputSchema === 'object', `expected tool "${name}" to declare an outputSchema`);
     }
 
-    // execution.taskSupport === 'optional' on the 4 long-running tools
-    const expectTaskSupport = ['crawl_deep', 'batch_scrape', 'deep_research', 'agent'];
-    for (const name of expectTaskSupport) {
+    // Async tasks were retired with the move to MCP SDK v2 (SEP-2663 removed the
+    // experimental tasks surface these four tools stood on). They must therefore
+    // advertise no `execution.taskSupport` at all.
+    for (const name of ['crawl_deep', 'batch_scrape', 'deep_research', 'agent']) {
       const tool = tools.find((t) => t.name === name);
       assert.ok(tool, `expected tool "${name}" to be present in tools/list`);
-      assert.equal(tool.execution?.taskSupport, 'optional', `expected tool "${name}".execution.taskSupport === 'optional'; got ${JSON.stringify(tool.execution)}`);
+      assert.equal(tool.execution?.taskSupport, undefined, `tool "${name}" must not advertise taskSupport after the v2 retirement; got ${JSON.stringify(tool.execution)}`);
     }
 
     // ── tools/call fetch_url with an invalid URL → SEP-1303 over the real server ──

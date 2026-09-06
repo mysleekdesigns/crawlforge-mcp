@@ -1226,8 +1226,15 @@ class MCPProtocolComplianceTestSuite {
     }
     if (response?.result?.isError) {
       const text = response.result.content?.[0]?.text || '';
+      // SEP-1303 makes tool input-validation failures tool execution errors, so
+      // the code never reaches the JSON-RPC layer — it only ever appeared here
+      // because MCP SDK v1 stringified it into the message ("MCP error -32602:
+      // ..."). v2 raises the same ProtocolError(InvalidParams) but renders only
+      // its prose, so recognise that wording as the -32602 it actually is.
       const match = text.match(/MCP error (-?\d+)/);
-      return { hasError: true, code: match ? parseInt(match[1], 10) : undefined, message: text };
+      let code = match ? parseInt(match[1], 10) : undefined;
+      if (code === undefined && /^Input validation error:/.test(text)) code = -32602;
+      return { hasError: true, code, message: text };
     }
     return { hasError: false, code: undefined, message: undefined };
   }

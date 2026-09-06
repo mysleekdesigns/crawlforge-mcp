@@ -11,11 +11,10 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from 'zod';
 import { connectStreamableHttp } from '../../src/server/transports/streamableHttp.js';
 import { createMetricsRegistry } from '../../src/observability/metrics.js';
-import { createTaskStore, TASK_EXECUTION, TASKS_CAPABILITY, makeTaskToolHandler } from '../../src/server/taskSupport.js';
 
 function makeAuth({ apiKey = 'cf-test', creator = false } = {}) {
   return {
@@ -341,11 +340,13 @@ test('legacy mode: a second and third request each get a proper response, no han
   }
 });
 
-// ─── Task-capable tools over stateful HTTP sessions ─────────────────────────
-// Session servers are clones of the template (cloneServerForSession); the clone
-// must inherit the template's taskStore or every tools/call on a task-capable
-// tool (crawl_deep, batch_scrape, deep_research, agent) dies with the SDK's
-// 'No task store provided for task-capable tool.'
+// ─── Tool calls over stateful HTTP sessions ─────────────────────────────────
+// Session servers are clones of the template (cloneServerForSession), built by
+// copying the SDK's internal `_registered*` tables and re-running its
+// `set*RequestHandlers`. That reaches into SDK internals, so this test is the
+// regression guard that a tools/call still completes over a real session after
+// an SDK upgrade — it caught nothing on the v2 move only because v2 kept every
+// field name; the next upgrade may not.
 
 /** Parses a Streamable HTTP response body (plain JSON or single-response SSE). */
 async function readRpcBody(res) {
@@ -358,26 +359,18 @@ async function readRpcBody(res) {
   return JSON.parse(text);
 }
 
-/** A template server registered the way server.js registers agent & friends. */
-function makeTaskToolServer() {
-  const taskStore = createTaskStore({});
-  const server = new McpServer({ name: 'test', version: '0.0.0' }, { taskStore });
-  server.server.registerCapabilities(TASKS_CAPABILITY);
-  server.experimental.tasks.registerToolTask('slow_echo', {
-    description: 'test task tool',
-    inputSchema: { text: z.string() },
-    execution: TASK_EXECUTION
-  }, makeTaskToolHandler({
-    name: 'slow_echo',
-    run: async (args) => ({ content: [{ type: 'text', text: `echo:${args.text}` }] }),
-    taskStore,
-    logger: quietLogger()
-  }));
+/** A template server registered the way server.js registers its tools. */
+function makeEchoToolServer() {
+  const server = new McpServer({ name: 'test', version: '0.0.0' }, { capabilities: { tools: {} } });
+  server.registerTool('slow_echo', {
+    description: 'test tool',
+    inputSchema: { text: z.string() }
+  }, async (args) => ({ content: [{ type: 'text', text: `echo:${args.text}` }] }));
   return server;
 }
 
-test('stateful mode: a task-capable tool completes over a session (clone inherits taskStore)', async () => {
-  const env = await startServer({ server: makeTaskToolServer(), auth: makeAuth({ creator: true }) });
+test('stateful mode: a tool call completes over a session (clone carries the tool tables)', async () => {
+  const env = await startServer({ server: makeEchoToolServer(), auth: makeAuth({ creator: true }) });
   try {
     const initRes = await fetchPath(env.port, '/mcp', { method: 'POST', body: initializeBody(1), headers: jsonRpcHeaders });
     assert.equal(initRes.status, 200);

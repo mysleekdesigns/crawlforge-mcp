@@ -12,7 +12,7 @@
 import { connectStreamableHttp } from './streamableHttp.js';
 
 /**
- * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} server
+ * @param {import('@modelcontextprotocol/server').McpServer} server
  * @param {import('../../core/AuthManager.js').default} authManager
  * @param {import('../../utils/Logger.js').logger} logger
  * @param {number} [port=3000]

@@ -24,9 +24,9 @@ const src = readFileSync(new URL('../../server.js', import.meta.url), 'utf8');
 const LIMIT = 2048;
 
 function registrations() {
-  const re = /(registerToolIfEnabled|registerToolTask)\("([a-z_]+)", \{\n\s*description: ("(?:[^"\\]|\\.)*")/g;
+  const re = /registerToolIfEnabled\("([a-z_]+)", \{\n\s*description: ("(?:[^"\\]|\\.)*")/g;
   const out = {};
-  for (const m of src.matchAll(re)) out[m[2]] = JSON.parse(m[3]);
+  for (const m of src.matchAll(re)) out[m[1]] = JSON.parse(m[2]);
   return out;
 }
 
@@ -79,6 +79,6 @@ test('scrape, search_web and deep_research ship their definitions at session sta
     const re = new RegExp(`registerToolIfEnabled\\("${name}", \\{[\\s\\S]*?_meta: \\{ "anthropic/alwaysLoad": true \\}[\\s\\S]*?\\}, withAuth\\("${name}"`);
     assert.match(src, re, `${name} lacks _meta anthropic/alwaysLoad`);
   }
-  assert.match(src, /registerToolTask\("deep_research", \{[\s\S]*?_meta: \{ "anthropic\/alwaysLoad": true \}/, 'deep_research lacks _meta anthropic/alwaysLoad');
+  assert.match(src, /registerToolIfEnabled\("deep_research", \{[\s\S]*?_meta: \{ "anthropic\/alwaysLoad": true \}/, 'deep_research lacks _meta anthropic/alwaysLoad');
   assert.equal((src.match(/"anthropic\/alwaysLoad": true/g) ?? []).length, 3, 'alwaysLoad must stay rare: it costs context in every session');
 });

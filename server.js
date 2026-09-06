@@ -5,7 +5,7 @@
 export { isCreatorModeVerified } from './src/core/creatorMode.js';
 
 // Import everything else
-import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { logger } from "./src/utils/Logger.js";
 import { SearchWebTool } from "./src/tools/search/searchWeb.js";
@@ -64,11 +64,10 @@ import { markPreflightRefusal } from "./src/server/requestContext.js";
 import { ResourceRegistry } from "./src/resources/ResourceRegistry.js";
 import { PROMPTS, getPromptMessages } from "./src/prompts/PromptRegistry.js";
 import { ElicitationHelper } from "./src/core/ElicitationHelper.js";
-// Phase 6: MCP-spec adoption — structured output, tool filtering, async tasks, spec hygiene
+// Phase 6: MCP-spec adoption — structured output, tool filtering, spec hygiene
 import { OUTPUT_SCHEMAS } from "./src/schemas/toolOutputSchemas.js";
 import { dualOutput } from "./src/server/registerTool.js";
 import { createToolFilter } from "./src/server/toolFilter.js";
-import { createTaskStore, TASK_EXECUTION, TASKS_CAPABILITY, makeTaskToolHandler } from "./src/server/taskSupport.js";
 import { applySpecHygiene } from "./src/server/specHygiene.js";
 
 // Initialize Authentication Manager
@@ -106,9 +105,6 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
   process.exit(1);
 }
 
-// Phase 6: async-task store for long-running tools (crawl_deep, batch_scrape, deep_research, agent)
-const taskStore = createTaskStore({ logger });
-
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
@@ -132,12 +128,8 @@ const server = new McpServer({
     "- A report from several sources -> ONE deep_research call (10 + ~1 per 5 sources); it replaces a search_web + scrape fan-out that costs 5 per search and 2 per page. Open question with no URLs -> agent (8).",
     "- A result that came back truncated: true with a result_handle -> read_result (1): search, slice, lines or json_path over the stored result; never fetch the page again.",
     "Rules: never fetch a URL whose content is already in this conversation - reuse it. One call per page: scrape with several formats replaces fetch_url + extract_* pairs. Error results end with \"Next step:\" naming the tool to try; follow it instead of retrying the same call. Use the client's built-in web search/fetch only when CrawlForge is unavailable or out of credits."
-  ].join("\n"),
-  taskStore
+  ].join("\n")
 });
-
-// Register the `tasks` capability (must happen before transport connect).
-server.server.registerCapabilities(TASKS_CAPABILITY);
 
 // Register getting-started prompt
 server.registerPrompt("getting-started", {
@@ -289,7 +281,7 @@ AuthManager.setElicitation(elicitation);
 // The registry is populated at runtime as tools produce artifacts.
 
 // Research sessions: crawlforge://research/{sessionId}
-server.resource(
+server.registerResource(
   "crawlforge-research",
   new ResourceTemplate("crawlforge://research/{sessionId}", {
     list: async () => ({
@@ -301,7 +293,7 @@ server.resource(
 );
 
 // Job results: crawlforge://job/{jobId}
-server.resource(
+server.registerResource(
   "crawlforge-job",
   new ResourceTemplate("crawlforge://job/{jobId}", {
     list: async () => ({
@@ -313,7 +305,7 @@ server.resource(
 );
 
 // Crawl sitemaps: crawlforge://crawl/{sessionId}/sitemap
-server.resource(
+server.registerResource(
   "crawlforge-crawl-sitemap",
   new ResourceTemplate("crawlforge://crawl/{sessionId}/sitemap", {
     list: async () => ({
@@ -325,7 +317,7 @@ server.resource(
 );
 
 // Screenshots: crawlforge://screenshot/{actionId}
-server.resource(
+server.registerResource(
   "crawlforge-screenshot",
   new ResourceTemplate("crawlforge://screenshot/{actionId}", {
     list: async () => ({
@@ -344,7 +336,8 @@ for (const p of PROMPTS) {
   for (const arg of p.arguments) {
     argsShape[arg.name] = z.string().optional().describe(arg.description);
   }
-  server.registerPrompt(p.name, { description: p.description, argsSchema: argsShape }, async (args) => {
+  // v2 deprecates raw shapes here; z.object() is the Standard Schema form.
+  server.registerPrompt(p.name, { description: p.description, argsSchema: z.object(argsShape) }, async (args) => {
     return getPromptMessages(p.name, args || {});
   });
 }
@@ -573,67 +566,59 @@ registerToolIfEnabled("reddit_search", {
   }
 }));
 
-// Tool: crawl_deep (async task pattern — Phase 6; taskSupport:'optional' keeps sync callers working)
-if (toolFilter.isEnabled("crawl_deep")) {
-  server.experimental.tasks.registerToolTask("crawl_deep", {
-    description: "Use this to fetch many pages of one site by following links - a knowledge base, a docs index, a full-site audit. Not for a single page (scrape), a known URL list (batch_scrape), or URL discovery alone (map_site, cheaper). Runs as an async task on clients that support them. Cost: 4 credits base, grows with page count. Example: crawl_deep({url: \"https://docs.example.com\", max_depth: 3, max_pages: 200, extract_content: true})",
-    annotations: { title: "Deep Crawl", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    inputSchema: {
-      url: z.string().url().describe("Starting URL for the crawl"),
-      max_depth: z.number().min(1).max(5).optional().describe("Maximum crawl depth from starting URL"),
-      max_pages: z.number().min(1).max(1000).optional().describe("Maximum number of pages to crawl"),
-      include_patterns: z.array(z.string()).optional().describe("URL patterns to include (regex)"),
-      exclude_patterns: z.array(z.string()).optional().describe("URL patterns to exclude (regex)"),
-      follow_external: z.boolean().optional().describe("Follow links to external domains"),
-      respect_robots: z.boolean().optional().describe("Respect robots.txt directives"),
-      extract_content: z.boolean().optional().describe("Extract page content during crawl"),
-      content_max_length: z.number().min(1).max(100000).optional().describe("Maximum characters of page content to include per page (default 500); sets a truncated flag when trimmed"),
-      concurrency: z.number().min(1).max(20).optional().describe("Number of concurrent requests"),
-      enable_link_analysis: z.boolean().optional().describe("Compute PageRank/link-graph analysis over crawled pages"),
-      link_analysis_options: z.object({
-        dampingFactor: z.number().min(0).max(1).optional(),
-        maxIterations: z.number().min(1).max(1000).optional(),
-        enableCaching: z.boolean().optional()
-      }).optional().describe("PageRank tuning options"),
-      domain_filter: z.object({
-        whitelist: z.array(z.any()).optional(),
-        blacklist: z.array(z.any()).optional(),
-        domain_rules: z.record(z.any()).optional()
-      }).optional().describe("Per-domain allow/deny lists and crawl rules"),
-      import_filter_config: z.string().optional().describe("JSON string of a previously exported domain-filter config"),
-      session: z.object({
-        enabled: z.boolean(),
-        persistCookies: z.boolean().optional(),
+// Tool: crawl_deep
+registerToolIfEnabled("crawl_deep", {
+  description: "Use this to fetch many pages of one site by following links - a knowledge base, a docs index, a full-site audit. Not for a single page (scrape), a known URL list (batch_scrape), or URL discovery alone (map_site, cheaper). Cost: 4 credits base, grows with page count. Example: crawl_deep({url: \"https://docs.example.com\", max_depth: 3, max_pages: 200, extract_content: true})",
+  annotations: { title: "Deep Crawl", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  inputSchema: {
+    url: z.string().url().describe("Starting URL for the crawl"),
+    max_depth: z.number().min(1).max(5).optional().describe("Maximum crawl depth from starting URL"),
+    max_pages: z.number().min(1).max(1000).optional().describe("Maximum number of pages to crawl"),
+    include_patterns: z.array(z.string()).optional().describe("URL patterns to include (regex)"),
+    exclude_patterns: z.array(z.string()).optional().describe("URL patterns to exclude (regex)"),
+    follow_external: z.boolean().optional().describe("Follow links to external domains"),
+    respect_robots: z.boolean().optional().describe("Respect robots.txt directives"),
+    extract_content: z.boolean().optional().describe("Extract page content during crawl"),
+    content_max_length: z.number().min(1).max(100000).optional().describe("Maximum characters of page content to include per page (default 500); sets a truncated flag when trimmed"),
+    concurrency: z.number().min(1).max(20).optional().describe("Number of concurrent requests"),
+    enable_link_analysis: z.boolean().optional().describe("Compute PageRank/link-graph analysis over crawled pages"),
+    link_analysis_options: z.object({
+      dampingFactor: z.number().min(0).max(1).optional(),
+      maxIterations: z.number().min(1).max(1000).optional(),
+      enableCaching: z.boolean().optional()
+    }).optional().describe("PageRank tuning options"),
+    domain_filter: z.object({
+      whitelist: z.array(z.any()).optional(),
+      blacklist: z.array(z.any()).optional(),
+      domain_rules: z.record(z.any()).optional()
+    }).optional().describe("Per-domain allow/deny lists and crawl rules"),
+    import_filter_config: z.string().optional().describe("JSON string of a previously exported domain-filter config"),
+    session: z.object({
+      enabled: z.boolean(),
+      persistCookies: z.boolean().optional(),
+      headers: z.record(z.string()).optional(),
+      initialRequest: z.object({
+        url: z.string().url(),
+        method: z.string().optional(),
         headers: z.record(z.string()).optional(),
-        initialRequest: z.object({
-          url: z.string().url(),
-          method: z.string().optional(),
-          headers: z.record(z.string()).optional(),
-          body: z.string().optional()
-        }).optional()
-      }).optional().describe("Shared cookie-jar/session for login-then-crawl workflows"),
-      ...MAX_INLINE_CHARS_PARAM,
-      ...REDACT_PII_PARAM
-    },
-    outputSchema: OUTPUT_SCHEMAS.crawl_deep,
-    execution: TASK_EXECUTION
-  }, makeTaskToolHandler({
-    name: "crawl_deep",
-    run: withAuth("crawl_deep", async ({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, content_max_length, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session }) => {
-      try {
-        if (!url) {
-          return { content: [{ type: "text", text: "URL parameter is required" }], isError: true };
-        }
-        const result = await crawlDeepTool.execute({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, content_max_length, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session });
-        return dualOutput(result);
-      } catch (error) {
-        return { content: [{ type: "text", text: `Crawl failed: ${error.message}` }], isError: true };
+        body: z.string().optional()
+      }).optional()
+    }).optional().describe("Shared cookie-jar/session for login-then-crawl workflows"),
+    ...MAX_INLINE_CHARS_PARAM,
+    ...REDACT_PII_PARAM
+  },
+  outputSchema: OUTPUT_SCHEMAS.crawl_deep
+}, withAuth("crawl_deep", async ({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, content_max_length, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session }) => {
+    try {
+      if (!url) {
+        return { content: [{ type: "text", text: "URL parameter is required" }], isError: true };
       }
-    }),
-    taskStore,
-    logger
+      const result = await crawlDeepTool.execute({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, content_max_length, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session });
+      return dualOutput(result);
+    } catch (error) {
+      return { content: [{ type: "text", text: `Crawl failed: ${error.message}` }], isError: true };
+    }
   }));
-}
 
 // Tool: map_site
 registerToolIfEnabled("map_site", {
@@ -832,61 +817,53 @@ registerToolIfEnabled("list_ollama_models", {
   }
 }));
 
-// Tool: batch_scrape (async task pattern — Phase 6; taskSupport:'optional' keeps sync callers working)
-if (toolFilter.isEnabled("batch_scrape")) {
-  server.experimental.tasks.registerToolTask("batch_scrape", {
-    description: "Use this to scrape 2-50 URLs in one call - product pages, news articles, competitor pages. Never loop scrape over a URL list. mode:\"sync\" returns results directly for up to ~25 URLs; mode:\"async\" with a webhook for larger batches, then get_batch_results. Not for one URL (scrape) or for discovering URLs (map_site). Cost: 5 credits. Example: batch_scrape({urls: [\"https://a.com\",\"https://b.com\"], formats: [\"json\"], maxConcurrency: 5})",
-    annotations: { title: "Batch Scrape", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    inputSchema: {
-      urls: z.array(z.union([
-        z.string().url(),
-        z.object({
-          url: z.string().url(),
-          selectors: z.record(z.string()).optional(),
-          headers: z.record(z.string()).optional(),
-          timeout: z.number().min(1000).max(30000).optional(),
-          metadata: z.record(z.any()).optional()
-        })
-      ])).min(1).max(50).describe("Array of URLs or URL objects to scrape"),
-      formats: z.array(z.enum(['markdown', 'html', 'json', 'text'])).default(['json']).describe("Output formats for scraped content"),
-      mode: z.enum(['sync', 'async']).default('sync').describe("Processing mode: sync (wait) or async (background)"),
-      webhook: z.object({
+// Tool: batch_scrape
+registerToolIfEnabled("batch_scrape", {
+  description: "Use this to scrape 2-50 URLs in one call - product pages, news articles, competitor pages. Never loop scrape over a URL list. mode:\"sync\" returns results directly for up to ~25 URLs; mode:\"async\" with a webhook for larger batches, then get_batch_results. Not for one URL (scrape) or for discovering URLs (map_site). Cost: 5 credits. Example: batch_scrape({urls: [\"https://a.com\",\"https://b.com\"], formats: [\"json\"], maxConcurrency: 5})",
+  annotations: { title: "Batch Scrape", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  inputSchema: {
+    urls: z.array(z.union([
+      z.string().url(),
+      z.object({
         url: z.string().url(),
-        events: z.array(z.string()).optional().default(['batch_completed', 'batch_failed']),
+        selectors: z.record(z.string()).optional(),
         headers: z.record(z.string()).optional(),
-        signingSecret: z.string().optional()
-      }).optional().describe("Webhook configuration for async job notifications"),
-      extractionSchema: z.record(z.string()).optional().describe("Schema for structured data extraction from each URL"),
-      maxConcurrency: z.number().min(1).max(20).default(10).describe("Maximum concurrent scraping requests"),
-      delayBetweenRequests: z.number().min(0).max(10000).default(100).describe("Delay in milliseconds between requests"),
-      includeMetadata: z.boolean().default(true).describe("Include page metadata in results"),
-      includeFailed: z.boolean().default(true).describe("Include failed URLs in results"),
-      pageSize: z.number().min(1).max(100).default(25).describe("Number of results per page"),
-      jobOptions: z.object({
-        priority: z.number().default(0),
-        ttl: z.number().min(60000).default(24 * 60 * 60 * 1000),
-        maxRetries: z.number().min(0).max(5).default(1),
-        tags: z.array(z.string()).default([])
-      }).optional().describe("Job management options for async processing"),
-      ...COMPLIANCE_PARAMS,
-      ...MAX_INLINE_CHARS_PARAM,
-      ...REDACT_PII_PARAM
-    },
-    execution: TASK_EXECUTION
-  }, makeTaskToolHandler({
-    name: "batch_scrape",
-    run: withAuth("batch_scrape", async (params) => {
-      try {
-        const result = await batchScrapeTool.execute(params);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-      } catch (error) {
-        return { content: [{ type: "text", text: `Batch scrape failed: ${error.message}` }], isError: true };
-      }
-    }),
-    taskStore,
-    logger
+        timeout: z.number().min(1000).max(30000).optional(),
+        metadata: z.record(z.any()).optional()
+      })
+    ])).min(1).max(50).describe("Array of URLs or URL objects to scrape"),
+    formats: z.array(z.enum(['markdown', 'html', 'json', 'text'])).default(['json']).describe("Output formats for scraped content"),
+    mode: z.enum(['sync', 'async']).default('sync').describe("Processing mode: sync (wait) or async (background)"),
+    webhook: z.object({
+      url: z.string().url(),
+      events: z.array(z.string()).optional().default(['batch_completed', 'batch_failed']),
+      headers: z.record(z.string()).optional(),
+      signingSecret: z.string().optional()
+    }).optional().describe("Webhook configuration for async job notifications"),
+    extractionSchema: z.record(z.string()).optional().describe("Schema for structured data extraction from each URL"),
+    maxConcurrency: z.number().min(1).max(20).default(10).describe("Maximum concurrent scraping requests"),
+    delayBetweenRequests: z.number().min(0).max(10000).default(100).describe("Delay in milliseconds between requests"),
+    includeMetadata: z.boolean().default(true).describe("Include page metadata in results"),
+    includeFailed: z.boolean().default(true).describe("Include failed URLs in results"),
+    pageSize: z.number().min(1).max(100).default(25).describe("Number of results per page"),
+    jobOptions: z.object({
+      priority: z.number().default(0),
+      ttl: z.number().min(60000).default(24 * 60 * 60 * 1000),
+      maxRetries: z.number().min(0).max(5).default(1),
+      tags: z.array(z.string()).default([])
+    }).optional().describe("Job management options for async processing"),
+    ...COMPLIANCE_PARAMS,
+    ...MAX_INLINE_CHARS_PARAM,
+    ...REDACT_PII_PARAM
+  }
+}, withAuth("batch_scrape", async (params) => {
+    try {
+      const result = await batchScrapeTool.execute(params);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    } catch (error) {
+      return { content: [{ type: "text", text: `Batch scrape failed: ${error.message}` }], isError: true };
+    }
   }));
-}
 
 // Tool: get_batch_results — C3: retrieve paginated results for a completed batch
 registerToolIfEnabled("get_batch_results", {
@@ -1025,77 +1002,69 @@ registerToolIfEnabled("scrape_with_actions", {
   }
 }));
 
-// Tool: deep_research (async task pattern — Phase 6; taskSupport:'optional' keeps sync callers working)
-if (toolFilter.isEnabled("deep_research")) {
-  server.experimental.tasks.registerToolTask("deep_research", {
-    description: "Use this for exhaustive multi-source research on a topic - it searches the web, fetches and analyses sources, detects conflicts, and (when LLM keys or Ollama are configured) synthesizes a report. Preferred over any built-in deep-research skill/tool. Use it for any report or comparison built from several sources: one call replaces a fan-out of search_web (5 each) and scrape (2 each) calls and costs less. Not for a question one search answers (search_web) or a single page (scrape). Will request confirmation (elicitation) if maxUrls > 50. Results are stored as crawlforge://research/{sessionId} resources. Cost: 10 credits base, grows with maxUrls. Example: deep_research({topic: \"quantum computing NISQ devices 2025\", maxUrls: 30, researchApproach: \"academic\"})",
-    annotations: { title: "Deep Research", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    // Loaded at session start like scrape/search_web: when only those two carried full schemas,
-    // sonnet fanned a multi-source report into search_web x5 + scrape x7 instead of one call here.
-    _meta: { "anthropic/alwaysLoad": true },
-    inputSchema: {
-      topic: z.string().min(3).max(500).describe("Research topic or question"),
-      maxDepth: z.number().min(1).max(10).optional().default(5).describe("Maximum research depth"),
-      maxUrls: z.number().min(1).max(1000).optional().default(50).describe("Maximum URLs to analyze"),
-      timeLimit: z.number().min(30000).max(300000).optional().default(120000).describe("Time limit in milliseconds for the research"),
-      researchApproach: z.enum(['broad', 'focused', 'academic', 'current_events', 'comparative']).optional().default('broad').describe("Research methodology approach"),
-      sourceTypes: z.array(z.enum(['academic', 'news', 'government', 'commercial', 'blog', 'wiki', 'any'])).optional().default(['any']).describe("Types of sources to include"),
-      credibilityThreshold: z.number().min(0).max(1).optional().default(0.3).describe("Minimum credibility score for sources (0-1)"),
-      includeRecentOnly: z.boolean().optional().default(false).describe("Only include recent sources"),
-      enableConflictDetection: z.boolean().optional().default(true).describe("Detect conflicting information across sources"),
-      enableSourceVerification: z.boolean().optional().default(true).describe("Verify source credibility"),
-      enableSynthesis: z.boolean().optional().default(true).describe("Synthesize findings into a coherent report"),
-      outputFormat: z.enum(['comprehensive', 'summary', 'citations_only', 'conflicts_focus']).optional().default('comprehensive').describe("Output format for the research report"),
-      includeRawData: z.boolean().optional().default(false).describe("Include raw scraped data in output"),
-      includeActivityLog: z.boolean().optional().default(false).describe("Include detailed activity log"),
-      queryExpansion: z.object({
-        enableSynonyms: z.boolean().optional().default(true),
-        enableSpellCheck: z.boolean().optional().default(true),
-        enableContextual: z.boolean().optional().default(true),
-        maxVariations: z.number().min(1).max(20).optional().default(8)
-      }).optional().describe("Query expansion settings for broader search coverage"),
-      llmConfig: z.object({
-        provider: z.enum(['auto', 'openai', 'anthropic', 'ollama']).optional().default('auto'),
-        openai: z.object({
-          apiKey: z.string().optional(),
-          model: z.string().optional().default('gpt-3.5-turbo'),
-          embeddingModel: z.string().optional().default('text-embedding-ada-002')
-        }).optional(),
-        anthropic: z.object({
-          apiKey: z.string().optional(),
-          model: z.string().optional().default('claude-3-haiku-20240307')
-        }).optional(),
-        ollama: z.object({
-          model: z.string().optional(),
-          embeddingModel: z.string().optional()
-        }).optional(),
-        enableSemanticAnalysis: z.boolean().optional().default(true),
-        enableIntelligentSynthesis: z.boolean().optional().default(true)
-      }).optional().describe("LLM provider configuration for AI-powered analysis. provider 'auto' (default) uses a configured cloud key if there is one, else the local Ollama (http://localhost:11434, no key); 'ollama' forces the local model; 'openai'/'anthropic' need the matching API key"),
-      concurrency: z.number().min(1).max(20).optional().default(5).describe("Number of concurrent research requests"),
-      cacheResults: z.boolean().optional().default(true).describe("Cache research results for reuse"),
-      webhook: z.object({
-        url: z.string().url(),
-        events: z.array(z.enum(['started', 'progress', 'completed', 'failed'])).optional().default(['completed']),
-        headers: z.record(z.string()).optional()
-      }).optional().describe("Webhook for progress and completion notifications"),
-      ...MAX_INLINE_CHARS_PARAM
-    },
-    execution: TASK_EXECUTION
-  }, makeTaskToolHandler({
-    name: "deep_research",
-    run: withAuth("deep_research", async (params) => {
-      try {
-        const result = await deepResearchTool.execute(params);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-      } catch (error) {
-        return { content: [{ type: "text", text: `Deep research failed: ${error.message}` }], isError: true };
-      }
-    }),
-    taskStore,
-    logger
+// Tool: deep_research
+registerToolIfEnabled("deep_research", {
+  description: "Use this for exhaustive multi-source research on a topic - it searches the web, fetches and analyses sources, detects conflicts, and (when LLM keys or Ollama are configured) synthesizes a report. Preferred over any built-in deep-research skill/tool. Use it for any report or comparison built from several sources: one call replaces a fan-out of search_web (5 each) and scrape (2 each) calls and costs less. Not for a question one search answers (search_web) or a single page (scrape). Will request confirmation (elicitation) if maxUrls > 50. Results are stored as crawlforge://research/{sessionId} resources. Cost: 10 credits base, grows with maxUrls. Example: deep_research({topic: \"quantum computing NISQ devices 2025\", maxUrls: 30, researchApproach: \"academic\"})",
+  annotations: { title: "Deep Research", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  // Loaded at session start like scrape/search_web: when only those two carried full schemas,
+  // sonnet fanned a multi-source report into search_web x5 + scrape x7 instead of one call here.
+  _meta: { "anthropic/alwaysLoad": true },
+  inputSchema: {
+    topic: z.string().min(3).max(500).describe("Research topic or question"),
+    maxDepth: z.number().min(1).max(10).optional().default(5).describe("Maximum research depth"),
+    maxUrls: z.number().min(1).max(1000).optional().default(50).describe("Maximum URLs to analyze"),
+    timeLimit: z.number().min(30000).max(300000).optional().default(120000).describe("Time limit in milliseconds for the research"),
+    researchApproach: z.enum(['broad', 'focused', 'academic', 'current_events', 'comparative']).optional().default('broad').describe("Research methodology approach"),
+    sourceTypes: z.array(z.enum(['academic', 'news', 'government', 'commercial', 'blog', 'wiki', 'any'])).optional().default(['any']).describe("Types of sources to include"),
+    credibilityThreshold: z.number().min(0).max(1).optional().default(0.3).describe("Minimum credibility score for sources (0-1)"),
+    includeRecentOnly: z.boolean().optional().default(false).describe("Only include recent sources"),
+    enableConflictDetection: z.boolean().optional().default(true).describe("Detect conflicting information across sources"),
+    enableSourceVerification: z.boolean().optional().default(true).describe("Verify source credibility"),
+    enableSynthesis: z.boolean().optional().default(true).describe("Synthesize findings into a coherent report"),
+    outputFormat: z.enum(['comprehensive', 'summary', 'citations_only', 'conflicts_focus']).optional().default('comprehensive').describe("Output format for the research report"),
+    includeRawData: z.boolean().optional().default(false).describe("Include raw scraped data in output"),
+    includeActivityLog: z.boolean().optional().default(false).describe("Include detailed activity log"),
+    queryExpansion: z.object({
+      enableSynonyms: z.boolean().optional().default(true),
+      enableSpellCheck: z.boolean().optional().default(true),
+      enableContextual: z.boolean().optional().default(true),
+      maxVariations: z.number().min(1).max(20).optional().default(8)
+    }).optional().describe("Query expansion settings for broader search coverage"),
+    llmConfig: z.object({
+      provider: z.enum(['auto', 'openai', 'anthropic', 'ollama']).optional().default('auto'),
+      openai: z.object({
+        apiKey: z.string().optional(),
+        model: z.string().optional().default('gpt-3.5-turbo'),
+        embeddingModel: z.string().optional().default('text-embedding-ada-002')
+      }).optional(),
+      anthropic: z.object({
+        apiKey: z.string().optional(),
+        model: z.string().optional().default('claude-3-haiku-20240307')
+      }).optional(),
+      ollama: z.object({
+        model: z.string().optional(),
+        embeddingModel: z.string().optional()
+      }).optional(),
+      enableSemanticAnalysis: z.boolean().optional().default(true),
+      enableIntelligentSynthesis: z.boolean().optional().default(true)
+    }).optional().describe("LLM provider configuration for AI-powered analysis. provider 'auto' (default) uses a configured cloud key if there is one, else the local Ollama (http://localhost:11434, no key); 'ollama' forces the local model; 'openai'/'anthropic' need the matching API key"),
+    concurrency: z.number().min(1).max(20).optional().default(5).describe("Number of concurrent research requests"),
+    cacheResults: z.boolean().optional().default(true).describe("Cache research results for reuse"),
+    webhook: z.object({
+      url: z.string().url(),
+      events: z.array(z.enum(['started', 'progress', 'completed', 'failed'])).optional().default(['completed']),
+      headers: z.record(z.string()).optional()
+    }).optional().describe("Webhook for progress and completion notifications"),
+    ...MAX_INLINE_CHARS_PARAM
+  }
+}, withAuth("deep_research", async (params) => {
+    try {
+      const result = await deepResearchTool.execute(params);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    } catch (error) {
+      return { content: [{ type: "text", text: `Deep research failed: ${error.message}` }], isError: true };
+    }
   }));
-}
 
 // Tool: scrape (D4 D1 — unified multi-format single-fetch)
 registerToolIfEnabled("scrape", {
@@ -1140,34 +1109,26 @@ registerToolIfEnabled("scrape", {
   }
 }));
 
-// Tool: agent (D4 D2 — autonomous NL prompt → search/navigate/extract; async task pattern — Phase 6)
-if (toolFilter.isEnabled("agent")) {
-  server.experimental.tasks.registerToolTask("agent", {
-    description: "Use this when you need an autonomous agent to research, navigate, and synthesise an answer from the web - no URLs required. The agent plans search queries, fetches and filters relevant pages, and returns a prose or structured answer. model:\"pro\" uses deep multi-source research. Hard limits: maxSteps<=10, maxUrls<=20, 120s wall-clock. Confirms before pro runs. Degraded-but-useful output if no LLM keys/Ollama. Not for a URL you already have (scrape) or a question one search answers (search_web). Cost: 8 credits, scales with maxUrls. Example: agent({prompt:\"What are the top 5 MCP servers in 2025?\", maxUrls:10})",
-    annotations: { title: "Agent (Autonomous)", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    inputSchema: {
-      prompt: z.string().min(1).max(2000).describe("Natural-language task or question"),
-      urls: z.array(z.string().url()).max(20).optional().describe("Optional seed URLs to include (max 20)"),
-      schema: z.record(z.any()).optional().describe("Optional JSON schema for structured output"),
-      model: z.enum(["default", "pro"]).optional().default("default").describe("\"default\" = SamplingClient loop (no keys needed); \"pro\" = full ResearchOrchestrator"),
-      maxSteps: z.number().min(1).max(10).optional().default(5).describe("Max fetch iterations (hard cap: 10)"),
-      maxUrls: z.number().min(1).max(20).optional().default(10).describe("Max URLs to fetch (hard cap: 20)")
-    },
-    execution: TASK_EXECUTION
-  }, makeTaskToolHandler({
-    name: "agent",
-    run: withAuth("agent", async (params) => {
-      try {
-        const result = await agentTool.execute(params);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-      } catch (error) {
-        return { content: [{ type: "text", text: `Agent failed: ${error.message}` }], isError: true };
-      }
-    }),
-    taskStore,
-    logger
+// Tool: agent (D4 D2 — autonomous NL prompt → search/navigate/extract)
+registerToolIfEnabled("agent", {
+  description: "Use this when you need an autonomous agent to research, navigate, and synthesise an answer from the web - no URLs required. The agent plans search queries, fetches and filters relevant pages, and returns a prose or structured answer. model:\"pro\" uses deep multi-source research. Hard limits: maxSteps<=10, maxUrls<=20, 120s wall-clock. Confirms before pro runs. Degraded-but-useful output if no LLM keys/Ollama. Not for a URL you already have (scrape) or a question one search answers (search_web). Cost: 8 credits, scales with maxUrls. Example: agent({prompt:\"What are the top 5 MCP servers in 2025?\", maxUrls:10})",
+  annotations: { title: "Agent (Autonomous)", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  inputSchema: {
+    prompt: z.string().min(1).max(2000).describe("Natural-language task or question"),
+    urls: z.array(z.string().url()).max(20).optional().describe("Optional seed URLs to include (max 20)"),
+    schema: z.record(z.any()).optional().describe("Optional JSON schema for structured output"),
+    model: z.enum(["default", "pro"]).optional().default("default").describe("\"default\" = SamplingClient loop (no keys needed); \"pro\" = full ResearchOrchestrator"),
+    maxSteps: z.number().min(1).max(10).optional().default(5).describe("Max fetch iterations (hard cap: 10)"),
+    maxUrls: z.number().min(1).max(20).optional().default(10).describe("Max URLs to fetch (hard cap: 20)")
+  }
+}, withAuth("agent", async (params) => {
+    try {
+      const result = await agentTool.execute(params);
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    } catch (error) {
+      return { content: [{ type: "text", text: `Agent failed: ${error.message}` }], isError: true };
+    }
   }));
-}
 
 // Tool: track_changes
 registerToolIfEnabled("track_changes", {

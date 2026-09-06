@@ -74,7 +74,7 @@ const BrowserProcessorSchema = z.object({
       enableTimezoneSpoof: z.boolean().default(true),
       enableGeoLocationSpoof: z.boolean().default(true)
     }).optional()
-  }).optional().default({})
+  }).optional().prefault({})
 });
 
 const BrowserResult = z.object({

@@ -20,7 +20,7 @@ const ContentProcessorSchema = z.object({
     removeBoilerplate: z.boolean().default(true),
     preserveImageInfo: z.boolean().default(true),
     extractMetadata: z.boolean().default(true)
-  }).optional().default({})
+  }).optional().prefault({})
 });
 
 const ReadabilityResult = z.object({

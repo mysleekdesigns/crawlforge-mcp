@@ -49,7 +49,7 @@ const ProcessDocumentSchema = z.object({
     // Content filtering
     minContentLength: z.number().min(0).default(50),
     removeBoilerplate: z.boolean().default(true)
-  }).optional().default({})
+  }).optional().prefault({})
 });
 
 const ProcessDocumentResult = z.object({

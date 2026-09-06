@@ -22,7 +22,7 @@ const CrawlDeepSchema = z.object({
     dampingFactor: z.number().min(0).max(1).optional().default(0.85),
     maxIterations: z.number().min(1).max(1000).optional().default(100),
     enableCaching: z.boolean().optional().default(true)
-  }).optional().default({}),
+  }).optional().prefault({}),
   // New domain filtering options
   domain_filter: z.object({
     whitelist: z.array(z.union([
@@ -59,7 +59,7 @@ const CrawlDeepSchema = z.object({
       timeout: z.number().optional(),
       maxPages: z.number().optional(),
       concurrency: z.number().optional()
-    })).optional().default({})
+    })).optional().prefault({})
   }).optional(),
   import_filter_config: z.string().optional(), // JSON string of exported config
   // Session reuse: when enabled, all page fetches share a cookie jar and
@@ -67,11 +67,11 @@ const CrawlDeepSchema = z.object({
   session: z.object({
     enabled: z.boolean(),
     persistCookies: z.boolean().optional().default(true),
-    headers: z.record(z.string()).optional().default({}),
+    headers: z.record(z.string()).optional().prefault({}),
     initialRequest: z.object({
       url: z.string().url(),
       method: z.string().optional().default('GET'),
-      headers: z.record(z.string()).optional().default({}),
+      headers: z.record(z.string()).optional().prefault({}),
       body: z.string().optional()
     }).optional()
   }).optional()

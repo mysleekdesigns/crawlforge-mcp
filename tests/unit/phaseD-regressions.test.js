@@ -747,7 +747,7 @@ describe('D4.1 server.js registers scrape and agent tools', () => {
   test('registerTool("agent") is present', () => {
     const src = readSrc('server.js');
     // Phase 6: agent is a long-running tool registered via the tasks extension
-    assert.ok(src.includes('registerToolTask("agent"'), 'agent tool must be registered');
+    assert.ok(src.includes('registerToolIfEnabled("agent"'), 'agent tool must be registered');
   });
 });
 

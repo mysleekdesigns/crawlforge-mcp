@@ -37,7 +37,7 @@ const ChangeTrackingSchema = z.object({
       moderate: z.number().min(0).max(1).default(0.3),
       major: z.number().min(0).max(1).default(0.7)
     }).optional()
-  }).optional().default({})
+  }).optional().prefault({})
 });
 
 const ChangeComparisonSchema = z.object({

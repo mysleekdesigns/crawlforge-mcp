@@ -26,7 +26,7 @@ const AnalyzeContentSchema = z.object({
     includeAdvancedMetrics: z.boolean().default(false),
     groupEntitiesByType: z.boolean().default(true),
     rankByRelevance: z.boolean().default(true)
-  }).optional().default({})
+  }).optional().prefault({})
 });
 
 const AnalyzeContentResult = z.object({

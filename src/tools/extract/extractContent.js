@@ -45,7 +45,7 @@ const ExtractContentSchema = z.object({
     includeRawHTML: z.boolean().default(false),
     includeCleanedHTML: z.boolean().default(false),
     outputFormat: z.enum(['text', 'markdown', 'structured']).default('structured')
-  }).optional().default({})
+  }).optional().prefault({})
 });
 
 const ExtractContentResult = z.object({

@@ -166,7 +166,7 @@ const ActionChainSchema = z.object({
   continueOnError: z.boolean().default(false),
   timeout: z.number().min(1000).max(300000).default(30000),
   retryChain: z.number().min(0).max(3).default(0),
-  metadata: z.record(z.any()).default({})
+  metadata: z.record(z.any()).prefault({})
 });
 
 export class ActionExecutor extends EventEmitter {

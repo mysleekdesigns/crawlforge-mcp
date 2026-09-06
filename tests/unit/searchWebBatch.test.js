@@ -54,9 +54,11 @@ test('SEARCH_QUERIES_PARAM accepts 1 and 10 queries and rejects 0 and 11', () =>
   assert.deepEqual(schema.parse(ten), ten);
   assert.equal(schema.parse(undefined), undefined);
 
-  assert.throws(() => schema.parse([]), /at least 1|Array must contain at least 1/);
-  assert.throws(() => schema.parse([...ten, 'eleven']), /at most 10|Array must contain at most 10/);
-  assert.throws(() => schema.parse(['']), /at least 1 character|String must contain at least 1/);
+  // Message wording differs across zod majors (zod 4 says "Too small: expected
+  // array to have >=1 items"), so match the bound rather than the sentence.
+  assert.throws(() => schema.parse([]), /at least 1|Array must contain at least 1|>=1 items/);
+  assert.throws(() => schema.parse([...ten, 'eleven']), /at most 10|Array must contain at most 10|<=10 items/);
+  assert.throws(() => schema.parse(['']), /at least 1 character|String must contain at least 1|>=1 characters/);
 });
 
 test('searchQueryCount prices defensively: getToolCost runs before validation', () => {
