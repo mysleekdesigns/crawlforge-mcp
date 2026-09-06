@@ -26,7 +26,7 @@ process.env.ALLOWED_DOMAINS = '127.0.0.1';
 delete process.env.SSRF_PROTECTION_ENABLED;
 
 const { UnifiedScrapeTool } = await import('../../src/tools/scrape/unifiedScrape.js');
-const { SCRAPE_ESCALATION_CREDITS, scrapeEscalationSurcharge } =
+const { SCRAPE_ESCALATION_CREDITS, scrapeEscalationSurcharge, aBrowserMightPass } =
   await import('../../src/tools/scrape/escalation.js');
 const { noteHostBlocked, getHostBlock, _resetHostRateLimiter } =
   await import('../../src/utils/hostRateLimiter.js');
@@ -40,6 +40,10 @@ const FIXTURES = fileURLToPath(new URL('../fixtures/blocked/', import.meta.url))
 
 const NORMAL_PAGE = `<!doctype html><html><head><title>A real page</title></head>
 <body><main><h1>A real page</h1><p>${'Ordinary prose that a reader would see. '.repeat(20)}</p></main></body></html>`;
+
+const ERROR_PAGE = (title) =>
+  `<!doctype html><html><head><title>${title}</title></head><body><h1>${title}</h1>
+<p>The server will not serve this resource.</p></body></html>`;
 
 // What the fake stealth browser "renders" once it gets past the wall.
 const RENDERED_PAGE = `<!doctype html><html><head><title>Behind the wall</title></head>
@@ -62,6 +66,23 @@ before(async () => {
     if (path === '/normal') {
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(NORMAL_PAGE);
+      return;
+    }
+    // A wall that names no vendor: the bare 403 an IP-reputation or WAF block
+    // sends, which is what travel.state.gov answers some networks with.
+    if (path === '/bare-403') {
+      res.writeHead(403, { 'Content-Type': 'text/html' });
+      res.end(ERROR_PAGE('403 Forbidden'));
+      return;
+    }
+    if (path === '/missing') {
+      res.writeHead(404, { 'Content-Type': 'text/html' });
+      res.end(ERROR_PAGE('Not Found'));
+      return;
+    }
+    if (path === '/broken') {
+      res.writeHead(503, { 'Content-Type': 'text/html' });
+      res.end(ERROR_PAGE('Service Unavailable'));
       return;
     }
     // Walls are served with 200, exactly as the vendors serve them.
@@ -520,4 +541,56 @@ test('the surcharge helper reads the raw param: only exactly true costs', () => 
   for (const notTrue of [false, undefined, null, 'true', 1, {}, []]) {
     assert.equal(scrapeEscalationSurcharge(notTrue), 0, `priced as 0: ${JSON.stringify(notTrue)}`);
   }
+});
+
+describe('only a failure a browser could change is escalated', () => {
+  test('a bare 403 with no vendor named DOES escalate: a WAF or IP block often yields to a browser', async () => {
+    const escalator = fakeEscalator();
+    const tool = new UnifiedScrapeTool({ escalateScrape: escalator });
+    const { result, reported } = await scrapeWithCost(tool, {
+      url: `${baseUrl}/bare-403`, formats: ['markdown'], resolveHiddenContent: 'off', escalate: true
+    });
+    assert.equal(escalator.calls.length, 1, 'the browser ran');
+    assert.equal(result.success, true);
+    assert.equal(result.escalated, true);
+    assert.equal(result.stealth.vendor_detected, null, 'no vendor was named by the wall');
+    assert.match(result.content.markdown, /The content the wall was hiding/);
+    assert.equal(reported, 2 + SCRAPE_ESCALATION_CREDITS);
+  });
+
+  test('a 404 does NOT escalate: a missing page is not a wall, and the browser would cost 5 for nothing', async () => {
+    const escalator = fakeEscalator();
+    const tool = new UnifiedScrapeTool({ escalateScrape: escalator });
+    const { result, reported } = await scrapeWithCost(tool, {
+      url: `${baseUrl}/missing`, formats: ['markdown'], resolveHiddenContent: 'off', escalate: true
+    });
+    assert.equal(escalator.calls.length, 0, 'no browser was launched');
+    assert.equal(result.success, false);
+    assert.equal(result.escalated, false);
+    assert.equal(result.stealth, undefined);
+    assert.equal(result.status, 404);
+    assert.equal(reported, 2, 'charged the base, not the escalation ceiling');
+  });
+
+  test('a 5xx does NOT escalate: the server failed, not the wall', async () => {
+    const escalator = fakeEscalator();
+    const tool = new UnifiedScrapeTool({ escalateScrape: escalator });
+    const { result, reported } = await scrapeWithCost(tool, {
+      url: `${baseUrl}/broken`, formats: ['markdown'], resolveHiddenContent: 'off', escalate: true
+    });
+    assert.equal(escalator.calls.length, 0);
+    assert.equal(result.escalated, false);
+    assert.equal(reported, 2);
+  });
+
+  test('the rule itself: vendor or 403/429 or a 2xx failure, never a 404 or 5xx', () => {
+    assert.equal(aBrowserMightPass({ blocked: { vendor: 'cloudflare' } }, 404), true, 'a named vendor wins whatever the status');
+    assert.equal(aBrowserMightPass({}, 403), true);
+    assert.equal(aBrowserMightPass({}, 429), true);
+    assert.equal(aBrowserMightPass({}, 200), true, 'an empty shell is a 2xx failure a browser renders');
+    assert.equal(aBrowserMightPass({}, null), true);
+    assert.equal(aBrowserMightPass({}, 404), false);
+    assert.equal(aBrowserMightPass({}, 410), false);
+    assert.equal(aBrowserMightPass({}, 503), false);
+  });
 });

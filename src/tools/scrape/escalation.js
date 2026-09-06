@@ -35,3 +35,28 @@ export const SCRAPE_ESCALATION_SHAPE = {
 export function scrapeEscalationSurcharge(escalate) {
   return escalate === true ? SCRAPE_ESCALATION_CREDITS : 0;
 }
+
+/**
+ * Whether a second, browser-backed attempt could plausibly change this
+ * outcome.
+ *
+ * A named vendor's wall qualifies, and so does a bare 403 or 429 — an
+ * IP-reputation, WAF or User-Agent block, which a real browser and fingerprint
+ * often do pass (travel.state.gov answers some networks with exactly that). So
+ * does any failure that arrived with a 2xx: an empty shell, a JavaScript-only
+ * document or a soft-error placeholder is precisely what rendering fixes.
+ *
+ * A 404 is not a wall and a 5xx is the server's own failure. Escalating either
+ * would spend the browser's 5 credits to be told the same thing, so `escalate`
+ * leaves them as the plain fetch reported them (G4 — never charge for work
+ * that cannot help).
+ *
+ * @param {{ blocked?: unknown } | null | undefined} verdict
+ * @param {number | null | undefined} status
+ * @returns {boolean}
+ */
+export function aBrowserMightPass(verdict, status) {
+  if (verdict && verdict.blocked) return true;
+  if (status === 403 || status === 429) return true;
+  return status === null || status === undefined || (status >= 200 && status < 300);
+}

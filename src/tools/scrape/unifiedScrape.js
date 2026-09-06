@@ -20,7 +20,7 @@ import {
   SCRAPE_STRING_FORMATS, JsonFormatSchema, HighlightsFormatSchema, QuestionFormatSchema, FormatSchema,
   scrapeFormatSurcharge
 } from './formats.js';
-import { SCRAPE_ESCALATION_SHAPE, SCRAPE_ESCALATION_CREDITS } from './escalation.js';
+import { SCRAPE_ESCALATION_SHAPE, SCRAPE_ESCALATION_CREDITS, aBrowserMightPass } from './escalation.js';
 import { toPublicUnit, parseChosenIndexes, groundingCheck } from './_highlights.js';
 import { setActualCost } from '../../server/requestContext.js';
 import { fenceUntrusted } from '../../utils/untrustedContent.js';
@@ -387,7 +387,11 @@ export class UnifiedScrapeTool {
     // only thing left to report when the plain fetch was skipped as well.
     let escalationError = null;
 
-    if (escalate && (remembered || !verdict.success)) {
+    // Only a failure a browser could plausibly change is worth the second
+    // stage: a wall or a bare 403/429, or a page that failed with a 2xx (an
+    // empty shell renders). A 404 or a 5xx escalates nothing — see
+    // aBrowserMightPass.
+    if (escalate && (remembered || (!verdict.success && aBrowserMightPass(verdict, status)))) {
       if (!this._escalateScrape) {
         escalationError = 'no stealth stage is wired into this server build';
         warnings.push(`escalate: ${escalationError}`);
