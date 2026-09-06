@@ -5,6 +5,54 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.9.0] - 2026-09-05
+
+Phase 3 of the 2026 feature plan: opt-in auto-escalation on `scrape`. A site
+that walls a plain fetch used to cost two calls and a round-trip through the
+model — `scrape`, read the block, then `stealth_mode`. `escalate: true` makes
+it one call. The plain fetch still runs first, always: the stealth browser is
+a second stage, never a starting point, and it reuses the same compliance gate
+and the same browser `stealth_mode` drives. No new evasion, and robots.txt is
+respected on the escalated path exactly as it is on the plain one.
+
+### Added
+- **`escalate` and `escalate_engine` on `scrape`.** `escalate: true` (default
+  `false`) retries a blocked plain fetch in the stealth browser and returns
+  its content instead of the block; `escalate_engine` is `"playwright"`
+  (default) or `"camoufox"`. The escalated document goes through the SAME
+  formats loop a plain fetch does, so `markdown`, `links`, `metadata`,
+  `branding`, `highlights` and `question` all work on an escalated page.
+- **`escalated` and `stealth` on the result.** `escalated: true|false` is
+  present only when the caller asked to escalate — a call that never asked
+  keeps exactly the result shape it had before. When `escalated` is true the
+  result also carries `stealth: { engine, vendor_detected }`, the vendor being
+  the one the plain fetch hit (`null` when the block named none).
+- **The host memory (0.6) gained its reader.** With `escalate: true`, a host
+  that walled us within the last 24 hours skips the doomed plain fetch and
+  goes straight to the browser, naming the remembered vendor in `warnings[]`.
+  The memory is never consulted when `escalate` is false, and only a clean
+  plain fetch clears it.
+- **A second-stage fallback hint.** A `scrape` failure whose body says
+  `escalated: true` no longer points at `stealth_mode` — it has already run.
+  The hint names `localization` for a regional block, and otherwise says the
+  block is final: a TLS-level wall needs residential proxies, which CrawlForge
+  does not offer.
+
+### Changed
+- **`scrape` pricing: `escalate: true` projects 7 (2 + 5).** The projection is
+  the ceiling, so `_cost.actual` falls back to the base price whenever the
+  plain fetch succeeded and nothing escalated. The actual charge is now
+  reported on every return path rather than only for an unused model step: a
+  call that asked to escalate and never did is billed 2, and a blocked result
+  is halved from the base rather than from the projection.
+- **The instructions ladder and the `scrape` description** name the new rung:
+  `scrape` with `escalate: true` when a site is known to block; still never
+  `stealth_mode` first.
+- **A robots refusal on the escalated path costs nothing.** The browser gate
+  refuses a disallowed URL before any browser opens; the refusal is caught,
+  reported as a warning on the block already in hand, and bills the whole call
+  zero.
+
 ## [5.8.0] - 2026-09-05
 
 Phase 2 of the 2026 feature plan: result handles. A result too large to hand

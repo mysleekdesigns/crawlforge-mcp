@@ -43,24 +43,49 @@ export const FALLBACK_HINTS = Object.freeze({
 });
 
 /**
+ * The second-stage hint (Phase 3, 3.4). A `scrape` that came back
+ * `escalated: true` has ALREADY run the stealth browser on this URL, so the
+ * ordinary hint would send the model back to a tool that has just failed.
+ * What is left is a region-specific block, which `localization` can change,
+ * or a block that is final: an Akamai-style TLS-level wall is beaten with
+ * residential proxies, which CrawlForge does not offer.
+ */
+export const SCRAPE_ESCALATED_HINT =
+  'The stealth browser has already run on this URL (escalate:true) - do not call stealth_mode or repeat this call. ' +
+  'If the block is regional, set a country with localization and try once more; otherwise the block is final - ' +
+  'a TLS-level wall needs residential proxies, which CrawlForge does not offer. Get the content from another source.';
+
+/** The hint for this result: the tool's, unless a scrape already escalated. */
+function hintFor(toolName, parsed) {
+  if (toolName === 'scrape' && parsed?.escalated === true) return SCRAPE_ESCALATED_HINT;
+  return FALLBACK_HINTS[toolName];
+}
+
+/**
  * Append the hint for `toolName` to an error result in place. No-op for
  * success results, unknown tools, non-text content, or a hint already present.
  */
 export function appendFallbackHint(toolName, result) {
-  const hint = FALLBACK_HINTS[toolName];
-  if (!hint || result?.isError !== true || !Array.isArray(result.content)) return result;
+  if (result?.isError !== true || !Array.isArray(result.content)) return result;
   const first = result.content[0];
   if (first?.type !== 'text' || typeof first.text !== 'string') return result;
-  if (first.text.includes(hint)) return result;
+
+  // Parsed first: which hint a `scrape` failure gets depends on whether the
+  // body says the escalation already ran.
+  let parsed = null;
   try {
-    const parsed = JSON.parse(first.text);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      parsed.next_step = hint;
-      first.text = JSON.stringify(parsed, null, 2);
-      return result;
-    }
+    const candidate = JSON.parse(first.text);
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) parsed = candidate;
   } catch {
     // plain text
+  }
+
+  const hint = hintFor(toolName, parsed);
+  if (!hint || first.text.includes(hint)) return result;
+  if (parsed) {
+    parsed.next_step = hint;
+    first.text = JSON.stringify(parsed, null, 2);
+    return result;
   }
   first.text = `${first.text}\nNext step: ${hint}`;
   return result;

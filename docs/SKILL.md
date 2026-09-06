@@ -456,6 +456,7 @@ Do not suggest adding API keys — local Ollama is the intended zero-cost defaul
 | Symptom | Try next |
 |---------|----------|
 | `scrape` / `fetch_url` returns 403, 429, CAPTCHA, or empty JS shell | `stealth_mode` (crawlforge-stealth-browsing) |
+| A site you already know blocks | `scrape` with `escalate: true` — plain fetch first, stealth browser only if it is walled; never `stealth_mode` first |
 | No template for a known site | `scrape_structured` → `extract_structured` → `extract_with_llm` |
 | LLM extraction unavailable (no Ollama/keys) | `scrape_structured` with CSS selectors |
 | Single page too slow / many pages | `batch_scrape` (async + webhook) |
@@ -490,6 +491,11 @@ Escalate from a normal `scrape` / `fetch_url` (see crawlforge-web-scraping) when
 
 `stealth_mode` drives a real browser with randomized fingerprints, human
 behavior simulation, and WebRTC/canvas/WebGL spoofing.
+
+When you already know the site blocks, `scrape` with `escalate: true` does both
+steps in one call: the plain fetch first, then the same stealth browser only if
+that fetch is walled. Projected at 7, charged 2 when the plain fetch worked.
+Still never reach for `stealth_mode` first.
 
 ## stealth_mode (cost: 5)
 
@@ -743,7 +749,9 @@ site discovery (sitemaps and URL maps), and whole-site crawling.
 5. **`crawl_deep`** to walk an entire site and (optionally) extract content.
 
 If a page returns 403/429, a CAPTCHA, or empty "enable JavaScript" content,
-switch to the **crawlforge-stealth-browsing** skill (`stealth_mode`).
+switch to the **crawlforge-stealth-browsing** skill (`stealth_mode`). When the
+site is *known* to block, use `scrape` with `escalate: true` instead of two
+calls — still never `stealth_mode` first.
 
 ## scrape — unified multi-format (cost: 2)
 
@@ -765,6 +773,33 @@ Get markdown + links + metadata in a single call:
 "prompt": "..." }` for LLM-structured extraction. Partial success is supported:
 a failing format adds a `warnings[]` entry instead of failing the whole call.
 `onlyMainContent` (default `true`) strips boilerplate via Readability.
+
+### escalate — one call for a site that blocks (projected 7, charged 2 when it doesn't)
+
+`escalate: true` keeps the plain fetch first and retries in the stealth browser
+only if that fetch comes back walled (403/429, a challenge page, an empty
+shell). The escalated page goes through the same formats, so `markdown`,
+`highlights` and the rest work exactly as they do on a plain read.
+
+```json
+{
+  "tool": "scrape",
+  "params": {
+    "url": "https://www.producthunt.com/",
+    "formats": ["markdown"],
+    "escalate": true,
+    "escalate_engine": "playwright"
+  }
+}
+```
+
+The result adds `escalated: true|false`, and `stealth: { engine,
+vendor_detected }` when the browser ran. The projection is `2 + 5`; the charge
+falls back to the base when the plain fetch succeeded and nothing escalated.
+`escalate_engine` is `"playwright"` (default) or `"camoufox"`. robots.txt is
+respected on the escalated path too, and a second call to a host that blocked
+within the last 24 hours skips the doomed plain fetch and says so in
+`warnings[]`.
 
 Query-scoped formats return only the parts of the page that match, verbatim,
 with offsets into the `markdown` of the same call:

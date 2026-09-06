@@ -36,7 +36,9 @@ site discovery (sitemaps and URL maps), and whole-site crawling.
 5. **`crawl_deep`** to walk an entire site and (optionally) extract content.
 
 If a page returns 403/429, a CAPTCHA, or empty "enable JavaScript" content,
-switch to the **crawlforge-stealth-browsing** skill (`stealth_mode`).
+switch to the **crawlforge-stealth-browsing** skill (`stealth_mode`). When the
+site is *known* to block, use `scrape` with `escalate: true` instead of two
+calls — still never `stealth_mode` first.
 
 ## scrape — unified multi-format (cost: 2)
 
@@ -58,6 +60,33 @@ Get markdown + links + metadata in a single call:
 "prompt": "..." }` for LLM-structured extraction. Partial success is supported:
 a failing format adds a `warnings[]` entry instead of failing the whole call.
 `onlyMainContent` (default `true`) strips boilerplate via Readability.
+
+### escalate — one call for a site that blocks (projected 7, charged 2 when it doesn't)
+
+`escalate: true` keeps the plain fetch first and retries in the stealth browser
+only if that fetch comes back walled (403/429, a challenge page, an empty
+shell). The escalated page goes through the same formats, so `markdown`,
+`highlights` and the rest work exactly as they do on a plain read.
+
+```json
+{
+  "tool": "scrape",
+  "params": {
+    "url": "https://www.producthunt.com/",
+    "formats": ["markdown"],
+    "escalate": true,
+    "escalate_engine": "playwright"
+  }
+}
+```
+
+The result adds `escalated: true|false`, and `stealth: { engine,
+vendor_detected }` when the browser ran. The projection is `2 + 5`; the charge
+falls back to the base when the plain fetch succeeded and nothing escalated.
+`escalate_engine` is `"playwright"` (default) or `"camoufox"`. robots.txt is
+respected on the escalated path too, and a second call to a host that blocked
+within the last 24 hours skips the doomed plain fetch and says so in
+`warnings[]`.
 
 Query-scoped formats return only the parts of the page that match, verbatim,
 with offsets into the `markdown` of the same call:

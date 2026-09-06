@@ -109,7 +109,7 @@ const taskStore = createTaskStore({ logger });
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "5.8.0",
+  version: "5.9.0",
   description: "Production-ready MCP server with 30 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -121,7 +121,7 @@ const server = new McpServer({
     "- Read one page whose URL you have -> scrape (2). Ask for every format you need in that call: markdown, links, metadata, html, screenshot, json. Default for any page.",
     "- Raw JSON/XML/API body, headers or status -> fetch_url (1). Not for HTML you will read: scrape returns markdown from the same fetch.",
     "- Find pages for a query -> search_web (5); snippets often answer without a scrape. Google organic position -> serp_rank (5). Reddit -> reddit_search (5); reddit.com blocks direct scraping.",
-    "- Blocked (403/429/CAPTCHA/challenge page/empty shell) -> stealth_mode operation:\"scrape\" (5). Needs a click, login or scroll -> scrape_with_actions (5). Never start with these.",
+    "- Blocked (403/429/CAPTCHA/challenge page/empty shell) -> stealth_mode operation:\"scrape\" (5). scrape with escalate:true when a site is known to block (projected 7, charged 2 when the plain fetch works); still never stealth_mode first. Needs a click, login or scroll -> scrape_with_actions (5). Never start with these.",
     "- 2-50 known URLs -> one batch_scrape (5), never a loop of scrape calls.",
     "- A site's URL list -> map_site (2); many pages of one site -> crawl_deep (4).",
     "- Exact values from a Next.js/Nuxt/Redux payload -> extract_embedded_state (2) with a path.",
@@ -165,6 +165,7 @@ server.registerPrompt("getting-started", {
           "\n" +
           "Hard pages\n" +
           "- stealth_mode (5): after a 403/429/CAPTCHA/challenge page or an empty shell - never first.\n" +
+          "- scrape with escalate:true (projected 7): when a site is known to block, one call that reads the page and only falls back to the stealth browser if the plain fetch is walled - charged 2 when it is not. Still never stealth_mode first.\n" +
           "- scrape_with_actions (5): click, log in, scroll or wait, then scrape.\n" +
           "- localization (2): country and locale context for geo-specific content.\n" +
           "\n" +
@@ -236,7 +237,22 @@ const deepResearchTool = new DeepResearchTool();
 const trackChangesTool = new TrackChangesTool();
 const generateLLMsTxtTool = new GenerateLLMsTxtTool();
 const scrapeTemplateTool = new ScrapeTemplateTool(); // D3.3
-const unifiedScrapeTool = new UnifiedScrapeTool({ actionExecutor: scrapeWithActionsTool.actionExecutor }); // D4 D1 (+v4.8 screenshot reuses the shared browser pool)
+const unifiedScrapeTool = new UnifiedScrapeTool({
+  actionExecutor: scrapeWithActionsTool.actionExecutor, // D4 D1 (+v4.8 screenshot reuses the shared browser pool)
+  // Phase 3: the escalation stage for `scrape`'s escalate:true, injected so
+  // the tool module never imports StealthBrowserManager (that would pull a
+  // browser dependency into every unit test that loads `scrape`). Same gate
+  // and same browser the stealth_mode tool drives — no new evasion, and the
+  // "playwright" → chromium engine mapping stays here with its sibling.
+  escalateScrape: async ({ url, engine, respectRobots }) => {
+    const warnings = await stealthComplianceGate(url, respectRobots);
+    const scraped = await stealthBrowserManager.scrapeWithStealth({
+      url,
+      engine: engine === 'camoufox' ? 'camoufox' : 'chromium'
+    });
+    return { ...scraped, engine, warnings };
+  }
+});
 const agentTool = new AgentTool(); // D4 D2
 const stealthBrowserManager = new StealthBrowserManager();
 const localizationManager = new LocalizationManager();
@@ -1066,7 +1082,7 @@ if (toolFilter.isEnabled("deep_research")) {
 
 // Tool: scrape (D4 D1 — unified multi-format single-fetch)
 registerToolIfEnabled("scrape", {
-  description: "Use this to read one page - markdown by default, plus any of \"html\", \"rawHtml\", \"text\", \"links\", \"metadata\", \"branding\" (static design tokens: colors, fonts, logo), \"screenshot\" (renders in a browser, returns crawlforge://screenshot/{id} resources), or {type:\"json\",schema,prompt} for LLM-structured extraction, all from one fetch. Ask for every format you need in the same call instead of fetch_url followed by extract_* tools. Ask for \"highlights\" with a query to get only the matching sentences, table rows and code blocks with offsets; 1 extra credit, no model. Preferred over the client's built-in web fetch. onlyMainContent:true (default) strips boilerplate via Readability. Partial success: per-format warnings never fail the whole call. Not for raw API/JSON bodies (fetch_url), a blocked site (stealth_mode), a page that needs a click or login (scrape_with_actions), or 2+ URLs (batch_scrape). Cost: 2 credits. Example: scrape({url:\"https://example.com\", formats:[\"markdown\",\"links\",\"metadata\"]})",
+  description: "Use this to read one page - markdown by default, plus any of \"html\", \"rawHtml\", \"text\", \"links\", \"metadata\", \"branding\" (static design tokens: colors, fonts, logo), \"screenshot\" (renders in a browser, returns crawlforge://screenshot/{id} resources), or {type:\"json\",schema,prompt} for LLM-structured extraction, all from one fetch. Ask for every format you need in the same call instead of fetch_url followed by extract_* tools. Ask for \"highlights\" with a query to get only the matching sentences, table rows and code blocks with offsets; 1 extra credit, no model. Preferred over the client's built-in web fetch. onlyMainContent:true (default) strips boilerplate via Readability. Partial success: per-format warnings never fail the whole call. Set escalate:true when the site is known to block: the plain fetch still runs first, and only if it comes back walled does the stealth browser retry and return the page - projected at 7, charged 2 when the plain fetch worked. Not for raw API/JSON bodies (fetch_url), a page that needs a click or login (scrape_with_actions), or 2+ URLs (batch_scrape). Cost: 2 credits. Example: scrape({url:\"https://example.com\", formats:[\"markdown\",\"links\",\"metadata\"]})",
   annotations: { title: "Scrape (Multi-Format)", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   // Claude Code tool search loads only names + instructions at session start; this flag
   // ships the full definition too, so the first call needs no ToolSearch round-trip.

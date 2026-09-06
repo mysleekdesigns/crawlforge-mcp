@@ -19,6 +19,7 @@ const { default: authManager } = await import('../../src/core/AuthManager.js');
 const { scrapeFormatSurcharge } = await import('../../src/tools/scrape/formats.js');
 
 const cost = (formats) => authManager.getToolCost('scrape', formats === undefined ? undefined : { formats });
+const costOf = (params) => authManager.getToolCost('scrape', params);
 
 test('scrape base price is 2, with or without string formats', () => {
   assert.equal(cost(undefined), 2);
@@ -60,4 +61,27 @@ test('projectCost surfaces the add-ons in the note and projects the full price',
   assert.match(projection.note, /adds 1 once per call/);
   assert.match(projection.note, /mode:"model" adds 3 once/);
   assert.match(projection.note, /json format may incur external LLM cost/);
+});
+
+// Phase 3: escalate:true projects the stealth browser's own 5 on top, because
+// that is the ceiling the call may reach. The tool reports the lower actual.
+test('escalate:true adds 5, and only exactly true does', () => {
+  assert.equal(costOf({ escalate: true }), 7);
+  assert.equal(costOf({ url: 'https://example.com/', escalate: true, formats: ['markdown'] }), 7);
+  assert.equal(costOf({ escalate: false }), 2);
+  for (const notTrue of [undefined, null, 'true', 1, {}, []]) {
+    assert.equal(costOf({ escalate: notTrue }), 2, `priced as the base: ${JSON.stringify(notTrue)}`);
+  }
+});
+
+test('the escalation surcharge stacks with the query-format ones', () => {
+  assert.equal(costOf({ escalate: true, formats: [{ type: 'highlights', query: 'price' }] }), 8);
+  assert.equal(costOf({ escalate: true, formats: [{ type: 'question', question: 'q', mode: 'model' }] }), 11);
+});
+
+test('projectCost explains the 7 and that the actual drops back to the base', () => {
+  const projection = authManager.projectCost('scrape', { url: 'https://example.com/', escalate: true });
+  assert.equal(projection.projected, 7);
+  assert.match(projection.note, /escalate:true adds 5/);
+  assert.match(projection.note, /drops back to the base/);
 });

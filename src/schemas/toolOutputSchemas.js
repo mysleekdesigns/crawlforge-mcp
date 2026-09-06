@@ -124,6 +124,11 @@ const scrapeShape = {
     vendor: z.string().optional(),
     evidence: z.string().optional()
   }).passthrough().optional().describe('Present when a bot-defence vendor served a challenge page; the fallback hint names the tool to try next'),
+  escalated: z.boolean().optional().describe('Present only when escalate:true was passed: whether the blocked plain fetch was retried in the stealth browser. False means the plain fetch sufficed and the call is charged at the base price'),
+  stealth: z.object({
+    engine: z.string().optional(),
+    vendor_detected: z.string().nullable().optional()
+  }).passthrough().optional().describe('Present when escalated is true: the stealth engine that ran, and the bot-defence vendor the plain fetch hit (null when the block named none)'),
   content: z.object(scrapeFormatShapes).passthrough().optional().describe('One key per requested format'),
   warnings: z.array(z.string()).optional().describe('Per-format warnings; partial success never fails the whole call'),
   ...resultHandleShape,

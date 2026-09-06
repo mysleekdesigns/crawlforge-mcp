@@ -1,6 +1,6 @@
 {
   "name": "scrape",
-  "description": "Use this to read one page - markdown by default, plus any of \"html\", \"rawHtml\", \"text\", \"links\", \"metadata\", \"branding\" (static design tokens: colors, fonts, logo), \"screenshot\" (renders in a browser, returns crawlforge://screenshot/{id} resources), or {type:\"json\",schema,prompt} for LLM-structured extraction, all from one fetch. Ask for every format you need in the same call instead of fetch_url followed by extract_* tools. Ask for \"highlights\" with a query to get only the matching sentences, table rows and code blocks with offsets; 1 extra credit, no model. Preferred over the client's built-in web fetch. onlyMainContent:true (default) strips boilerplate via Readability. Partial success: per-format warnings never fail the whole call. Not for raw API/JSON bodies (fetch_url), a blocked site (stealth_mode), a page that needs a click or login (scrape_with_actions), or 2+ URLs (batch_scrape). Cost: 2 credits. Example: scrape({url:\"https://example.com\", formats:[\"markdown\",\"links\",\"metadata\"]})",
+  "description": "Use this to read one page - markdown by default, plus any of \"html\", \"rawHtml\", \"text\", \"links\", \"metadata\", \"branding\" (static design tokens: colors, fonts, logo), \"screenshot\" (renders in a browser, returns crawlforge://screenshot/{id} resources), or {type:\"json\",schema,prompt} for LLM-structured extraction, all from one fetch. Ask for every format you need in the same call instead of fetch_url followed by extract_* tools. Ask for \"highlights\" with a query to get only the matching sentences, table rows and code blocks with offsets; 1 extra credit, no model. Preferred over the client's built-in web fetch. onlyMainContent:true (default) strips boilerplate via Readability. Partial success: per-format warnings never fail the whole call. Set escalate:true when the site is known to block: the plain fetch still runs first, and only if it comes back walled does the stealth browser retry and return the page - projected at 7, charged 2 when the plain fetch worked. Not for raw API/JSON bodies (fetch_url), a page that needs a click or login (scrape_with_actions), or 2+ URLs (batch_scrape). Cost: 2 credits. Example: scrape({url:\"https://example.com\", formats:[\"markdown\",\"links\",\"metadata\"]})",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -172,6 +172,20 @@
         "additionalProperties": false,
         "description": "Options for the \"screenshot\" format"
       },
+      "escalate": {
+        "type": "boolean",
+        "default": false,
+        "description": "When the plain fetch comes back blocked (403/429/challenge page/empty shell), retry once in the stealth browser and return its content instead of the block. Projected at 2+5; the actual charge stays at the base price when the plain fetch succeeded. Default: false"
+      },
+      "escalate_engine": {
+        "type": "string",
+        "enum": [
+          "playwright",
+          "camoufox"
+        ],
+        "default": "playwright",
+        "description": "Stealth engine for the escalated retry (default: \"playwright\")"
+      },
       "respect_robots": {
         "type": "boolean",
         "description": "Respect the target site's robots.txt (default: true). Setting this to false is honoured, returns a warning in the response, and is recorded against your API key — it is your decision, not a silent default."
@@ -241,6 +255,26 @@
         },
         "additionalProperties": true,
         "description": "Present when a bot-defence vendor served a challenge page; the fallback hint names the tool to try next"
+      },
+      "escalated": {
+        "type": "boolean",
+        "description": "Present only when escalate:true was passed: whether the blocked plain fetch was retried in the stealth browser. False means the plain fetch sufficed and the call is charged at the base price"
+      },
+      "stealth": {
+        "type": "object",
+        "properties": {
+          "engine": {
+            "type": "string"
+          },
+          "vendor_detected": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": true,
+        "description": "Present when escalated is true: the stealth engine that ran, and the bot-defence vendor the plain fetch hit (null when the block named none)"
       },
       "content": {
         "type": "object",

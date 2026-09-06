@@ -13,6 +13,7 @@ import { resolveApiEndpoint } from './endpointGuard.js';
 import { logger } from '../utils/Logger.js';
 import { maskSecrets } from '../utils/secretMask.js';
 import { scrapeFormatSurcharge } from '../tools/scrape/formats.js';
+import { scrapeEscalationSurcharge } from '../tools/scrape/escalation.js';
 // Stamped on every usage report so support can tell which client version
 // made a call; it read '3.0.3' from 3.0.3 to 5.6.10 (the website stores it
 // per record from its Phase 1.3 on).
@@ -626,11 +627,13 @@ class AuthManager {
     }
 
     // The query-scoped formats (highlights, question) add 1 once per call,
-    // and mode:"model" adds 3 once; the base price in the table is what the
-    // backend sees. The rule lives with the format schemas.
+    // and mode:"model" adds 3 once; escalate:true adds the stealth browser's
+    // own 5, since that is the ceiling the call may reach. The base price in
+    // the table is what the backend sees. Both rules live with the schemas
+    // that declare the params.
     if (tool === 'scrape') {
       const { query, model } = scrapeFormatSurcharge(params?.formats);
-      return costs.scrape + query + model;
+      return costs.scrape + query + model + scrapeEscalationSurcharge(params?.escalate);
     }
 
     return costs[tool] ?? 1;
@@ -689,7 +692,9 @@ class AuthManager {
         break;
       case 'scrape': {
         projected = base;
-        note = 'Base 2; a highlights or question format adds 1 once per call, mode:"model" adds 3 once (charged at the extractive price when no LLM route exists). json format may incur external LLM cost (billed by your provider).';
+        note = 'Base 2; a highlights or question format adds 1 once per call, mode:"model" adds 3 once (charged at the extractive price when no LLM route exists). ' +
+          'escalate:true adds 5 for the stealth browser it may need — the projection is the ceiling, and the actual charge drops back to the base when the plain fetch succeeded and no escalation ran. ' +
+          'json format may incur external LLM cost (billed by your provider).';
         break;
       }
       case 'agent': {
