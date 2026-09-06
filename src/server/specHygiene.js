@@ -1,19 +1,22 @@
 /**
  * specHygiene — Phase 6 protocol-hygiene wrapper.
  *
- * Applies three MCP wire-level upgrades to an already-registered McpServer
+ * Applies four MCP wire-level upgrades to an already-registered McpServer
  * without changing how tools/prompts are declared anywhere else:
  *
  *   1. JSON Schema 2020-12 dialect stamping on every tool's inputSchema /
- *      outputSchema (the SDK's zod-to-json-schema conversion still emits
- *      draft-07-style `definitions` / `#/definitions/...` refs).
+ *      outputSchema. Under the v2 SDK + zod 4 the conversion already emits
+ *      2020-12 with `$defs`, so the `definitions` -> `$defs` rewrite below is
+ *      now defensive rather than load-bearing; it is kept because the stamping
+ *      and ordering passes still walk the same tree (Phase 4.1 kept behaviour
+ *      identical — removing the rewrite is a separate, verifiable change).
  *   2. Deterministic (alphabetical) tool ordering in tools/list, so clients
  *      that prompt-cache tools/list get stable hits across restarts.
  *   3. SEP-973 icons metadata on every tool/prompt lacking one.
  *   4. SEP-2549-style cache hints on tools/call results for a fixed
  *      allowlist of read-only, idempotent tools (see note below).
  *
- * Wiring: SDK 1.30 has no plugin hook for this, so applySpecHygiene() must be
+ * Wiring: the SDK has no plugin hook for this, so applySpecHygiene() must be
  * called once, after all server.registerTool()/registerPrompt() calls and
  * before transport.connect(). It reaches into `server.server` (the
  * underlying Protocol), captures the ListTools/CallTool/ListPrompts handlers
@@ -22,25 +25,17 @@
  * handler for the same method (confirmed from the SDK source: only
  * `assertCanSetRequestHandler`, called by McpServer's own registration path,
  * throws on a pre-existing handler; `setRequestHandler` itself does not).
+ * In v2 `setRequestHandler` takes a method string rather than a Zod schema.
  *
- * SEP-2549 note: as specified (2026-07-28 RC), `ttlMs` / `cacheScope`
- * ("public"|"private") are defined on tools/list, prompts/list,
- * resources/list, resources/read and resources/templates/list results —
- * there is no CacheableResult for tools/call. Since this deliverable asks
- * for tools/call cache hints, the same two field names are carried into a
- * namespaced `_meta` key following the SDK's own
- * `io.modelcontextprotocol/<name>` convention (see RELATED_TASK_META_KEY in
- * @modelcontextprotocol/sdk/types.js):
+ * SEP-2549 note: as specified (2026-07-28), `ttlMs` / `cacheScope`
+ * ("public"|"private") are defined on server/discover results — there is no
+ * CacheableResult for tools/call. Since this deliverable asks for tools/call
+ * cache hints, the same two field names are carried into a namespaced `_meta`
+ * key following the SDK's own `io.modelcontextprotocol/<name>` convention:
  *   result._meta["io.modelcontextprotocol/cacheable"] = { ttlMs, cacheScope }
  * This is a documented adaptation, not a key confirmed by the spec text for
  * tools/call — revisit if/when a SEP defines call-result caching explicitly.
  */
-
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-  ListPromptsRequestSchema
-} from '@modelcontextprotocol/sdk/types.js';
 
 const APPLIED = Symbol('crawlforge.specHygiene.applied');
 
@@ -158,7 +153,7 @@ function wrapToolsCall(innerHandler, cacheableTools) {
  * tools/prompts are registered and before transport.connect(). Idempotent:
  * a second call on the same server is a no-op.
  *
- * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} server
+ * @param {import('@modelcontextprotocol/server').McpServer} server
  * @param {object} [overrides]
  * @param {{src:string,mimeType?:string,sizes?:string[]}} [overrides.icon] — default icon injected into tools/prompts lacking one
  * @param {Record<string,{ttlMs:number,cacheScope:'public'|'private'}>} [overrides.cacheableTools] — tool-name -> cache hint map for tools/call
@@ -177,16 +172,16 @@ export function applySpecHygiene(server, overrides = {}) {
 
   const innerToolsList = protocol._requestHandlers.get('tools/list');
   if (innerToolsList) {
-    protocol.setRequestHandler(ListToolsRequestSchema, wrapToolsList(innerToolsList, icon));
+    protocol.setRequestHandler('tools/list', wrapToolsList(innerToolsList, icon));
   }
 
   const innerToolsCall = protocol._requestHandlers.get('tools/call');
   if (innerToolsCall) {
-    protocol.setRequestHandler(CallToolRequestSchema, wrapToolsCall(innerToolsCall, cacheableTools));
+    protocol.setRequestHandler('tools/call', wrapToolsCall(innerToolsCall, cacheableTools));
   }
 
   const innerPromptsList = protocol._requestHandlers.get('prompts/list');
   if (innerPromptsList) {
-    protocol.setRequestHandler(ListPromptsRequestSchema, wrapPromptsList(innerPromptsList, icon));
+    protocol.setRequestHandler('prompts/list', wrapPromptsList(innerPromptsList, icon));
   }
 }

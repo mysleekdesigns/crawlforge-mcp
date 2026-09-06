@@ -31,8 +31,8 @@ const PDFProcessorSchema = z.object({
     parseOptions: z.object({
       normalizeWhitespace: z.boolean().default(true),
       disableCombineTextItems: z.boolean().default(false)
-    }).optional().default({})
-  }).optional().default({})
+    }).optional().prefault({})
+  }).optional().prefault({})
 });
 
 const PDFResult = z.object({

@@ -10,7 +10,7 @@
  *   validates `structuredContent` against the schema; legacy clients keep
  *   reading the JSON-stringified `content` for backward compatibility.
  *
- * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} server
+ * @param {import('@modelcontextprotocol/server').McpServer} server
  * @param {Function} withAuth  — from makeWithAuth() in src/server/withAuth.js
  * @param {Object}  descriptor
  * @param {string}  descriptor.name         — tool name (MCP identifier)

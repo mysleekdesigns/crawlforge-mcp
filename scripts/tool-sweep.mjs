@@ -43,8 +43,8 @@
 
 import { resolve } from 'node:path';
 import dotenv from 'dotenv';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { Client } from "@modelcontextprotocol/client";
 
 const REPO = resolve(import.meta.dirname, '..');
 dotenv.config({ path: resolve(REPO, '.env'), quiet: true });
@@ -130,7 +130,7 @@ async function connect() {
 
 /** One tools/call. Returns the parsed result; throws on an MCP-level error. */
 async function call(name, args, timeout = 120000) {
-  const result = await client.callTool({ name, arguments: args }, undefined, { timeout });
+  const result = await client.callTool({ name, arguments: args }, { timeout });
   const text = result.content?.[0]?.text ?? '';
   if (result.isError) throw new Error(`${name}: ${text.slice(0, 300)}`);
   if (result.structuredContent) return result.structuredContent;

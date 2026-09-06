@@ -21,7 +21,7 @@ const GenerateLLMsTxtSchema = z.object({
     checkSecurity: z.boolean().optional().default(false).describe('Whether to probe security-sensitive paths (opt-in; sends requests to /admin, /login, etc.)'),
     probeRateLimit: z.boolean().optional().default(false).describe('Whether to send repeated probe requests to estimate rate limits (opt-in; fires ~5 requests)'),
     respectRobots: z.boolean().optional().default(true).describe('Whether to respect robots.txt')
-  }).optional().default({}),
+  }).optional().prefault({}),
 
   outputOptions: z.object({
     includeDetailed: z.boolean().optional().default(true).describe('Generate detailed LLMs-full.txt'),
@@ -31,7 +31,7 @@ const GenerateLLMsTxtSchema = z.object({
     customGuidelines: z.array(z.string()).optional().describe('Additional custom guidelines'),
     customRestrictions: z.array(z.string()).optional().describe('Additional restrictions'),
     robotsStyle: z.boolean().optional().default(false).describe('Emit legacy robots.txt-style directives instead of spec-compliant llmstxt.org markdown')
-  }).optional().default({}),
+  }).optional().prefault({}),
 
   complianceLevel: z.enum(['basic', 'standard', 'strict']).optional().default('standard').describe('Compliance level for generated guidelines'),
   

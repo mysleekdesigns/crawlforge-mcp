@@ -28,7 +28,7 @@ const ContentAnalyzerSchema = z.object({
     maxKeywords: z.number().min(1).max(50).default(15),
     includeReadabilityMetrics: z.boolean().default(true),
     includeSentiment: z.boolean().default(true)
-  }).optional().default({})
+  }).optional().prefault({})
 });
 
 const AnalysisResult = z.object({

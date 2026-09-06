@@ -28,7 +28,7 @@ const SummarizeContentSchema = z.object({
     maxKeywords: z.number().min(1).max(20).default(10),
     preserveStructure: z.boolean().default(false),
     language: z.string().optional()
-  }).optional().default({})
+  }).optional().prefault({})
 });
 
 const SummarizeContentResult = z.object({

@@ -24,15 +24,12 @@
  * preserved when CRAWLFORGE_LEGACY_HTTP=true (one-release deprecation window);
  * `http.js`'s connectHttp() forwards straight into this module's legacy mode.
  */
-
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from "@modelcontextprotocol/server";
+import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
 import { createServer } from 'node:http';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { requestContext } from '../requestContext.js';
-import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 
 const pkg = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
 const SERVER_VERSION = pkg.version;
@@ -59,10 +56,9 @@ function buildToolCards(server) {
     .map(([name, tool]) => {
       let inputSchema = { type: 'object', properties: {} };
       try {
-        const shape = tool?.inputSchema;
-        if (shape) {
-          const zodObject = typeof shape?.safeParse === 'function' ? shape : z.object(shape);
-          const converted = zodToJsonSchema(zodObject, { $refStrategy: 'none' });
+        if (tool?.inputSchema) {
+          // The SDK's own conversion, so the card mirrors what tools/list serves.
+          const converted = { ...server.toolInputSchemaJson(name) };
           delete converted.$schema;
           inputSchema = converted;
         }
@@ -89,23 +85,21 @@ function buildToolCards(server) {
  * prompt tables — plain config + handler-closure references, no per-connection
  * state — then re-runs the same internal handler-wiring methods McpServer
  * itself calls from registerTool/registerResource/registerPrompt. This
- * depends on @modelcontextprotocol/sdk 1.30.0's internal McpServer/Server
- * field names (`_registered*`, `set*RequestHandlers`, `_capabilities`,
- * `_taskStore`); re-check on SDK upgrades.
+ * depends on the SDK's internal McpServer/Server field names
+ * (`_registered*`, `set*RequestHandlers`, `_capabilities`); re-verified
+ * against @modelcontextprotocol/server 2.0.0, which still exposes all of
+ * them. `_taskStore` is gone — v2 removed experimental tasks (SEP-2663).
+ * Re-check on SDK upgrades.
  *
- * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} templateServer
+ * @param {import('@modelcontextprotocol/server').McpServer} templateServer
  */
 function cloneServerForSession(templateServer) {
   const low = templateServer.server;
-  // capabilities + taskStore must survive the clone: the SDK's Protocol
-  // constructor wires the tasks/* request handlers only when options.taskStore
-  // is present, and without it a tools/call on any task-capable tool
-  // (crawl_deep, batch_scrape, deep_research, agent) throws
-  // 'No task store provided for task-capable tool.'
+  // capabilities must survive the clone so the session server advertises the
+  // same surface as the template.
   const sessionServer = new McpServer(low._serverInfo, {
     instructions: low._instructions,
-    capabilities: low._capabilities,
-    taskStore: low._taskStore
+    capabilities: low._capabilities
   });
 
   sessionServer._registeredTools = templateServer._registeredTools;
@@ -140,7 +134,7 @@ function sendRpcError(res, status, code, message) {
 /**
  * Stateful, session-aware Streamable HTTP transport.
  *
- * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} server
+ * @param {import('@modelcontextprotocol/server').McpServer} server
  * @param {import('../../core/AuthManager.js').default} authManager
  * @param {import('../../utils/Logger.js').logger} logger
  * @param {object} [options]
@@ -281,7 +275,7 @@ export async function connectStreamableHttp(server, authManager, logger, options
         let reqTransport;
         try {
           sessionServer = cloneServerForSession(server);
-          reqTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+          reqTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
           await sessionServer.connect(reqTransport);
           await requestContext.run({ internal }, () => reqTransport.handleRequest(req, res));
         } catch (err) {
@@ -321,7 +315,7 @@ export async function connectStreamableHttp(server, authManager, logger, options
       }
 
       const sessionServer = cloneServerForSession(server);
-      const transport = new StreamableHTTPServerTransport({
+      const transport = new NodeStreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (sid) => {
           sessions.set(sid, { transport, server: sessionServer });

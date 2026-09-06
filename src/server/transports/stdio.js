@@ -2,12 +2,11 @@
  * stdio transport setup — extracted from server.js runServer().
  * Used when server is launched without the --http flag.
  */
-
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 
 /**
  * Connect the MCP server to stdio transport and log startup message.
- * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} server
+ * @param {import('@modelcontextprotocol/server').McpServer} server
  */
 export async function connectStdio(server) {
   const transport = new StdioServerTransport();

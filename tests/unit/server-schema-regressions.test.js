@@ -33,14 +33,14 @@ const src = readFileSync(serverJsPath, 'utf8');
  * Extract the source slice for a single registerToolIfEnabled("<name>", ...)
  * call (Phase 6: registrations go through the tool-filter wrapper), from its
  * start marker up to the next registration call (or EOF). Long-running tools
- * register via server.experimental.tasks.registerToolTask, which also ends a
+ * are all registered the same way now that async tasks are retired, which ends a
  * block.
  */
 function extractToolBlock(toolName) {
   const startMarker = `registerToolIfEnabled("${toolName}"`;
   const startIdx = src.indexOf(startMarker);
   assert.ok(startIdx !== -1, `registerToolIfEnabled("${toolName}", ...) not found in server.js`);
-  const boundary = /registerToolIfEnabled\(|server\.experimental\.tasks\.registerToolTask\(/g;
+  const boundary = /registerToolIfEnabled\(/g;
   boundary.lastIndex = startIdx + startMarker.length;
   const next = boundary.exec(src);
   return src.slice(startIdx, next ? next.index : src.length);

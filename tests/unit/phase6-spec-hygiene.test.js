@@ -21,10 +21,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-
+import { Client } from "@modelcontextprotocol/client";
+import { McpServer, InMemoryTransport } from "@modelcontextprotocol/server";
 import { applySpecHygiene } from '../../src/server/specHygiene.js';
 
 async function buildConnectedClient({ applyTwice = false } = {}) {
@@ -35,7 +33,7 @@ async function buildConnectedClient({ applyTwice = false } = {}) {
     'zebra_tool',
     {
       description: 'Z tool, plain content result',
-      inputSchema: { value: z.string() }
+      inputSchema: z.object({ value: z.string() })
     },
     async () => ({ content: [{ type: 'text', text: 'zebra' }] })
   );
@@ -44,8 +42,8 @@ async function buildConnectedClient({ applyTwice = false } = {}) {
     'apple_tool',
     {
       description: 'A tool, has an outputSchema and returns isError',
-      inputSchema: { value: z.string().optional() },
-      outputSchema: { ok: z.boolean() }
+      inputSchema: z.object({ value: z.string().optional() }),
+      outputSchema: z.object({ ok: z.boolean() })
     },
     async () => ({
       content: [{ type: 'text', text: 'apple failed' }],
@@ -57,7 +55,7 @@ async function buildConnectedClient({ applyTwice = false } = {}) {
     'fetch_url',
     {
       description: 'Cacheable tool, plain content result',
-      inputSchema: { url: z.string() }
+      inputSchema: z.object({ url: z.string() })
     },
     async () => ({ content: [{ type: 'text', text: 'fetched' }] })
   );

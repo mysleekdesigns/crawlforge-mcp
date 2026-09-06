@@ -14,8 +14,13 @@
  * execution, _meta, icons. It is regenerated on each INTENTIONAL schema
  * change — capture the `scrape` entry from a real stdio tools/list, spawned
  * the way this file spawns the server — and guards against accidental drift
- * in between. Regenerated 2026-09-06 for Phase 5's `redact_pii` param and
- * the `redaction` report it adds to the result.
+ * in between. Regenerated 2026-09-06 for Phase 4.1's MCP SDK v1 -> v2 and
+ * zod 3 -> zod 4 move, which changes how the schema is SERIALIZED without
+ * changing what it accepts: the SDK's own converter no longer emits
+ * `additionalProperties: false` on nested objects, inlines what used to be a
+ * `$ref` back-reference, and orders keys differently. Runtime validation is
+ * unchanged — zod still strips unknown keys — so the wire schema is merely
+ * more permissive than the validator, not the other way round.
  *
  * The server is spawned with HOME pointed at a temp dir and an empty creator
  * secret so the real ~/.crawlforge is never read or written.

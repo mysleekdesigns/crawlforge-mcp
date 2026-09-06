@@ -48,7 +48,7 @@ export const TrackChangesSchema = z.object({
       moderate: z.number().min(0).max(1).default(0.3),
       major: z.number().min(0).max(1).default(0.7)
     }).optional()
-  }).optional().default({}),
+  }).optional().prefault({}),
 
   monitoringOptions: z.object({
     enabled: z.boolean().default(false),
@@ -59,7 +59,7 @@ export const TrackChangesSchema = z.object({
     enableWebhook: z.boolean().default(false),
     webhookUrl: z.string().url().optional(),
     webhookSecret: z.string().optional()
-  }).optional().default({}),
+  }).optional().prefault({}),
 
   storageOptions: z.object({
     enableSnapshots: z.boolean().default(true),
@@ -67,7 +67,7 @@ export const TrackChangesSchema = z.object({
     maxHistoryEntries: z.number().min(1).max(1000).default(100),
     compressionEnabled: z.boolean().default(true),
     deltaStorageEnabled: z.boolean().default(true)
-  }).optional().default({}),
+  }).optional().prefault({}),
 
   queryOptions: z.object({
     limit: z.number().min(1).max(500).default(50),
@@ -76,7 +76,7 @@ export const TrackChangesSchema = z.object({
     endTime: z.number().optional(),
     includeContent: z.boolean().default(false),
     significanceFilter: z.enum(['all', 'minor', 'moderate', 'major', 'critical']).optional()
-  }).optional().default({}),
+  }).optional().prefault({}),
 
   notificationOptions: z.object({
     email: z.object({

@@ -238,7 +238,7 @@ export class DeepResearchTool {
         return {
           success: false,
           error: 'Invalid parameters',
-          details: validationError.errors.map(err => ({
+          details: validationError.issues.map(err => ({
             field: err.path.join('.'),
             message: err.message,
             received: err.received

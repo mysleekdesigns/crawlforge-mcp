@@ -12,7 +12,7 @@ const BehaviorConfigSchema = z.object({
     accuracy: z.number().min(0.1).max(1.0).default(0.8), // 0.1 = very inaccurate, 1.0 = perfect
     naturalCurves: z.boolean().default(true),
     randomMicroMovements: z.boolean().default(true)
-  }).default({}),
+  }).prefault({}),
   
   typing: z.object({
     enabled: z.boolean().default(true),
@@ -22,30 +22,30 @@ const BehaviorConfigSchema = z.object({
       enabled: z.boolean().default(true),
       frequency: z.number().min(0).max(0.1).default(0.02), // 2% mistake rate
       correctionDelay: z.number().min(100).max(2000).default(500)
-    }).default({})
-  }).default({}),
+    }).prefault({})
+  }).prefault({}),
   
   scrolling: z.object({
     enabled: z.boolean().default(true),
     naturalAcceleration: z.boolean().default(true),
     randomPauses: z.boolean().default(true),
     scrollBackProbability: z.number().min(0).max(1).default(0.1)
-  }).default({}),
+  }).prefault({}),
   
   interactions: z.object({
     hoverBeforeClick: z.boolean().default(true),
     clickDelay: z.object({
       min: z.number().default(100),
       max: z.number().default(300)
-    }).default({}),
+    }).prefault({}),
     focusBlurSimulation: z.boolean().default(true),
     idlePeriods: z.object({
       enabled: z.boolean().default(true),
       frequency: z.number().min(0).max(1).default(0.1), // 10% chance
       minDuration: z.number().default(1000),
       maxDuration: z.number().default(5000)
-    }).default({})
-  }).default({})
+    }).prefault({})
+  }).prefault({})
 });
 
 export class HumanBehaviorSimulator {

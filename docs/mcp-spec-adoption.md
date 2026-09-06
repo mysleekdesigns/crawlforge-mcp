@@ -12,7 +12,7 @@ given feature ignore the fields they don't recognize and continue to work off th
 2. [Tool Execution Errors for invalid input (SEP-1303)](#2-tool-execution-errors-for-invalid-input-sep-1303)
 3. [JSON Schema 2020-12, deterministic ordering, cacheable-result hints (SEP-2549)](#3-json-schema-2020-12-deterministic-ordering-cacheable-result-hints-sep-2549)
 4. [Icons (SEP-973)](#4-icons-sep-973)
-5. [Async tasks (experimental)](#5-async-tasks-experimental)
+5. [Async tasks — retired](#5-async-tasks--retired)
 6. [Client-side tool selection](#6-client-side-tool-selection)
 7. [MCP Registry](#7-mcp-registry)
 
@@ -176,113 +176,27 @@ tool/prompt picker can show a CrawlForge icon instead of a generic placeholder.
 
 ---
 
-## 5. Async tasks (experimental)
+## 5. Async tasks — RETIRED
 
-**What it is:** An experimental async-task pattern (the `io.modelcontextprotocol/tasks`
-extension) for tools that can run long enough to matter: a client that supports tasks can call
-the tool, get a task handle back immediately, and poll for status instead of holding the
-connection open for the full duration. `taskSupport` is `optional` — clients that don't opt in
-get the normal synchronous result, unchanged.
+**Status: removed 2026-09-06.** This server used to offer an opt-in async-task mode on
+`crawl_deep`, `batch_scrape`, `deep_research` and `agent`: a client could pass a top-level
+`task` param, get a handle back immediately and poll `tasks/get` / `tasks/result`.
 
-**Which tools:** `crawl_deep`, `batch_scrape`, `deep_research`, `agent` — the four tools whose
-runtime is unbounded by page count, source count, or step count.
+That mode was built on the MCP TypeScript SDK's **experimental** tasks API. **SEP-2663 removed
+that API entirely** — the 2026-07-28 revision moved tasks to the Extensions Track, and SDK v2
+deletes the `taskStore` server option, the `extra.taskStore` / `taskId` / `taskRequestedTtl`
+handler context and `registerToolTask`. On a 2026-era connection an inbound `tasks/get` answers
+`-32601` even where a handler is registered. There was therefore nothing left to build on, and
+the mode was retired rather than reimplemented against a surface the spec had dropped.
 
-**Exchange (task-augmented `tools/call`, `crawl_deep`):**
+**What changed for callers:** a `task` param is no longer accepted, and the four tools no longer
+advertise `execution.taskSupport`. They behave exactly as they always did for every caller who
+did not opt in — the call runs synchronously and returns its result. Nothing else about the four
+tools changed.
 
-```json
-// 1. Client calls the tool and opts into task mode with a top-level `task` param
-{
-  "jsonrpc": "2.0",
-  "id": 20,
-  "method": "tools/call",
-  "params": {
-    "name": "crawl_deep",
-    "arguments": { "url": "https://example.com", "max_depth": 1, "max_pages": 2 },
-    "task": { "ttl": 600000 }
-  }
-}
-```
-
-```json
-// 2. Server returns a task handle instead of blocking
-{
-  "jsonrpc": "2.0",
-  "id": 20,
-  "result": {
-    "task": {
-      "taskId": "90224d52-d28a-4995-b861-d8a7ed7d3c52",
-      "status": "working",
-      "ttl": 600000,
-      "createdAt": "2026-08-27T17:12:46.352Z",
-      "lastUpdatedAt": "2026-08-27T17:12:46.352Z",
-      "pollInterval": 200
-    }
-  }
-}
-```
-
-```json
-// 3. Client polls (honour `pollInterval`, in ms)
-{ "jsonrpc": "2.0", "id": 21, "method": "tasks/get", "params": { "taskId": "90224d52-d28a-4995-b861-d8a7ed7d3c52" } }
-```
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 21,
-  "result": {
-    "taskId": "90224d52-d28a-4995-b861-d8a7ed7d3c52",
-    "status": "working",
-    "ttl": 600000,
-    "createdAt": "2026-08-27T17:12:46.352Z",
-    "lastUpdatedAt": "2026-08-27T17:12:46.352Z",
-    "pollInterval": 200
-  }
-}
-```
-
-There is no incremental progress payload — `status` moves `working` → `completed` / `failed` /
-`cancelled`, and `lastUpdatedAt` is the only other field that changes. Over a transport that
-supports server-initiated messages the same transitions also arrive as
-`notifications/tasks/status`, so polling is a fallback, not a requirement.
-
-```json
-// 4. Once status is "completed", the client fetches the result
-{ "jsonrpc": "2.0", "id": 22, "method": "tasks/result", "params": { "taskId": "90224d52-d28a-4995-b861-d8a7ed7d3c52" } }
-```
-
-```json
-// The stored CallToolResult, identical to what a synchronous call would have returned
-{
-  "jsonrpc": "2.0",
-  "id": 22,
-  "result": {
-    "structuredContent": { "url": "https://example.com", "pages_crawled": 1, "results": ["..."] },
-    "content": [{ "type": "text", "text": "{ \"pages_crawled\": 1, ... }" }]
-  }
-}
-```
-
-**TTL:** the requested `task.ttl` (ms) is honoured up to a 30-minute ceiling; omit it and the
-task gets 10 minutes. Every task expires — the server never keeps one indefinitely — and a
-`tasks/get` or `tasks/result` after expiry fails with "Task not found". A task's TTL clock
-restarts when it reaches a terminal status, so a completed result stays fetchable for the full
-window.
-
-`tasks/list` (enumerate in-flight/completed tasks) and `tasks/cancel` (`{ "taskId": "..." }`) are
-also implemented for the same four tools. Note what cancel does and does not do: it moves the
-task to `cancelled` and discards whatever the run eventually produces, but it does **not** abort
-the work already in flight — an in-progress crawl or research run continues to completion in the
-background and its result is dropped. Cancelling frees you from waiting; it does not free the
-resources. Cancelling an already-terminal task is an error.
-
-**Client compatibility:** Clients that don't send a `task` param never see a task handle — the
-tool call blocks and returns the normal synchronous result, exactly as it did before this feature
-existed. This is a silent fallback, not an error: a client that opts in with the wrong shape
-(for example the pre-SDK-1.30 `_meta["io.modelcontextprotocol/task"]` form) simply gets the
-synchronous result with no indication that task mode was ignored.
-
----
+**If you need long-running work not to hold a connection open:** use `batch_scrape`'s existing
+async webhook mode, or the `result_handle` / `read_result` pattern (section 1) to keep a large
+result out of the context while you page through it.
 
 ## 6. Client-side tool selection
 

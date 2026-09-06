@@ -23,9 +23,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { Client } from "@modelcontextprotocol/client";
+import { McpServer, InMemoryTransport } from "@modelcontextprotocol/server";
 
 /**
  * Build a connected (server, client) pair with a single test tool whose
@@ -39,7 +38,7 @@ async function buildConnectedPair() {
     'test_tool',
     {
       description: 'Echoes back the given URL. Used only to exercise SEP-1303 validation behavior.',
-      inputSchema: { url: z.string().url().describe('A URL') }
+      inputSchema: z.object({ url: z.string().url().describe('A URL') })
     },
     async ({ url }) => ({
       content: [{ type: 'text', text: `ok:${url}` }]
@@ -71,7 +70,10 @@ test('SEP-1303: invalid argument value (bad URL) resolves as a Tool Execution Er
   assert.ok(Array.isArray(result.content) && result.content.length > 0, 'expected content array on the error result');
 
   const text = result.content[0].text;
-  assert.match(text, /MCP error -32602/, 'error text should still carry the -32602 (Invalid params) code so the compliance suite\'s extractError() keeps recognizing it');
+  // MCP SDK v1 stringified the code into the message ("MCP error -32602: ...").
+  // v2 raises the same ProtocolError(InvalidParams) and renders only its prose,
+  // so assert the wording the compliance suite's extractError() now maps to
+  // -32602 rather than a code SEP-1303 never puts on the wire.
   assert.match(text, /Input validation error/i, 'error text should describe an input validation problem');
 });
 
@@ -87,7 +89,6 @@ test('SEP-1303: missing required argument resolves as a Tool Execution Error, no
   assert.ok(Array.isArray(result.content) && result.content.length > 0, 'expected content array on the error result');
 
   const text = result.content[0].text;
-  assert.match(text, /MCP error -32602/, 'error text should still carry the -32602 (Invalid params) code');
   assert.match(text, /Input validation error/i, 'error text should describe an input validation problem');
 });
 
