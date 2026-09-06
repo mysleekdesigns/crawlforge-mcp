@@ -20,7 +20,7 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
 
 | Tool | Notes |
 |------|-------|
-| `scrape` | Unified multi-format single fetch. A `highlights` or `question` format adds 1 once per call; `mode:"model"` on one of them adds 3 once. |
+| `scrape` | Unified multi-format single fetch. A `highlights` or `question` format adds 1 once per call; `mode:"model"` on one of them adds 3 once. `escalate:true` adds 5 as the projected ceiling; the actual charge drops back to the base when the plain fetch succeeded and no escalation ran. |
 | `scrape_structured` | CSS-selector extraction. |
 | `extract_embedded_state` | Embedded JS state (`__NEXT_DATA__`, RSC, Nuxt, Apollo, Redux). |
 | `extract_content` | Readability-cleaned article. |
@@ -77,4 +77,8 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
 - `get_batch_results` (1) is cheap — submit a batch once, page through results.
 - A result over `max_inline_chars` costs nothing extra; read the stored copy with
   `read_result` (1) instead of fetching again.
+- On a site that blocks, one `scrape` with `escalate:true` costs at most 7 and
+  only 2 when the plain fetch works; `scrape` then `stealth_mode` costs 7 either
+  way. Do not set it on a site that reads fine — it raises the projection your
+  balance is checked against.
 - Errors are charged at half the tool cost; creator mode is unlimited.

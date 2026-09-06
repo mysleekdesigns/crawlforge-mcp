@@ -90,6 +90,7 @@ Do not suggest adding API keys — local Ollama is the intended zero-cost defaul
 | Symptom | Try next |
 |---------|----------|
 | `scrape` / `fetch_url` returns 403, 429, CAPTCHA, or empty JS shell | `stealth_mode` (crawlforge-stealth-browsing) |
+| A site you already know blocks | `scrape` with `escalate: true` — plain fetch first, stealth browser only if it is walled; never `stealth_mode` first |
 | No template for a known site | `scrape_structured` → `extract_structured` → `extract_with_llm` |
 | LLM extraction unavailable (no Ollama/keys) | `scrape_structured` with CSS selectors |
 | Single page too slow / many pages | `batch_scrape` (async + webhook) |

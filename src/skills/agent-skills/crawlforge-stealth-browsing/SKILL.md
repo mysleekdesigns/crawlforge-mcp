@@ -24,6 +24,11 @@ Escalate from a normal `scrape` / `fetch_url` (see crawlforge-web-scraping) when
 `stealth_mode` drives a real browser with randomized fingerprints, human
 behavior simulation, and WebRTC/canvas/WebGL spoofing.
 
+When you already know the site blocks, `scrape` with `escalate: true` does both
+steps in one call: the plain fetch first, then the same stealth browser only if
+that fetch is walled. Projected at 7, charged 2 when the plain fetch worked.
+Still never reach for `stealth_mode` first.
+
 ## stealth_mode (cost: 5)
 
 `stealth_mode` is operation-based. Typical flow: create a context, then create a

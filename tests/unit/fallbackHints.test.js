@@ -9,7 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FALLBACK_HINTS, appendFallbackHint } from '../../src/server/fallbackHints.js';
+import { FALLBACK_HINTS, SCRAPE_ESCALATED_HINT, appendFallbackHint } from '../../src/server/fallbackHints.js';
 import { makeWithAuth } from '../../src/server/withAuth.js';
 
 process.env.DATAFORSEO_LOGIN = process.env.DATAFORSEO_LOGIN || 'test';
@@ -101,6 +101,35 @@ test('withAuth appends the hint to a handler error result, not to success', asyn
   }));
   const passed = await passing({ query: 'x' });
   assert.equal(passed.content[0].text, 'rows');
+});
+
+// Phase 3 (3.4): a scrape that already escalated must not be told to try the
+// tool that has just failed.
+test('an escalated scrape failure gets the second-stage hint, not stealth_mode', () => {
+  const r = {
+    content: [{ type: 'text', text: JSON.stringify({ success: false, escalated: true, error: 'blocked' }) }],
+    isError: true
+  };
+  appendFallbackHint('scrape', r);
+  const parsed = JSON.parse(r.content[0].text);
+  assert.equal(parsed.next_step, SCRAPE_ESCALATED_HINT);
+  assert.match(parsed.next_step, /localization/);
+  assert.match(parsed.next_step, /residential proxies, which CrawlForge does not offer/);
+  assert.doesNotMatch(parsed.next_step, /use stealth_mode/);
+});
+
+test('escalated:false and an un-escalated scrape still get the ordinary hint', () => {
+  for (const body of [{ escalated: false, error: 'blocked' }, { error: 'blocked' }]) {
+    const r = { content: [{ type: 'text', text: JSON.stringify(body) }], isError: true };
+    appendFallbackHint('scrape', r);
+    assert.equal(JSON.parse(r.content[0].text).next_step, FALLBACK_HINTS.scrape);
+  }
+});
+
+test('escalated:true on another tool changes nothing', () => {
+  const r = { content: [{ type: 'text', text: JSON.stringify({ escalated: true }) }], isError: true };
+  appendFallbackHint('map_site', r);
+  assert.equal(JSON.parse(r.content[0].text).next_step, FALLBACK_HINTS.map_site);
 });
 
 test('cost table and hint table cover the same tools', () => {

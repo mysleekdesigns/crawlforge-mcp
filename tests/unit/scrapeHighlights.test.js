@@ -206,10 +206,20 @@ describe('mode:"model" with no LLM route', () => {
     });
   });
 
-  test('extractive mode reports nothing: the projection is the charge', async () => {
+  // Phase 3 folded the narrow model-only report into one computation made on
+  // every return path, so an extractive call now reports its spend explicitly.
+  // The value is still the projection, so the charge is unchanged.
+  test('extractive mode reports the projection itself: 2 base + 1 query', async () => {
     await requestContext.run({}, async () => {
       await scrape(['markdown', { type: 'highlights', query: 'per month' }]);
-      assert.equal(reportedActualCost(), null);
+      assert.equal(reportedActualCost(), 3);
+    });
+  });
+
+  test('a plain string-format call reports the bare base', async () => {
+    await requestContext.run({}, async () => {
+      await scrape(['markdown']);
+      assert.equal(reportedActualCost(), 2);
     });
   });
 });

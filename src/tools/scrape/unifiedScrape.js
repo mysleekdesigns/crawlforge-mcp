@@ -20,6 +20,7 @@ import {
   SCRAPE_STRING_FORMATS, JsonFormatSchema, HighlightsFormatSchema, QuestionFormatSchema, FormatSchema,
   scrapeFormatSurcharge
 } from './formats.js';
+import { SCRAPE_ESCALATION_SHAPE, SCRAPE_ESCALATION_CREDITS } from './escalation.js';
 import { toPublicUnit, parseChosenIndexes, groundingCheck } from './_highlights.js';
 import { setActualCost } from '../../server/requestContext.js';
 import { fenceUntrusted } from '../../utils/untrustedContent.js';
@@ -29,11 +30,15 @@ import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 import { stripHiddenFromDom } from '../../utils/hiddenContent.js';
 import { extractBlockText } from '../basic/extractText.js';
 import { pageTitle } from '../../utils/pageTitle.js';
-import { noteHostBlocked, clearHostBlocked } from '../../utils/hostRateLimiter.js';
+import { noteHostBlocked, clearHostBlocked, getHostBlock } from '../../utils/hostRateLimiter.js';
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
 export { SCRAPE_STRING_FORMATS, JsonFormatSchema, HighlightsFormatSchema, QuestionFormatSchema, FormatSchema };
+export { SCRAPE_ESCALATION_SHAPE, SCRAPE_ESCALATION_CREDITS };
+
+/** scrape's base price, as AuthManager's table spells it. */
+const SCRAPE_BASE_CREDITS = 2;
 
 // Above this, a markdown result is the whole page in the context window;
 // the warning names the format that returns only the matching units (1.4).
@@ -61,7 +66,9 @@ export const SCRAPE_INPUT_SHAPE = {
     fullPage: z.boolean().optional().default(false).describe('Capture the full scrollable page'),
     format: z.enum(['png', 'jpeg']).optional().default('png'),
     quality: z.number().min(0).max(100).optional().describe('JPEG quality (jpeg only)')
-  }).optional().describe('Options for the "screenshot" format')
+  }).optional().describe('Options for the "screenshot" format'),
+  // Opt-in second stage (Phase 3): the plain fetch still runs first.
+  ...SCRAPE_ESCALATION_SHAPE
 };
 
 export const UnifiedScrapeSchema = z.object({
@@ -194,6 +201,15 @@ export class UnifiedScrapeTool {
     // Optional shared ActionExecutor (injected from server.js so we reuse the
     // existing browser pool rather than spinning up a second one).
     this._actionExecutor = options.actionExecutor || null;
+    // Optional escalation stage (Phase 3), injected from server.js the same
+    // way. The tool module must never import StealthBrowserManager itself:
+    // that would pull a browser dependency into every unit test that loads
+    // `scrape`. Signature:
+    //   ({ url, engine, respectRobots }) =>
+    //     { html, url, title, text, status, engine, warnings? }
+    // The injected function owns the compliance gate (robots + blocklist) and
+    // the engine-name mapping, exactly as the stealth_mode tool does.
+    this._escalateScrape = options.escalateScrape || null;
     this._mcpServer = null;
   }
 
@@ -278,59 +294,179 @@ export class UnifiedScrapeTool {
     const validated = UnifiedScrapeSchema.parse(params);
     const { url, formats, onlyMainContent, timeoutMs, brandingOptions, screenshotOptions, resolveHiddenContent } = validated;
 
+    // The gate's warnings (e.g. a respect_robots override) travel with the
+    // per-format ones, so the caller sees the decision in the response.
+    const warnings = [];
+    // Whether a model completed for a mode:"model" format, and whether the
+    // stealth stage ran; the surcharge for each is charged only then.
+    let modelUsed = false;
+    let escalationRan = false;
+    let stealthEngine = null;
+
+    // One charge computation for every return path (3.2). The projection is
+    // the ceiling a caller saw before the call, so each stage that did not
+    // run only ever lowers the bill (G4): the model surcharge when nothing
+    // completed, the escalation surcharge when the plain fetch sufficed.
+    const surcharge = scrapeFormatSurcharge(formats);
+    const reportCost = () => setActualCost(
+      SCRAPE_BASE_CREDITS +
+      surcharge.query +
+      (modelUsed ? surcharge.model : 0) +
+      (escalationRan ? SCRAPE_ESCALATION_CREDITS : 0)
+    );
+
+    // Opt-in second stage (Phase 3): the plain fetch runs first and the
+    // stealth browser only follows a blocked verdict.
+    const escalate = validated.escalate === true;
+    // 3.3: a host that walled us within the last 24 hours (0.6's memory) has
+    // a doomed plain fetch ahead of it. Read ONLY when escalating — an
+    // ordinary scrape must behave exactly as it did before.
+    const remembered = escalate ? getHostBlock(url) : null;
+
     // Single fetch
-    let html, $, finalUrl, fetchWarnings, status;
-    try {
-      ({ html, $, finalUrl, warnings: fetchWarnings, status } = await fetchAndParse(url, {
-        timeoutMs,
-        userAgent: validated.user_agent,
-        respectRobots: validated.respect_robots,
-        tool: 'scrape',
-        stripTags: [], // we handle boilerplate ourselves
-        // A real wall reaches a plain fetch as a 403 with the challenge in
-        // the body; the verdict below needs that body and the status.
-        errorDocuments: true
-      }));
-    } catch (err) {
-      throw new Error(`scrape: fetch failed for ${url}: ${err.message}`);
+    let html, $, fetchWarnings, status, title, verdict;
+    let finalUrl = url;
+    if (remembered) {
+      warnings.push(
+        `escalate: ${remembered.vendor || 'a bot wall'} walled this host within the last 24 hours; the plain fetch was skipped and the stealth browser ran first`
+      );
+    } else {
+      try {
+        ({ html, $, finalUrl, warnings: fetchWarnings, status } = await fetchAndParse(url, {
+          timeoutMs,
+          userAgent: validated.user_agent,
+          respectRobots: validated.respect_robots,
+          tool: 'scrape',
+          stripTags: [], // we handle boilerplate ourselves
+          // A real wall reaches a plain fetch as a 403 with the challenge in
+          // the body; the verdict below needs that body and the status.
+          errorDocuments: true
+        }));
+      } catch (err) {
+        throw new Error(`scrape: fetch failed for ${url}: ${err.message}`);
+      }
+      warnings.push(...fetchWarnings);
+
+      // A bot wall, an HTTP error page, an empty shell or an error placeholder
+      // arrives with a title and prose of its own; reported as a successful
+      // scrape it hid the block for three rounds (producthunt.com, R10 Q1 →
+      // R15). The stealth path has named these since 5.6.2; this path never
+      // looked, and threw away every non-2xx body before it could (Phase 0,
+      // 0.1). Scripts stay in $ for the rawHtml and metadata formats,
+      // so the text is measured on a copy without them — the vendor tables
+      // count the characters a reader would see, as the browser path does.
+      // Nothing below runs on a failed verdict: a screenshot would launch a
+      // browser on the wall and branding would fetch its stylesheets.
+      title = pageTitle($);
+      const $visible = load(html);
+      $visible('script, style, noscript, template').remove();
+      verdict = documentVerdict(
+        { url: finalUrl, title, text: $visible('body').text(), html, status },
+        { fetcher: 'a plain fetch', rendered: false, contentReturned: false }
+      );
+      // Host memory (0.6): remember the vendor that walled this host, keyed by
+      // the URL the caller passed as well as the final one when a redirect
+      // moved hosts, since a later call looks it up by what it was given.
+      const hosts = [finalUrl, url];
+      if (verdict.blocked) {
+        for (const h of hosts) noteHostBlocked(h, verdict.blocked.vendor);
+      } else if (verdict.success) {
+        for (const h of hosts) clearHostBlocked(h);
+      }
     }
 
-    // A bot wall, an HTTP error page, an empty shell or an error placeholder
-    // arrives with a title and prose of its own; reported as a successful
-    // scrape it hid the block for three rounds (producthunt.com, R10 Q1 →
-    // R15). The stealth path has named these since 5.6.2; this path never
-    // looked, and threw away every non-2xx body before it could (Phase 0,
-    // 0.1). Scripts stay in $ for the rawHtml and metadata formats,
-    // so the text is measured on a copy without them — the vendor tables
-    // count the characters a reader would see, as the browser path does.
-    // Nothing below runs on a failed verdict: a screenshot would launch a
-    // browser on the wall and branding would fetch its stylesheets.
-    const title = pageTitle($);
-    const $visible = load(html);
-    $visible('script, style, noscript, template').remove();
-    const verdict = documentVerdict(
-      { url: finalUrl, title, text: $visible('body').text(), html, status },
-      { fetcher: 'a plain fetch', rendered: false, contentReturned: false }
-    );
-    // Host memory (0.6): remember the vendor that walled this host, keyed by
-    // the URL the caller passed as well as the final one when a redirect
-    // moved hosts, since a later call looks it up by what it was given.
-    const hosts = [finalUrl, url];
-    if (verdict.blocked) {
-      for (const h of hosts) noteHostBlocked(h, verdict.blocked.vendor);
-    } else if (verdict.success) {
-      for (const h of hosts) clearHostBlocked(h);
+    // ── Escalation (Phase 3) ─────────────────────────────────────────────
+    // Opt-in, and second by construction: the plain fetch above has already
+    // run and only a blocked verdict gets here (G1 — never start with
+    // stealth). The stage reuses the compliance gate and the browser
+    // `stealth_mode` already drives, so it adds no evasion of its own.
+    // The vendor the plain fetch hit, or the one this host is remembered for
+    // when that fetch was skipped.
+    const vendorDetected = remembered ? (remembered.vendor ?? null) : (verdict?.blocked?.vendor ?? null);
+    // Set when the stage was asked for and could not run at all; it is the
+    // only thing left to report when the plain fetch was skipped as well.
+    let escalationError = null;
+
+    if (escalate && (remembered || !verdict.success)) {
+      if (!this._escalateScrape) {
+        escalationError = 'no stealth stage is wired into this server build';
+        warnings.push(`escalate: ${escalationError}`);
+      } else {
+        try {
+          const stealth = await this._escalateScrape({
+            url: remembered ? url : finalUrl,
+            engine: validated.escalate_engine,
+            respectRobots: validated.respect_robots
+          });
+          escalationRan = true;
+          stealthEngine = stealth.engine || validated.escalate_engine;
+          if (Array.isArray(stealth.warnings)) warnings.push(...stealth.warnings);
+
+          // The stealth render replaces the document every format below is
+          // built from, so an escalated page goes through the SAME formats
+          // loop a plain fetch does — highlights and question included.
+          html = stealth.html || '';
+          finalUrl = stealth.url || finalUrl;
+          status = stealth.status ?? null;
+          $ = load(html);
+          title = stealth.title || pageTitle($);
+          const $rendered = load(html);
+          $rendered('script, style, noscript, template').remove();
+          // Re-run the verdict on what the browser rendered: a wall that
+          // survives the stealth pass must not come back as a success.
+          verdict = documentVerdict(
+            { url: finalUrl, title, text: stealth.text || $rendered('body').text(), html, status },
+            { waitedMs: stealth.gracedMs || 0, fetcher: 'the stealth browser', rendered: true, contentReturned: false }
+          );
+          // Escalation fires on ANY failed verdict, not only a named vendor —
+          // an empty shell and an error placeholder are exactly the cases a
+          // browser fixes — so the wording must not call every one a block.
+          warnings.push(
+            `escalate: the plain fetch ${vendorDetected ? `was blocked by ${vendorDetected}` : 'did not return the page'}; ` +
+            `the ${stealthEngine} stealth browser ${verdict.success ? 'returned it' : 'did not get it either'}`
+          );
+          // The host memory is deliberately left alone here. It records what
+          // a PLAIN fetch met, which is what 3.3 reads before deciding to
+          // skip one; a stealth success says nothing about that, and only a
+          // clean plain fetch clears the entry (0.6).
+        } catch (err) {
+          // The gate refuses a disallowed URL by throwing, after stamping
+          // markPreflightRefusal('ROBOTS_DISALLOWED') on the request context.
+          // That flag makes withAuth bill the WHOLE call zero — plain fetch
+          // included — which is the intended outcome: we never rendered the
+          // page we were refused. Caught here so a refusal is a warning on
+          // the verdict we already have rather than a throw out of the tool.
+          escalationError = err.message;
+          warnings.push(`escalate: the stealth retry did not run — ${escalationError}`);
+        }
+      }
     }
-    if (!verdict.success) {
+
+    // `escalated` is reported only to a caller who asked to escalate: a call
+    // that never asked keeps exactly the result shape it had before.
+    const escalationFields = escalate
+      ? {
+        escalated: escalationRan,
+        ...(escalationRan ? { stealth: { engine: stealthEngine, vendor_detected: vendorDetected } } : {})
+      }
+      : {};
+
+    if (!verdict || !verdict.success) {
+      reportCost();
       return {
         success: false,
         url: finalUrl,
-        status,
+        // A stealth render reports no status when nothing navigated, and a
+        // skipped plain fetch reports none at all.
+        ...(typeof status === 'number' ? { status } : {}),
         title,
-        error: verdict.error,
-        ...(verdict.blocked ? { blocked: verdict.blocked } : {}),
+        error: verdict
+          ? verdict.error
+          : `The plain fetch was skipped because ${vendorDetected || 'a bot wall'} walled this host within the last 24 hours, and the stealth retry did not run: ${escalationError}`,
+        ...(verdict?.blocked ? { blocked: verdict.blocked } : {}),
+        ...escalationFields,
         content: {},
-        warnings: fetchWarnings.length > 0 ? fetchWarnings : undefined
+        warnings: warnings.length > 0 ? warnings : undefined
       };
     }
 
@@ -380,14 +516,7 @@ export class UnifiedScrapeTool {
       if (units === null) units = segmentUnits(getMarkdown());
       return units;
     }
-    // Whether a model completed for a mode:"model" format; the model
-    // surcharge is charged only then.
-    let modelUsed = false;
-
     const content = {};
-    // The gate's warnings (e.g. a respect_robots override) travel with the
-    // per-format ones, so the caller sees the decision in the response.
-    const warnings = [...fetchWarnings];
 
     // Kept for the rawHtml format, which must survive the strip below.
     const pristineHtml = html;
@@ -652,15 +781,15 @@ export class UnifiedScrapeTool {
     if (!queryScoped && typeof content.markdown === 'string' && content.markdown.length > OVERSIZED_MARKDOWN_CHARS) {
       warnings.push(`markdown: ${content.markdown.length} characters; ask for {type:"highlights", query} (1 extra credit, no model) to get only the matching sentences, table rows and code blocks`);
     }
-    // The projection charged the model step; nothing ran, so the charge
-    // drops to the extractive price (2 is scrape's base in AuthManager;
-    // withAuth clamps to the projection either way).
-    const surcharge = scrapeFormatSurcharge(formats);
-    if (surcharge.model > 0 && !modelUsed) setActualCost(2 + surcharge.query);
+    // What this call actually spent: the model step and the escalation each
+    // drop out when they did not run (withAuth clamps to the projection
+    // either way, so this can only lower the charge).
+    reportCost();
 
     return {
       success: true,
       url: finalUrl,
+      ...escalationFields,
       content,
       warnings: warnings.length > 0 ? warnings : undefined
     };
