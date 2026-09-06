@@ -11,6 +11,7 @@ CrawlForge credits.
 | `formats` | array | `["markdown"]` | Any of `markdown`, `html`, `rawHtml`, `text`, `links`, `metadata`, `branding`, `screenshot`, `{type:"json", schema?, prompt?}`, `{type:"highlights", query, max_highlights?, mode?}` (the matching sentences, table rows and code blocks, verbatim, with offsets into the markdown; +1 credit once per call) or `{type:"question", question, mode?}` (an answer assembled from the evidence units; same +1). `mode:"model"` adds 3 credits and needs an LLM route. |
 | `onlyMainContent` | boolean | `true` | Strip boilerplate via Readability. |
 | `timeoutMs` | number | `15000` | 1000–60000. |
+| `max_inline_chars` | number | `40000` | 1,000–10,000,000. A larger result returns `preview` + `result_handle` for `read_result` (below). |
 
 Partial success: a format that fails produces a `warnings[]` entry rather than
 failing the whole call. `{type:"json"}` may incur external LLM cost (billed by
@@ -23,6 +24,7 @@ your provider).
 | `url` | string (URL) | — | Required. |
 | `headers` | object | — | Custom HTTP headers (e.g. auth tokens). |
 | `timeout` | number | `10000` | 1000–30000 ms. |
+| `max_inline_chars` | number | `40000` | 1,000–10,000,000. A larger result returns `preview` + `result_handle` for `read_result` (below). |
 
 ## extract_text (cost: 1)
 
@@ -53,6 +55,7 @@ your provider).
 |-------|------|-------|
 | `url` | string (URL) | Required. Readability-cleaned article body (markdown). |
 | `options` | object | Additional extraction options. |
+| `max_inline_chars` | number | Default 40000 (1,000–10,000,000). A larger result returns `preview` + `result_handle` for `read_result` (below). |
 
 ## map_site (cost: 2)
 
@@ -82,9 +85,32 @@ your provider).
 | `concurrency` | number | — | 1–20 concurrent requests. |
 | `enable_link_analysis` | boolean | — | Compute PageRank over crawled pages. |
 | `session` | object | — | Shared cookie jar for login-then-crawl. |
+| `max_inline_chars` | number | `40000` | 1,000–10,000,000. A larger result returns `preview` + `result_handle` for `read_result` (below). |
 
 *Server default honors `RESPECT_ROBOTS_TXT`. Crawls projected over ~500 pages
 trigger an elicitation confirmation.
+
+## read_result (cost: 1)
+
+Reads a result a tool returned with `truncated: true` and a `result_handle`
+(kept 1 hour, on the local machine; an unknown or expired handle is an error).
+
+| Param | Type | Default | Notes |
+|-------|------|---------|-------|
+| `handle` | string | — | Required. The `result_handle` (`res_…`). |
+| `operation` | enum | — | Required. `slice`, `search`, `lines` or `json_path`. |
+| `offset` | number | — | `slice`: character offset; `lines`: first line (default 0). |
+| `length` | number | — | `slice`: characters (default 10,000); `lines`: lines (default 200, at most 5,000). |
+| `query` | string | — | `search`: case-insensitive literal substring. |
+| `max_matches` | number | `20` | `search`: 1–100. |
+| `path` | string | — | `json_path`: path into the stored result object (or the parsed body when the stored text is JSON, e.g. a `fetch_url` body). |
+| `max_inline_chars` | number | `40000` | 1,000–10,000,000. |
+
+Every response carries `handle`, `tool`, `operation`, `view` (`text` or `json`),
+`view_path`, `total_chars` and `expires_at`. `slice` returns `text` + `has_more`;
+`search` returns `matches[{offset, length, context_offset, context}]` (200
+characters of context each side) + `total_matches`; `lines` returns `lines[]`
++ `total_lines`, `char_offset`, `has_more`; `json_path` returns `value`.
 
 ## CLI quick map
 

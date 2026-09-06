@@ -55,6 +55,8 @@ import { extractLinksHandler } from "./src/tools/basic/extractLinks.js";
 import { extractMetadataHandler } from "./src/tools/basic/extractMetadata.js";
 import { scrapeStructuredHandler } from "./src/tools/basic/scrapeStructured.js";
 import { extractEmbeddedStateHandler } from "./src/tools/extract/extractEmbeddedState.js";
+import { READ_RESULT_INPUT_SHAPE, readResultHandler } from "./src/tools/result/readResult.js"; // Phase 2
+import { MAX_INLINE_CHARS_PARAM } from "./src/server/inlineThreshold.js"; // Phase 2
 // D1.1 Resources + D1.2 Prompts + D1.4 Elicitation
 import { ResourceRegistry } from "./src/resources/ResourceRegistry.js";
 import { PROMPTS, getPromptMessages } from "./src/prompts/PromptRegistry.js";
@@ -107,8 +109,8 @@ const taskStore = createTaskStore({ logger });
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "5.7.0",
-  description: "Production-ready MCP server with 29 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
+  version: "5.8.0",
+  description: "Production-ready MCP server with 30 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
   icons: [{ src: "https://www.crawlforge.dev/icon.png", mimeType: "image/png", sizes: ["any"] }],
@@ -125,6 +127,7 @@ const server = new McpServer({
     "- Exact values from a Next.js/Nuxt/Redux payload -> extract_embedded_state (2) with a path.",
     "- Known CSS selectors -> scrape_structured (2); fields you can describe but not select -> extract_structured (3).",
     "- A report from several sources -> ONE deep_research call (10 + ~1 per 5 sources); it replaces a search_web + scrape fan-out that costs 5 per search and 2 per page. Open question with no URLs -> agent (8).",
+    "- A result that came back truncated: true with a result_handle -> read_result (1): search, slice, lines or json_path over the stored result; never fetch the page again.",
     "Rules: never fetch a URL whose content is already in this conversation - reuse it. One call per page: scrape with several formats replaces fetch_url + extract_* pairs. Error results end with \"Next step:\" naming the tool to try; follow it instead of retrying the same call. Use the client's built-in web search/fetch only when CrawlForge is unavailable or out of credits."
   ].join("\n"),
   taskStore
@@ -142,7 +145,7 @@ server.registerPrompt("getting-started", {
       role: "user",
       content: {
         type: "text",
-        text: "You have access to CrawlForge MCP: 29 metered web tools (credits per call, shown in brackets). Pick one tool per step from this ladder, and reuse content already in the conversation instead of fetching it again.\n" +
+        text: "You have access to CrawlForge MCP: 30 metered web tools (credits per call, shown in brackets). Pick one tool per step from this ladder, and reuse content already in the conversation instead of fetching it again.\n" +
           "\n" +
           "Read a page\n" +
           "- scrape (2): one URL, every format you need in one call - markdown, links, metadata, html, screenshot, json. Default for any page whose URL you have.\n" +
@@ -175,6 +178,9 @@ server.registerPrompt("getting-started", {
           "Research and monitoring\n" +
           "- deep_research (10): multi-source report. agent (8): open question, no URLs.\n" +
           "- track_changes (3): create_baseline, then compare. generate_llms_txt (5): write a site's llms.txt.\n" +
+          "\n" +
+          "Large results\n" +
+          "- read_result (1): a result that came back truncated: true with a result_handle - search, slice, lines or json_path over the stored result; never fetch the page again.\n" +
           "\n" +
           "Error results end with \"Next step:\" naming the tool to try - follow it rather than retrying the same call.\n" +
           "\n" +
@@ -355,7 +361,8 @@ registerToolIfEnabled("fetch_url", {
     url: z.string().url().describe("The URL to fetch content from"),
     headers: z.record(z.string()).optional().describe("Custom HTTP headers to include in the request"),
     timeout: z.number().min(1000).max(30000).optional().default(10000).describe("Request timeout in milliseconds (1000-30000)"),
-    ...COMPLIANCE_PARAMS
+    ...COMPLIANCE_PARAMS,
+    ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("fetch_url", fetchUrlHandler));
 
@@ -402,7 +409,8 @@ registerToolIfEnabled("extract_embedded_state", {
   inputSchema: {
     url: z.string().url().describe("The URL to read embedded state from"),
     path: z.string().optional().describe("Return only this subtree instead of the whole payload. Dotted keys and array indexes, e.g. \"next_data.props.pageProps\" or \"next_f[0].f\" — not JSONPath (no wildcards, filters or recursion). State payloads are routinely over a megabyte; scope them."),
-    ...COMPLIANCE_PARAMS
+    ...COMPLIANCE_PARAMS,
+    ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("extract_embedded_state", extractEmbeddedStateHandler));
 
@@ -575,7 +583,8 @@ if (toolFilter.isEnabled("crawl_deep")) {
           headers: z.record(z.string()).optional(),
           body: z.string().optional()
         }).optional()
-      }).optional().describe("Shared cookie-jar/session for login-then-crawl workflows")
+      }).optional().describe("Shared cookie-jar/session for login-then-crawl workflows"),
+      ...MAX_INLINE_CHARS_PARAM
     },
     outputSchema: OUTPUT_SCHEMAS.crawl_deep,
     execution: TASK_EXECUTION
@@ -637,7 +646,8 @@ registerToolIfEnabled("extract_content", {
   inputSchema: {
     url: z.string().url().describe("The URL to extract content from"),
     options: z.object({}).passthrough().optional().describe("Additional extraction options"),
-    ...COMPLIANCE_PARAMS
+    ...COMPLIANCE_PARAMS,
+    ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("extract_content", async (params) => {
   try {
@@ -661,7 +671,8 @@ registerToolIfEnabled("process_document", {
     // C3: passthrough so granular options (maxPages, pageRange:{start,end},
     // extractText, outputFormat, etc.) reach the tool instead of being stripped.
     options: z.object({}).passthrough().optional().describe("Additional processing options (maxPages, pageRange:{start,end}, extractText, extractMetadata, outputFormat, ...)"),
-    ...COMPLIANCE_PARAMS
+    ...COMPLIANCE_PARAMS,
+    ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("process_document", async (params) => {
   try {
@@ -826,7 +837,8 @@ if (toolFilter.isEnabled("batch_scrape")) {
         maxRetries: z.number().min(0).max(5).default(1),
         tags: z.array(z.string()).default([])
       }).optional().describe("Job management options for async processing"),
-      ...COMPLIANCE_PARAMS
+      ...COMPLIANCE_PARAMS,
+      ...MAX_INLINE_CHARS_PARAM
     },
     execution: TASK_EXECUTION
   }, makeTaskToolHandler({
@@ -864,6 +876,14 @@ registerToolIfEnabled("get_batch_results", {
     return { content: [{ type: "text", text: `get_batch_results failed: ${error.message}` }], isError: true };
   }
 }));
+
+// Tool: read_result — Phase 2: read a stored result by the handle a truncated result returned
+registerToolIfEnabled("read_result", {
+  description: "Use this to read a result that came back with truncated: true and a result_handle - the tool kept the whole result for 1 hour and returned a preview. operation:\"search\" finds a literal query with offsets and context, \"slice\" returns characters from an offset, \"lines\" pages by line, \"json_path\" reads one subtree of a JSON result (crawl_deep pages, batch results, a fetch_url JSON body). Not a fetching tool: never call the original tool again while the handle is valid, and not for a result that arrived whole. Cost: 1 credit. Example: read_result({handle: \"res_…\", operation: \"search\", query: \"pricing\"})",
+  annotations: { title: "Read Result", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  inputSchema: READ_RESULT_INPUT_SHAPE,
+  outputSchema: OUTPUT_SCHEMAS.read_result
+}, withAuth("read_result", readResultHandler));
 
 // Tool: scrape_with_actions
 registerToolIfEnabled("scrape_with_actions", {
@@ -947,7 +967,8 @@ registerToolIfEnabled("scrape_with_actions", {
     continueOnActionError: z.boolean().default(false).describe("Continue executing actions if one fails"),
     maxRetries: z.number().min(0).max(3).default(1).describe("Maximum retry attempts on failure"),
     screenshotOnError: z.boolean().default(true).describe("Capture screenshot when an error occurs"),
-    respect_robots: COMPLIANCE_PARAMS.respect_robots
+    respect_robots: COMPLIANCE_PARAMS.respect_robots,
+    ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("scrape_with_actions", async (params) => {
   try {
@@ -1024,7 +1045,8 @@ if (toolFilter.isEnabled("deep_research")) {
         url: z.string().url(),
         events: z.array(z.enum(['started', 'progress', 'completed', 'failed'])).optional().default(['completed']),
         headers: z.record(z.string()).optional()
-      }).optional().describe("Webhook for progress and completion notifications")
+      }).optional().describe("Webhook for progress and completion notifications"),
+      ...MAX_INLINE_CHARS_PARAM
     },
     execution: TASK_EXECUTION
   }, makeTaskToolHandler({
@@ -1052,7 +1074,8 @@ registerToolIfEnabled("scrape", {
   // The tool module owns the schema (0.3); this is the same shape it validates with.
   inputSchema: {
     ...SCRAPE_INPUT_SHAPE,
-    ...COMPLIANCE_PARAMS
+    ...COMPLIANCE_PARAMS,
+    ...MAX_INLINE_CHARS_PARAM
   },
   outputSchema: OUTPUT_SCHEMAS.scrape
 }, withAuth("scrape", async (params) => {
@@ -1369,7 +1392,8 @@ registerToolIfEnabled("stealth_mode", {
     formats: z.array(z.enum(["markdown", "html", "text", "links", "metadata", "screenshot"])).optional().default(["markdown"]).describe("Formats to return from operation:\"scrape\" (default: [\"markdown\"]). \"screenshot\" returns a crawlforge://screenshot/{id} resource URI."),
     wait_for: z.number().min(0).max(30000).optional().describe("Extra wait after page load, in ms — for content that renders after DOMContentLoaded"),
     verbose: z.boolean().optional().default(false).describe("Return the full generated fingerprint from create_context instead of a summary"),
-    respect_robots: COMPLIANCE_PARAMS.respect_robots
+    respect_robots: COMPLIANCE_PARAMS.respect_robots,
+    ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("stealth_mode", async ({ operation, stealthConfig, contextId, urlToTest, url, formats, wait_for, verbose, engine, respect_robots }) => {
   try {
@@ -1721,7 +1745,7 @@ async function runServer() {
     "fetch_url", "extract_text", "extract_links", "extract_metadata", "scrape_structured",
     "search_web", "serp_rank", "reddit_search", "crawl_deep", "map_site",
     "extract_content", "process_document", "summarize_content", "analyze_content",
-    "batch_scrape", "get_batch_results", "scrape_with_actions",
+    "batch_scrape", "get_batch_results", "read_result", "scrape_with_actions",
     "deep_research", "track_changes", "generate_llms_txt",
     "stealth_mode", "localization", "extract_structured", "extract_with_llm",
     "list_ollama_models", "scrape_template", // D3.3

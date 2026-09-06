@@ -15,7 +15,7 @@ You write documentation for the CrawlForge MCP Server. The reader is a developer
 
 - A tool's behaviour and parameters: its registration in `server.js` (description, `inputSchema`, `outputSchema`) and its class under `src/tools/`. Quote from there rather than describing a tool from memory.
 - Costs: `AuthManager.getToolCost` in `src/core/AuthManager.js`; each description's `Cost:` line matches it.
-- Version and counts: `package.json`; 29 tools. Historical entries in `docs/CHANGELOG.md` and `PRD.md` keep their old counts.
+- Version and counts: `package.json`; 30 tools. Historical entries in `docs/CHANGELOG.md` and `PRD.md` keep their old counts.
 - Client configuration: `docs/cli-guide.md`, `docs/mcp-registry.md`, `docs/n8n-integration.md`.
 
 ## Conventions

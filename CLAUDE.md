@@ -60,7 +60,7 @@ These guidelines are working if: fewer unnecessary changes in diffs, fewer rewri
 
 ## Project Overview
 
-CrawlForge MCP Server - A professional MCP (Model Context Protocol) server providing 29 web scraping, crawling, and content processing tools (6 inline + 23 advanced).
+CrawlForge MCP Server - A professional MCP (Model Context Protocol) server providing 30 web scraping, crawling, and content processing tools (6 inline + 24 advanced).
 
 **Current Version:** 5.6.6
 
@@ -162,18 +162,19 @@ Tools are organized in subdirectories by category:
 - `crawl/` - crawlDeep, mapSite
 - `extract/` - analyzeContent, extractContent, extractStructured, extractWithLlm, listOllamaModels, processDocument, summarizeContent
 - `research/` - deepResearch
+- `result/` - readResult (`read_result`: search/slice/lines/json_path over a stored over-threshold result by `result_handle`, v5.8.0)
 - `search/` - searchWeb (proxied through CrawlForge.dev API), serpRank (real Google organic rank via DataForSEO; adapter in `search/adapters/dataforseoSearch.js`), redditSearch (Reddit posts/comments/threads via Arctic Shift + PullPush community archives — reddit.com blocks scrapers)
 - `templates/` - ScrapeTemplateTool (10 pre-built site templates, v4.0.0)
 - `tracking/` - trackChanges
 - `llmstxt/` - generateLLMsTxt
 
-### Available MCP Tools (29 total)
+### Available MCP Tools (30 total)
 
 **Basic Tools (server.js inline, 6):**
 fetch_url, extract_text, extract_links, extract_metadata, extract_embedded_state, scrape_structured
 
-**Advanced Tools (23):**
-search_web, serp_rank, reddit_search, crawl_deep, map_site, extract_content, process_document, summarize_content, analyze_content, extract_structured, extract_with_llm, list_ollama_models, batch_scrape, get_batch_results, scrape_with_actions, deep_research, track_changes, generate_llms_txt, stealth_mode, localization, scrape_template, scrape, agent
+**Advanced Tools (24):**
+search_web, serp_rank, reddit_search, crawl_deep, map_site, extract_content, process_document, summarize_content, analyze_content, extract_structured, extract_with_llm, list_ollama_models, batch_scrape, get_batch_results, scrape_with_actions, deep_research, track_changes, generate_llms_txt, stealth_mode, localization, scrape_template, scrape, agent, read_result
 
 **serp_rank (DataForSEO):**
 - `serp_rank` — reports where a target domain ranks in Google's REAL organic results for a keyword (the SERP position Google Custom Search / `search_web` cannot give). Backed by the DataForSEO Google Organic SERP API (Live Advanced, `POST /v3/serp/google/organic/live/advanced`, HTTP Basic auth). Credentials via `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD`, billed to the user's own DataForSEO account (~US$0.002 per 10 results of `depth`, so $0.004 at the default `depth:20` and $0.02 at `depth:100`), separate from CrawlForge credits. When unconfigured it returns `{ configured:false }` and charges **0** credits; when configured, **Cost: 5**. Never fabricates a rank.

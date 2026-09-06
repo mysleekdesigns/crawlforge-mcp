@@ -179,6 +179,12 @@
       "user_agent": {
         "type": "string",
         "description": "Override the outbound User-Agent. CrawlForge identifies itself honestly by default; use this only for targets you have your own agreement with."
+      },
+      "max_inline_chars": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 10000000,
+        "description": "Largest result to return inline, in characters of its JSON. Over it, the call returns a preview plus a result_handle for read_result instead of the whole result (default 40,000; env CRAWLFORGE_MAX_INLINE_CHARS)"
       }
     },
     "required": [
@@ -418,6 +424,41 @@
           "type": "string"
         },
         "description": "Per-format warnings; partial success never fails the whole call"
+      },
+      "preview": {
+        "type": "string",
+        "description": "The first max_inline_chars characters of the view named by view_path (or of the pretty-printed JSON)"
+      },
+      "result_handle": {
+        "type": "string",
+        "description": "Handle for read_result; the full result is kept 1 hour"
+      },
+      "total_chars": {
+        "type": "number",
+        "description": "Length of the full view in characters"
+      },
+      "view": {
+        "type": "string",
+        "enum": [
+          "text",
+          "json"
+        ],
+        "description": "Whether preview and read_result offsets index a text field or the pretty-printed JSON"
+      },
+      "view_path": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "Dotted path of the text field the view was cut from; null for the JSON view"
+      },
+      "truncated": {
+        "type": "boolean",
+        "description": "True when the inline result is a preview"
+      },
+      "expires_at": {
+        "type": "string",
+        "description": "When the stored result is dropped (ISO 8601)"
       },
       "_cost": {
         "type": "object",

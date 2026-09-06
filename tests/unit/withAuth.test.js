@@ -11,8 +11,12 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { makeWithAuth, hashParams } from '../../src/server/withAuth.js';
 import { markPreflightRefusal } from '../../src/server/requestContext.js';
+import { ResultStore, setResultStoreForTests } from '../../src/core/ResultStore.js';
 
 function makeFakeLogger() {
   const calls = [];
@@ -463,3 +467,87 @@ test('withAuth: the refusal stamp does not leak between invocations', async () =
   assert.equal(auth.reportCalls.length, 1, 'only the successful call reports usage');
   assert.equal(auth.reportCalls[0][1], 5, 'and it is billed in full, not zeroed by the previous refusal');
 });
+
+// ─── Phase 2: inline threshold seam ──────────────────────────────────────────
+// A successful over-threshold result is stored and returned as a preview plus
+// a result_handle; an internal (website REST proxy) request is left whole.
+
+function withTempStore(fn) {
+  return async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crawlforge-withauth-store-'));
+    const store = new ResultStore({ baseDir: dir });
+    setResultStoreForTests(store);
+    try {
+      await fn(store);
+    } finally {
+      setResultStoreForTests(null);
+      store.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  };
+}
+
+const bigScrape = () => ({
+  success: true,
+  url: 'https://example.com/long',
+  content: { markdown: 'word '.repeat(2000) },
+  warnings: []
+});
+
+test('withAuth: a scrape result over max_inline_chars comes back as a preview with a result_handle, _cost still injected', withTempStore(async (store) => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 2 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const original = bigScrape();
+  const handler = withAuth('scrape', async () => ({
+    structuredContent: original,
+    content: [{ type: 'text', text: JSON.stringify(original, null, 2) }]
+  }));
+  const result = await handler({ url: 'https://example.com/long', max_inline_chars: 1000 });
+
+  const parsed = JSON.parse(result.content[0].text);
+  assert.equal(parsed.truncated, true);
+  assert.match(parsed.result_handle, /^res_/);
+  assert.equal(parsed.preview.length, 1000);
+  assert.equal('content' in parsed, false, 'the big field is gone from the inline copy');
+  assert.equal(parsed._cost.projected, 2, '_cost is injected after shaping');
+  assert.equal(result.structuredContent.result_handle, parsed.result_handle, 'structuredContent carries the same shaped object');
+  assert.deepEqual(store.get(parsed.result_handle).payload, original, 'the store holds the whole result');
+  assert.equal(auth.reportCalls[0][1], 2, 'billing is unchanged by shaping');
+}));
+
+test('withAuth: an internal request is never shaped, whatever its size', withTempStore(async (store) => {
+  const { requestContext } = await import('../../src/server/requestContext.js');
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 2 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const original = bigScrape();
+  const handler = withAuth('scrape', async () => ({
+    content: [{ type: 'text', text: JSON.stringify(original, null, 2) }]
+  }));
+  const result = await requestContext.run({ internal: true }, () => handler({ url: 'https://example.com/long', max_inline_chars: 1000 }));
+
+  const parsed = JSON.parse(result.content[0].text);
+  assert.equal(parsed.content.markdown, original.content.markdown, 'whole result returned');
+  assert.equal('result_handle' in parsed, false);
+  assert.equal(store.list().length, 0, 'nothing stored');
+}));
+
+test('withAuth: an error result and a non-JSON text result are left alone by the seam', withTempStore(async (store) => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 2 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const failed = await withAuth('scrape', async () => ({
+    content: [{ type: 'text', text: JSON.stringify(bigScrape()) }], isError: true
+  }))({ url: 'https://example.com/long', max_inline_chars: 1000 });
+  assert.equal('result_handle' in JSON.parse(failed.content[0].text), false);
+
+  const plain = await withAuth('scrape', async () => ({
+    content: [{ type: 'text', text: 'x'.repeat(5000) }]
+  }))({ url: 'https://example.com/long', max_inline_chars: 1000 });
+  assert.equal(plain.content[0].text.length, 5000);
+  assert.equal(store.list().length, 0);
+}));

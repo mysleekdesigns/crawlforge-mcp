@@ -560,6 +560,7 @@ class AuthManager {
       scrape_template: 1,
       list_ollama_models: 1,
       get_batch_results: 1, // retrieval of an already-paid batch job
+      read_result: 1, // reads a stored result an earlier call already paid for
 
       // 2 credits
       scrape_structured: 2,

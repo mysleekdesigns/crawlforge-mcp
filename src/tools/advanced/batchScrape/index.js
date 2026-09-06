@@ -18,6 +18,7 @@ import { EventEmitter } from 'events';
 import { ElicitationHelper } from '../../../core/ElicitationHelper.js'; // D1.4
 import JobManager from '../../../core/JobManager.js';
 import WebhookDispatcher from '../../../core/WebhookDispatcher.js';
+import { getResultStore } from '../../../core/ResultStore.js';
 import { BatchScrapeSchema } from './schema.js';
 import { scrapeUrlsBatch, processResults, paginateResults } from './queue.js';
 import { sendWebhookNotification } from './reporter.js';
@@ -35,7 +36,7 @@ export class BatchScrapeTool extends EventEmitter {
       maxBatchSize = 50,
       enableResultCaching = true,
       enableLogging = true,
-      maxCachedBatches = 20
+      resultStore = null
     } = options;
 
     this.jobManager = jobManager || new JobManager({
@@ -54,20 +55,11 @@ export class BatchScrapeTool extends EventEmitter {
     this.enableWebhookNotifications = enableWebhookNotifications;
 
     this.activeBatches = new Map();
-    this.batchResults = new Map();
-    this.maxCachedBatches = maxCachedBatches;
-    this.resultCacheTtl = 3600000; // 1 hour — matches the ttl stored per cache entry
+    // Phase 2: completed batches live in the shared ResultStore (keyed by
+    // batchId) so batch and single results share one eviction budget and TTL.
+    this.resultStore = resultStore || getResultStore();
     // D1.4: Elicitation helper (set mcpServer after instantiation if desired)
     this._elicitation = new ElicitationHelper({});
-
-    // Bound batchResults' lifetime: sweep expired entries periodically (in
-    // addition to the on-read eviction in getBatchResults) so cached results —
-    // including full HTML bodies when formats includes 'html' — don't
-    // accumulate in memory for the life of the process.
-    // .unref() so this timer never blocks process exit on its own — matches
-    // SnapshotManager's cleanupTimer.
-    this._resultsSweepTimer = setInterval(() => this._sweepBatchResults(), 10 * 60 * 1000);
-    if (typeof this._resultsSweepTimer.unref === 'function') this._resultsSweepTimer.unref();
 
     this.stats = {
       totalBatches: 0,
@@ -232,20 +224,18 @@ export class BatchScrapeTool extends EventEmitter {
   }
 
   async getBatchResults(batchId, page = 1, pageSize = 25) {
-    const cached = this.batchResults.get(batchId);
+    // An expired or unknown id reads as null (the store evicts on read) and
+    // falls through to the activeBatches/jobManager lookups below.
+    const cached = this.resultStore.get(batchId);
     if (cached) {
-      if (Date.now() - cached.timestamp < cached.ttl) {
-        const offset = (page - 1) * pageSize;
-        return {
-          batchId, success: true, status: 'completed', ...(cached.mode ? { mode: cached.mode } : {}),
-          results: paginateResults(cached.results, offset, pageSize),
-          pagination: { page, pageSize, totalResults: cached.results.length, totalPages: Math.ceil(cached.results.length / pageSize) },
-          cached: true, timestamp: cached.timestamp
-        };
-      }
-      // Expired — evict now instead of waiting for the periodic sweep, and
-      // fall through to the activeBatches/jobManager lookups below.
-      this.batchResults.delete(batchId);
+      const { results, mode } = cached.payload;
+      const offset = (page - 1) * pageSize;
+      return {
+        batchId, success: true, status: 'completed', ...(mode ? { mode } : {}),
+        results: paginateResults(results, offset, pageSize),
+        pagination: { page, pageSize, totalResults: results.length, totalPages: Math.ceil(results.length / pageSize) },
+        cached: true, timestamp: cached.createdAt
+      };
     }
 
     const active = this.activeBatches.get(batchId);
@@ -321,7 +311,7 @@ export class BatchScrapeTool extends EventEmitter {
     return {
       ...this.stats,
       activeBatches: this.activeBatches.size,
-      cachedResults: this.batchResults.size,
+      cachedResults: this._cachedBatchIds().length,
       jobManagerStats: this.jobManager ? this.jobManager.getStats() : null,
       webhookStats: this.webhookDispatcher ? this.webhookDispatcher.getStats() : null
     };
@@ -332,8 +322,7 @@ export class BatchScrapeTool extends EventEmitter {
       try { await this.cancelBatch(batchId); } catch (e) { this._log('warn', `Failed to cancel batch ${batchId}: ${e.message}`); }
     }
     this.activeBatches.clear();
-    this.batchResults.clear();
-    if (this._resultsSweepTimer) clearInterval(this._resultsSweepTimer);
+    for (const batchId of this._cachedBatchIds()) this.resultStore.delete(batchId);
     this.jobManager?.destroy();
     this.webhookDispatcher?.destroy();
     this.removeAllListeners();
@@ -365,23 +354,14 @@ export class BatchScrapeTool extends EventEmitter {
     return this.webhookDispatcher.registerWebhook(webhookConfig.url, config);
   }
 
-  /**
-   * Cache a batch's results, capped to maxCachedBatches. Map preserves
-   * insertion order, so the oldest entry is evicted first (LRU by write time).
-   */
+  /** Cache a batch's results in the shared store under its batchId. */
   _cacheBatchResult(batchId, results, mode) {
-    this.batchResults.set(batchId, { results, mode, timestamp: Date.now(), ttl: this.resultCacheTtl });
-    while (this.batchResults.size > this.maxCachedBatches) {
-      const oldestKey = this.batchResults.keys().next().value;
-      this.batchResults.delete(oldestKey);
-    }
+    this.resultStore.put('batch_scrape', { results, mode }, { key: batchId });
   }
 
-  _sweepBatchResults() {
-    const now = Date.now();
-    for (const [id, entry] of this.batchResults) {
-      if (now - entry.timestamp >= entry.ttl) this.batchResults.delete(id);
-    }
+  /** Live store entries this tool wrote. */
+  _cachedBatchIds() {
+    return this.resultStore.list().filter((entry) => entry.toolName === 'batch_scrape').map((entry) => entry.handle);
   }
 
   _updateAverageBatchTime(batchTime) {

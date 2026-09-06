@@ -24,6 +24,7 @@ export const FALLBACK_HINTS = Object.freeze({
   map_site: 'Use crawl_deep with extract_content:false to discover URLs by following links when there is no sitemap.',
   batch_scrape: 'For an async job poll get_batch_results with the batchId; scrape one of the URLs alone to diagnose a per-URL failure.',
   get_batch_results: 'An unknown or expired batchId cannot be recovered - run batch_scrape again only if the results are still needed.',
+  read_result: 'An unknown or expired handle cannot be recovered - results are kept 1 hour; run the original tool again only if the result is still needed.',
   process_document: 'For an HTML page use scrape formats:["markdown"]; sourceType:"pdf_url" needs a URL that serves a PDF.',
   summarize_content: 'Pass the text itself (e.g. markdown from a scrape result), not a URL.',
   analyze_content: 'Pass the text itself (e.g. markdown from a scrape result), not a URL.',

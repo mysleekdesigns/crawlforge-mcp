@@ -14,6 +14,7 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
 | `scrape_template` | Pre-built site extractor. |
 | `list_ollama_models` | List local LLMs. |
 | `get_batch_results` | Retrieve an already-paid batch. |
+| `read_result` | Search, slice, lines or a JSON path over a stored result (`result_handle`). |
 
 ## 2 credits
 
@@ -74,4 +75,6 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
 - Cap dynamic tools: `deep_research`/`agent` via `maxUrls`, `crawl_deep` via
   `max_pages`, `batch_scrape` via the URL list size.
 - `get_batch_results` (1) is cheap — submit a batch once, page through results.
+- A result over `max_inline_chars` costs nothing extra; read the stored copy with
+  `read_result` (1) instead of fetching again.
 - Errors are charged at half the tool cost; creator mode is unlimited.

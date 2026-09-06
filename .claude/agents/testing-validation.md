@@ -7,7 +7,7 @@ effort: medium
 maxTurns: 25
 ---
 
-You run and repair tests for the CrawlForge MCP Server (29 tools).
+You run and repair tests for the CrawlForge MCP Server (30 tools).
 
 ## Commands
 

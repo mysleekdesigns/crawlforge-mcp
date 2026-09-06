@@ -5,6 +5,62 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.8.0] - 2026-09-05
+
+Phase 2 of the 2026 feature plan: result handles. A result too large to hand
+to the model comes back as a preview and a handle, and `read_result` searches,
+slices or paths into the stored copy instead of the page being fetched again —
+the pattern Apify's MCP uses with its paged actor output, kept local here.
+Nothing leaves the machine.
+
+### Added
+- **`read_result` tool (1 credit; 29 tools become 30).** Input
+  `{ handle, operation, offset?, length?, query?, max_matches?, path?,
+  max_inline_chars? }`. `operation: "slice"` returns `text` from `offset` for
+  `length` characters (default 10,000) with `has_more`; `"search"` is a
+  case-insensitive literal substring search returning up to `max_matches`
+  (1–100, default 20) matches as `{ offset, length, context_offset, context }`
+  with 200 characters of context each side, plus `total_matches`; `"lines"`
+  returns `lines[]` from line `offset` (default 0) for `length` lines (default
+  200, at most 5,000) with `total_lines`, `char_offset` and `has_more`;
+  `"json_path"` returns `value` at `path` over the stored result object, or
+  over the parsed body when the stored text is JSON (a `fetch_url` body).
+  Every response carries `handle`, `tool`, `operation`, `view` (`"text"` or
+  `"json"`), `view_path`, `total_chars` and `expires_at`. An unknown or
+  expired handle is an error that says results are kept 1 hour. Billed at the
+  same bookkeeping rate as `get_batch_results`; tool group `basic`.
+- **`max_inline_chars` on ten tools** — `scrape`, `fetch_url`,
+  `extract_content`, `crawl_deep`, `batch_scrape`, `stealth_mode` (operation
+  `scrape`), `scrape_with_actions`, `process_document`, `deep_research` and
+  `extract_embedded_state`. An integer from 1,000 to 10,000,000, default
+  40,000, also settable with `CRAWLFORGE_MAX_INLINE_CHARS`. When a result's
+  JSON exceeds it, the call returns the top-level scalar fields, `preview`
+  (the first `max_inline_chars` characters of the result's text view:
+  `content.markdown` for `scrape`, `body` for `fetch_url`, the dominant text
+  field for the other single-page tools, the pretty-printed JSON for
+  `crawl_deep`, `batch_scrape` and `deep_research`), `result_handle` (`res_`
+  plus a UUID), `total_chars`, `view`, `view_path`, `truncated: true`,
+  `expires_at` and a warning naming `read_result`. `extract_embedded_state`
+  is never truncated — its rule — but a large result still carries
+  `result_handle`, `total_chars` and `truncated: false`. Error results are
+  never stored.
+- **The local result store.** The full result is kept for 1 hour in a
+  per-process store under `~/.crawlforge/results/`, the same root as
+  snapshots, evicted least-recently-used at 200 MB. It lives on the
+  customer's machine: no result body is uploaded, and nothing leaves the
+  machine.
+- **The instructions ladder** gains a rung: a result that came back
+  `truncated: true` with a `result_handle` → `read_result` (1): search, slice,
+  lines or json_path over the stored result; never fetch the page again.
+
+### Changed
+- **`batch_scrape`'s cached results live in the result store**, sharing its
+  eviction and 1-hour TTL. `get_batch_results` is unchanged for callers.
+- **Requests proxied from the website REST API are not truncated by the
+  server.** The website applies its own threshold: the same
+  `max_inline_chars` parameter and `read_result` tool, with Redis-backed
+  1-hour storage.
+
 ## [5.7.0] - 2026-09-05
 
 Ships with crawlforge-extractors 1.8.0. Phase 1 of the 2026 feature plan: the

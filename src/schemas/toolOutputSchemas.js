@@ -28,6 +28,20 @@ const costShape = z.object({
   projection_note: z.string().optional().describe('Human-readable note about how the cost was projected')
 }).passthrough().optional().describe('Cost-transparency metadata (D3.5), present when injected into the text copy of the result');
 
+// ── result handles (Phase 2) ────────────────────────────────────────────────
+
+// A result over max_inline_chars comes back as a preview plus a handle for
+// read_result; these fields describe that shape wherever it can appear.
+const resultHandleShape = {
+  preview: z.string().optional().describe('The first max_inline_chars characters of the view named by view_path (or of the pretty-printed JSON)'),
+  result_handle: z.string().optional().describe('Handle for read_result; the full result is kept 1 hour'),
+  total_chars: z.number().optional().describe('Length of the full view in characters'),
+  view: z.enum(['text', 'json']).optional().describe('Whether preview and read_result offsets index a text field or the pretty-printed JSON'),
+  view_path: z.string().nullable().optional().describe('Dotted path of the text field the view was cut from; null for the JSON view'),
+  truncated: z.boolean().optional().describe('True when the inline result is a preview'),
+  expires_at: z.string().optional().describe('When the stored result is dropped (ISO 8601)')
+};
+
 // ── scrape ──────────────────────────────────────────────────────────────────
 
 const scrapeLinkShape = z.object({
@@ -112,6 +126,7 @@ const scrapeShape = {
   }).passthrough().optional().describe('Present when a bot-defence vendor served a challenge page; the fallback hint names the tool to try next'),
   content: z.object(scrapeFormatShapes).passthrough().optional().describe('One key per requested format'),
   warnings: z.array(z.string()).optional().describe('Per-format warnings; partial success never fails the whole call'),
+  ...resultHandleShape,
   _cost: costShape
 };
 
@@ -360,6 +375,45 @@ const crawlDeepShape = {
   }).passthrough().optional(),
   crawled_at: z.string().optional().describe('When the pages were actually fetched (ISO 8601)'),
   cached: z.boolean().optional().describe('True when this response was replayed from an earlier crawl rather than crawled now; crawled_at gives its age'),
+  ...resultHandleShape,
+  _cost: costShape
+};
+
+// ── read_result ───────────────────────────────────────────────────────────────
+
+const readResultMatchShape = z.object({
+  offset: z.number().optional().describe('Index of the match in the view'),
+  length: z.number().optional(),
+  context_offset: z.number().optional().describe('Index of the first character of context in the view'),
+  context: z.string().optional().describe('Verbatim text around the match: view.slice(context_offset, context_offset + context.length)')
+}).passthrough();
+
+const readResultShape = {
+  handle: z.string().optional(),
+  tool: z.string().optional().describe('The tool that produced the stored result'),
+  operation: z.enum(['slice', 'search', 'lines', 'json_path']).optional(),
+  view: z.enum(['text', 'json']).optional(),
+  view_path: z.string().nullable().optional(),
+  total_chars: z.number().optional().describe('Length of the full view'),
+  expires_at: z.string().optional(),
+  offset: z.number().optional().describe('slice: first character returned'),
+  length: z.number().optional().describe('slice: characters returned'),
+  text: z.string().optional().describe('slice: verbatim view.slice(offset, offset + length)'),
+  has_more: z.boolean().optional().describe('slice/lines: more follows the returned range'),
+  query: z.string().optional(),
+  matches: z.array(readResultMatchShape).optional().describe('search: matches with 200 chars of context each side'),
+  total_matches: z.number().optional(),
+  first_line: z.number().optional(),
+  line_count: z.number().optional(),
+  total_lines: z.number().optional(),
+  char_offset: z.number().optional().describe('lines: view offset of the first returned line'),
+  lines: z.array(z.string()).optional(),
+  path: z.string().optional(),
+  value: z.unknown().optional().describe('json_path: the subtree; null with a preview when it is over max_inline_chars'),
+  value_chars: z.number().optional(),
+  preview: z.string().optional(),
+  truncated: z.boolean().optional().describe('search: more matches than returned; json_path: value replaced by a preview'),
+  warnings: z.array(z.string()).optional(),
   _cost: costShape
 };
 
@@ -372,7 +426,8 @@ export const OUTPUT_SCHEMAS = {
   reddit_search: redditSearchShape,
   search_web: searchWebShape,
   extract_structured: extractStructuredShape,
-  crawl_deep: crawlDeepShape
+  crawl_deep: crawlDeepShape,
+  read_result: readResultShape
 };
 
 export default OUTPUT_SCHEMAS;
