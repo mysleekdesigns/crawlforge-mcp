@@ -5,8 +5,9 @@
  *
  * We mount the transport against a stub McpServer + stub AuthManager and
  * exercise the HTTP surface (health, metrics, server-card, /mcp auth gate,
- * OAuth pass-through). The MCP body itself is opaque to these tests —
- * we only verify the layer above transport.handleRequest().
+ * OAuth pass-through). Most of the MCP body is opaque to these tests — we
+ * verify the layer above transport.handleRequest(), plus (since 4.2) that the
+ * dual-era routing sends each era to the right leg.
  */
 
 import { test } from 'node:test';
@@ -14,6 +15,8 @@ import assert from 'node:assert/strict';
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from 'zod';
 import { connectStreamableHttp } from '../../src/server/transports/streamableHttp.js';
+import { applySpecHygiene } from '../../src/server/specHygiene.js';
+import { isInternalRequest } from '../../src/server/requestContext.js';
 import { createMetricsRegistry } from '../../src/observability/metrics.js';
 
 function makeAuth({ apiKey = 'cf-test', creator = false } = {}) {
@@ -51,8 +54,24 @@ function initializeBody(id) {
   });
 }
 
-function pingBody(id) {
-  return JSON.stringify({ jsonrpc: '2.0', id, method: 'ping' });
+/**
+ * A 2026-07-28 per-request envelope. Every modern request carries one in
+ * `params._meta`; its absence is what makes a request 2025-era.
+ */
+const MODERN_ENVELOPE = {
+  'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+  'io.modelcontextprotocol/clientInfo': { name: 'test-client', version: '1.0.0' },
+  'io.modelcontextprotocol/clientCapabilities': {}
+};
+
+/** A 2026-era request body + the SEP-2243 headers the SDK cross-checks against it. */
+function modernRequest(id, method, params = {}) {
+  const headers = { ...jsonRpcHeaders, 'mcp-method': method };
+  if (typeof params.name === 'string') headers['mcp-name'] = params.name;
+  return {
+    headers,
+    body: JSON.stringify({ jsonrpc: '2.0', id, method, params: { ...params, _meta: MODERN_ENVELOPE } })
+  };
 }
 
 async function startServer(opts = {}) {
@@ -61,23 +80,21 @@ async function startServer(opts = {}) {
   const logger = quietLogger();
   // Pick a random port by passing 0
   const port = 0;
-  const { httpServer, transport } = await connectStreamableHttp(server, auth, logger, {
+  const handle = await connectStreamableHttp(server, auth, logger, {
     port,
     host: '127.0.0.1',
-    legacy: opts.legacy === true,
     oauth: opts.oauth ?? null,
     metrics: opts.metrics ?? null
   });
   // listen(0) — read actual port off the http server
-  const actualPort = httpServer.address().port;
-  return { server, httpServer, transport, port: actualPort, auth };
+  const actualPort = handle.httpServer.address().port;
+  return { server, handle, httpServer: handle.httpServer, port: actualPort, auth };
 }
 
 async function close(env) {
-  await new Promise((resolve) => env.httpServer.close(resolve));
-  // env.transport may no longer be a single shared instance once the target
-  // per-session/per-request transport rewrite lands — stay defensive.
-  await env.transport?.close?.();
+  // The handle's own close() tears down live sessions and the modern leg's
+  // in-flight instances before closing the listener.
+  await env.handle.close();
   await env.server.close?.();
 }
 
@@ -94,12 +111,17 @@ test('GET /health returns 200 with mode', async () => {
   }
 });
 
-test('GET /health in legacy mode reports legacy-stateless', async () => {
-  const env = await startServer({ legacy: true });
+// 4.2: /health reports the protocol revisions served. Render's probe and the
+// release checks read `status`/`version`/`mode`, so those stay alongside it.
+test('GET /health reports both eras protocol versions', async () => {
+  const env = await startServer();
   try {
     const res = await fetchPath(env.port, '/health');
     const body = await res.json();
-    assert.equal(body.mode, 'legacy-stateless');
+    assert.ok(Array.isArray(body.protocolVersions), 'protocolVersions is an array');
+    assert.equal(body.protocolVersions[0], '2026-07-28', 'modern revision first');
+    assert.ok(body.protocolVersions.includes('2025-06-18'), 'the 2025 era is still served');
+    assert.ok(body.version, 'version is still reported');
   } finally {
     await close(env);
   }
@@ -313,19 +335,20 @@ test('stateful mode: DELETE terminates a session, then a fresh initialize still 
   }
 });
 
-// ─── Legacy stateless mode: multiple requests must not hang ────────────────
-// The SDK throws 'Stateless transport cannot be reused across requests' when
-// the same sessionIdGenerator:undefined transport handles a second request.
-// The old streamableHttp.js code had no try/catch around
-// transport.handleRequest(), so that throw was an unhandled rejection and the
-// second request's response was NEVER written — a hang, not an error. The
-// fix is a fresh transport per request. fetchPath's timeout keeps a hang from
-// blocking the suite; a hang shows up here as a rejected/aborted fetch.
+// ─── Modern (2026-07-28) stateless leg: multiple requests must not hang ────
+// Was 'legacy mode: a second and third request each get a proper response'.
+// The `--legacy-http` stateless mode this exercised is gone (4.2); the same
+// hazard now lives on the modern leg, which is also stateless and also builds
+// a fresh instance per request. A stale-instance reuse bug there would show up
+// as a hang, which fetchPath's timeout surfaces as a rejected fetch.
 
-test('legacy mode: a second and third request each get a proper response, no hang', async () => {
-  const env = await startServer({ legacy: true, auth: makeAuth({ creator: true }) });
+test('modern leg: a second and third stateless request each get a proper response, no hang', async () => {
+  const env = await startServer({ server: makeEchoToolServer(), auth: makeAuth({ creator: true }) });
   try {
-    const send = (id) => fetchPath(env.port, '/mcp', { method: 'POST', body: pingBody(id), headers: jsonRpcHeaders });
+    const send = (id) => {
+      const { headers, body } = modernRequest(id, 'tools/list');
+      return fetchPath(env.port, '/mcp', { method: 'POST', body, headers });
+    };
 
     const res1 = await send(1);
     assert.equal(res1.status, 200, 'first request succeeds');
@@ -462,6 +485,260 @@ test('POST /mcp with X-Internal-Secret is rejected when the deployment has no se
     });
     assert.equal(res.status, 401, 'header without configured secret never authenticates');
   } finally {
+    await close(env);
+  }
+});
+
+// ─── Dual-era routing (4.2) ─────────────────────────────────────────────────
+// The same /mcp route serves both protocol eras: a request carrying the
+// 2026-07-28 `_meta` envelope is answered statelessly by createMcpHandler, one
+// without it by the sessionful 2025 path. Every check below runs against the
+// SAME listening server, so the routing itself is under test, not two configs.
+
+test('dual-era: a 2026-era tools/list resolves with no session id', async () => {
+  const env = await startServer({ server: makeEchoToolServer(), auth: makeAuth({ creator: true }) });
+  try {
+    const { headers, body } = modernRequest(1, 'tools/list');
+    const res = await fetchPath(env.port, '/mcp', { method: 'POST', body, headers });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('mcp-session-id'), null, 'the modern era is stateless — no session issued');
+    const rpc = await readRpcBody(res);
+    assert.equal(rpc.error, undefined, `tools/list must not error (got: ${JSON.stringify(rpc.error)})`);
+    assert.equal(rpc.result.tools[0].name, 'slow_echo');
+  } finally {
+    await close(env);
+  }
+});
+
+test('dual-era: a 2026-era tools/call resolves with no session id', async () => {
+  const env = await startServer({ server: makeEchoToolServer(), auth: makeAuth({ creator: true }) });
+  try {
+    const { headers, body } = modernRequest(2, 'tools/call', { name: 'slow_echo', arguments: { text: 'hi' } });
+    const res = await fetchPath(env.port, '/mcp', { method: 'POST', body, headers });
+    assert.equal(res.status, 200);
+    const rpc = await readRpcBody(res);
+    assert.equal(rpc.error, undefined, `tools/call must not error (got: ${JSON.stringify(rpc.error)})`);
+    assert.equal(rpc.result.content[0].text, 'echo:hi');
+  } finally {
+    await close(env);
+  }
+});
+
+test('dual-era: a 2025-era session still works alongside the modern leg', async () => {
+  const env = await startServer({ server: makeEchoToolServer(), auth: makeAuth({ creator: true }) });
+  try {
+    // Modern first, so the 2025 session is opened on a server that has already
+    // served a stateless request.
+    const modern = modernRequest(1, 'tools/list');
+    const modernRes = await fetchPath(env.port, '/mcp', { method: 'POST', body: modern.body, headers: modern.headers });
+    assert.equal(modernRes.status, 200);
+    await modernRes.text();
+
+    const initRes = await fetchPath(env.port, '/mcp', { method: 'POST', body: initializeBody(2), headers: jsonRpcHeaders });
+    assert.equal(initRes.status, 200);
+    const sessionId = initRes.headers.get('mcp-session-id');
+    assert.ok(sessionId, 'the 2025 era still issues a session id');
+    await initRes.text();
+
+    const callRes = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'slow_echo', arguments: { text: 'legacy' } } }),
+      headers: { ...jsonRpcHeaders, 'mcp-session-id': sessionId }
+    });
+    assert.equal(callRes.status, 200);
+    const rpc = await readRpcBody(callRes);
+    assert.equal(rpc.result?.content?.[0]?.text, 'echo:legacy');
+  } finally {
+    await close(env);
+  }
+});
+
+// Auth is the single biggest regression risk of the dual-era split: it must run
+// BEFORE era routing, so a keyless request is refused identically on both legs.
+test('dual-era: a 2026-era request with no API key is refused exactly like a 2025-era one', async () => {
+  const env = await startServer();
+  try {
+    const modern = modernRequest(1, 'tools/list');
+    const modernRes = await fetchPath(env.port, '/mcp', { method: 'POST', body: modern.body, headers: modern.headers });
+    assert.equal(modernRes.status, 401, 'modern era refuses without a key');
+    assert.equal((await modernRes.json()).error, 'Unauthorized');
+
+    const legacyRes = await fetchPath(env.port, '/mcp', { method: 'POST', body: initializeBody(1), headers: jsonRpcHeaders });
+    assert.equal(legacyRes.status, 401, '2025 era refuses without a key');
+    assert.equal((await legacyRes.json()).error, 'Unauthorized');
+  } finally {
+    await close(env);
+  }
+});
+
+test('dual-era: a valid API key is accepted on the modern leg', async () => {
+  const env = await startServer({ server: makeEchoToolServer() });
+  try {
+    const { headers, body } = modernRequest(1, 'tools/list');
+    const res = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      body,
+      headers: { ...headers, authorization: 'Bearer cf-test' }
+    });
+    assert.equal(res.status, 200);
+    const rpc = await readRpcBody(res);
+    assert.equal(rpc.error, undefined);
+  } finally {
+    await close(env);
+  }
+});
+
+// The SDK owns these two rejections (validateStandardRequestHeaders /
+// classifyInboundRequest). The assertions are here to prove the composition
+// actually routes into them, not to re-implement the checks.
+test('dual-era: a Mcp-Method header disagreeing with the body is rejected -32020', async () => {
+  const env = await startServer({ server: makeEchoToolServer(), auth: makeAuth({ creator: true }) });
+  try {
+    const { headers, body } = modernRequest(1, 'tools/list');
+    const res = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      body,
+      headers: { ...headers, 'mcp-method': 'tools/call' }
+    });
+    assert.equal(res.status, 400);
+    const rpc = await res.json();
+    assert.equal(rpc.error.code, -32020);
+    assert.match(rpc.error.message, /headers and body disagree/);
+  } finally {
+    await close(env);
+  }
+});
+
+test('dual-era: a Mcp-Name header disagreeing with the body is rejected -32020', async () => {
+  const env = await startServer({ server: makeEchoToolServer(), auth: makeAuth({ creator: true }) });
+  try {
+    const { headers, body } = modernRequest(1, 'tools/call', { name: 'slow_echo', arguments: { text: 'hi' } });
+    const res = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      body,
+      headers: { ...headers, 'mcp-name': 'other_tool' }
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error.code, -32020);
+  } finally {
+    await close(env);
+  }
+});
+
+test('dual-era: a non-JSON Content-Type on a modern request is rejected 415', async () => {
+  const env = await startServer({ auth: makeAuth({ creator: true }) });
+  try {
+    const { body } = modernRequest(1, 'tools/list');
+    const res = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      body,
+      headers: { 'content-type': 'text/plain', accept: 'application/json, text/event-stream', 'mcp-method': 'tools/list' }
+    });
+    assert.equal(res.status, 415);
+  } finally {
+    await close(env);
+  }
+});
+
+// ─── 4.6: server/discover cache hint + list ordering ────────────────────────
+
+test('4.6: server/discover carries the ttlMs / cacheScope cache hint', async () => {
+  const env = await startServer({ server: makeEchoToolServer(), auth: makeAuth({ creator: true }) });
+  try {
+    const { headers, body } = modernRequest(1, 'server/discover');
+    const res = await fetchPath(env.port, '/mcp', { method: 'POST', body, headers });
+    assert.equal(res.status, 200);
+    const rpc = await readRpcBody(res);
+    assert.equal(rpc.error, undefined, `server/discover must not error (got: ${JSON.stringify(rpc.error)})`);
+    assert.equal(rpc.result.ttlMs, 300000, 'ttlMs comes from the configured cache hint, not the 0 default');
+    assert.equal(rpc.result.cacheScope, 'public', 'cacheScope comes from the hint, not the private default');
+  } finally {
+    await close(env);
+  }
+});
+
+// Pins the hard-coded MODERN_PROTOCOL_VERSIONS in streamableHttp.js against the
+// SDK's own (unexported) modern list: an SDK upgrade that adds a revision fails
+// here instead of leaving /health quietly wrong.
+test('4.6: server/discover supportedVersions match what /health advertises', async () => {
+  const env = await startServer({ server: makeEchoToolServer(), auth: makeAuth({ creator: true }) });
+  try {
+    const { headers, body } = modernRequest(1, 'server/discover');
+    const res = await fetchPath(env.port, '/mcp', { method: 'POST', body, headers });
+    const rpc = await readRpcBody(res);
+
+    const health = await (await fetchPath(env.port, '/health')).json();
+    const modernFromHealth = health.protocolVersions.filter((v) => v >= '2026-07-28');
+    assert.deepEqual(rpc.result.supportedVersions, modernFromHealth);
+  } finally {
+    await close(env);
+  }
+});
+
+// 4.6 keeps the ten SEP-2549 cacheable tools/call markers and specHygiene's
+// deterministic ordering. Both live on wrappers applied to the template's own
+// Protocol instance, so they only reach an HTTP client if cloneServerForSession
+// re-applies them to each per-session / per-request clone.
+test('4.6: session clones keep specHygiene ordering and the tools/call cache marker', async () => {
+  const server = makeEchoToolServer();
+  server.registerTool('fetch_url', {
+    description: 'cacheable read-only tool',
+    inputSchema: { url: z.string() }
+  }, async () => ({ content: [{ type: 'text', text: 'ok' }] }));
+  applySpecHygiene(server);
+
+  const env = await startServer({ server, auth: makeAuth({ creator: true }) });
+  try {
+    const initRes = await fetchPath(env.port, '/mcp', { method: 'POST', body: initializeBody(1), headers: jsonRpcHeaders });
+    const sessionId = initRes.headers.get('mcp-session-id');
+    await initRes.text();
+
+    const listRes = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
+      headers: { ...jsonRpcHeaders, 'mcp-session-id': sessionId }
+    });
+    const names = (await readRpcBody(listRes)).result.tools.map((t) => t.name);
+    assert.deepEqual(names, [...names].sort(), 'tools/list is alphabetically ordered over a session');
+
+    const callRes = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'fetch_url', arguments: { url: 'https://example.com' } } }),
+      headers: { ...jsonRpcHeaders, 'mcp-session-id': sessionId }
+    });
+    const hint = (await readRpcBody(callRes)).result._meta?.['io.modelcontextprotocol/cacheable'];
+    assert.deepEqual(hint, { ttlMs: 300000, cacheScope: 'private' });
+  } finally {
+    await close(env);
+  }
+});
+
+// The internal-proxy billing exemption rides on AsyncLocalStorage
+// (requestContext), set before era routing and read inside the tool handler.
+// The modern leg adds two hops (toNodeHandler -> handler.fetch -> factory), so
+// this asserts the context still reaches the handler on that path — losing it
+// would silently double-bill every website REST proxy call.
+test('dual-era: the internal-proxy request context reaches a tool handler on the modern leg', async () => {
+  process.env.INTERNAL_PROXY_SECRET = 'test-internal-secret';
+  const server = new McpServer({ name: 'test', version: '0.0.0' }, { capabilities: { tools: {} } });
+  server.registerTool('report_context', {
+    description: 'reports the request context flag',
+    inputSchema: {}
+  }, async () => ({ content: [{ type: 'text', text: String(isInternalRequest()) }] }));
+
+  const env = await startServer({ server });
+  try {
+    const { headers, body } = modernRequest(1, 'tools/call', { name: 'report_context', arguments: {} });
+    const res = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      body,
+      headers: { ...headers, 'x-internal-secret': 'test-internal-secret' }
+    });
+    assert.equal(res.status, 200);
+    const rpc = await readRpcBody(res);
+    assert.equal(rpc.result.content[0].text, 'true', 'isInternalRequest() must be true inside the handler');
+  } finally {
+    delete process.env.INTERNAL_PROXY_SECRET;
     await close(env);
   }
 });

@@ -1,7 +1,9 @@
 # MCP Spec Adoption
 
-CrawlForge implements the current MCP spec (2025-06-18) plus a small set of experimental
-extensions from the spec-enhancement-proposal (SEP) pipeline. This document is the wire-level
+CrawlForge implements the MCP spec plus a small set of experimental extensions from the
+spec-enhancement-proposal (SEP) pipeline. Over stdio it speaks the 2025 era (negotiated by
+`initialize`); the HTTP `/mcp` endpoint additionally serves the 2026-07-28 revision statelessly
+on the same route — see sections 8 and 9. This document is the wire-level
 reference for those features. Everything here is additive — clients that don't understand a
 given feature ignore the fields they don't recognize and continue to work off the plain-text
 `content` result, exactly as before.
@@ -15,6 +17,8 @@ given feature ignore the fields they don't recognize and continue to work off th
 5. [Async tasks — retired](#5-async-tasks--retired)
 6. [Client-side tool selection](#6-client-side-tool-selection)
 7. [MCP Registry](#7-mcp-registry)
+8. [Dual-era HTTP transport (2026-07-28 + 2025)](#8-dual-era-http-transport-2026-07-28--2025)
+9. [Elicitation and Sampling under the 2026-07-28 revision](#9-elicitation-and-sampling-under-the-2026-07-28-revision)
 
 ---
 
@@ -121,7 +125,7 @@ wrong and retry with corrected arguments.
 }
 ```
 
-**Which tools:** All 28 registered tools — this is a transport/SDK-level behavior change, not
+**Which tools:** All 30 registered tools — this is a transport/SDK-level behavior change, not
 a per-tool opt-in.
 
 **Client compatibility:** Any client already checking `isError` on tool results (the standard
@@ -147,7 +151,7 @@ pattern) handles this identically to a runtime failure. Clients that only checke
 {
   "name": "serp_rank",
   "_meta": {
-    "cacheHint": { "ttlMs": 600000, "cacheScope": "session" }
+    "io.modelcontextprotocol/cacheable": { "ttlMs": 300000, "cacheScope": "private" }
   }
 }
 ```
@@ -201,7 +205,7 @@ result out of the context while you page through it.
 ## 6. Client-side tool selection
 
 **What it is:** Two environment variables let an MCP client (or the person configuring it)
-whitelist which of the 28 registered tools are actually exposed over `tools/list` — useful for
+whitelist which of the 30 registered tools are actually exposed over `tools/list` — useful for
 trimming context/tool-budget on smaller clients, or for locking a deployment down to a specific
 workflow.
 
@@ -275,3 +279,149 @@ you don't set them for) sees every tool, as before.
 
 CrawlForge also publishes a `server.json` and a CI workflow for listing in the MCP Registry.
 See [docs/mcp-registry.md](mcp-registry.md) for the registry entry and publishing details.
+
+---
+
+## 8. Dual-era HTTP transport (2026-07-28 + 2025)
+
+**What it is:** The `/mcp` endpoint serves both protocol eras on one route. Which era a request
+belongs to is decided by the MCP SDK's own `isLegacyRequest` predicate — the same code the SDK's
+own HTTP entry runs — so CrawlForge can never disagree with it about a borderline request.
+
+- **2026-07-28 ("modern")** — stateless. A request qualifies by carrying the per-request `_meta`
+  envelope (`io.modelcontextprotocol/protocolVersion`, `clientInfo`, `clientCapabilities`) plus
+  the SEP-2243 `Mcp-Method` header, and `Mcp-Name` on `tools/call`. There is no handshake and no
+  session: each request is served by its own server instance and no `Mcp-Session-Id` is issued.
+  `server/discover` replaces `initialize` as the negotiation step.
+- **2025 era** — sessionful, exactly as before. `POST /mcp` with an `initialize` body issues an
+  `Mcp-Session-Id`; the client re-sends it on every subsequent request; `GET /mcp` opens the
+  server-to-client SSE stream and `DELETE /mcp` terminates the session.
+
+**This applies to the HTTP transport only.** A stdio connection (`npx crawlforge-mcp-server`,
+the default for desktop clients) negotiates the 2025 era through `initialize` exactly as it always
+has; `server/discover` over stdio answers `-32601`.
+
+**A minimal 2026-07-28 call:**
+
+    POST /mcp HTTP/1.1
+    Authorization: Bearer <crawlforge-api-key>
+    Content-Type: application/json
+    Accept: application/json, text/event-stream
+    Mcp-Method: tools/call
+    Mcp-Name: scrape
+
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "_meta": {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": { "name": "my-client", "version": "1.0.0" },
+          "io.modelcontextprotocol/clientCapabilities": {}
+        },
+        "name": "scrape",
+        "arguments": { "url": "https://example.com", "formats": ["markdown"] }
+      }
+    }
+
+**Validation the endpoint enforces** (all of it the SDK's; none of it re-implemented here):
+
+| Condition | Answer |
+|---|---|
+| `Content-Type` is not `application/json` on a modern POST | `415`, `-32000` |
+| `Mcp-Method` absent, or naming a different method than the body | `400`, `-32020` `HeaderMismatch` |
+| `Mcp-Name` absent or naming a different tool than `params.name` | `400`, `-32020` `HeaderMismatch` |
+| Envelope names a revision this server does not serve | `400`, unsupported-protocol-version |
+
+Each of these is refused before the tool runs, so a rejected request is never billed.
+
+**Auth is identical on both eras and runs before era routing.** Every request needs
+`Authorization: Bearer <api-key-or-oauth-token>` or `X-API-Key`; a keyless request receives the
+same `401` body whichever era it claims. Creator mode (loopback only) and the internal-proxy
+`X-Internal-Secret` path behave the same on both legs.
+
+**Server-to-client requests are not available on the 2026-07-28 era.** The revision has no
+server-to-client request channel, so `elicitation/create`, `sampling/createMessage` and
+`roots/list` cannot be sent while serving a modern request. Tools that would ask for confirmation
+proceed unasked on that era, exactly as they already do for a client that declares no elicitation
+capability. See section 9.
+
+**`server/discover` cache hint (SEP-2549).** The discover result is the same for every caller and
+only changes on redeploy, so it carries `"ttlMs": 300000, "cacheScope": "public"`:
+
+    {
+      "supportedVersions": ["2026-07-28"],
+      "capabilities": { "tools": { "listChanged": true }, "prompts": {…}, "resources": {…} },
+      "instructions": "CrawlForge: metered web tools (credits per call)…",
+      "ttlMs": 300000,
+      "cacheScope": "public"
+    }
+
+**Health probe.** `GET /health` reports every revision the endpoint serves, newest first:
+
+    { "status": "ok", "version": "6.0.0", "mode": "streamable-stateful",
+      "protocolVersions": ["2026-07-28","2025-11-25","2025-06-18","2025-03-26","2024-11-05","2024-10-07"] }
+
+**`CRAWLFORGE_LEGACY_HTTP` / `--legacy-http` are gone.** The v3.1 stateless HTTP mode was kept
+behind that flag for one release and has now been removed. Nothing needs to change for callers:
+2025-era clients are served by the sessionful path, which is the default and always was.
+
+---
+
+## 9. Elicitation and Sampling under the 2026-07-28 revision
+
+**Status: the inline 2025-era request still serves every client we see; the multi-round-trip
+replacement is deliberately not adopted.**
+
+SEP-2577 removed the server→client request channel. Under the 2026-07-28 revision a server no
+longer *sends* `elicitation/create` or `sampling/createMessage`; a `tools/call`, `prompts/get`
+or `resources/read` handler instead **returns** an `input_required` result carrying the embedded
+requests, the client fulfils them, and the client retries the original call with the answers
+attached. SDK v2 ships both halves — `inputRequired()` builds the result,
+`acceptedContent(ctx.mcpReq.inputResponses, id)` reads an answer back on re-entry — plus a
+default-on **legacy shim** that fulfils an `input_required` return on a 2025-era connection by
+issuing the real server→client request itself and re-entering the handler. One return serves
+both eras.
+
+**What CrawlForge does.** Five tools (`deep_research`, `batch_scrape`, `agent`, `crawl_deep`,
+`extract_structured`) and the low-credit check in `AuthManager` confirm through
+`ElicitationHelper.confirm()`, which awaits a 2025-era `elicitation/create` inline, in the middle
+of the tool's work. This server negotiates its protocol revision through the classic `initialize`
+handshake and SDK v2's `SUPPORTED_PROTOCOL_VERSIONS` tops out at `2025-11-25`, so stdio
+connections are legacy-era and the inline request works.
+
+**Why the round trip is not adopted.** `inputRequired(...)` is only legal as a handler's
+*return*, and the answer arrives only on the handler's *next entry*. Converting the six call
+sites means re-entrant tool handlers — and each re-entry runs `withAuth()` again, with a fresh
+credit check and a fresh usage report, up to the shim's eight rounds. An `input_required` result
+is not `isError`, so `withAuth` would book it as a success and charge in full for a call that did
+no work, and a declined confirmation would be billed too. `_cost.projected` is a ceiling and a
+refused call is never billed, so adoption waits on an era-aware,
+bill-once-per-originating-request rule in `withAuth` and on passing the handler context through
+to tools (`withAuth` currently returns `async (params) => …`, dropping `ctx` entirely).
+
+**Client capability.** The SDK's canonical rule counts a bare `elicitation: {}` declaration as
+declaring `elicitation.form` — the pre-mode 2025 meaning — while a client declaring only
+`elicitation.url` has not declared form support. CrawlForge applies that rule and sends through
+`Server.request()`, because the deprecated `Server.elicitInput()` convenience demands
+`elicitation.form` literally and refuses bare declarations. The wire message is identical either
+way: a form-mode `elicitation/create`.
+
+**2026-era connections.** No server→client request channel exists there, so both send paths
+throw. CrawlForge treats that exactly as it treats a client with no elicitation capability: the
+operation proceeds unasked. A confirmation prompt is a nicety; failing a billed tool call is not
+an acceptable substitute for one.
+
+**Known gap — HTTP transport.** The helper is constructed once against the top-level template
+`McpServer`, while the streamable-HTTP transport clones a fresh `McpServer` per session
+(`cloneServerForSession`). The template is never connected to a session, so it reports no client
+capabilities and elicitation never fires over HTTP — every HTTP session proceeds unasked. This
+is safe in every direction (no throw, no mis-billing, no failed call) but the feature is
+effectively stdio-only until the helper is wired per session.
+
+**Sampling.** `SamplingClient`'s chain is unchanged: Ollama, then a server-side
+`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`, then MCP sampling. SEP-2577 deprecated Sampling on
+2026-07-28 and the spec keeps it for at least twelve months, so the third rung is removed **on
+or after 2027-07-28**. When it serves a completion it now writes one deprecation line to stderr
+naming that date. Configure Ollama or a server-side key and the rung is never reached.
