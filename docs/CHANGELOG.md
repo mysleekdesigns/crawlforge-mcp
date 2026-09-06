@@ -5,6 +5,129 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.8.0] - 2026-09-05
+
+Phase 2 of the 2026 feature plan: result handles. A result too large to hand
+to the model comes back as a preview and a handle, and `read_result` searches,
+slices or paths into the stored copy instead of the page being fetched again —
+the pattern Apify's MCP uses with its paged actor output, kept local here.
+Nothing leaves the machine.
+
+### Added
+- **`read_result` tool (1 credit; 29 tools become 30).** Input
+  `{ handle, operation, offset?, length?, query?, max_matches?, path?,
+  max_inline_chars? }`. `operation: "slice"` returns `text` from `offset` for
+  `length` characters (default 10,000) with `has_more`; `"search"` is a
+  case-insensitive literal substring search returning up to `max_matches`
+  (1–100, default 20) matches as `{ offset, length, context_offset, context }`
+  with 200 characters of context each side, plus `total_matches`; `"lines"`
+  returns `lines[]` from line `offset` (default 0) for `length` lines (default
+  200, at most 5,000) with `total_lines`, `char_offset` and `has_more`;
+  `"json_path"` returns `value` at `path` over the stored result object, or
+  over the parsed body when the stored text is JSON (a `fetch_url` body).
+  Every response carries `handle`, `tool`, `operation`, `view` (`"text"` or
+  `"json"`), `view_path`, `total_chars` and `expires_at`. An unknown or
+  expired handle is an error that says results are kept 1 hour. Billed at the
+  same bookkeeping rate as `get_batch_results`; tool group `basic`.
+- **`max_inline_chars` on ten tools** — `scrape`, `fetch_url`,
+  `extract_content`, `crawl_deep`, `batch_scrape`, `stealth_mode` (operation
+  `scrape`), `scrape_with_actions`, `process_document`, `deep_research` and
+  `extract_embedded_state`. An integer from 1,000 to 10,000,000, default
+  40,000, also settable with `CRAWLFORGE_MAX_INLINE_CHARS`. When a result's
+  JSON exceeds it, the call returns the top-level scalar fields, `preview`
+  (the first `max_inline_chars` characters of the result's text view:
+  `content.markdown` for `scrape`, `body` for `fetch_url`, the dominant text
+  field for the other single-page tools, the pretty-printed JSON for
+  `crawl_deep`, `batch_scrape` and `deep_research`), `result_handle` (`res_`
+  plus a UUID), `total_chars`, `view`, `view_path`, `truncated: true`,
+  `expires_at` and a warning naming `read_result`. `extract_embedded_state`
+  is never truncated — its rule — but a large result still carries
+  `result_handle`, `total_chars` and `truncated: false`. Error results are
+  never stored.
+- **The local result store.** The full result is kept for 1 hour in a
+  per-process store under `~/.crawlforge/results/`, the same root as
+  snapshots, evicted least-recently-used at 200 MB. It lives on the
+  customer's machine: no result body is uploaded, and nothing leaves the
+  machine.
+- **The instructions ladder** gains a rung: a result that came back
+  `truncated: true` with a `result_handle` → `read_result` (1): search, slice,
+  lines or json_path over the stored result; never fetch the page again.
+
+### Changed
+- **`batch_scrape`'s cached results live in the result store**, sharing its
+  eviction and 1-hour TTL. `get_batch_results` is unchanged for callers.
+- **Requests proxied from the website REST API are not truncated by the
+  server.** The website applies its own threshold: the same
+  `max_inline_chars` parameter and `read_result` tool, with Redis-backed
+  1-hour storage.
+
+### Fixed
+- **`reddit_search` and `extract_embedded_state` can be selected by name.** Neither
+  had been added to `TOOL_GROUPS` (`src/server/toolFilter.js`) when it shipped, so
+  `CRAWLFORGE_TOOLS=reddit_search` or `=extract_embedded_state` was reported as an
+  unknown name and the tool was left out. `reddit_search` now belongs to the
+  `search` group and `extract_embedded_state` to `extract`; the groups cover all
+  30 tools.
+- **The startup banner counts `extract_embedded_state`.** Its "Tools available"
+  line had omitted the tool since 5.4.0, so a full install reported 29 of 29
+  where it now reports 30 of 30.
+
+## [5.7.0] - 2026-09-05
+
+Ships with crawlforge-extractors 1.8.0. Phase 1 of the 2026 feature plan: the
+query-scoped formats. `scrape` can now return only the parts of a page that
+answer a query — verbatim, with a locator into the markdown of the same call —
+instead of the whole page.
+
+### Added
+- **`{ type: "highlights", query, max_highlights?, mode? }` format for
+  `scrape`.** The markdown the call produces is cut into sentences, table rows
+  and fenced code blocks (crawlforge-extractors `segmentUnits`), each is scored
+  against the query with BM25 (`rankUnits`: a unit inherits its heading's terms
+  at half weight, a unit containing the whole query is boosted, and a two-word
+  button carries no length advantage over a price line),
+  and the top `max_highlights` (default 10, at most 50) come back as
+  `content.highlights: [{ text, kind, offset, length, score }]`, best first.
+  `text` is the page's own text: `markdown.slice(offset, offset + length) ===
+  text` for the `markdown` format of the same call at the same
+  `onlyMainContent`. When `markdown` is not also requested, a warning says
+  where the offsets point. A query nothing matches returns `[]` and a warning,
+  never an error. Works alongside every other format in the one fetch.
+- **`{ type: "question", question, mode? }` format for `scrape`.**
+  `content.answer: { text, grounded, evidence }`, where `evidence` is the top
+  five units in the same shape. In the default extractive mode `text` is the
+  evidence joined with newlines and `grounded` is `true`: nothing is
+  synthesised.
+- **`mode: "model"` on either format**, opt-in, through the same Ollama →
+  server keys → MCP sampling chain the other LLM tools use, with the page
+  text nonce-fenced before it reaches the model. For `highlights` the model
+  picks which of the top `3 × max_highlights` extractive candidates to keep;
+  the units come back verbatim, in extractive order, and a reply that names
+  no candidate falls back to the extractive top N with a warning. For
+  `question` the model writes an answer from the fenced evidence and the
+  question alone, and a grounding check then requires every number and every
+  proper noun in that answer to appear in the evidence or the question;
+  otherwise `grounded: false` and a warning names the unbacked tokens. With
+  no LLM route at all, the extractive result is returned with a warning.
+- **Pricing.** `scrape` stays 2. A `highlights` or `question` format adds 1
+  once per call; `mode: "model"` adds 3 once per call. Both are in
+  `_cost.projected` before the call (`getToolCost` reads the formats). When
+  the model step does not run — no LLM route, or no more candidates than
+  `max_highlights` for it to choose from — the call reports its actual spend
+  (5.6.11's channel) and the charge drops to the extractive price; the
+  projection is never exceeded.
+- **The `scrape` description** tells a client to ask for `highlights` with a
+  query to get only the matching sentences, table rows and code blocks at 1
+  extra credit and no model, and a `markdown` result over 40,000 characters
+  carries a warning naming the format.
+
+### Changed
+- **The `scrape` `tools/list` fixture** (the 0.3 consolidation gate, which
+  passed) is now the current wire shape, regenerated on each intentional
+  schema change; the output schema declares `content.highlights` and
+  `content.answer`, and an object format without an output shape fails at
+  startup like a string format does.
+
 ## [5.6.11] - 2026-09-05
 
 Ships with crawlforge-extractors 1.7.0. Phase 0 of the 2026 feature plan: the

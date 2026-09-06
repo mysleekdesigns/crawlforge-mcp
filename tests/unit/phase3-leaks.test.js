@@ -4,7 +4,7 @@
  * Covers the "Leak assertions" bullet of the Phase 3 verification gate
  * (plan/phase-3-leaks-robustness.md):
  *   - CacheManager / BFSCrawler: destroy() lets the instance be GC'd (WeakRef + --expose-gc).
- *   - BatchScrapeTool.batchResults: expired entries evicted on read; bounded size (LRU cap).
+ *   - BatchScrapeTool's cached results (a ResultStore since Phase 2): expired entries evicted on read; bounded by bytes (LRU).
  *   - SnapshotManager: .meta files no longer embed full content; metadataCache is bounded.
  *   - LocalizationManager: cleanup() clears its health-check intervals.
  *   - trackChanges/index.js: importing the module no longer eagerly constructs a
@@ -27,7 +27,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { promises as fs } from 'node:fs';
+import { promises as fs, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -182,49 +182,52 @@ describe('BFSCrawler leak fix (src/core/crawlers/BFSCrawler.js)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. BatchScrapeTool.batchResults — TTL sweep on read + LRU cap.
+// 3. BatchScrapeTool cached results — TTL eviction on read + LRU byte cap.
+//    Phase 2 moved the cache onto the shared ResultStore (keyed by batchId).
 // ---------------------------------------------------------------------------
 
-describe('BatchScrapeTool.batchResults bounding (src/tools/advanced/batchScrape/index.js)', () => {
+describe('BatchScrapeTool cached-result bounding (src/tools/advanced/batchScrape/index.js)', async () => {
+  const { ResultStore } = await import('../../src/core/ResultStore.js');
+  const tempStore = (options) => new ResultStore({ baseDir: mkdtempSync(path.join(os.tmpdir(), 'phase3-batch-store-')), ...options });
+
   test('getBatchResults deletes expired cache entries on read (not just skips them)', async () => {
-    const tool = new BatchScrapeTool({ enableJobPersistence: false, enableWebhookNotifications: false });
+    const resultStore = tempStore({ ttlMs: 30 });
+    const tool = new BatchScrapeTool({ enableJobPersistence: false, enableWebhookNotifications: false, resultStore });
     try {
-      const batchId = 'phase3_expired_batch';
-      tool.batchResults.set(batchId, {
-        results: [{ url: 'https://example.com/expired', success: true }],
-        timestamp: Date.now() - 10_000,
-        ttl: 100 // already well expired
-      });
+      const batchId = 'batch_phase3_expired';
+      tool._cacheBatchResult(batchId, [{ url: 'https://example.com/expired', success: true }], 'sync');
+      await new Promise((r) => setTimeout(r, 60));
 
       await assert.rejects(() => tool.getBatchResults(batchId), /not found/i);
       assert.equal(
-        tool.batchResults.has(batchId),
+        resultStore.has(batchId),
         false,
-        'an expired batch entry must be evicted from the cache on read, not merely fall through to "not found" while still occupying memory'
+        'an expired batch entry must be evicted from the store on read, not merely fall through to "not found" while still occupying space'
       );
     } finally {
       await tool.destroy();
+      resultStore.close();
+      rmSync(resultStore.baseDir, { recursive: true, force: true });
     }
   });
 
-  test('batchResults does not grow without bound as more batches are cached than the configured cap', async () => {
-    const cap = 10;
-    const tool = new BatchScrapeTool({ enableJobPersistence: false, enableWebhookNotifications: false, maxCachedBatches: cap });
+  test('cached results do not grow without bound: the store evicts by bytes', async () => {
+    const resultStore = tempStore({ maxBytes: 2000 });
+    const tool = new BatchScrapeTool({ enableJobPersistence: false, enableWebhookNotifications: false, resultStore });
     try {
       const N = 50;
       for (let i = 0; i < N; i++) {
         // Exercise the tool's real write path (the one _processBatchSync /
-        // the async job executor actually use), not the raw Map — a cap
-        // enforced only in that helper would otherwise be invisible to a
-        // test that pokes the Map directly.
-        tool._cacheBatchResult(`phase3_batch_${i}`, [{ url: `https://example.com/${i}`, success: true }]);
+        // the async job executor actually use).
+        tool._cacheBatchResult(`batch_phase3_${i}`, [{ url: `https://example.com/${i}`, success: true, content: 'x'.repeat(100) }], 'sync');
       }
-      assert.ok(
-        tool.batchResults.size <= cap,
-        `expected batchResults to be capped at maxCachedBatches (${cap}), got ${tool.batchResults.size}`
-      );
+      assert.ok(resultStore.totalBytes <= 2000, `expected the store to hold at most 2000 bytes, got ${resultStore.totalBytes}`);
+      assert.ok(tool.getStats().cachedResults < N, `expected fewer than ${N} cached batches, got ${tool.getStats().cachedResults}`);
+      assert.equal(resultStore.has(`batch_phase3_${N - 1}`), true, 'the newest batch is kept');
     } finally {
       await tool.destroy();
+      resultStore.close();
+      rmSync(resultStore.baseDir, { recursive: true, force: true });
     }
   });
 });

@@ -5,6 +5,9 @@
  * Mirrors the output shape of ScrapeWithActionsTool.generateFormats():
  *   content.html, content.rawHtml, content.text, content.markdown,
  *   content.links, content.metadata, content.screenshots, content.json
+ * plus the query-scoped formats (Phase 1): content.highlights for
+ * {type:"highlights"} and content.answer for {type:"question"}, both built
+ * from the markdown this same call produces, verbatim with offsets into it.
  *
  * onlyMainContent maps to Readability boilerplate removal (same as extractContent).
  * Partial success: per-format warnings[] never fail the whole call.
@@ -12,8 +15,14 @@
 
 import { z } from 'zod';
 import { load } from 'cheerio';
-import { documentVerdict } from 'crawlforge-extractors';
-import { SCRAPE_STRING_FORMATS, JsonFormatSchema, FormatSchema } from './formats.js';
+import { documentVerdict, segmentUnits, rankUnits } from 'crawlforge-extractors';
+import {
+  SCRAPE_STRING_FORMATS, JsonFormatSchema, HighlightsFormatSchema, QuestionFormatSchema, FormatSchema,
+  scrapeFormatSurcharge
+} from './formats.js';
+import { toPublicUnit, parseChosenIndexes, groundingCheck } from './_highlights.js';
+import { setActualCost } from '../../server/requestContext.js';
+import { fenceUntrusted } from '../../utils/untrustedContent.js';
 import { fetchAndParse } from '../extract/_fetchAndParse.js';
 import { extractMainContent, isThinMainContent } from './_mainContent.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
@@ -24,7 +33,15 @@ import { noteHostBlocked, clearHostBlocked } from '../../utils/hostRateLimiter.j
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
-export { SCRAPE_STRING_FORMATS, JsonFormatSchema, FormatSchema };
+export { SCRAPE_STRING_FORMATS, JsonFormatSchema, HighlightsFormatSchema, QuestionFormatSchema, FormatSchema };
+
+// Above this, a markdown result is the whole page in the context window;
+// the warning names the format that returns only the matching units (1.4).
+const OVERSIZED_MARKDOWN_CHARS = 40000;
+// How many extractive units a question's answer rests on.
+const QUESTION_EVIDENCE_UNITS = 5;
+
+const isQueryFormat = (fmt) => Boolean(fmt) && typeof fmt === 'object' && (fmt.type === 'highlights' || fmt.type === 'question');
 
 // The six public fields in tools/list order, each carrying the description
 // the client sees. server.js spreads this with COMPLIANCE_PARAMS instead of
@@ -177,6 +194,61 @@ export class UnifiedScrapeTool {
     // Optional shared ActionExecutor (injected from server.js so we reuse the
     // existing browser pool rather than spinning up a second one).
     this._actionExecutor = options.actionExecutor || null;
+    this._mcpServer = null;
+  }
+
+  /** Wire the MCP server so the mode:"model" step can fall back to client sampling. */
+  setMcpServer(mcpServer) {
+    this._mcpServer = mcpServer;
+  }
+
+  /**
+   * One completion through the SamplingClient chain (Ollama → server keys →
+   * MCP sampling); throws when no route exists. Page text must already be
+   * fenced by the caller.
+   */
+  async _complete(prompt, options) {
+    const { SamplingClient } = await import('../../core/SamplingClient.js');
+    return new SamplingClient({ mcpServer: this._mcpServer }).complete(prompt, options);
+  }
+
+  /**
+   * mode:"model" for highlights: the model picks which of the extractive
+   * candidates to keep; it never writes text. Returns the chosen units in
+   * extractive order, or the extractive top `limit` when the reply does not
+   * name any candidate.
+   */
+  async _chooseHighlights(candidates, query, limit, warnings) {
+    const listing = candidates.map((unit, index) => `[${index}] ${unit.text}`).join('\n');
+    const { text } = await this._complete(
+      `${fenceUntrusted(listing, 'numbered page excerpts')}\nQuery: ${query}\n` +
+      `Reply with the numbers of the ${limit} excerpts most relevant to the query.`,
+      {
+        maxTokens: Math.max(64, limit * 4),
+        systemPrompt: 'You choose which numbered excerpts from a web page answer a query. ' +
+          'Reply with the numbers only, comma-separated, most relevant first. Do not write anything else.'
+      }
+    );
+    const chosen = parseChosenIndexes(text, candidates.length, limit);
+    if (chosen.length === 0) {
+      warnings.push('highlights: the model named no candidate; the extractive order is returned');
+      return candidates.slice(0, limit);
+    }
+    return chosen.sort((a, b) => a - b).map((index) => candidates[index]);
+  }
+
+  /** mode:"model" for question: an answer written from the fenced evidence alone. */
+  async _answerQuestion(evidence, question) {
+    const { text } = await this._complete(
+      `${fenceUntrusted(evidence.map((unit) => unit.text).join('\n'), 'page evidence')}\nQuestion: ${question}\n` +
+      'Answer from the evidence only; if the evidence does not say, say so. Reply with the answer only.',
+      {
+        maxTokens: 256,
+        systemPrompt: 'You answer a question from evidence quoted from a web page. Use only the evidence. ' +
+          'If the evidence does not contain the answer, say that it does not. Reply with the answer only, no preamble.'
+      }
+    );
+    return text.trim();
   }
 
   /** Lazy-load ExtractWithLlm to avoid pulling in heavy deps unless needed. */
@@ -293,6 +365,25 @@ export class UnifiedScrapeTool {
       return mainHtml;
     }
 
+    // The markdown format and the query-scoped formats read the same string,
+    // produced once, so a highlight's offset always indexes what `markdown`
+    // returned at this call's onlyMainContent.
+    let markdown = null;
+    function getMarkdown() {
+      if (markdown === null) {
+        markdown = onlyMainContent ? htmlToMarkdown(getMainHtml()) : htmlToMarkdown($.html('body') || html);
+      }
+      return markdown;
+    }
+    let units = null;
+    function getUnits() {
+      if (units === null) units = segmentUnits(getMarkdown());
+      return units;
+    }
+    // Whether a model completed for a mode:"model" format; the model
+    // surcharge is charged only then.
+    let modelUsed = false;
+
     const content = {};
     // The gate's warnings (e.g. a respect_robots override) travel with the
     // per-format ones, so the caller sees the decision in the response.
@@ -383,13 +474,66 @@ export class UnifiedScrapeTool {
         continue;
       }
 
+      // Query-scoped formats (Phase 1): verbatim units of this call's
+      // markdown, ranked against the query. mode:"model" lets a model choose
+      // among (highlights) or answer from (question) those units; when no
+      // LLM route exists the extractive result stands and the model
+      // surcharge is dropped below. An empty match is a warning, not an error.
+      if (isQueryFormat(fmt)) {
+        const modelUnavailable = (label) =>
+          warnings.push(`${label}: mode "model" was unavailable (no Ollama, API key or client sampling); the extractive result is returned at the extractive price`);
+        try {
+          if (fmt.type === 'highlights') {
+            let chosen = rankUnits(getUnits(), fmt.query, { maxUnits: fmt.max_highlights });
+            if (fmt.mode === 'model' && chosen.length > 0) {
+              const candidates = rankUnits(getUnits(), fmt.query, { maxUnits: fmt.max_highlights * 3 });
+              if (candidates.length > fmt.max_highlights) {
+                try {
+                  chosen = await this._chooseHighlights(candidates, fmt.query, fmt.max_highlights, warnings);
+                  modelUsed = true;
+                } catch {
+                  modelUnavailable('highlights');
+                }
+              } else {
+                warnings.push('highlights: no more candidates than max_highlights, so the model had nothing to choose; charged at the extractive price');
+              }
+            }
+            content.highlights = chosen.map(toPublicUnit);
+            if (chosen.length === 0) warnings.push(`highlights: no sentence, table row or code block matched "${fmt.query}"`);
+          } else {
+            const evidence = rankUnits(getUnits(), fmt.question, { maxUnits: QUESTION_EVIDENCE_UNITS });
+            const evidenceText = evidence.map((unit) => unit.text).join('\n');
+            let text = evidenceText;
+            let grounded = true;
+            if (fmt.mode === 'model' && evidence.length > 0) {
+              try {
+                text = await this._answerQuestion(evidence, fmt.question);
+                modelUsed = true;
+                const check = groundingCheck(text, evidenceText, fmt.question);
+                grounded = check.grounded;
+                if (!grounded) {
+                  warnings.push(`question: the model's answer has ${check.unbacked.length} token(s) not found in the evidence or the question (${check.unbacked.join(', ')}); grounded: false`);
+                }
+              } catch {
+                modelUnavailable('question');
+              }
+            }
+            content.answer = { text, grounded, evidence: evidence.map(toPublicUnit) };
+            if (evidence.length === 0) warnings.push(`question: no sentence, table row or code block matched "${fmt.question}"`);
+          }
+        } catch (err) {
+          if (fmt.type === 'highlights') content.highlights = [];
+          else content.answer = { text: '', grounded: true, evidence: [] };
+          warnings.push(`${fmt.type}: ${err.message}`);
+        }
+        continue;
+      }
+
       // String formats
       switch (fmt) {
         case 'markdown':
           try {
-            content.markdown = onlyMainContent
-              ? htmlToMarkdown(getMainHtml())
-              : htmlToMarkdown($.html('body') || html);
+            content.markdown = getMarkdown();
           } catch (err) {
             content.markdown = '';
             warnings.push(`markdown: ${err.message}`);
@@ -500,6 +644,19 @@ export class UnifiedScrapeTool {
           warnings.push(`unknown format: ${String(fmt)}`);
       }
     }
+
+    const queryScoped = formats.some(isQueryFormat);
+    if (queryScoped && !formats.includes('markdown')) {
+      warnings.push('offsets index the "markdown" format of this call (same onlyMainContent); add "markdown" to formats to quote with a locator');
+    }
+    if (!queryScoped && typeof content.markdown === 'string' && content.markdown.length > OVERSIZED_MARKDOWN_CHARS) {
+      warnings.push(`markdown: ${content.markdown.length} characters; ask for {type:"highlights", query} (1 extra credit, no model) to get only the matching sentences, table rows and code blocks`);
+    }
+    // The projection charged the model step; nothing ran, so the charge
+    // drops to the extractive price (2 is scrape's base in AuthManager;
+    // withAuth clamps to the projection either way).
+    const surcharge = scrapeFormatSurcharge(formats);
+    if (surcharge.model > 0 && !modelUsed) setActualCost(2 + surcharge.query);
 
     return {
       success: true,

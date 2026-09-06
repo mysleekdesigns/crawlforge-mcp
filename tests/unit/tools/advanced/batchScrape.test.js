@@ -16,7 +16,11 @@
 import { test, describe, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { BatchScrapeSchema } from '../../../../src/tools/advanced/batchScrape/schema.js';
+import { ResultStore } from '../../../../src/core/ResultStore.js';
 
 process.env.ALLOWED_DOMAINS = 'localhost';
 const { BatchScrapeTool } = await import('../../../../src/tools/advanced/batchScrape/index.js');
@@ -84,8 +88,20 @@ async function waitForJobStatus(jobManager, jobId, statuses, timeoutMs = 3000) {
   }
 }
 
+// Phase 2: cached results live in a ResultStore; every tool here gets one on
+// a temp dir so the real ~/.crawlforge is never touched.
+const storeDirs = [];
+function tempStore(options = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'batch-scrape-store-'));
+  storeDirs.push(dir);
+  return new ResultStore({ baseDir: dir, ...options });
+}
+after(() => {
+  for (const dir of storeDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 function makeTool(overrides = {}) {
-  return new BatchScrapeTool({ enableJobPersistence: false, enableWebhookNotifications: false, enableLogging: false, ...overrides });
+  return new BatchScrapeTool({ enableJobPersistence: false, enableWebhookNotifications: false, enableLogging: false, resultStore: tempStore(), ...overrides });
 }
 
 describe('BatchScrapeSchema (real Zod schema)', () => {
@@ -301,35 +317,57 @@ describe('batchScrape worker — markdown format keeps non-p/li content (quotes.
   });
 });
 
-describe('BatchScrapeTool (real module) — batchResults cache TTL eviction', () => {
+describe('BatchScrapeTool (real module) — cached-result TTL eviction via the ResultStore', () => {
   // Complements the "expired entries are deleted on read" case already
   // covered in tests/unit/phase3-leaks.test.js by exercising it against a
-  // real (short) resultCacheTtl instead of a synthetically pre-expired entry
-  // poked directly into the Map, and by also asserting the pre-expiry
-  // cache-hit shape so both sides of the TTL boundary are covered here.
+  // real (short) store TTL, and by also asserting the pre-expiry cache-hit
+  // shape so both sides of the TTL boundary are covered here.
   test('a cached result is served while fresh, then evicted (falls through to not-found) once its TTL elapses', async () => {
-    const tool = makeTool();
+    const resultStore = tempStore({ ttlMs: 30 }); // ms — short-lived so the test runs fast
+    const tool = makeTool({ resultStore });
     try {
-      const batchId = 'ttl_evict_test';
-      tool.resultCacheTtl = 30; // ms — short-lived so the test runs fast
-      tool._cacheBatchResult(batchId, [{ url: `${baseUrl}/plain/x`, success: true }]);
+      const batchId = 'batch_ttl_evict_test';
+      tool._cacheBatchResult(batchId, [{ url: `${baseUrl}/plain/x`, success: true }], 'sync');
 
       const fresh = await tool.getBatchResults(batchId);
       assert.equal(fresh.cached, true, 'a not-yet-expired entry must be served from cache');
       assert.equal(fresh.status, 'completed', 'the cached branch reports the lifecycle status too');
+      assert.equal(fresh.mode, 'sync');
+      assert.equal(typeof fresh.timestamp, 'number');
       assert.equal(fresh.results.length, 1);
+      assert.equal(tool.getStats().cachedResults, 1, 'stats count the live store entries this tool wrote');
 
       await new Promise((r) => setTimeout(r, 60));
 
       await assert.rejects(() => tool.getBatchResults(batchId), /not found/i);
       assert.equal(
-        tool.batchResults.has(batchId),
+        resultStore.has(batchId),
         false,
-        'an expired batch entry must be evicted from the cache on read, not merely fall through to "not found" while still occupying memory'
+        'an expired batch entry must be evicted from the store on read, not merely fall through to "not found" while still occupying space'
       );
     } finally {
       await tool.destroy();
+      resultStore.close();
     }
+  });
+
+  test('a real sync batch is readable back through get_batch_results from the store, and destroy() clears only this tool\'s entries', async () => {
+    const resultStore = tempStore();
+    const foreign = resultStore.put('scrape', { keep: true });
+    const tool = makeTool({ resultStore });
+    try {
+      const batch = await tool.execute({ urls: [`${baseUrl}/plain/x`], formats: ['text'], mode: 'sync' });
+      const again = await tool.getBatchResults(batch.batchId);
+      assert.equal(again.cached, true);
+      assert.equal(again.mode, 'sync');
+      assert.equal(again.pagination.totalResults, 1);
+      assert.equal(resultStore.get(batch.batchId).toolName, 'batch_scrape');
+    } finally {
+      await tool.destroy();
+    }
+    assert.equal(resultStore.list().length, 1, 'batch entries removed on destroy');
+    assert.equal(resultStore.has(foreign), true, 'another tool\'s entry is left alone');
+    resultStore.close();
   });
 });
 

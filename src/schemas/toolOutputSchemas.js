@@ -15,7 +15,7 @@
  */
 
 import { z } from 'zod';
-import { SCRAPE_STRING_FORMATS } from '../tools/scrape/formats.js';
+import { SCRAPE_STRING_FORMATS, SCRAPE_OBJECT_FORMATS } from '../tools/scrape/formats.js';
 
 // `_cost` is injected by withAuth into the legacy JSON-text copy of the
 // result (never into structuredContent directly) — included here anyway so
@@ -27,6 +27,20 @@ const costShape = z.object({
   remaining_credits: z.number().nullable().optional().describe('Credits remaining on the account after this call, if known'),
   projection_note: z.string().optional().describe('Human-readable note about how the cost was projected')
 }).passthrough().optional().describe('Cost-transparency metadata (D3.5), present when injected into the text copy of the result');
+
+// ── result handles (Phase 2) ────────────────────────────────────────────────
+
+// A result over max_inline_chars comes back as a preview plus a handle for
+// read_result; these fields describe that shape wherever it can appear.
+const resultHandleShape = {
+  preview: z.string().optional().describe('The first max_inline_chars characters of the view named by view_path (or of the pretty-printed JSON)'),
+  result_handle: z.string().optional().describe('Handle for read_result; the full result is kept 1 hour'),
+  total_chars: z.number().optional().describe('Length of the full view in characters'),
+  view: z.enum(['text', 'json']).optional().describe('Whether preview and read_result offsets index a text field or the pretty-printed JSON'),
+  view_path: z.string().nullable().optional().describe('Dotted path of the text field the view was cut from; null for the JSON view'),
+  truncated: z.boolean().optional().describe('True when the inline result is a preview'),
+  expires_at: z.string().optional().describe('When the stored result is dropped (ISO 8601)')
+};
 
 // ── scrape ──────────────────────────────────────────────────────────────────
 
@@ -59,11 +73,23 @@ const scrapeMetadataShape = z.object({
   url: z.string().optional()
 }).passthrough();
 
+// A sentence, table row or fenced code block returned verbatim by the
+// highlights and question formats; `offset`/`length` index the `markdown`
+// format of the same call.
+const scrapeHighlightUnitShape = z.object({
+  text: z.string().optional().describe('Verbatim page text: markdown.slice(offset, offset + length) === text'),
+  kind: z.enum(['sentence', 'table_row', 'code_block']).optional(),
+  offset: z.number().optional().describe('JS string index into the markdown format of this call'),
+  length: z.number().optional(),
+  score: z.number().optional().describe('BM25 relevance to the query, higher is better')
+}).passthrough();
+
 // One content key per string format `scrape` accepts (the "screenshot"
-// format fills `screenshots`), plus `json` for the {type:"json"} object
-// format. Checked against the format list the input schema is built from,
-// so a format added to formats.js without a shape here fails at load
-// instead of shipping a schema that does not describe the result (0.3).
+// format fills `screenshots`), plus one per object format: `json` for
+// {type:"json"}, `highlights` for {type:"highlights"}, `answer` for
+// {type:"question"}. Checked against the format lists the input schema is
+// built from, so a format added to formats.js without a shape here fails at
+// load instead of shipping a schema that does not describe the result (0.3).
 const scrapeFormatShapes = {
   markdown: z.string().optional(),
   html: z.string().optional(),
@@ -72,10 +98,17 @@ const scrapeFormatShapes = {
   links: scrapeLinksShape.optional(),
   metadata: scrapeMetadataShape.optional(),
   branding: z.record(z.unknown()).optional().describe('Static design tokens: colors, fonts, logo'),
-  screenshots: z.array(z.object({}).passthrough()).optional().describe('Present for the "screenshot" format; each item carries a resourceUri once published')
+  screenshots: z.array(z.object({}).passthrough()).optional().describe('Present for the "screenshot" format; each item carries a resourceUri once published'),
+  json: z.unknown().optional().describe('Result of the {type:"json"} format (LLM-structured extraction)'),
+  highlights: z.array(scrapeHighlightUnitShape).optional().describe('Result of the {type:"highlights"} format: the units matching the query, best first, verbatim with offsets'),
+  answer: z.object({
+    text: z.string().optional().describe('Extractive mode: the evidence texts joined; model mode: the model\'s answer'),
+    grounded: z.boolean().optional().describe('True when every number and proper noun in text appears in the evidence or the question; always true in extractive mode'),
+    evidence: z.array(scrapeHighlightUnitShape).optional().describe('The units the answer rests on, verbatim with offsets')
+  }).passthrough().optional().describe('Result of the {type:"question"} format')
 };
-const scrapeContentKey = (format) => (format === 'screenshot' ? 'screenshots' : format);
-for (const format of SCRAPE_STRING_FORMATS) {
+const scrapeContentKey = (format) => ({ screenshot: 'screenshots', question: 'answer' }[format] ?? format);
+for (const format of [...SCRAPE_STRING_FORMATS, ...SCRAPE_OBJECT_FORMATS]) {
   if (!scrapeFormatShapes[scrapeContentKey(format)]) {
     throw new Error(`toolOutputSchemas: scrape format "${format}" has no output shape`);
   }
@@ -91,11 +124,9 @@ const scrapeShape = {
     vendor: z.string().optional(),
     evidence: z.string().optional()
   }).passthrough().optional().describe('Present when a bot-defence vendor served a challenge page; the fallback hint names the tool to try next'),
-  content: z.object({
-    ...scrapeFormatShapes,
-    json: z.unknown().optional().describe('Result of the {type:"json"} format (LLM-structured extraction)')
-  }).passthrough().optional().describe('One key per requested format'),
+  content: z.object(scrapeFormatShapes).passthrough().optional().describe('One key per requested format'),
   warnings: z.array(z.string()).optional().describe('Per-format warnings; partial success never fails the whole call'),
+  ...resultHandleShape,
   _cost: costShape
 };
 
@@ -344,6 +375,45 @@ const crawlDeepShape = {
   }).passthrough().optional(),
   crawled_at: z.string().optional().describe('When the pages were actually fetched (ISO 8601)'),
   cached: z.boolean().optional().describe('True when this response was replayed from an earlier crawl rather than crawled now; crawled_at gives its age'),
+  ...resultHandleShape,
+  _cost: costShape
+};
+
+// ── read_result ───────────────────────────────────────────────────────────────
+
+const readResultMatchShape = z.object({
+  offset: z.number().optional().describe('Index of the match in the view'),
+  length: z.number().optional(),
+  context_offset: z.number().optional().describe('Index of the first character of context in the view'),
+  context: z.string().optional().describe('Verbatim text around the match: view.slice(context_offset, context_offset + context.length)')
+}).passthrough();
+
+const readResultShape = {
+  handle: z.string().optional(),
+  tool: z.string().optional().describe('The tool that produced the stored result'),
+  operation: z.enum(['slice', 'search', 'lines', 'json_path']).optional(),
+  view: z.enum(['text', 'json']).optional(),
+  view_path: z.string().nullable().optional(),
+  total_chars: z.number().optional().describe('Length of the full view'),
+  expires_at: z.string().optional(),
+  offset: z.number().optional().describe('slice: first character returned'),
+  length: z.number().optional().describe('slice: characters returned'),
+  text: z.string().optional().describe('slice: verbatim view.slice(offset, offset + length)'),
+  has_more: z.boolean().optional().describe('slice/lines: more follows the returned range'),
+  query: z.string().optional(),
+  matches: z.array(readResultMatchShape).optional().describe('search: matches with 200 chars of context each side'),
+  total_matches: z.number().optional(),
+  first_line: z.number().optional(),
+  line_count: z.number().optional(),
+  total_lines: z.number().optional(),
+  char_offset: z.number().optional().describe('lines: view offset of the first returned line'),
+  lines: z.array(z.string()).optional(),
+  path: z.string().optional(),
+  value: z.unknown().optional().describe('json_path: the subtree; null with a preview when it is over max_inline_chars'),
+  value_chars: z.number().optional(),
+  preview: z.string().optional(),
+  truncated: z.boolean().optional().describe('search: more matches than returned; json_path: value replaced by a preview'),
+  warnings: z.array(z.string()).optional(),
   _cost: costShape
 };
 
@@ -356,7 +426,8 @@ export const OUTPUT_SCHEMAS = {
   reddit_search: redditSearchShape,
   search_web: searchWebShape,
   extract_structured: extractStructuredShape,
-  crawl_deep: crawlDeepShape
+  crawl_deep: crawlDeepShape,
+  read_result: readResultShape
 };
 
 export default OUTPUT_SCHEMAS;

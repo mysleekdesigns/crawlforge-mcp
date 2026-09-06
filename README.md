@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <b>29 web scraping, crawling, deep-research &amp; autonomous-extraction tools for Claude, Cursor &amp; any MCP client.</b><br>
+  <b>30 web scraping, crawling, deep-research &amp; autonomous-extraction tools for Claude, Cursor &amp; any MCP client.</b><br>
   Clean Markdown &amp; structured JSON from any site. Get started with <b>1,000 free credits</b> — no credit card required.
 </p>
 
@@ -35,7 +35,7 @@
 
 ## 🎯 Why CrawlForge?
 
-- **29 MCP-native tools** — scraping, crawling, search, real Google SERP rank tracking, deep research, an autonomous `agent`, a unified multi-format `scrape`, document processing, stealth browsing, and more, callable directly from your AI assistant.
+- **30 MCP-native tools** — scraping, crawling, search, real Google SERP rank tracking, deep research, an autonomous `agent`, a unified multi-format `scrape`, document processing, stealth browsing, and more, callable directly from your AI assistant.
 - **Generous free tier** — 1,000 credits to start instantly, no credit card. The grant is one-time rather than monthly, and the credits never expire.
 - **Local-LLM by default** — `extract_with_llm` runs against a local **Ollama** model out of the box: no LLM API key, no per-token cost, and your data never leaves your machine. Cloud (OpenAI/Anthropic) is opt-in.
 - **LLM-ready output** — clean Markdown, structured JSON (schema-driven), screenshots, links, and metadata from a single fetch.
@@ -47,7 +47,7 @@
 
 | | **CrawlForge MCP** | Firecrawl | Raw scraping API |
 |---|:---:|:---:|:---:|
-| Native MCP server | ✅ 29 tools | ✅ | ❌ |
+| Native MCP server | ✅ 30 tools | ✅ | ❌ |
 | Free tier | ✅ 1,000 credits, rollover | Limited | Varies |
 | Self-hosted / local LLM extraction (Ollama) | ✅ default, $0/token | ❌ | ❌ |
 | Autonomous agent (no URLs needed) | ✅ `agent` | ✅ | ❌ |
@@ -178,7 +178,8 @@ CrawlForge requires a CrawlForge API key — **every tool is metered and consume
 | `scrape_template` | 1 | Structured data from well-known sites (Amazon, GitHub, LinkedIn, YouTube, Reddit, Hacker News, npm, and more) without writing selectors |
 | `list_ollama_models` | 1 | List the Ollama models installed locally (helps you pick a `model` for `extract_with_llm`) |
 | `get_batch_results` | 1 | Retrieve paginated results for a `batch_scrape` job by `batchId` |
-| `scrape` | 2 | **Unified single-fetch, multi-format extraction.** Pass a `formats` array (markdown/html/rawHtml/text/links/metadata/screenshot/json-schema) plus `onlyMainContent`; one fetch serves every requested format with per-format partial-success warnings |
+| `read_result` | 1 | Search, slice, read lines or a JSON path from a result a tool returned with `truncated: true` and a `result_handle` (kept 1 hour on your own machine) — never fetch the page again |
+| `scrape` | 2 | **Unified single-fetch, multi-format extraction.** Pass a `formats` array (markdown/html/rawHtml/text/links/metadata/screenshot/json-schema, plus `{type:"highlights",query}` and `{type:"question",question}` for only the matching sentences, table rows and code blocks, verbatim with offsets into the markdown: +1 credit once per call, `mode:"model"` +3) plus `onlyMainContent`; one fetch serves every requested format with per-format partial-success warnings |
 | `scrape_structured` | 2 | Extract structured data with CSS selectors |
 | `extract_embedded_state` | 2 | Read a page's embedded JavaScript state — `__NEXT_DATA__`, React Server Component payloads, Nuxt, Apollo, Redux, `<script type="application/json">` — with a `path` to scope the result. No LLM in the extraction path |
 | `extract_content` | 2 | Enhanced content extraction |
@@ -201,6 +202,8 @@ CrawlForge requires a CrawlForge API key — **every tool is metered and consume
 | `agent` | 8 | **Autonomous research/extraction from a natural-language prompt — no URLs required.** Plans, gathers, and shapes an answer under hard safety stops (max steps/URLs/wall-clock enforced by the orchestrator, never the LLM) |
 | `deep_research` | 10 | Multi-stage research with source verification |
 
+Ten tools (`scrape`, `fetch_url`, `extract_content`, `crawl_deep`, `batch_scrape`, `stealth_mode`, `scrape_with_actions`, `process_document`, `deep_research`, `extract_embedded_state`) accept `max_inline_chars` (default 40,000; env `CRAWLFORGE_MAX_INLINE_CHARS`): a result over it comes back as a `preview` plus a `result_handle` for `read_result`, with the full result kept for 1 hour under `~/.crawlforge/results/` on your own machine — nothing is uploaded.
+
 For the full canonical capabilities reference (all tools, CLI commands, stealth engines, research workflow), see [SKILL.md](docs/SKILL.md).
 
 <p align="right"><a href="#table-of-contents">↑ Back to top</a></p>
@@ -217,7 +220,7 @@ For the full canonical capabilities reference (all tools, CLI commands, stealth 
 | **Business** ($399) | 250,000 / month | Large scale operations |
 
 **All plans include:**
-- Access to all 29 tools
+- Access to all 30 tools
 - Credits never expire; paid-plan credits roll over month to month
 - API access and webhook notifications
 

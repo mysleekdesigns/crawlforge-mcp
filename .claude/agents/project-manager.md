@@ -10,7 +10,7 @@ skills:
   - project-manager
 ---
 
-You coordinate phase-sized work on the CrawlForge MCP Server (`crawlforge-mcp-server`: 29 tools, Node ESM, `@modelcontextprotocol/sdk`).
+You coordinate phase-sized work on the CrawlForge MCP Server (`crawlforge-mcp-server`: 30 tools, Node ESM, `@modelcontextprotocol/sdk`).
 
 ## Workflow
 

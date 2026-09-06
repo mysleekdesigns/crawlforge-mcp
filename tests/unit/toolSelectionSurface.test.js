@@ -40,11 +40,12 @@ test('instructions block fits the 2,048-char client cap and carries the routing 
   assert.match(text, /scrape \(2\)/);
   assert.match(text, /batch_scrape \(5\)/);
   assert.match(text, /Next step:/);
+  assert.match(text, /result_handle -> read_result \(1\)/, 'Phase 2: the ladder routes a truncated result to read_result');
 });
 
-test('all 29 tools are registered with a description under the cap', () => {
+test('all 30 tools are registered with a description under the cap', () => {
   const regs = registrations();
-  assert.equal(Object.keys(regs).length, 29, `found ${Object.keys(regs).join(', ')}`);
+  assert.equal(Object.keys(regs).length, 30, `found ${Object.keys(regs).join(', ')}`);
   for (const [name, desc] of Object.entries(regs)) {
     assert.ok(desc.length <= LIMIT, `${name} description ${desc.length} chars > ${LIMIT}`);
   }

@@ -19,6 +19,22 @@ import { createHash } from 'node:crypto';
 import { recordToolInvocation } from '../observability/tracing.js';
 import { isInternalRequest, preflightRefusal, reportedActualCost, requestContext } from './requestContext.js';
 import { appendFallbackHint } from './fallbackHints.js';
+import { INLINE_THRESHOLD_TOOLS, applyInlineThreshold } from './inlineThreshold.js';
+import { getResultStore } from '../core/ResultStore.js';
+
+/**
+ * Replace an over-threshold JSON text result (and its structuredContent, if
+ * any) with the shaped preview + handle. Non-JSON text is left alone.
+ */
+function shapeLargeResult(toolName, result, params) {
+  if (!result || !Array.isArray(result.content) || result.content[0]?.type !== 'text') return;
+  let parsed;
+  try { parsed = JSON.parse(result.content[0].text); } catch { return; }
+  const { result: shaped, stored } = applyInlineThreshold(toolName, parsed, params, { store: getResultStore() });
+  if (!stored) return;
+  result.content[0].text = JSON.stringify(shaped, null, 2);
+  if (result.structuredContent) result.structuredContent = shaped;
+}
 
 export function hashParams(params) {
   try {
@@ -99,6 +115,15 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
         // multi-URL tool that skipped one disallowed URL and still returned a
         // result did real work and bills for it.
         const refused = isErrorResult && preflightRefusal() !== null;
+
+        // Phase 2: a result over max_inline_chars is stored and returned as
+        // a preview plus a result_handle for read_result. Internal (website
+        // REST proxy) requests are left whole — the website applies its own
+        // threshold with its own store.
+        if (!isErrorResult && !internal && toolName in INLINE_THRESHOLD_TOOLS) {
+          try { shapeLargeResult(toolName, result, params); } catch { /* shaping must never break the request path */ }
+        }
+
         const base = billable();
         const charge = creditCost === 0 || refused
           ? 0

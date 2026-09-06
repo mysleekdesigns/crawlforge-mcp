@@ -21,7 +21,7 @@ const MCP_TEST_CONFIG = {
   expectedTools: [
     'fetch_url', 'extract_text', 'extract_links', 'extract_metadata',
     'scrape_structured', 'crawl_deep', 'map_site', 'extract_content',
-    'process_document', 'summarize_content', 'analyze_content'
+    'process_document', 'summarize_content', 'analyze_content', 'read_result'
     // Note: search_web is conditional based on configuration
   ],
   // The inline "getting-started" prompt plus the 5 workflow prompts from

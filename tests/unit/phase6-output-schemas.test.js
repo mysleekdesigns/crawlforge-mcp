@@ -3,7 +3,7 @@
  *
  * Run: node --test tests/unit/phase6-output-schemas.test.js
  *
- * No network. Verifies each of the 6 documented shapes:
+ * No network. Verifies each of the 8 documented shapes:
  *   - compiles as z.object(shape)
  *   - parses a realistic sample result drawn from the tool's actual source
  *   - parses {} (every top-level field must be optional)
@@ -15,10 +15,10 @@ import assert from 'node:assert/strict';
 import { z } from 'zod';
 import { OUTPUT_SCHEMAS } from '../../src/schemas/toolOutputSchemas.js';
 
-const TOOL_NAMES = ['scrape', 'map_site', 'serp_rank', 'reddit_search', 'search_web', 'extract_structured', 'crawl_deep'];
+const TOOL_NAMES = ['scrape', 'map_site', 'serp_rank', 'reddit_search', 'search_web', 'extract_structured', 'crawl_deep', 'read_result'];
 
 describe('OUTPUT_SCHEMAS — shape', () => {
-  test('exports exactly the 7 frozen-contract keys', () => {
+  test('exports exactly the 8 frozen-contract keys', () => {
     assert.deepEqual(Object.keys(OUTPUT_SCHEMAS).sort(), TOOL_NAMES.slice().sort());
   });
 
@@ -340,6 +340,44 @@ describe('OUTPUT_SCHEMAS — realistic samples parse', () => {
       const schema = z.object(OUTPUT_SCHEMAS[name]);
       const result = schema.safeParse({ _cost: costSample });
       assert.equal(result.success, true, `${name}: ${JSON.stringify(result.error?.issues)}`);
+    }
+  });
+});
+
+describe('OUTPUT_SCHEMAS — Phase 2 result handles', () => {
+  test('scrape and crawl_deep describe the over-threshold preview + handle shape', () => {
+    for (const name of ['scrape', 'crawl_deep']) {
+      const schema = z.object(OUTPUT_SCHEMAS[name]);
+      const result = schema.safeParse({
+        success: true,
+        url: 'https://example.com/',
+        preview: '# Example',
+        result_handle: 'res_2f1c6a7e-0000-4000-8000-000000000000',
+        total_chars: 120000,
+        view: 'text',
+        view_path: 'content.markdown',
+        truncated: true,
+        expires_at: '2026-09-05T12:00:00.000Z',
+        warnings: ['Result is 120000 chars…']
+      });
+      assert.equal(result.success, true, `${name}: ${JSON.stringify(result.error?.issues)}`);
+      assert.equal(schema.safeParse({ view: 'xml' }).success, false, `${name}: view is an enum`);
+    }
+  });
+
+  test('read_result: one sample per operation parses', () => {
+    const schema = z.object(OUTPUT_SCHEMAS.read_result);
+    const base = { handle: 'res_x', tool: 'scrape', view: 'text', view_path: 'content.markdown', total_chars: 500, expires_at: '2026-09-05T12:00:00.000Z' };
+    const samples = [
+      { ...base, operation: 'slice', offset: 0, length: 100, text: 'abc', has_more: true },
+      { ...base, operation: 'search', query: 'pricing', matches: [{ offset: 10, length: 7, context_offset: 0, context: '## Pricing' }], total_matches: 1, truncated: false },
+      { ...base, operation: 'lines', first_line: 0, line_count: 2, total_lines: 9, char_offset: 0, lines: ['a', 'b'], has_more: true },
+      { ...base, operation: 'json_path', view: 'json', view_path: null, path: 'results[0]', value: { url: 'x' }, value_chars: 11 },
+      { ...base, operation: 'json_path', path: 'results', value: null, value_chars: 90000, preview: '[', truncated: true, warnings: ['narrow the path'] }
+    ];
+    for (const sample of samples) {
+      const result = schema.safeParse(sample);
+      assert.equal(result.success, true, `${sample.operation}: ${JSON.stringify(result.error?.issues)}`);
     }
   });
 });

@@ -1,6 +1,6 @@
 ---
 name: crawlforge-getting-started
-description: "Orientation and tool-selection guide for the CrawlForge MCP server's 29 web tools. Use when the user is getting started with CrawlForge, asks which CrawlForge tool to use, how to set up the API key, how skills or the CLI work, what a tool costs in credits, or when one tool fails and a fallback is needed. Routes requests to the right specialized skill (web scraping, deep research, stealth, structured extraction, change tracking, batch automation), and explains MCP-tools-vs-CLI, the Ollama-first LLM fallback chain, and per-tool credit costs."
+description: "Orientation and tool-selection guide for the CrawlForge MCP server's 30 web tools. Use when the user is getting started with CrawlForge, asks which CrawlForge tool to use, how to set up the API key, how skills or the CLI work, what a tool costs in credits, or when one tool fails and a fallback is needed. Routes requests to the right specialized skill (web scraping, deep research, stealth, structured extraction, change tracking, batch automation), and explains MCP-tools-vs-CLI, the Ollama-first LLM fallback chain, and per-tool credit costs."
 metadata:
   version: 5.6.6
   source: crawlforge-mcp-server
@@ -8,7 +8,7 @@ metadata:
 
 # CrawlForge: Getting Started
 
-CrawlForge is an MCP server with **29 tools** for web scraping, crawling,
+CrawlForge is an MCP server with **30 tools** for web scraping, crawling,
 extraction, research, change tracking, and AI-compliance. This skill orients you
 and routes each request to the right specialized skill.
 
@@ -52,9 +52,9 @@ stored at `~/.crawlforge/config.json`.
 | Watch a page for changes / monitor pricing | **crawlforge-change-tracking** |
 | Scrape many URLs, run browser actions, generate llms.txt | **crawlforge-batch-automation** |
 
-## The 29 tools at a glance
+## The 30 tools at a glance
 
-- **Basic (5):** fetch_url, extract_text, extract_links, extract_metadata, scrape_structured
+- **Basic (6):** fetch_url, extract_text, extract_links, extract_metadata, scrape_structured, read_result
 - **Unified (1):** scrape (multi-format single fetch)
 - **Search & research (5):** search_web, serp_rank, reddit_search, deep_research, agent
 - **Crawl (2):** crawl_deep, map_site
@@ -95,6 +95,7 @@ Do not suggest adding API keys — local Ollama is the intended zero-cost defaul
 | Single page too slow / many pages | `batch_scrape` (async + webhook) |
 | Wrong region / currency shown | `localization` |
 | Need a big report but cost is high | lower `maxUrls` on `deep_research` |
+| Result came back `truncated: true` with a `result_handle` | `read_result` (search, slice, lines, json_path) — never fetch the page again |
 
 ## Credits
 

@@ -71,7 +71,8 @@ CLI: `crawlforge batch urls.txt --format markdown --concurrency 10`.
 Use the `batchId` from `batch_scrape` to retrieve paginated results for a
 completed or in-progress job. Cheap (1 credit) because the batch was already
 paid for. Completed jobs are also exposed as `crawlforge://job/{jobId}`
-resources.
+resources. Stored batch results share the local 1-hour result store that
+`read_result` reads, with the same eviction, so page through a batch within the hour.
 
 ## scrape_with_actions — interact, then scrape (cost: 5)
 
@@ -373,7 +374,7 @@ and parameter detail.
 
 # CrawlForge: Getting Started
 
-CrawlForge is an MCP server with **29 tools** for web scraping, crawling,
+CrawlForge is an MCP server with **30 tools** for web scraping, crawling,
 extraction, research, change tracking, and AI-compliance. This skill orients you
 and routes each request to the right specialized skill.
 
@@ -417,9 +418,9 @@ stored at `~/.crawlforge/config.json`.
 | Watch a page for changes / monitor pricing | **crawlforge-change-tracking** |
 | Scrape many URLs, run browser actions, generate llms.txt | **crawlforge-batch-automation** |
 
-## The 29 tools at a glance
+## The 30 tools at a glance
 
-- **Basic (5):** fetch_url, extract_text, extract_links, extract_metadata, scrape_structured
+- **Basic (6):** fetch_url, extract_text, extract_links, extract_metadata, scrape_structured, read_result
 - **Unified (1):** scrape (multi-format single fetch)
 - **Search & research (5):** search_web, serp_rank, reddit_search, deep_research, agent
 - **Crawl (2):** crawl_deep, map_site
@@ -460,6 +461,7 @@ Do not suggest adding API keys — local Ollama is the intended zero-cost defaul
 | Single page too slow / many pages | `batch_scrape` (async + webhook) |
 | Wrong region / currency shown | `localization` |
 | Need a big report but cost is high | lower `maxUrls` on `deep_research` |
+| Result came back `truncated: true` with a `result_handle` | `read_result` (search, slice, lines, json_path) — never fetch the page again |
 
 ## Credits
 
@@ -727,6 +729,7 @@ site discovery (sitemaps and URL maps), and whole-site crawling.
 - "Get the title / meta / Open Graph / SEO tags" → `extract_metadata`
 - "Map all the URLs on this site" / "generate a sitemap" → `map_site`
 - "Crawl the whole docs site" / "index every page" → `crawl_deep`
+- "Read more of that truncated result" → `read_result`
 
 ## Tool selection (fastest path first)
 
@@ -762,6 +765,35 @@ Get markdown + links + metadata in a single call:
 "prompt": "..." }` for LLM-structured extraction. Partial success is supported:
 a failing format adds a `warnings[]` entry instead of failing the whole call.
 `onlyMainContent` (default `true`) strips boilerplate via Readability.
+
+Query-scoped formats return only the parts of the page that match, verbatim,
+with offsets into the `markdown` of the same call:
+
+```json
+{
+  "tool": "scrape",
+  "params": {
+    "url": "https://example.com/pricing",
+    "formats": [
+      "markdown",
+      { "type": "highlights", "query": "professional plan price", "max_highlights": 5 },
+      { "type": "question", "question": "How much is the professional plan per month?" }
+    ]
+  }
+}
+```
+
+`{ "type": "highlights", "query", "max_highlights"?, "mode"? }` returns
+`content.highlights: [{ text, kind, offset, length, score }]`, best first;
+`kind` is `sentence`, `table_row` or `code_block`, and
+`markdown.slice(offset, offset + length) === text`. `{ "type": "question",
+"question", "mode"? }` returns `content.answer: { text, grounded, evidence }`,
+with `text` the evidence joined and `grounded: true`. Either adds 1 credit once
+per call and calls no model. `"mode": "model"` adds 3 once per call: the model
+chooses the highlights (never rewrites them) or writes the answer, and a
+grounding check sets `grounded: false` when the answer holds a number or a name
+the evidence does not. Ask for `"markdown"` in the same call to quote with a
+locator.
 
 CLI equivalent:
 
@@ -836,6 +868,17 @@ BFS crawl up to depth 5 / 1000 pages. Use `include_patterns` /
 (on by default). Crawls projected over ~500 pages trigger a confirmation
 prompt (elicitation). CLI: `crawlforge crawl https://docs.example.com --depth 3 --max-pages 200`.
 
+## Large results — `max_inline_chars` and `read_result` (cost: 1)
+
+`scrape`, `fetch_url`, `extract_content` and `crawl_deep` accept
+`max_inline_chars` (default 40,000). A larger result comes back as its scalar
+fields plus `preview` (the first `max_inline_chars` characters of its text
+view), `result_handle`, `total_chars`, `truncated: true` and `expires_at`; the
+full result stays 1 hour on the local machine, never uploaded. Read it with
+`read_result` instead of fetching again: `operation:"search"` with a `query`
+finds offsets, then `operation:"slice"` with `offset`/`length` reads around one;
+`operation:"json_path"` with a `path` picks one field (`"lines"` reads by line).
+
 ## Cost note
 
 `scrape` (2 credits) is the default page read: one fetch returns every format
@@ -843,6 +886,7 @@ you ask for. `fetch_url`, `extract_text`, `extract_links`, `extract_metadata`
 (1 each) are cheaper only when one of them is the whole job; `fetch_url` followed
 by an `extract_*` call on the same URL is a double fetch that costs more than one
 `scrape`. `extract_content`, `map_site` = 2 · `crawl_deep` = 4 (grows with
-`max_pages`). Never re-fetch a page whose content is already in the conversation.
+`max_pages`) · `read_result` = 1 (reads a stored result, no fetch). Never re-fetch
+a page whose content is already in the conversation.
 
 See [tool reference](references/tool-reference.md) for the full parameter list.

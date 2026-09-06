@@ -6,9 +6,10 @@
  *
  * No network, no process.env mutation — env is always injected explicitly.
  *
- * Note: TOOL_GROUPS as specified sums to 27 unique tool names, matching the
- * 28 tools server.js actually registers (see tests/unit/phaseD-regressions.test.js
- * D4.2 "tool count banner says 27"), not 28.
+ * TOOL_GROUPS covers every one of the 30 tools server.js registers. Phase 2
+ * added read_result to `basic`; reddit_search (search) and
+ * extract_embedded_state (extract) had been missing from the groups since
+ * they were added, so neither could be selected by name in CRAWLFORGE_TOOLS.
  */
 
 import { test, describe } from 'node:test';
@@ -28,8 +29,15 @@ describe('TOOL_GROUPS', () => {
     assert.deepEqual(dupes, []);
   });
 
-  test('flattened union covers the 27 registered tool names', () => {
-    assert.equal(ALL_TOOL_NAMES.length, 27);
+  test('flattened union covers all 30 registered tool names', () => {
+    assert.equal(ALL_TOOL_NAMES.length, 30);
+  });
+
+  test('reddit_search and extract_embedded_state are selectable by name', () => {
+    const filter = createToolFilter({ CRAWLFORGE_TOOLS: 'reddit_search, extract_embedded_state' });
+    assert.equal(filter.isEnabled('reddit_search'), true);
+    assert.equal(filter.isEnabled('extract_embedded_state'), true);
+    assert.deepEqual(filter.summary().unknown, []);
   });
 });
 
@@ -61,7 +69,8 @@ describe('createToolFilter — CRAWLFORGE_TOOLS', () => {
     assert.equal(filter.isEnabled('scrape'), true);
     assert.equal(filter.isEnabled('extract_text'), false);
     assert.equal(filter.isEnabled('agent'), false);
-    assert.deepEqual(filter.summary().enabled.slice().sort(), ['fetch_url', 'scrape']);
+    // read_result rides along: both named tools can hand back a result_handle.
+    assert.deepEqual(filter.summary().enabled.slice().sort(), ['fetch_url', 'read_result', 'scrape']);
   });
 
   test('trims whitespace and matches case-insensitively', () => {
@@ -72,7 +81,7 @@ describe('createToolFilter — CRAWLFORGE_TOOLS', () => {
 
   test('ignores empty entries from trailing/double commas', () => {
     const filter = createToolFilter({ CRAWLFORGE_TOOLS: 'fetch_url,,scrape,' });
-    assert.deepEqual(filter.summary().enabled.slice().sort(), ['fetch_url', 'scrape']);
+    assert.deepEqual(filter.summary().enabled.slice().sort(), ['fetch_url', 'read_result', 'scrape']);
   });
 
   test('unknown tool names are collected in summary().unknown, never thrown', () => {
@@ -90,7 +99,7 @@ describe('createToolFilter — CRAWLFORGE_TOOL_GROUPS', () => {
     assert.equal(filter.summary().mode, 'filtered');
     assert.deepEqual(
       filter.summary().enabled.slice().sort(),
-      ['extract_links', 'extract_metadata', 'extract_text', 'fetch_url', 'scrape_structured'].sort()
+      ['extract_links', 'extract_metadata', 'extract_text', 'fetch_url', 'scrape_structured', 'read_result'].sort()
     );
   });
 
@@ -133,5 +142,25 @@ describe('createToolFilter — union + dependency rule', () => {
     assert.equal(filter.isEnabled('batch_scrape'), true);
     assert.equal(filter.isEnabled('get_batch_results'), true);
     assert.equal(filter.isEnabled('scrape_with_actions'), true);
+  });
+
+  // Phase 2: a tool whose large results come back as a result_handle names
+  // read_result in its hint, so that tool must be registered alongside it.
+  test('enabling any inline-threshold tool force-enables read_result', () => {
+    // extract_embedded_state never truncates but still returns a handle, so
+    // it brings read_result too.
+    for (const tool of ['scrape', 'fetch_url', 'crawl_deep', 'batch_scrape', 'stealth_mode', 'deep_research', 'extract_content', 'process_document', 'scrape_with_actions', 'extract_embedded_state']) {
+      const filter = createToolFilter({ CRAWLFORGE_TOOLS: tool });
+      assert.equal(filter.isEnabled(tool), true);
+      assert.equal(filter.isEnabled('read_result'), true, `${tool} alone must bring read_result`);
+    }
+    const group = createToolFilter({ CRAWLFORGE_TOOL_GROUPS: 'scrape' });
+    assert.equal(group.isEnabled('read_result'), true);
+  });
+
+  test('read_result is not force-enabled by a tool that never truncates', () => {
+    const filter = createToolFilter({ CRAWLFORGE_TOOLS: 'search_web, serp_rank' });
+    assert.equal(filter.isEnabled('search_web'), true);
+    assert.equal(filter.isEnabled('read_result'), false);
   });
 });

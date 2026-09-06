@@ -71,7 +71,8 @@ CLI: `crawlforge batch urls.txt --format markdown --concurrency 10`.
 Use the `batchId` from `batch_scrape` to retrieve paginated results for a
 completed or in-progress job. Cheap (1 credit) because the batch was already
 paid for. Completed jobs are also exposed as `crawlforge://job/{jobId}`
-resources.
+resources. Stored batch results share the local 1-hour result store that
+`read_result` reads, with the same eviction, so page through a batch within the hour.
 
 ## scrape_with_actions — interact, then scrape (cost: 5)
 
