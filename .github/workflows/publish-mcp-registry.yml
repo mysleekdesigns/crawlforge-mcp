@@ -73,9 +73,13 @@ jobs:
             head -20 /tmp/mcpb-smoke.err
             exit 1
           fi
-        env:
-          CRAWLFORGE_API_KEY: bundle-smoke-test
-          CRAWLFORGE_SKIP_STARTUP_VALIDATION: 'true'
+        # Deliberately NO CRAWLFORGE_API_KEY. server.js only auto-runs setup when
+        # one is present, and that setup validates against the LIVE backend and
+        # exit(1)s when it fails — so a placeholder key turns this into a network
+        # call to production auth that can only fail (it did, on the v6.0.0
+        # release: "Invalid API key format"). With no key the server starts
+        # normally, warns that tools are unmetered-until-keyed, and answers
+        # initialize — which is the whole of what this step asserts.
 
       - name: Attach the bundle to the release
         if: github.event_name == 'release'
