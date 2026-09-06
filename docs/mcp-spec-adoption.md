@@ -413,12 +413,36 @@ throw. CrawlForge treats that exactly as it treats a client with no elicitation 
 operation proceeds unasked. A confirmation prompt is a nicety; failing a billed tool call is not
 an acceptable substitute for one.
 
-**Known gap — HTTP transport.** The helper is constructed once against the top-level template
-`McpServer`, while the streamable-HTTP transport clones a fresh `McpServer` per session
-(`cloneServerForSession`). The template is never connected to a session, so it reports no client
-capabilities and elicitation never fires over HTTP — every HTTP session proceeds unasked. This
-is safe in every direction (no throw, no mis-billing, no failed call) but the feature is
-effectively stdio-only until the helper is wired per session.
+**HTTP transport.** Elicitation works on both transports.
+
+Neither HTTP leg serves from the template `McpServer` that `server.js` registers its tools on: the
+2025-era path connects one clone per session and the modern leg builds one per request (see
+`cloneServerForSession` in `src/server/transports/streamableHttp.js`). Only a clone is ever
+`.connect()`ed, so only a clone has a negotiated protocol version, the client's declared
+capabilities, and a channel to send on. The template has none of those, which is why a helper
+reading them off it saw `undefined` on every HTTP request and reported `supported: false` — from
+v3.2.0 until this release, every HTTP session proceeded unasked. It failed safe: no throw, no
+mis-bill, no failed call, and so nothing surfaced it.
+
+Both legs now stamp the serving clone and its wire era on the per-request `AsyncLocalStorage`
+context (`setServingServer` in `src/server/requestContext.js`), and `ElicitationHelper` resolves
+`servingServer() ?? <constructor-injected instance>`. The fallback is the stdio case, where the
+top-level instance is the connected one and behaviour is unchanged.
+
+The prompt is sent with `relatedRequestId` set to the id of the `tools/call` in flight, read from
+the SDK `ctx` that `withAuth` forwards to every handler. This is what the SDK does internally for
+`ctx.mcpReq.elicitInput`, and it is load-bearing rather than cosmetic: a server-to-client request
+carrying no `relatedRequestId` is routed to the standalone GET SSE stream, which the transport
+drops silently when the client never opened one — the prompt would never arrive and the tool would
+stall for the full request timeout before failing open. The stdio transport accepts the option and
+ignores it.
+
+The era guard is unchanged in intent and now reads the right instance. On a 2026-07-28 connection
+there is no server-to-client request channel at all, so `supported` is false and the operation
+proceeds unasked, exactly as it does for a client that declared no elicitation capability. The
+replacement on that era is an `input_required` result RETURNED by the `tools/call` handler, which
+this helper cannot produce from the middle of a tool's execution — that remains open, and is what
+the forwarded `ctx` is groundwork for.
 
 **Sampling.** `SamplingClient`'s chain is unchanged: Ollama, then a server-side
 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`, then MCP sampling. SEP-2577 deprecated Sampling on

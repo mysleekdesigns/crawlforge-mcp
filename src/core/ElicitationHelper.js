@@ -24,7 +24,17 @@
  *     the operation proceeds unasked, exactly as it does for a client with no
  *     elicitation capability. A confirmation prompt is a nicety; failing the
  *     call is not an acceptable substitute. See docs/mcp-spec-adoption.md.
+ *
+ * Which server instance we ask matters as much as what we ask. server.js
+ * constructs this against the top-level template McpServer, but neither HTTP
+ * leg serves from it — the 2025-era path connects a clone per session and the
+ * modern leg builds one per request, so the template is never `.connect()`ed
+ * and reports no negotiated version and no client capabilities. The transport
+ * stamps the serving clone on the request context; this resolves it from there
+ * and falls back to the injected instance, which on stdio IS the connected one.
  */
+
+import { servingRequestId, servingServer } from '../server/requestContext.js';
 
 /**
  * First revision of the modern protocol era. Revisions are ISO dates, so
@@ -70,11 +80,21 @@ export class ElicitationHelper {
   }
 
   /**
+   * The McpServer this request is served from: the clone the transport stamped
+   * on the request context, else the constructor-injected instance (stdio, and
+   * any caller outside a request context).
+   * @private
+   */
+  get _server() {
+    return servingServer() ?? this._mcpServer;
+  }
+
+  /**
    * Whether an inline elicitation round trip will actually reach the user.
    * @returns {boolean}
    */
   get supported() {
-    const server = this._mcpServer?.server;
+    const server = this._server?.server;
     if (typeof server?.request !== 'function') return false;
     try {
       // No server→client request channel exists on the 2026-07-28 era.
@@ -93,10 +113,21 @@ export class ElicitationHelper {
    * @private
    */
   async _elicit(message, requestedSchema) {
-    return this._mcpServer.server.request({
-      method: 'elicitation/create',
-      params: { message, requestedSchema, mode: 'form' },
-    });
+    // relatedRequestId ties the prompt to the tools/call in flight. Without it
+    // the 2025-era HTTP transport puts the request on the standalone GET SSE
+    // stream and drops it outright when the client never opened one — a silent
+    // 60-second timeout instead of a prompt. The stdio transport takes only the
+    // message and drops the options, so stdio is unchanged either way; null (a
+    // caller outside any tool invocation) sends no options at all, which is the
+    // single-argument call this made before.
+    const relatedRequestId = servingRequestId();
+    return this._server.server.request(
+      {
+        method: 'elicitation/create',
+        params: { message, requestedSchema, mode: 'form' },
+      },
+      relatedRequestId === null ? undefined : { relatedRequestId }
+    );
   }
 
   /**

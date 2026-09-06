@@ -551,3 +551,64 @@ test('withAuth: an error result and a non-JSON text result are left alone by the
   assert.equal(plain.content[0].text.length, 5000);
   assert.equal(store.list().length, 0);
 }));
+
+// ── ctx forwarding (MCP SDK v2 calls a tool callback with `(args, ctx)`) ──────
+//
+// withAuth was 1-arity and dropped the second argument, so no tool or helper
+// could ever see the per-request context — where the protocol era, the
+// elicitation answers and the request id live.
+
+test('withAuth: forwards the SDK ctx through to the handler', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 1 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  let seen = 'never called';
+  const ctx = { sessionId: 's1', mcpReq: { id: 42, method: 'tools/call' } };
+  const handler = withAuth('fetch_url', async (params, received) => {
+    seen = received;
+    return { content: [{ type: 'text', text: 'ok' }] };
+  });
+
+  await handler({ url: 'https://example.com' }, ctx);
+  assert.equal(seen, ctx, 'the handler receives the very ctx object the SDK passed');
+});
+
+test('withAuth: a 1-arity handler still works, and no ctx is not an error', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 1 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const handler = withAuth('fetch_url', async (params) => ({
+    content: [{ type: 'text', text: `ok:${params.url}` }]
+  }));
+
+  const withCtx = await handler({ url: 'https://a.test' }, { mcpReq: { id: 7 } });
+  assert.match(withCtx.content[0].text, /ok:https:\/\/a\.test/);
+
+  const withoutCtx = await handler({ url: 'https://b.test' });
+  assert.match(withoutCtx.content[0].text, /ok:https:\/\/b\.test/);
+  assert.equal(auth.reportCalls.length, 2, 'both calls billed identically');
+  assert.deepEqual(auth.reportCalls.map((c) => c[1]), [1, 1]);
+});
+
+test('withAuth: the ctx request id is stamped on the request context', async () => {
+  const { servingRequestId } = await import('../../src/server/requestContext.js');
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 1 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  let stamped = 'unset';
+  const handler = withAuth('fetch_url', async () => {
+    stamped = servingRequestId();
+    return { content: [{ type: 'text', text: 'ok' }] };
+  });
+
+  await handler({ url: 'https://example.com' }, { mcpReq: { id: 99 } });
+  assert.equal(stamped, 99);
+
+  // stdio and any caller with no ctx: null, which is what the elicitation
+  // helper turns back into "send with no options" — today's behaviour.
+  await handler({ url: 'https://example.com' });
+  assert.equal(stamped, null);
+});

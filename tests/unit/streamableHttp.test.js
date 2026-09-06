@@ -16,7 +16,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { z } from 'zod';
 import { connectStreamableHttp } from '../../src/server/transports/streamableHttp.js';
 import { applySpecHygiene } from '../../src/server/specHygiene.js';
-import { isInternalRequest } from '../../src/server/requestContext.js';
+import { isInternalRequest, servingEra, servingServer } from '../../src/server/requestContext.js';
 import { createMetricsRegistry } from '../../src/observability/metrics.js';
 
 function makeAuth({ apiKey = 'cf-test', creator = false } = {}) {
@@ -739,6 +739,99 @@ test('dual-era: the internal-proxy request context reaches a tool handler on the
     assert.equal(rpc.result.content[0].text, 'true', 'isInternalRequest() must be true inside the handler');
   } finally {
     delete process.env.INTERNAL_PROXY_SECRET;
+    await close(env);
+  }
+});
+
+// ── The serving instance (elicitation over HTTP) ──────────────────────────────
+//
+// Neither leg serves from the template McpServer: the 2025-era path connects a
+// clone per session, the modern leg builds one per request. Only a connected
+// clone knows the negotiated protocol version and the client's declared
+// capabilities, so anything reading those off the template (ElicitationHelper)
+// got undefined on every HTTP request. Both legs now stamp the serving clone on
+// the request context — these two assert it arrives, and that it is NOT the
+// template.
+
+/** A template server whose one tool reports what the request context resolved to. */
+function makeServingProbeServer() {
+  const server = new McpServer({ name: 'test', version: '0.0.0' }, { capabilities: { tools: {} } });
+  server.registerTool('report_serving', {
+    description: 'reports the serving instance from the request context',
+    inputSchema: {}
+  }, async () => {
+    const resolved = servingServer();
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          era: servingEra(),
+          resolved: resolved !== null,
+          isTemplate: resolved === server,
+          negotiated: resolved?.server?.getNegotiatedProtocolVersion?.() ?? null,
+          clientCapabilities: resolved?.server?.getClientCapabilities?.() ?? null,
+          templateNegotiated: server.server.getNegotiatedProtocolVersion?.() ?? null
+        })
+      }]
+    };
+  });
+  return server;
+}
+
+test('serving instance: the 2025-era session clone reaches the tool handler, not the template', async () => {
+  const server = makeServingProbeServer();
+  const env = await startServer({ server, auth: makeAuth({ creator: true }) });
+  try {
+    const initRes = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      headers: jsonRpcHeaders,
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: {
+          protocolVersion: '2025-11-25',
+          // A bare `elicitation: {}` — the pre-mode 2025 meaning is form.
+          capabilities: { elicitation: {} },
+          clientInfo: { name: 'test-client', version: '1.0.0' }
+        }
+      })
+    });
+    const sessionId = initRes.headers.get('mcp-session-id');
+    await initRes.text();
+
+    const callRes = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      headers: { ...jsonRpcHeaders, 'mcp-session-id': sessionId },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'report_serving', arguments: {} } })
+    });
+    const seen = JSON.parse((await readRpcBody(callRes)).result.content[0].text);
+
+    assert.equal(seen.resolved, true, 'a serving instance was stamped');
+    assert.equal(seen.isTemplate, false, 'it is the session clone, not the template');
+    assert.equal(seen.era, 'legacy');
+    assert.equal(seen.negotiated, '2025-11-25', 'the clone knows the negotiated revision');
+    // The SDK normalises a bare 2025 `elicitation: {}` to `{ form: {} }`; either
+    // shape satisfies ElicitationHelper's formElicitationDeclared().
+    assert.deepEqual(seen.clientCapabilities, { elicitation: { form: {} } }, 'the clone knows what the client declared');
+    assert.equal(seen.templateNegotiated, null, 'the template is still never connected — the bug this fixes');
+  } finally {
+    await close(env);
+  }
+});
+
+test('serving instance: the modern leg stamps its per-request clone and reports the modern era', async () => {
+  const server = makeServingProbeServer();
+  const env = await startServer({ server, auth: makeAuth({ creator: true }) });
+  try {
+    const { headers, body } = modernRequest(1, 'tools/call', { name: 'report_serving', arguments: {} });
+    const res = await fetchPath(env.port, '/mcp', { method: 'POST', body, headers });
+    const seen = JSON.parse((await readRpcBody(res)).result.content[0].text);
+
+    assert.equal(seen.resolved, true);
+    assert.equal(seen.isTemplate, false);
+    assert.equal(seen.era, 'modern');
+    assert.equal(seen.negotiated, '2026-07-28', 'a modern serving instance reports the modern revision');
+    assert.equal(seen.templateNegotiated, null);
+  } finally {
     await close(env);
   }
 });
