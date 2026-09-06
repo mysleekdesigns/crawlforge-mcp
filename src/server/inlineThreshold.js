@@ -135,6 +135,11 @@ export function applyInlineThreshold(toolName, resultObject, params, { store, en
       shaped[key] = value;
     }
   }
+  // redact_pii's report is an object, so the scalar filter above drops it —
+  // and the caller was charged for it. Carry it through like warnings.
+  if (resultObject.redaction && typeof resultObject.redaction === 'object') {
+    shaped.redaction = resultObject.redaction;
+  }
   Object.assign(shaped, {
     preview,
     result_handle: handle,

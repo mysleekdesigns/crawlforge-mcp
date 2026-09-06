@@ -20,6 +20,7 @@ import { recordToolInvocation } from '../observability/tracing.js';
 import { isInternalRequest, preflightRefusal, reportedActualCost, requestContext } from './requestContext.js';
 import { appendFallbackHint } from './fallbackHints.js';
 import { INLINE_THRESHOLD_TOOLS, applyInlineThreshold } from './inlineThreshold.js';
+import { REDACTION_TOOLS, redactionSurcharge, runRedactionStage } from './redaction.js';
 import { getResultStore } from '../core/ResultStore.js';
 
 /**
@@ -36,6 +37,24 @@ function shapeLargeResult(toolName, result, params) {
   if (result.structuredContent) result.structuredContent = shaped;
 }
 
+/**
+ * Redact the result's page text in place (Phase 5, 5.3). Runs BEFORE
+ * shapeLargeResult: a result stored unredacted would be served straight back
+ * out by read_result, which is the hole redact_pii exists to close.
+ *
+ * @returns {Promise<boolean>} whether a model pass actually completed
+ */
+async function redactResult(toolName, result, params, mcpServer) {
+  if (!result || !Array.isArray(result.content) || result.content[0]?.type !== 'text') return false;
+  let parsed;
+  try { parsed = JSON.parse(result.content[0].text); } catch { return false; }
+  const { redacted, modelRan } = await runRedactionStage(toolName, parsed, params, { mcpServer });
+  if (!redacted) return false;
+  result.content[0].text = JSON.stringify(parsed, null, 2);
+  if (result.structuredContent) result.structuredContent = parsed;
+  return modelRan;
+}
+
 export function hashParams(params) {
   try {
     return createHash('sha256').update(JSON.stringify(params ?? {})).digest('hex').slice(0, 12);
@@ -50,7 +69,7 @@ export function hashParams(params) {
  * @param {object} deps.logger
  * @param {object} [deps.metrics]  — optional Prometheus registry (see src/observability/metrics.js)
  */
-export function makeWithAuth({ authManager, logger, metrics = null }) {
+export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = null }) {
   return function withAuth(toolName, handler) {
     const invoke = async (params) => {
       const startTime = Date.now();
@@ -62,6 +81,13 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
       const internal = isInternalRequest();
       const billingExempt = creatorMode || internal;
       const creditCost = billingExempt ? 0 : authManager.getToolCost(toolName, params);
+      // redact_pii's model pass runs at this seam, AFTER the handler, so the
+      // handler's own setActualCost report cannot know about it. Split the
+      // projection: the tool prices its own work, and the model surcharge is
+      // added back only when a model actually completed (G4).
+      const redactionCost = billingExempt ? 0 : Math.min(redactionSurcharge(toolName, params), creditCost);
+      const toolCost = creditCost - redactionCost;
+      let redactionModelRan = false;
       let outcome = 'pending';
       let thrown = null;
       // Only bill the error-path half-charge once the handler has actually run.
@@ -73,7 +99,8 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
       // lower the charge, never raise it.
       const billable = () => {
         const reported = reportedActualCost();
-        return reported == null ? creditCost : Math.min(reported, creditCost);
+        const spent = reported == null ? toolCost : Math.min(reported, toolCost);
+        return spent + (redactionModelRan ? redactionCost : 0);
       };
 
       try {
@@ -115,6 +142,19 @@ export function makeWithAuth({ authManager, logger, metrics = null }) {
         // multi-URL tool that skipped one disallowed URL and still returned a
         // result did real work and bills for it.
         const refused = isErrorResult && preflightRefusal() !== null;
+
+        // Phase 5 (5.3): redact_pii scrubs the page text this call returns.
+        // It runs BEFORE the inline-threshold stage below, so what gets
+        // stored — and what read_result later serves — is already redacted.
+        // Internal (website REST proxy) requests are redacted too: the text
+        // is the same text, and the website has no copy of it to scrub.
+        if (!isErrorResult && toolName in REDACTION_TOOLS) {
+          try {
+            redactionModelRan = await redactResult(toolName, result, params, mcpServer);
+          } catch {
+            /* redaction must never break the request path */
+          }
+        }
 
         // Phase 2: a result over max_inline_chars is stored and returned as
         // a preview plus a result_handle for read_result. Internal (website

@@ -9,6 +9,8 @@
  *   logger.error('fetch failed', maskSecrets({ apiKey, url, error }));
  */
 
+import { redactPii } from 'crawlforge-extractors';
+
 const SECRET_KEYS_RE = /api[_-]?key|apikey|x-api-key|password|passwd|secret|token|authorization|auth|credential|login|formautofill|private[_-]?key|access[_-]?key|proxy_url|proxyurl|cookie/i;
 
 const MASK = '[REDACTED]';
@@ -97,16 +99,18 @@ export function maskError(error) {
 
 /**
  * Heuristic: redact strings that look like API keys / tokens embedded in text.
+ *
+ * The patterns moved to crawlforge-extractors' `redactPii` (Phase 5, 5.3), so
+ * the two surfaces run one implementation and page text gets the same
+ * treatment log lines already got. The SECRET class there is this heuristic,
+ * ported verbatim and asserted byte-for-byte against it upstream: the label
+ * survives and only the value is replaced, which is what keeps an error
+ * message saying WHICH credential the request carried.
+ *
  * @param {string} str
  * @returns {string}
  */
 function redactSecretsFromString(str) {
   if (typeof str !== 'string') return str;
-  return str
-    .replace(/(Bearer\s+)\S+/gi, `$1${MASK}`)
-    .replace(/(api[_-]?key\s*[:=]\s*)\S+/gi, `$1${MASK}`)
-    .replace(/(x-api-key\s*[:=]\s*)\S+/gi, `$1${MASK}`)
-    .replace(/(password\s*[:=]\s*)\S+/gi, `$1${MASK}`)
-    .replace(/(secret\s*[:=]\s*)\S+/gi, `$1${MASK}`)
-    .replace(/(token\s*[:=]\s*)\S+/gi, `$1${MASK}`);
+  return redactPii(str, { entities: ['SECRET'], replaceStyle: 'mask' }).text;
 }

@@ -5,6 +5,86 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [5.10.0] - 2026-09-06
+
+Phase 5 of the 2026 feature plan: batch search, and PII redaction on every
+tool that returns page text.
+
+`search_web` took one query, so a caller comparing five phrasings paid five
+round-trips for one unit of work. And nothing in this server scrubbed personal
+data out of the text it handed back — `secretMask.js` covered API keys and
+tokens in our own log lines and nothing else, so a support inbox, a staff phone
+list or a checkout form's card number travelled straight into the caller's
+context window. Both are now one parameter each.
+
+### Added
+- **`queries` on `search_web`.** 1-10 searches in a single call as an
+  alternative to `query` (exactly one of the two is required). Each runs
+  through the SAME pipeline a single call does — expansion, cache, dedupe,
+  rank — and comes back in `results_by_query`, one entry per query in the
+  order given, alongside `queries` and `count`. One failed query carries its
+  own `error` and leaves the other nine alone. The batch wrapper sits above
+  the provider short-circuit, so `provider: "searxng"` gets it too. A
+  single-query call's response is byte-for-byte what it always was.
+- **`redact_pii` on `scrape`, `extract_content`, `extract_text`,
+  `batch_scrape`, `crawl_deep`, `stealth_mode`, `scrape_with_actions`,
+  `process_document` and `search_web`.** `true` runs the free regex pass over
+  EMAIL, PHONE, FINANCIAL and SECRET; the object form takes `entities`,
+  `replace_style` (`"tag"` -> `<EMAIL>`, `"mask"` -> `[REDACTED]`, `"remove"`)
+  and `mode`. Off by default. The result carries
+  `redaction: { entities, count, mode }` saying exactly what was replaced.
+  Precision over recall throughout: a card must pass Luhn and an IBAN mod-97,
+  and a bare run of digits is never a phone number — a redacted price is worse
+  than a missed phone number, because the caller can see the second one and
+  cannot recover the first.
+- **An `entities` name the mode cannot serve is rejected, not dropped.** Names
+  match case-insensitively; omitted or `[]` means all four regex classes.
+  Anything else is a validation error raised before any fetch and billed zero,
+  and the two failures read differently: `PERSON`/`LOCATION` without
+  `mode:"model"` says so and names the surcharge, while a typo says `unknown
+  entity name`. Dropping them quietly would hand back a page still full of the
+  class that was asked for, plus a report that never mentions it — a partial
+  version of the exact failure this feature exists to prevent.
+- **`mode: "model"` for PERSON and LOCATION**, which no regex can decide: an
+  Ollama-first NER pass, +3 credits once per call, and only when an LLM route
+  exists. The regex pass always runs first and the model only adds to it. The
+  model identifies spans and never rewrites text — a span it invented, one
+  not present verbatim in the input, is discarded. The text it reads is
+  already regex-redacted and is wrapped in the untrusted-content fence, so
+  the fence never wraps unredacted text. The pass runs once per text, not once
+  per call, so it is capped three ways — 12,000 characters of any one text,
+  60,000 across the call, and 5 completions — and warns when a cap bit. The
+  free regex pass is never capped.
+
+### Changed
+- **Redaction runs before the result is stored.** A result over
+  `max_inline_chars` is kept for `read_result`; redacting after that stage
+  would have stored the PII and served it straight back out. The redaction
+  report survives the preview shaping the threshold stage does.
+- **`search_web` pricing: 5 per query.** A ten-query batch projects 50 —
+  exactly what ten separate calls cost, with one round-trip instead of ten.
+  The projection is the ceiling; the actual charge is 5 for every query whose
+  pipeline returned, and nothing for one that threw — so a batch where three
+  of ten failed is billed 35, and one where all ten failed is billed nothing
+  and reports no usage at all.
+- **`query` is no longer a required field on `search_web`** (it is `query` OR
+  `queries`). The SDK therefore no longer rejects a call carrying neither, so
+  the handler now marks it a `BAD_REQUEST` pre-flight refusal: it reaches the
+  handler but still costs zero, rather than the half-credit error rate for a
+  search that never ran.
+- **`redact_pii` pricing.** The regex pass adds nothing. `mode: "model"` adds
+  3 once per call, and `_cost.actual` drops it again when no model answered
+  (a warning says so). Charged once rather than per page for the same reason
+  `batch_scrape` and `crawl_deep` are priced flat: the page count is not
+  knowable before the call.
+- **`secretMask.js` no longer keeps its own secret heuristics.** The patterns
+  moved to `crawlforge-extractors`' `redactPii` SECRET class — ported verbatim
+  and asserted byte-for-byte upstream — so page text now gets the treatment
+  log lines already got. `maskError` still preserves the label and replaces
+  only the value, so an error message still says which credential a request
+  carried.
+- **`crawlforge-extractors` widened to `^1.9.0`** for `redactPii`.
+
 ## [5.9.0] - 2026-09-05
 
 Phase 3 of the 2026 feature plan: opt-in auto-escalation on `scrape`. A site

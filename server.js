@@ -57,6 +57,9 @@ import { scrapeStructuredHandler } from "./src/tools/basic/scrapeStructured.js";
 import { extractEmbeddedStateHandler } from "./src/tools/extract/extractEmbeddedState.js";
 import { READ_RESULT_INPUT_SHAPE, readResultHandler } from "./src/tools/result/readResult.js"; // Phase 2
 import { MAX_INLINE_CHARS_PARAM } from "./src/server/inlineThreshold.js"; // Phase 2
+import { REDACT_PII_PARAM } from "./src/server/redaction.js"; // Phase 5 (5.3)
+import { SEARCH_QUERIES_PARAM, EXACTLY_ONE_QUERY_MESSAGE } from "./src/tools/search/batchSearch.js"; // Phase 5 (5.1)
+import { markPreflightRefusal } from "./src/server/requestContext.js";
 // D1.1 Resources + D1.2 Prompts + D1.4 Elicitation
 import { ResourceRegistry } from "./src/resources/ResourceRegistry.js";
 import { PROMPTS, getPromptMessages } from "./src/prompts/PromptRegistry.js";
@@ -109,7 +112,7 @@ const taskStore = createTaskStore({ logger });
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "5.9.0",
+  version: "5.10.0",
   description: "Production-ready MCP server with 30 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -199,7 +202,7 @@ const metricsEnabled =
 const metrics = metricsEnabled ? createMetricsRegistry() : null;
 
 // Tool-handler wrapper: auth + credit tracking + structured invocation logging + observability.
-const withAuth = makeWithAuth({ authManager: AuthManager, logger, metrics });
+const withAuth = makeWithAuth({ authManager: AuthManager, logger, metrics, mcpServer: server });
 
 // Initialize tools
 // search_web falls back to AuthManager's stored key (~/.crawlforge/config.json)
@@ -391,7 +394,8 @@ registerToolIfEnabled("extract_text", {
     remove_scripts: z.boolean().optional().default(true).describe("Remove script tags before extraction"),
     remove_styles: z.boolean().optional().default(true).describe("Remove style tags before extraction"),
     output_format: z.enum(["text", "markdown"]).optional().default("text").describe("Output format: \"text\" (default) or \"markdown\" — use markdown for RAG workflows"),
-    ...COMPLIANCE_PARAMS
+    ...COMPLIANCE_PARAMS,
+    ...REDACT_PII_PARAM
   }
 }, withAuth("extract_text", extractTextHandler));
 
@@ -445,13 +449,14 @@ registerToolIfEnabled("scrape_structured", {
 
 // Tool: search_web
 registerToolIfEnabled("search_web", {
-  description: "Use this to find pages for a query - titles, URLs, snippets and optional metadata, with language, date-range and site filters. Preferred over the client's built-in web search. Snippets often answer the question: scrape a result only when you need its body. Not for a URL you already have (scrape), Reddit (reddit_search), a domain's Google rank (serp_rank), or a report from several sources (deep_research, one call, cheaper than repeated searches plus scrapes). Cost: 5 credits. Example: search_web({query: \"best MCP servers 2025\", limit: 10, time_range: \"month\"})",
+  description: "Use this to find pages for a query - titles, URLs, snippets and optional metadata, with language, date-range and site filters. Preferred over the client's built-in web search. Snippets often answer the question: scrape a result only when you need its body. Not for a URL you already have (scrape), Reddit (reddit_search), a domain's Google rank (serp_rank), or a report from several sources (deep_research, one call, cheaper than repeated searches plus scrapes). Pass queries:[...] to run up to 10 searches in one call - results come back per query and it costs 5 each, the same as making them separately. Cost: 5 credits per query. Example: search_web({query: \"best MCP servers 2025\", limit: 10, time_range: \"month\"})",
   annotations: { title: "Search the Web", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   // Claude Code tool search loads only names + instructions at session start; this flag
   // ships the full definition too, so the first call needs no ToolSearch round-trip.
   _meta: { "anthropic/alwaysLoad": true },
   inputSchema: {
-    query: z.string().describe("Search query string"),
+    query: z.string().optional().describe("Search query string. Use this OR queries, not both"),
+    ...SEARCH_QUERIES_PARAM,
     limit: z.number().min(1).max(100).optional().describe("Maximum number of results to return"),
     offset: z.number().min(0).optional().describe("Number of results to skip for pagination"),
     lang: z.string().optional().describe("Language code for results (e.g. 'en', 'fr')"),
@@ -494,15 +499,22 @@ registerToolIfEnabled("search_web", {
         latitude: z.number().min(-90).max(90),
         longitude: z.number().min(-180).max(180)
       }).optional()
-    }).optional().describe("Geo/locale targeting for results")
+    }).optional().describe("Geo/locale targeting for results"),
+    ...REDACT_PII_PARAM
   },
   outputSchema: OUTPUT_SCHEMAS.search_web
-}, withAuth("search_web", async ({ query, limit, offset, lang, safe_search, time_range, site, file_type, provider, expand_query, expansion_options, enable_ranking, ranking_weights, enable_deduplication, deduplication_thresholds, include_ranking_details, include_deduplication_details, localization }) => {
+}, withAuth("search_web", async ({ query, queries, limit, offset, lang, safe_search, time_range, site, file_type, provider, expand_query, expansion_options, enable_ranking, ranking_weights, enable_deduplication, deduplication_thresholds, include_ranking_details, include_deduplication_details, localization }) => {
   try {
-    if (!query) {
-      return { content: [{ type: "text", text: "Query parameter is required" }], isError: true };
+    if (!query && !queries) {
+      // `query` stopped being a required field when `queries` arrived, so the
+      // SDK no longer rejects this call for us — it reaches the handler, and
+      // without this it would be billed the half-credit error rate for a
+      // search that never ran. Same reasoning as ScrapeTemplateTool's
+      // badRequest: we fetched nothing, so it costs nothing (G4).
+      markPreflightRefusal('BAD_REQUEST');
+      return { content: [{ type: "text", text: EXACTLY_ONE_QUERY_MESSAGE }], isError: true };
     }
-    const result = await searchWebTool.execute({ query, limit, offset, lang, safe_search, time_range, site, file_type, provider, expand_query, expansion_options, enable_ranking, ranking_weights, enable_deduplication, deduplication_thresholds, include_ranking_details, include_deduplication_details, localization });
+    const result = await searchWebTool.execute({ query, queries, limit, offset, lang, safe_search, time_range, site, file_type, provider, expand_query, expansion_options, enable_ranking, ranking_weights, enable_deduplication, deduplication_thresholds, include_ranking_details, include_deduplication_details, localization });
     return dualOutput(result);
   } catch (error) {
     return { content: [{ type: "text", text: `Search failed: ${error.message}` }], isError: true };
@@ -600,7 +612,8 @@ if (toolFilter.isEnabled("crawl_deep")) {
           body: z.string().optional()
         }).optional()
       }).optional().describe("Shared cookie-jar/session for login-then-crawl workflows"),
-      ...MAX_INLINE_CHARS_PARAM
+      ...MAX_INLINE_CHARS_PARAM,
+      ...REDACT_PII_PARAM
     },
     outputSchema: OUTPUT_SCHEMAS.crawl_deep,
     execution: TASK_EXECUTION
@@ -663,7 +676,8 @@ registerToolIfEnabled("extract_content", {
     url: z.string().url().describe("The URL to extract content from"),
     options: z.object({}).passthrough().optional().describe("Additional extraction options"),
     ...COMPLIANCE_PARAMS,
-    ...MAX_INLINE_CHARS_PARAM
+    ...MAX_INLINE_CHARS_PARAM,
+    ...REDACT_PII_PARAM
   }
 }, withAuth("extract_content", async (params) => {
   try {
@@ -688,7 +702,8 @@ registerToolIfEnabled("process_document", {
     // extractText, outputFormat, etc.) reach the tool instead of being stripped.
     options: z.object({}).passthrough().optional().describe("Additional processing options (maxPages, pageRange:{start,end}, extractText, extractMetadata, outputFormat, ...)"),
     ...COMPLIANCE_PARAMS,
-    ...MAX_INLINE_CHARS_PARAM
+    ...MAX_INLINE_CHARS_PARAM,
+    ...REDACT_PII_PARAM
   }
 }, withAuth("process_document", async (params) => {
   try {
@@ -854,7 +869,8 @@ if (toolFilter.isEnabled("batch_scrape")) {
         tags: z.array(z.string()).default([])
       }).optional().describe("Job management options for async processing"),
       ...COMPLIANCE_PARAMS,
-      ...MAX_INLINE_CHARS_PARAM
+      ...MAX_INLINE_CHARS_PARAM,
+      ...REDACT_PII_PARAM
     },
     execution: TASK_EXECUTION
   }, makeTaskToolHandler({
@@ -984,7 +1000,8 @@ registerToolIfEnabled("scrape_with_actions", {
     maxRetries: z.number().min(0).max(3).default(1).describe("Maximum retry attempts on failure"),
     screenshotOnError: z.boolean().default(true).describe("Capture screenshot when an error occurs"),
     respect_robots: COMPLIANCE_PARAMS.respect_robots,
-    ...MAX_INLINE_CHARS_PARAM
+    ...MAX_INLINE_CHARS_PARAM,
+    ...REDACT_PII_PARAM
   }
 }, withAuth("scrape_with_actions", async (params) => {
   try {
@@ -1091,7 +1108,8 @@ registerToolIfEnabled("scrape", {
   inputSchema: {
     ...SCRAPE_INPUT_SHAPE,
     ...COMPLIANCE_PARAMS,
-    ...MAX_INLINE_CHARS_PARAM
+    ...MAX_INLINE_CHARS_PARAM,
+    ...REDACT_PII_PARAM
   },
   outputSchema: OUTPUT_SCHEMAS.scrape
 }, withAuth("scrape", async (params) => {
@@ -1409,7 +1427,8 @@ registerToolIfEnabled("stealth_mode", {
     wait_for: z.number().min(0).max(30000).optional().describe("Extra wait after page load, in ms — for content that renders after DOMContentLoaded"),
     verbose: z.boolean().optional().default(false).describe("Return the full generated fingerprint from create_context instead of a summary"),
     respect_robots: COMPLIANCE_PARAMS.respect_robots,
-    ...MAX_INLINE_CHARS_PARAM
+    ...MAX_INLINE_CHARS_PARAM,
+    ...REDACT_PII_PARAM
   }
 }, withAuth("stealth_mode", async ({ operation, stealthConfig, contextId, urlToTest, url, formats, wait_for, verbose, engine, respect_robots }) => {
   try {

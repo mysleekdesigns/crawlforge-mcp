@@ -14,8 +14,8 @@
  * execution, _meta, icons. It is regenerated on each INTENTIONAL schema
  * change — capture the `scrape` entry from a real stdio tools/list, spawned
  * the way this file spawns the server — and guards against accidental drift
- * in between. Regenerated 2026-09-05 for Phase 1's highlights/question
- * formats.
+ * in between. Regenerated 2026-09-06 for Phase 5's `redact_pii` param and
+ * the `redaction` report it adds to the result.
  *
  * The server is spawned with HOME pointed at a temp dir and an empty creator
  * secret so the real ~/.crawlforge is never read or written.
