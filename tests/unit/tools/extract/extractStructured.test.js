@@ -14,6 +14,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { isInputRequiredResult, CLIENT_CAPABILITIES_META_KEY } from '@modelcontextprotocol/server';
 
 process.env.ALLOWED_DOMAINS = 'localhost';
 const savedOpenAiKey = process.env.OPENAI_API_KEY;
@@ -342,5 +343,91 @@ describe('extractStructured — a missing required field is a top-level failure'
 
     assert.equal(result.success, true);
     assert.ok(!('error' in result));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4.4 — the no-LLM/required-fields gate is an input-required round trip. The
+// SDK answers it by re-entering execute() from the top, so the gate has moved
+// above the page fetch: its condition (no LLM, and a schema demanding more
+// than 3 required fields) is settled before any network work.
+// ---------------------------------------------------------------------------
+
+const GATE_KEY = 'extract_structured:no_llm_required_fields';
+const askableCtx = () => ({ mcpReq: { envelope: { [CLIENT_CAPABILITIES_META_KEY]: { elicitation: {} } } } });
+const answeredCtx = (response) => ({ mcpReq: { inputResponses: { [GATE_KEY]: response } } });
+
+const fourRequired = {
+  type: 'object',
+  properties: { title: { type: 'string' }, price: { type: 'string' }, sku: { type: 'string' }, stock: { type: 'string' } },
+  required: ['title', 'price', 'sku', 'stock']
+};
+const threeRequired = {
+  type: 'object',
+  properties: { title: { type: 'string' }, price: { type: 'string' }, sku: { type: 'string' } },
+  required: ['title', 'price', 'sku']
+};
+
+describe('extractStructured — no-LLM required-fields gate (real module)', () => {
+  test('3 required fields are never gated', async () => {
+    const tool = new ExtractStructuredTool();
+    const result = await tool.execute({ url: `${baseUrl}/product`, schema: threeRequired }, askableCtx());
+    assert.equal(isInputRequiredResult(result), false);
+    assert.equal(result.extraction_method, 'css_fallback');
+  });
+
+  test('fallbackToSelectors:false is never gated (there is no CSS pass to warn about)', async () => {
+    const tool = new ExtractStructuredTool();
+    const result = await tool.execute(
+      { url: `${baseUrl}/product`, schema: fourRequired, fallbackToSelectors: false },
+      askableCtx()
+    );
+    assert.equal(isInputRequiredResult(result), false);
+    assert.equal(result.extraction_method, 'keyword_fallback');
+  });
+
+  test('> 3 required fields with no LLM asks before the page is fetched', async () => {
+    const tool = new ExtractStructuredTool();
+    // A URL that 404s: reaching the fetch would return the "Structured
+    // extraction failed" payload instead of a question.
+    const result = await tool.execute({ url: `${baseUrl}/never-fetched`, schema: fourRequired }, askableCtx());
+    assert.ok(isInputRequiredResult(result), 'the gate must return an input_required result verbatim');
+    assert.ok(result.inputRequests[GATE_KEY]);
+  });
+
+  test('an accepted answer proceeds on re-entry', async () => {
+    const tool = new ExtractStructuredTool();
+    const result = await tool.execute(
+      { url: `${baseUrl}/product`, schema: fourRequired },
+      answeredCtx({ action: 'accept', content: { confirmed: true } })
+    );
+    assert.equal(isInputRequiredResult(result), false);
+    assert.equal(result.extraction_method, 'css_fallback');
+  });
+
+  test('a declined answer returns the cancelled payload', async () => {
+    const tool = new ExtractStructuredTool();
+    const result = await tool.execute(
+      { url: `${baseUrl}/product`, schema: fourRequired },
+      answeredCtx({ action: 'decline' })
+    );
+    assert.equal(result.success, false);
+    assert.equal(result.url, `${baseUrl}/product`);
+    assert.deepEqual(result.data, {});
+    assert.equal(result.extraction_method, 'none');
+    assert.equal(result.confidence, 0);
+    assert.deepEqual(result.schema_used, fourRequired);
+    assert.equal(result.error, 'Extraction cancelled by user (elicitation declined).');
+    assert.deepEqual(result.validation, {
+      valid: false,
+      errors: ['Extraction cancelled by user (elicitation declined).']
+    });
+  });
+
+  test('a client that cannot be asked proceeds unasked (fail-open, unchanged)', async () => {
+    const tool = new ExtractStructuredTool();
+    const result = await tool.execute({ url: `${baseUrl}/product`, schema: fourRequired }, undefined);
+    assert.equal(isInputRequiredResult(result), false);
+    assert.equal(result.extraction_method, 'css_fallback');
   });
 });

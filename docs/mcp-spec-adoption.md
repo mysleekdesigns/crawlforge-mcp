@@ -343,9 +343,9 @@ same `401` body whichever era it claims. Creator mode (loopback only) and the in
 
 **Server-to-client requests are not available on the 2026-07-28 era.** The revision has no
 server-to-client request channel, so `elicitation/create`, `sampling/createMessage` and
-`roots/list` cannot be sent while serving a modern request. Tools that would ask for confirmation
-proceed unasked on that era, exactly as they already do for a client that declares no elicitation
-capability. See section 9.
+`roots/list` cannot be *sent* while serving a modern request. Confirmations do not go unasked
+there: a gated tool **returns** an `input_required` result and the client fulfils it. Sampling and
+`roots/list` have no such replacement in use here and degrade. See section 9.
 
 **`server/discover` cache hint (SEP-2549).** The discover result is the same for every caller and
 only changes on redeploy, so it carries `"ttlMs": 300000, "cacheScope": "public"`:
@@ -371,49 +371,65 @@ behind that flag for one release and has now been removed. Nothing needs to chan
 
 ## 9. Elicitation and Sampling under the 2026-07-28 revision
 
-**Status: the inline 2025-era request still serves every client we see; the multi-round-trip
-replacement is deliberately not adopted.**
+**Status: adopted. Confirmations are multi-round-trip `input_required` returns and serve both
+eras from one code path.**
 
 SEP-2577 removed the server→client request channel. Under the 2026-07-28 revision a server no
 longer *sends* `elicitation/create` or `sampling/createMessage`; a `tools/call`, `prompts/get`
 or `resources/read` handler instead **returns** an `input_required` result carrying the embedded
 requests, the client fulfils them, and the client retries the original call with the answers
 attached. SDK v2 ships both halves — `inputRequired()` builds the result,
-`acceptedContent(ctx.mcpReq.inputResponses, id)` reads an answer back on re-entry — plus a
-default-on **legacy shim** that fulfils an `input_required` return on a 2025-era connection by
-issuing the real server→client request itself and re-entering the handler. One return serves
-both eras.
+`acceptedContent()` / `inputResponse()` read an answer back off `ctx.mcpReq.inputResponses` on
+re-entry — plus a default-on **legacy shim** (`maxRounds: 8`, `roundTimeoutMs: 600_000`) that
+fulfils an `input_required` return on a 2025-era connection by issuing the real server→client
+request itself and re-entering the handler. One return serves both eras, which is why nothing in
+CrawlForge branches on the protocol revision to decide how to ask.
 
 **What CrawlForge does.** Five tools (`deep_research`, `batch_scrape`, `agent`, `crawl_deep`,
 `extract_structured`) and the low-credit check in `AuthManager` confirm through
-`ElicitationHelper.confirm()`, which awaits a 2025-era `elicitation/create` inline, in the middle
-of the tool's work. This server negotiates its protocol revision through the classic `initialize`
-handshake and SDK v2's `SUPPORTED_PROTOCOL_VERSIONS` tops out at `2025-11-25`, so stdio
-connections are legacy-era and the inline request works.
+`ElicitationHelper.confirm(ctx, key, message, details)`. It is synchronous and sends nothing. It
+returns one of three verdicts: `proceed` (the client cannot be asked, or the user accepted),
+`cancelled` (declined, cancelled, or answered `confirmed: false`), or `ask` — whose `result` the
+tool **returns verbatim**. `server.js` recognises it with `isInputRequiredResult()` and passes it
+to the transport unwrapped, because it is the SDK's result shape rather than a tool payload.
 
-**Why the round trip is not adopted.** `inputRequired(...)` is only legal as a handler's
-*return*, and the answer arrives only on the handler's *next entry*. Converting the six call
-sites means re-entrant tool handlers — and each re-entry runs `withAuth()` again, with a fresh
-credit check and a fresh usage report, up to the shim's eight rounds. An `input_required` result
-is not `isError`, so `withAuth` would book it as a success and charge in full for a call that did
-no work, and a declined confirmation would be billed too. `_cost.projected` is a ceiling and a
-refused call is never billed, so adoption waits on an era-aware,
-bill-once-per-originating-request rule in `withAuth` and on passing the handler context through
-to tools (`withAuth` currently returns `async (params) => …`, dropping `ctx` entirely).
+**The handler is re-entered, so gates sit above the work.** Everything a tool does above its gate
+runs a second time when the answer arrives. Each of the five gates is therefore placed above every
+network fetch and every side effect; where that meant moving one (`batch_scrape` registered its
+webhook above the old gate; `extract_structured` gated after the page fetch), it was moved.
 
-**Client capability.** The SDK's canonical rule counts a bare `elicitation: {}` declaration as
-declaring `elicitation.form` — the pre-mode 2025 meaning — while a client declaring only
-`elicitation.url` has not declared form support. CrawlForge applies that rule and sends through
-`Server.request()`, because the deprecated `Server.elicitInput()` convenience demands
-`elicitation.form` literally and refuses bare declarations. The wire message is identical either
-way: a form-mode `elicitation/create`.
+**Billing: a round trip is free.** An `input_required` result is not `isError`, so without a branch
+for it `withAuth` would book it a success, charge in full and report usage — then the shim
+re-enters and it bills again, up to eight rounds, for a call that fetched nothing, and a declined
+confirmation would be billed too. `withAuth` detects the return, sets outcome `input_required`,
+charges nothing and reports no usage; whichever entry finally produces a real result bills once, at
+the price the call always had. `_cost.projected` therefore remains a true ceiling (G4).
 
-**2026-era connections.** No server→client request channel exists there, so both send paths
-throw. CrawlForge treats that exactly as it treats a client with no elicitation capability: the
-operation proceeds unasked. A confirmation prompt is a nicety; failing a billed tool call is not
-an acceptable substitute for one.
+**Client capability, and why the gate is not cosmetic.** The SDK's canonical rule counts a bare
+`elicitation: {}` declaration as declaring `elicitation.form` — the pre-mode 2025 meaning — while a
+client declaring only `elicitation.url` has not declared form support. CrawlForge applies that rule
+before asking, and a client that declared nothing is not asked. That gate is load-bearing: the SDK
+answers an `input_required` return on such a connection with `isError: true` ("the client on this
+2025-era connection did not declare the required capability"), so dropping it would convert a
+nicety into a failed billed call. Verified against the SDK, not inferred.
 
-**HTTP transport.** Elicitation works on both transports.
+**We ask at most once.** `ctx.mcpReq.inputResponses` is absent on a first entry and present on a
+retry. A retry whose answer for this key did not survive — a dropped entry, or a response of
+another kind — proceeds rather than asking again, which would burn the shim's rounds and end in a
+failed call.
+
+**The one case that degrades.** A client that *declares* elicitation and then throws while
+answering yields an `isError` result from the SDK, where the old inline path proceeded. The failure
+happens inside the SDK after the handler has returned, so nothing in CrawlForge can intercept it.
+It costs the caller nothing: the handler did no work, so the charge is zero.
+
+**Capabilities are read from the right place per era.** A 2026-era request carries the client's
+capabilities per-request in the `_meta` envelope
+(`ctx.mcpReq.envelope['io.modelcontextprotocol/clientCapabilities']`) and has no connected server
+instance to interrogate. A 2025-era connection has them on the serving instance and no envelope.
+`ElicitationHelper` consults the envelope first and falls back to the instance.
+
+**HTTP transport.** Elicitation works on both transports — but it did not until this release.
 
 Neither HTTP leg serves from the template `McpServer` that `server.js` registers its tools on: the
 2025-era path connects one clone per session and the modern leg builds one per request (see
@@ -429,20 +445,9 @@ context (`setServingServer` in `src/server/requestContext.js`), and `Elicitation
 `servingServer() ?? <constructor-injected instance>`. The fallback is the stdio case, where the
 top-level instance is the connected one and behaviour is unchanged.
 
-The prompt is sent with `relatedRequestId` set to the id of the `tools/call` in flight, read from
-the SDK `ctx` that `withAuth` forwards to every handler. This is what the SDK does internally for
-`ctx.mcpReq.elicitInput`, and it is load-bearing rather than cosmetic: a server-to-client request
-carrying no `relatedRequestId` is routed to the standalone GET SSE stream, which the transport
-drops silently when the client never opened one — the prompt would never arrive and the tool would
-stall for the full request timeout before failing open. The stdio transport accepts the option and
-ignores it.
-
-The era guard is unchanged in intent and now reads the right instance. On a 2026-07-28 connection
-there is no server-to-client request channel at all, so `supported` is false and the operation
-proceeds unasked, exactly as it does for a client that declared no elicitation capability. The
-replacement on that era is an `input_required` result RETURNED by the `tools/call` handler, which
-this helper cannot produce from the middle of a tool's execution — that remains open, and is what
-the forwarded `ctx` is groundwork for.
+**`requestString()` is unconverted, and unreached.** It is the one elicitation path no tool calls.
+It keeps the inline 2025-era form and the era guard `confirm()` shed, so on a 2026-era connection
+it returns its default rather than failing. Converting it is speculative until something calls it.
 
 **Sampling.** `SamplingClient`'s chain is unchanged: Ollama, then a server-side
 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`, then MCP sampling. SEP-2577 deprecated Sampling on

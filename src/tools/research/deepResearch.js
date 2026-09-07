@@ -115,7 +115,7 @@ export class DeepResearchTool {
     this._elicitation = new ElicitationHelper({ mcpServer });
   }
 
-  async execute(params) {
+  async execute(params, ctx) {
     try {
       const validated = DeepResearchSchema.parse(params);
       const sessionId = this.generateSessionId();
@@ -137,10 +137,15 @@ export class DeepResearchTool {
       }
 
       // D1.4: Elicitation — warn user if projected cost exceeds 50 credits
-      // deep_research costs approximately 1 credit per URL; maxUrls > 50 → confirm
+      // deep_research costs approximately 1 credit per URL; maxUrls > 50 → confirm.
+      // An unanswered gate returns an input-required result the SDK answers by
+      // re-entering this handler from the top, so it sits above the session
+      // registration below — a second entry would otherwise leak a session.
       if (validated.maxUrls > 50) {
         const projectedCredits = validated.maxUrls;
-        const proceed = await this._elicitation.confirm(
+        const gate = this._elicitation.confirm(
+          ctx,
+          'deep_research:max_urls',
           `deep_research will scan up to ${validated.maxUrls} URLs, projecting ~${projectedCredits} credits.`,
           {
             topic: validated.topic,
@@ -148,7 +153,8 @@ export class DeepResearchTool {
             max_urls: validated.maxUrls,
           }
         );
-        if (!proceed) {
+        if (gate.status === 'ask') return gate.result;
+        if (gate.status === 'cancelled') {
           return {
             success: false,
             error: 'Research cancelled by user before starting (elicitation declined).',

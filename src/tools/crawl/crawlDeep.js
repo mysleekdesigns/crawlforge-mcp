@@ -117,7 +117,7 @@ export class CrawlDeepTool {
     this._elicitation = new ElicitationHelper({ mcpServer });
   }
 
-  async execute(params) {
+  async execute(params, ctx) {
     try {
       const validated = CrawlDeepSchema.parse(params);
 
@@ -147,9 +147,14 @@ export class CrawlDeepTool {
         if (cached) return { ...cached, cached: true };
       }
 
-      // D1.4: Elicitation — warn when max_pages is very high
+      // D1.4: Elicitation — warn when max_pages is very high. An unanswered
+      // gate returns an input-required result the SDK answers by re-entering
+      // this handler from the top; everything above is the clamp arithmetic and
+      // a cache read, so a second entry fetches nothing and leaves no trace.
       if (effectiveMaxPages > 500) {
-        const proceed = await this._elicitation.confirm(
+        const gate = this._elicitation.confirm(
+          ctx,
+          'crawl_deep:max_pages',
           `crawl_deep will crawl up to ${effectiveMaxPages} pages from ${validated.url}. Large crawls consume many credits.`,
           {
             url: validated.url,
@@ -157,7 +162,8 @@ export class CrawlDeepTool {
             max_depth: effectiveMaxDepth,
           }
         );
-        if (!proceed) {
+        if (gate.status === 'ask') return gate.result;
+        if (gate.status === 'cancelled') {
           return {
             success: false,
             error: 'Crawl cancelled by user (elicitation declined).',

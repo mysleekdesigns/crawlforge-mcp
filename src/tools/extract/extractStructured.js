@@ -174,12 +174,64 @@ export class ExtractStructuredTool {
    * @param {Object} params - Extraction parameters
    * @returns {Promise<Object>} Extraction result
    */
-  async execute(params) {
+  async execute(params, ctx) {
     const startTime = Date.now();
 
     try {
       const validated = ExtractStructuredSchema.parse(params);
       const { url, schema, prompt, llmConfig, fallbackToSelectors, selectorHints, respect_robots, user_agent, verify_numbers } = validated;
+
+      let extractionResult = null;
+      let extractionMethod = 'llm';
+      let llmErrorMessage = null;
+      let llmAvailable = false;
+      let llm = null;
+
+      // Step 0: LLM readiness, resolved before the fetch so the D1.4 gate below
+      // can ask before any network work — an unanswered gate returns an
+      // input-required result the SDK answers by re-entering this handler from
+      // the top, and everything above the gate runs a second time.
+      try {
+        llm = this._ensureLLMManager(llmConfig || {});
+        // ready() probes Ollama, which has no API key to gate on. isAvailable()
+        // alone reported false on any machine without a cloud key, so a running
+        // local Ollama was never used.
+        llmAvailable = await llm.ready();
+      } catch (llmError) {
+        // No usable LLM — this falls through to the CSS fallback. Keep the
+        // message so callers can tell "LLM broken" apart from "no LLM
+        // configured".
+        llmErrorMessage = llmError.message;
+      }
+
+      // D1.4: no LLM configured and the schema demands more than 3 required
+      // fields — confirm before running the lower-fidelity CSS fallback. With
+      // no LLM, step 3 extracts nothing, so landing on that fallback is already
+      // settled here, before the page is fetched.
+      const requiredCount = (schema.required || []).length;
+      if (fallbackToSelectors !== false && !llmAvailable && requiredCount > 3) {
+        const gate = this._elicitation.confirm(
+          ctx,
+          'extract_structured:no_llm_required_fields',
+          `No LLM provider is configured and the requested schema has ${requiredCount} required fields. ` +
+          `extract_structured will fall back to lower-fidelity CSS selector extraction, which may miss required fields.`,
+          { url, required_fields: requiredCount }
+        );
+        if (gate.status === 'ask') return gate.result;
+        if (gate.status === 'cancelled') {
+          return {
+            success: false,
+            url,
+            data: {},
+            extraction_method: 'none',
+            confidence: 0,
+            schema_used: schema,
+            processingTime: Date.now() - startTime,
+            error: 'Extraction cancelled by user (elicitation declined).',
+            validation: { valid: false, errors: ['Extraction cancelled by user (elicitation declined).'] }
+          };
+        }
+      }
 
       // Step 1: Fetch and parse — shared helper strips scripts/styles/iframes/svgs
       const { html, $, textContent, warnings } = await fetchAndParse(url, {
@@ -191,19 +243,9 @@ export class ExtractStructuredTool {
       // What the model reads — see shownText().
       const shown = shownText($, html, url, textContent);
 
-      // Step 3: Try LLM extraction first
-      let extractionResult = null;
-      let extractionMethod = 'llm';
-      let llmErrorMessage = null;
-      let llmAvailable = false;
-
-      try {
-        const llm = this._ensureLLMManager(llmConfig || {});
-        // ready() probes Ollama, which has no API key to gate on. isAvailable()
-        // alone reported false on any machine without a cloud key, so a running
-        // local Ollama was never used.
-        llmAvailable = await llm.ready();
-        if (llmAvailable) {
+      // Step 3: Try LLM extraction first (readiness resolved in step 0)
+      if (llmAvailable) {
+        try {
           const result = await llm.extractStructured(shown, schema, {
             prompt: prompt || '',
             maxContentLength: SHOWN_TEXT_BUDGET
@@ -218,12 +260,11 @@ export class ExtractStructuredTool {
           } else {
             llmErrorMessage = result?.error || 'LLM did not return usable JSON';
           }
+        } catch (llmError) {
+          // LLM failed — will fall through to CSS fallback.
+          extractionResult = null;
+          llmErrorMessage = llmError.message;
         }
-      } catch (llmError) {
-        // LLM failed — will fall through to CSS fallback. Keep the message so
-        // callers can tell "LLM broken" apart from "no LLM configured".
-        extractionResult = null;
-        llmErrorMessage = llmError.message;
       }
 
       // Step 3b (3.4): numeric provenance. Only the LLM path invents numbers —
@@ -318,31 +359,9 @@ export class ExtractStructuredTool {
         if (guarded.checked.skipped) provenance.skipped = guarded.checked.skipped;
       }
 
-      // Step 4: CSS selector fallback if LLM unavailable or failed
+      // Step 4: CSS selector fallback if LLM unavailable or failed (the D1.4
+      // confirmation for this path is gated above, before the fetch)
       if (!extractionResult && fallbackToSelectors !== false) {
-        // D1.4: no LLM configured and the schema demands more than 3 required
-        // fields — confirm before running the lower-fidelity CSS fallback.
-        const requiredCount = (schema.required || []).length;
-        if (!llmAvailable && requiredCount > 3) {
-          const proceed = await this._elicitation.confirm(
-            `No LLM provider is configured and the requested schema has ${requiredCount} required fields. ` +
-            `extract_structured will fall back to lower-fidelity CSS selector extraction, which may miss required fields.`,
-            { url, required_fields: requiredCount }
-          );
-          if (!proceed) {
-            return {
-              success: false,
-              url,
-              data: {},
-              extraction_method: 'none',
-              confidence: 0,
-              schema_used: schema,
-              processingTime: Date.now() - startTime,
-              error: 'Extraction cancelled by user (elicitation declined).',
-              validation: { valid: false, errors: ['Extraction cancelled by user (elicitation declined).'] }
-            };
-          }
-        }
         extractionResult = this._cssExtraction($, schema, selectorHints || {});
         extractionMethod = 'css_fallback';
       }

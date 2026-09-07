@@ -612,3 +612,114 @@ test('withAuth: the ctx request id is stamped on the request context', async () 
   await handler({ url: 'https://example.com' });
   assert.equal(stamped, null);
 });
+
+// ── Phase 4.4: an input_required round trip bills nothing ────────────────────
+//
+// The whole reason 4.4 sat deferred. An `input_required` result is NOT
+// `isError`, so without a branch for it withAuth books it a success, computes a
+// full charge and reports usage — then the SDK re-enters the handler with the
+// answer and it bills AGAIN, up to eight rounds, for a call that fetched
+// nothing. A declined confirmation would be billed too. G4 forbids both.
+
+import { inputRequired } from '@modelcontextprotocol/server';
+
+const askResult = () => inputRequired({
+  inputRequests: {
+    confirm: inputRequired.elicit({
+      message: 'Proceed?',
+      requestedSchema: { type: 'object', properties: { confirmed: { type: 'boolean' } }, required: ['confirmed'] }
+    })
+  }
+});
+
+test('withAuth: an input_required return bills nothing and reports no usage', async () => {
+  const logger = makeFakeLogger();
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 4 });
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  const handler = withAuth('crawl_deep', async () => askResult());
+  const result = await handler({ url: 'https://example.com' });
+
+  assert.equal(result.resultType, 'input_required', 'the round trip reaches the transport unchanged');
+  assert.equal(auth.reportCalls.length, 0, 'no usage record for a call that did no work');
+
+  const line = logger.calls.find(c => c.message === 'tool invocation');
+  assert.equal(line.context.outcome, 'input_required');
+});
+
+test('withAuth: the result is passed through untouched — no _cost injection, no hint', async () => {
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 4 });
+  const withAuth = makeWithAuth({ authManager: auth, logger: makeFakeLogger() });
+
+  const asked = askResult();
+  const result = await withAuth('crawl_deep', async () => asked)({ url: 'https://example.com' });
+
+  assert.deepEqual(result, asked, 'the SDK validates this shape; anything added to it is a wire error');
+  assert.equal(result.content, undefined, 'no content array to inject _cost into');
+});
+
+test('withAuth: eight round trips then a real result bill exactly once', async () => {
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 5 });
+  const withAuth = makeWithAuth({ authManager: auth, logger: makeFakeLogger() });
+
+  let entries = 0;
+  const handler = withAuth('deep_research', async () => {
+    entries += 1;
+    return entries <= 8
+      ? askResult()
+      : { content: [{ type: 'text', text: JSON.stringify({ ok: true }) }] };
+  });
+
+  for (let i = 0; i < 9; i += 1) await handler({ topic: 'x' });
+
+  assert.equal(entries, 9);
+  assert.equal(auth.reportCalls.length, 1, 'the terminal entry bills; the eight round trips do not');
+  assert.equal(auth.reportCalls[0][1], 5, 'and it bills the full tool price, not a multiple of it');
+});
+
+test('withAuth: a declined confirmation costs nothing beyond the work it did', async () => {
+  // The tool answers a decline with its own error result — which is real work
+  // reported honestly, and bills the error half-rate, exactly as any other
+  // error does. What must NOT happen is the round trip being billed as well.
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 4 });
+  const withAuth = makeWithAuth({ authManager: auth, logger: makeFakeLogger() });
+
+  let asked = false;
+  const handler = withAuth('batch_scrape', async () => {
+    if (!asked) { asked = true; return askResult(); }
+    return { content: [{ type: 'text', text: 'cancelled by user' }], isError: true };
+  });
+
+  await handler({ urls: ['https://example.com'] });
+  await handler({ urls: ['https://example.com'] });
+
+  assert.equal(auth.reportCalls.length, 1, 'only the entry that produced a result reports');
+  assert.equal(auth.reportCalls[0][1], 2, 'error half-rate of 4, charged once');
+});
+
+test('withAuth: a low-credit round trip from checkCredits bills nothing', async () => {
+  // The low-credit warning asks from inside the credit check, before the
+  // handler has run at all.
+  const auth = makeFakeAuth({ creditsOk: true, toolCost: 3 });
+  auth.checkCredits = async () => askResult();
+  const logger = makeFakeLogger();
+  const withAuth = makeWithAuth({ authManager: auth, logger });
+
+  let handlerRan = false;
+  const result = await withAuth('scrape', async () => { handlerRan = true; return { content: [] }; })({ url: 'https://example.com' });
+
+  assert.equal(result.resultType, 'input_required');
+  assert.equal(handlerRan, false, 'the tool must not run before the user has answered');
+  assert.equal(auth.reportCalls.length, 0);
+  assert.equal(logger.calls.find(c => c.message === 'tool invocation').context.outcome, 'input_required');
+});
+
+test('withAuth: creator mode still returns the round trip and bills nothing', async () => {
+  const auth = makeFakeAuth({ creatorMode: true, toolCost: 4 });
+  const withAuth = makeWithAuth({ authManager: auth, logger: makeFakeLogger() });
+
+  const result = await withAuth('agent', async () => askResult())({ prompt: 'x' });
+
+  assert.equal(result.resultType, 'input_required');
+  assert.equal(auth.reportCalls.length, 0);
+});
