@@ -9,7 +9,7 @@
 import { randomBytes, createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import { existsSync } from 'node:fs';
-import authManager from '../../core/authManager.js';
+import authManager from '../../core/AuthManager.js';
 import { resolveApiEndpoint } from '../../core/endpointGuard.js';
 
 const POLL_INTERVAL_MS = 3000;
