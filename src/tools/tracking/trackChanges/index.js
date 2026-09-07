@@ -21,10 +21,18 @@ import SnapshotManager from '../../../core/SnapshotManager.js';
 import CacheManager from '../../../core/cache/CacheManager.js';
 import { MonitorStore } from '../../../core/MonitorStore.js';
 import { MonitorScheduler } from '../../../core/MonitorScheduler.js';
+import { setActualCost } from '../../../server/requestContext.js';
 import { TrackChangesSchema } from './schema.js';
 import { fetchContent, mergeHistoryData, matchesSignificanceFilter, calculateAverageInterval, calculateSignificanceDistribution } from './differ.js';
 import { performMonitoringCheck, stopMonitor } from './monitor.js';
 import { sendNotifications } from './notifier.js';
+import {
+  HOSTED_FIRING_GUARANTEE_NOTE, createHostedMonitor, createdHostedMonitor, deleteHostedMonitor,
+  formatInterval, intervalToCron, listHostedMonitors, listedHostedMonitor, resolveHostedCredentials
+} from './hosted.js';
+
+// server.js spreads this into the registered inputSchema (G5: one declaration).
+export { TRACK_CHANGES_INPUT_SHAPE } from './schema.js';
 
 export class TrackChangesTool extends EventEmitter {
   constructor(options = {}) {
@@ -42,6 +50,9 @@ export class TrackChangesTool extends EventEmitter {
       enableRealTimeMonitoring: true,
       maxConcurrentMonitors: 50,
       defaultPollingInterval: 300000,
+      // The key and endpoint hosted monitors authenticate with; tests inject
+      // a stub so nothing reads ~/.crawlforge or reaches the website.
+      resolveHostedCredentials,
       ...options
     };
 
@@ -404,6 +415,9 @@ export class TrackChangesTool extends EventEmitter {
         );
       }
     }
+    if (opts.hosted) {
+      return this._createHostedMonitor({ url, opts, preset, trackingOptions, notificationOptions });
+    }
     // Precedence: scheduledMonitorOptions > preset > monitoringOptions. The
     // schema fills monitoringOptions.interval/notificationThreshold with
     // defaults, so they cannot sit above a preset without always winning.
@@ -423,25 +437,127 @@ export class TrackChangesTool extends EventEmitter {
     };
   }
 
+  /**
+   * Hosted (6.1): the website's /api/v1/monitors owns the monitor — its cron
+   * fetches, compares, bills and notifies — so nothing is stored or fetched
+   * here. The interval precedence matches the local path except that
+   * monitoringOptions.interval (schema-defaulted to 5 min) is not consulted:
+   * a hosted check is billed, and the website's own default is hourly.
+   */
+  async _createHostedMonitor({ url, opts, preset, trackingOptions, notificationOptions }) {
+    const creds = await this.options.resolveHostedCredentials();
+    const warnings = [];
+    let scheduleCron = opts.schedule;
+    const interval = opts.interval ?? preset?.frequency;
+    if (!scheduleCron && interval) {
+      const slot = intervalToCron(interval);
+      scheduleCron = slot.cron;
+      if (slot.adjusted) {
+        warnings.push(
+          `interval ${formatInterval(interval)} is not a hosted schedule slot; the monitor runs every ` +
+          `${formatInterval(slot.effectiveIntervalMs)} (${slot.cron}). Hosted runs are at least 5 minutes apart ` +
+          'and divide the hour or the day evenly.'
+        );
+      }
+    }
+    if (opts.goal ?? preset?.goal) {
+      warnings.push('goal is judged by the local goal judge only and is not applied to a hosted monitor, which notifies on every changed, new, blocked or errored page');
+    }
+    if (opts.notificationThreshold) {
+      warnings.push('notificationThreshold has no effect on a hosted monitor; hosted checks have no significance threshold');
+    }
+
+    const tracking = preset ? { ...preset.options, ...(trackingOptions || {}) } : (trackingOptions || {});
+    const selectors = tracking.customSelectors || [];
+    const email = notificationOptions?.email;
+    const webhook = notificationOptions?.webhook;
+    const secret = webhook?.signingSecret;
+    const record = await createHostedMonitor({
+      name: opts.name || new URL(url).host.slice(0, 80),
+      targets: selectors.length ? selectors.map((selector) => ({ url, selector })) : [{ url }],
+      ...(scheduleCron ? { schedule_cron: scheduleCron } : {}),
+      timezone: 'UTC',
+      ...(email?.enabled && email.recipients?.length ? { notify_emails: email.recipients } : {}),
+      ...(webhook?.enabled && webhook.url ? { webhook_url: webhook.url } : {}),
+      // A secret outside 16-128 chars is left out so the website generates one.
+      ...(webhook?.enabled && webhook.url && secret?.length >= 16 && secret.length <= 128 ? { webhook_secret: secret } : {}),
+      status: 'active'
+    }, creds);
+    // Nothing ran on this machine and the monitors API is free (G4).
+    setActualCost(0);
+    return {
+      success: true, operation: 'create_scheduled_monitor', url, hosted: true,
+      ...(preset ? { templateId: preset.id } : {}),
+      monitor: createdHostedMonitor(record, creds.endpoint),
+      firingGuarantee: HOSTED_FIRING_GUARANTEE_NOTE,
+      ...(warnings.length ? { warnings } : {}),
+      timestamp: Date.now()
+    };
+  }
+
   async stopScheduledMonitor(params) {
     const { url, scheduledMonitorOptions } = params;
     const monitorId = scheduledMonitorOptions?.monitorId;
     if (monitorId) {
-      const result = await this.scheduler.stopMonitor(monitorId);
-      if (!result.stopped) {
-        return { success: false, operation: 'stop_scheduled_monitor', monitorId, stopped: false, error: `No scheduled monitor found with id ${monitorId}`, timestamp: Date.now() };
+      if (!this.monitorStore._loaded) await this.monitorStore.load();
+      if (this.monitorStore.get(monitorId)) {
+        await this.scheduler.stopMonitor(monitorId);
+        return { success: true, operation: 'stop_scheduled_monitor', monitorId, stopped: true, timestamp: Date.now() };
       }
-      return { success: true, operation: 'stop_scheduled_monitor', monitorId, stopped: true, timestamp: Date.now() };
+      // Not in the local store: it may be hosted.
+      try {
+        await deleteHostedMonitor(monitorId, await this.options.resolveHostedCredentials());
+      } catch (error) {
+        const reason = error.status === 404 ? '' : ` (hosted lookup failed: ${error.message})`;
+        return { success: false, operation: 'stop_scheduled_monitor', monitorId, stopped: false, error: `No scheduled monitor found with id ${monitorId}${reason}`, timestamp: Date.now() };
+      }
+      // Nothing ran on this machine and the monitors API is free (G4).
+      setActualCost(0);
+      return { success: true, operation: 'stop_scheduled_monitor', monitorId, stopped: true, hosted: true, timestamp: Date.now() };
     }
     if (!url) throw new Error('stop_scheduled_monitor requires a url or scheduledMonitorOptions.monitorId');
     const result = await this.scheduler.stopByUrl(url);
-    return { success: true, operation: 'stop_scheduled_monitor', url, stoppedMonitors: result.stopped, timestamp: Date.now() };
+    // Only a hosted monitor whose every target is this URL — never a
+    // multi-target monitor that merely includes it.
+    let stoppedHosted = 0;
+    let hostedError = null;
+    try {
+      const creds = await this.options.resolveHostedCredentials();
+      for (const m of await listHostedMonitors(creds)) {
+        if (m.targets?.length && m.targets.every((t) => t.url === url)) {
+          await deleteHostedMonitor(m.id, creds);
+          stoppedHosted++;
+        }
+      }
+    } catch (error) {
+      hostedError = error.message;
+    }
+    return {
+      success: true, operation: 'stop_scheduled_monitor', url, stoppedMonitors: result.stopped, stoppedHosted,
+      ...(hostedError ? { hostedError } : {}),
+      timestamp: Date.now()
+    };
   }
 
   async listScheduledMonitors() {
     if (!this.monitorStore._loaded) await this.monitorStore.load();
-    const monitors = this.scheduler.list();
-    return { success: true, operation: 'list_scheduled_monitors', monitors, count: monitors.length, timestamp: Date.now() };
+    const local = this.scheduler.list().map((m) => ({ ...m, hosted: false }));
+    // The local list never fails because the website is unreachable.
+    let hosted = [];
+    let hostedError = null;
+    try {
+      const creds = await this.options.resolveHostedCredentials();
+      hosted = (await listHostedMonitors(creds)).map((r) => listedHostedMonitor(r, creds.endpoint));
+    } catch (error) {
+      hostedError = error.message;
+    }
+    const monitors = [...local, ...hosted];
+    return {
+      success: true, operation: 'list_scheduled_monitors', monitors,
+      count: monitors.length, localCount: local.length, hostedCount: hosted.length,
+      ...(hostedError ? { hostedError } : {}),
+      timestamp: Date.now()
+    };
   }
 
   async getMonitoringDashboard(params) {

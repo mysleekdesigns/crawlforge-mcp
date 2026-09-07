@@ -6,8 +6,17 @@
 
 import { z } from 'zod';
 
-export const TrackChangesSchema = z.object({
-  url: z.string().url().optional(),
+/**
+ * The raw input shape — one declaration (G5). server.js spreads it, with the
+ * shared compliance params, into the registered inputSchema, so the
+ * `.describe()` strings a client sees and the defaults the tool validates
+ * with cannot drift apart again (they had: the `email` block and the default
+ * `excludeSelectors` never reached tools/list). `.prefault({})` on the option
+ * objects fills their inner defaults when the object is omitted; zod 4's
+ * `.default({})` would not.
+ */
+export const TRACK_CHANGES_INPUT_SHAPE = {
+  url: z.string().url().optional().describe("The URL to track changes for (optional for list_scheduled_monitors)"),
   operation: z.enum([
     'create_baseline',
     'compare',
@@ -22,13 +31,10 @@ export const TrackChangesSchema = z.object({
     'create_alert_rule',
     'generate_trend_report',
     'get_monitoring_templates'
-  ]).default('compare'),
+  ]).default('compare').describe("Tracking operation to perform"),
 
-  content: z.string().optional(),
-  html: z.string().optional(),
-
-  respect_robots: z.boolean().optional(),
-  user_agent: z.string().optional(),
+  content: z.string().optional().describe("Content to compare against baseline"),
+  html: z.string().optional().describe("HTML content to compare against baseline"),
 
   trackingOptions: z.object({
     granularity: z.enum(['page', 'section', 'element', 'text']).default('section'),
@@ -48,7 +54,7 @@ export const TrackChangesSchema = z.object({
       moderate: z.number().min(0).max(1).default(0.3),
       major: z.number().min(0).max(1).default(0.7)
     }).optional()
-  }).optional().prefault({}),
+  }).optional().prefault({}).describe("Options for how changes are tracked and compared"),
 
   monitoringOptions: z.object({
     enabled: z.boolean().default(false),
@@ -59,7 +65,7 @@ export const TrackChangesSchema = z.object({
     enableWebhook: z.boolean().default(false),
     webhookUrl: z.string().url().optional(),
     webhookSecret: z.string().optional()
-  }).optional().prefault({}),
+  }).optional().prefault({}).describe("Monitoring schedule and notification settings"),
 
   storageOptions: z.object({
     enableSnapshots: z.boolean().default(true),
@@ -67,7 +73,7 @@ export const TrackChangesSchema = z.object({
     maxHistoryEntries: z.number().min(1).max(1000).default(100),
     compressionEnabled: z.boolean().default(true),
     deltaStorageEnabled: z.boolean().default(true)
-  }).optional().prefault({}),
+  }).optional().prefault({}).describe("Storage and history retention settings"),
 
   queryOptions: z.object({
     limit: z.number().min(1).max(500).default(50),
@@ -76,7 +82,7 @@ export const TrackChangesSchema = z.object({
     endTime: z.number().optional(),
     includeContent: z.boolean().default(false),
     significanceFilter: z.enum(['all', 'minor', 'moderate', 'major', 'critical']).optional()
-  }).optional().prefault({}),
+  }).optional().prefault({}).describe("Query options for history and stats retrieval"),
 
   notificationOptions: z.object({
     email: z.object({
@@ -99,17 +105,19 @@ export const TrackChangesSchema = z.object({
       channel: z.string().optional(),
       username: z.string().optional()
     }).optional()
-  }).optional(),
+  }).optional().describe("Notification configuration for webhooks, Slack and email (email is sent by hosted monitors only)"),
 
   scheduledMonitorOptions: z.object({
-    schedule: z.string().optional(),
+    schedule: z.string().optional().describe("Optional cron expression (power users)"),
     templateId: z.string().optional(),
     enabled: z.boolean().default(true),
-    interval: z.number().min(60000).optional(),
-    goal: z.string().optional(),
-    monitorId: z.string().optional(),
-    notificationThreshold: z.enum(['minor', 'moderate', 'major', 'critical']).optional()
-  }).optional(),
+    interval: z.number().min(60000).optional().describe("Polling interval in ms (default 1h)"),
+    goal: z.string().optional().describe("Plain-English alert goal; an LLM judges whether a change matches (degrades to threshold if no LLM)"),
+    monitorId: z.string().optional().describe("Monitor id for stop_scheduled_monitor"),
+    notificationThreshold: z.enum(['minor', 'moderate', 'major', 'critical']).optional(),
+    hosted: z.boolean().default(false).describe("Run the monitor on CrawlForge's servers: it fires from the hosted scheduler whether or not this process is alive and sends email and signed webhooks. Each check bills 3 credits per compared target from the account; blocked and errored targets are free. Default false = local, in-process."),
+    name: z.string().min(1).max(80).optional().describe("Display name for a hosted monitor (default: the URL host)")
+  }).optional().describe("Scheduled monitoring: recurring compare + notify, optional plain-English goal"),
 
   alertRuleOptions: z.object({
     ruleId: z.string().optional(),
@@ -117,7 +125,7 @@ export const TrackChangesSchema = z.object({
     actions: z.array(z.enum(['webhook', 'email', 'slack'])).optional(),
     throttle: z.number().min(0).optional(),
     priority: z.enum(['low', 'medium', 'high']).optional()
-  }).optional(),
+  }).optional().describe("Alert rule configuration for change notifications"),
 
   exportOptions: z.object({
     format: z.enum(['json', 'csv']).default('json'),
@@ -125,11 +133,17 @@ export const TrackChangesSchema = z.object({
     endTime: z.number().optional(),
     includeContent: z.boolean().default(false),
     includeSnapshots: z.boolean().default(false)
-  }).optional(),
+  }).optional().describe("Export options for change history data"),
 
   dashboardOptions: z.object({
     includeRecentAlerts: z.boolean().default(true),
     includeTrends: z.boolean().default(true),
     includeMonitorStatus: z.boolean().default(true)
-  }).optional()
+  }).optional().describe("Dashboard display options")
+};
+
+export const TrackChangesSchema = z.object({
+  ...TRACK_CHANGES_INPUT_SHAPE,
+  respect_robots: z.boolean().optional(),
+  user_agent: z.string().optional()
 });

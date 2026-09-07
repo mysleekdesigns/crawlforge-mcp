@@ -26,7 +26,11 @@ const URL_B = 'https://example.com/ops/docs';
 
 let tool;
 before(() => {
-  tool = new TrackChangesTool({ snapshotStorageDir: tmp('snap'), monitorStorageDir: tmp('mon') });
+  tool = new TrackChangesTool({
+    snapshotStorageDir: tmp('snap'), monitorStorageDir: tmp('mon'),
+    // stop/list also consult the hosted monitors (6.1); keep this file offline.
+    resolveHostedCredentials: async () => { throw new Error('offline: no hosted credentials'); }
+  });
 });
 after(async () => {
   if (tool) await tool.shutdown().catch(() => {});
