@@ -201,7 +201,9 @@ describe('trackChanges tool — real module (Phase 2 fix)', () => {
     beforeEach(() => {
       realTool = new TrackChangesTool({
         snapshotStorageDir: path.join(os.tmpdir(), `trackchanges-test-${Math.random().toString(36).slice(2)}`),
-        monitorStorageDir: path.join(os.tmpdir(), `trackchanges-monitors-test-${Math.random().toString(36).slice(2)}`)
+        monitorStorageDir: path.join(os.tmpdir(), `trackchanges-monitors-test-${Math.random().toString(36).slice(2)}`),
+        // An unknown id is also looked up as a hosted monitor (6.1); keep this file offline.
+        resolveHostedCredentials: async () => { throw new Error('offline: no hosted credentials'); }
       });
     });
 

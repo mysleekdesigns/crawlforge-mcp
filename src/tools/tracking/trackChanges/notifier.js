@@ -79,12 +79,13 @@ export async function sendWebhookNotification(url, changeResult, webhookConfig, 
 }
 
 export async function sendEmailNotification(url, changeResult, emailConfig, emitter) {
-  // Email integration placeholder — requires external service
-  emitter?.emit('notificationSent', {
+  // This process has no mail service. Until 6.2.0 this emitted
+  // notificationSent { success: true } for a message that was never sent.
+  // Email is sent by the website's cron for hosted monitors.
+  emitter?.emit('notificationError', {
     type: 'email',
     url,
-    success: true,
-    note: 'Email notifications require external service integration'
+    error: 'Local monitors do not send email; create the monitor with scheduledMonitorOptions.hosted: true (or in the website dashboard) for email notifications'
   });
 }
 

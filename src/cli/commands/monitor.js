@@ -61,19 +61,33 @@ export function register(program) {
     .option('--threshold <level>', 'Notification threshold: minor|moderate|major|critical', 'moderate')
     .option('--cron <expr>', 'Optional cron expression (advanced)')
     .option('--selector <css>', 'CSS selector to scope monitoring')
+    .option('--hosted', "Run the monitor on CrawlForge's servers (fires without this process; email + signed webhooks; 3 credits per compared target per check)")
+    .option('--email <addresses>', 'Comma-separated notification emails (sent by hosted monitors only)')
+    .option('--name <text>', 'Display name for a hosted monitor (default: the URL host)')
     .action(async (url, opts) => {
       const tool = new TrackChangesTool(getToolConfig('track_changes'));
+      const notificationOptions = {
+        ...(opts.webhook ? { webhook: { enabled: true, url: opts.webhook } } : {}),
+        ...(opts.email ? { email: { enabled: true, recipients: opts.email.split(',').map((s) => s.trim()).filter(Boolean) } } : {})
+      };
+      if (opts.email && !opts.hosted) {
+        process.stderr.write('Warning: local monitors do not send email; add --hosted for --email to take effect.\n');
+      }
       try {
         const res = await tool.execute({
           url,
           operation: 'create_scheduled_monitor',
           ...(opts.selector ? { trackingOptions: { customSelectors: [opts.selector] } } : {}),
-          ...(opts.webhook ? { notificationOptions: { webhook: { enabled: true, url: opts.webhook } } } : {}),
+          ...(Object.keys(notificationOptions).length ? { notificationOptions } : {}),
           scheduledMonitorOptions: {
             interval: Math.max(parseInt(opts.every, 10), 60) * 1000,
             ...(opts.goal ? { goal: opts.goal } : {}),
             ...(opts.cron ? { schedule: opts.cron } : {}),
-            notificationThreshold: opts.threshold
+            ...(opts.hosted ? { hosted: true } : {}),
+            ...(opts.name ? { name: opts.name } : {}),
+            // Local only: a hosted check has no significance threshold, and
+            // the option's default would otherwise warn on every hosted create.
+            ...(opts.hosted ? {} : { notificationThreshold: opts.threshold })
           }
         });
         emit(res);
@@ -86,7 +100,7 @@ export function register(program) {
 
   program
     .command('monitor:list')
-    .description('List persisted scheduled monitors')
+    .description('List scheduled monitors (local and hosted)')
     .action(async () => {
       const tool = new TrackChangesTool(getToolConfig('track_changes'));
       try {
@@ -100,7 +114,7 @@ export function register(program) {
 
   program
     .command('monitor:stop <id>')
-    .description('Stop and remove a scheduled monitor by id')
+    .description('Stop and remove a scheduled monitor by id (local or hosted)')
     .action(async (id) => {
       const tool = new TrackChangesTool(getToolConfig('track_changes'));
       try {

@@ -23,7 +23,7 @@ import { ListOllamaModelsTool } from "./src/tools/extract/listOllamaModels.js";
 import { BatchScrapeTool } from "./src/tools/advanced/BatchScrapeTool.js";
 import { ScrapeWithActionsTool } from "./src/tools/advanced/ScrapeWithActionsTool.js";
 import { DeepResearchTool } from "./src/tools/research/deepResearch.js";
-import { TrackChangesTool } from "./src/tools/tracking/trackChanges/index.js";
+import { TrackChangesTool, TRACK_CHANGES_INPUT_SHAPE } from "./src/tools/tracking/trackChanges/index.js";
 import { GenerateLLMsTxtTool } from "./src/tools/llmstxt/generateLLMsTxt.js";
 import { ScrapeTemplateTool } from "./src/tools/templates/ScrapeTemplateTool.js"; // D3.3
 import { UnifiedScrapeTool, SCRAPE_INPUT_SHAPE } from "./src/tools/scrape/unifiedScrape.js"; // D4 D1
@@ -1138,103 +1138,11 @@ registerToolIfEnabled("agent", {
 
 // Tool: track_changes
 registerToolIfEnabled("track_changes", {
-  description: "Use this to monitor a URL for content changes over time - competitor pricing, regulation updates, product availability. Start with operation:\"create_baseline\", then periodically use operation:\"compare\" to diff; repeated compare calls on the same URL are expected. Supports webhooks and scheduled monitoring. Not for a one-off read (scrape). Cost: 3 credits. Example: track_changes({url: \"https://example.com/pricing\", operation: \"create_baseline\"})",
+  description: "Use this to monitor a URL for content changes over time - competitor pricing, regulation updates, product availability. Start with operation:\"create_baseline\", then periodically use operation:\"compare\" to diff; repeated compare calls on the same URL are expected. Supports webhooks and scheduled monitoring, and scheduledMonitorOptions.hosted:true runs the monitor on CrawlForge's servers with email and signed webhooks. Not for a one-off read (scrape). Cost: 3 credits. Example: track_changes({url: \"https://example.com/pricing\", operation: \"create_baseline\"})",
   annotations: { title: "Track Changes", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  // The tool module owns the schema (G5); this is the same shape it validates with.
   inputSchema: {
-    url: z.string().url().optional().describe("The URL to track changes for (optional for list_scheduled_monitors)"),
-    operation: z.enum([
-      'create_baseline', 'compare', 'monitor', 'get_history', 'get_stats',
-      'create_scheduled_monitor', 'stop_scheduled_monitor', 'list_scheduled_monitors', 'get_dashboard',
-      'export_history', 'create_alert_rule', 'generate_trend_report', 'get_monitoring_templates'
-    ]).default('compare').describe("Tracking operation to perform"),
-    content: z.string().optional().describe("Content to compare against baseline"),
-    html: z.string().optional().describe("HTML content to compare against baseline"),
-    trackingOptions: z.object({
-      granularity: z.enum(['page', 'section', 'element', 'text']).default('section'),
-      trackText: z.boolean().default(true),
-      trackStructure: z.boolean().default(true),
-      trackAttributes: z.boolean().default(false),
-      trackImages: z.boolean().default(false),
-      trackLinks: z.boolean().default(true),
-      ignoreWhitespace: z.boolean().default(true),
-      ignoreCase: z.boolean().default(false),
-      customSelectors: z.array(z.string()).optional(),
-      excludeSelectors: z.array(z.string()).optional(),
-      significanceThresholds: z.object({
-        minor: z.number().min(0).max(1).default(0.1),
-        moderate: z.number().min(0).max(1).default(0.3),
-        major: z.number().min(0).max(1).default(0.7)
-      }).optional()
-    }).optional().describe("Options for how changes are tracked and compared"),
-    monitoringOptions: z.object({
-      enabled: z.boolean().default(false),
-      interval: z.number().min(60000).max(24 * 60 * 60 * 1000).default(300000),
-      maxRetries: z.number().min(0).max(5).default(3),
-      retryDelay: z.number().min(1000).max(60000).default(5000),
-      notificationThreshold: z.enum(['minor', 'moderate', 'major', 'critical']).default('moderate'),
-      enableWebhook: z.boolean().default(false),
-      webhookUrl: z.string().url().optional(),
-      webhookSecret: z.string().optional()
-    }).optional().describe("Monitoring schedule and notification settings"),
-    storageOptions: z.object({
-      enableSnapshots: z.boolean().default(true),
-      retainHistory: z.boolean().default(true),
-      maxHistoryEntries: z.number().min(1).max(1000).default(100),
-      compressionEnabled: z.boolean().default(true),
-      deltaStorageEnabled: z.boolean().default(true)
-    }).optional().describe("Storage and history retention settings"),
-    queryOptions: z.object({
-      limit: z.number().min(1).max(500).default(50),
-      offset: z.number().min(0).default(0),
-      startTime: z.number().optional(),
-      endTime: z.number().optional(),
-      includeContent: z.boolean().default(false),
-      significanceFilter: z.enum(['all', 'minor', 'moderate', 'major', 'critical']).optional()
-    }).optional().describe("Query options for history and stats retrieval"),
-    notificationOptions: z.object({
-      webhook: z.object({
-        enabled: z.boolean().default(false),
-        url: z.string().url().optional(),
-        method: z.enum(['POST', 'PUT']).default('POST'),
-        headers: z.record(z.string()).optional(),
-        signingSecret: z.string().optional(),
-        includeContent: z.boolean().default(false)
-      }).optional(),
-      slack: z.object({
-        enabled: z.boolean().default(false),
-        webhookUrl: z.string().url().optional(),
-        channel: z.string().optional(),
-        username: z.string().optional()
-      }).optional()
-    }).optional().describe("Notification configuration for webhooks and Slack"),
-    scheduledMonitorOptions: z.object({
-      schedule: z.string().optional().describe("Optional cron expression (power users)"),
-      templateId: z.string().optional(),
-      enabled: z.boolean().default(true),
-      interval: z.number().min(60000).optional().describe("Polling interval in ms (default 1h)"),
-      goal: z.string().optional().describe("Plain-English alert goal; an LLM judges whether a change matches (degrades to threshold if no LLM)"),
-      monitorId: z.string().optional().describe("Monitor id for stop_scheduled_monitor"),
-      notificationThreshold: z.enum(['minor', 'moderate', 'major', 'critical']).optional()
-    }).optional().describe("Scheduled monitoring: recurring compare + notify, optional plain-English goal"),
-    alertRuleOptions: z.object({
-      ruleId: z.string().optional(),
-      condition: z.string().optional(),
-      actions: z.array(z.enum(['webhook', 'email', 'slack'])).optional(),
-      throttle: z.number().min(0).optional(),
-      priority: z.enum(['low', 'medium', 'high']).optional()
-    }).optional().describe("Alert rule configuration for change notifications"),
-    exportOptions: z.object({
-      format: z.enum(['json', 'csv']).default('json'),
-      startTime: z.number().optional(),
-      endTime: z.number().optional(),
-      includeContent: z.boolean().default(false),
-      includeSnapshots: z.boolean().default(false)
-    }).optional().describe("Export options for change history data"),
-    dashboardOptions: z.object({
-      includeRecentAlerts: z.boolean().default(true),
-      includeTrends: z.boolean().default(true),
-      includeMonitorStatus: z.boolean().default(true)
-    }).optional().describe("Dashboard display options"),
+    ...TRACK_CHANGES_INPUT_SHAPE,
     ...COMPLIANCE_PARAMS
   }
 }, withAuth("track_changes", async (params) => {
