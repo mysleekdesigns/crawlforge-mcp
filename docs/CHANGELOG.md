@@ -3,6 +3,24 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [6.3.1] - 2026-09-07
+
+### Fixed
+
+- **`crawlforge login` crashed on Linux with `ERR_MODULE_NOT_FOUND`.**
+  `src/cli/commands/login.js` imported `../../core/authManager.js` while the file is
+  `AuthManager.js`. macOS and Windows filesystems are case-insensitive and resolve that; Linux
+  and Docker do not, so the command died at import for every Linux user from 6.1.0, where it
+  shipped. Every other reference in the tree already used the correct case — this was the only
+  outlier, and a sweep of all 363 tracked sources found no others.
+
+  CI had been reporting this since 6.1.0 and it was read past three times: the test file failed
+  at *import*, so the runner showed one failing test at `cliLogin.test.js:1:1` with no assertion
+  message, which reads like an environmental blip rather than a broken command. A new
+  `tests/unit/importCaseExactness.test.js` compares every relative import against `git ls-files`
+  rather than the disk, because a developer on a case-insensitive filesystem cannot reproduce
+  this at runtime. Verified on Linux: `node:22-alpine` runs the login suite 10/10.
+
 ## [6.3.0] - 2026-09-07
 
 Four defects found by the R19 live sweep of all 30 tools. Each one returned a confident wrong
