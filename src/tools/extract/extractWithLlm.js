@@ -7,11 +7,11 @@
  * Pass provider: "openai" | "anthropic" with the matching API key to use a cloud model.
  */
 
-import { z } from 'zod';
 import { fetchAndParse } from './_fetchAndParse.js';
 import { ollamaBaseUrl, ollamaHeaders, selectOllamaModel } from '../../utils/ollamaConfig.js';
 import { verifyNumericProvenance } from '../../utils/provenance.js';
 import { extractionFormat } from '../../utils/extractionFormat.js';
+import { validateAgainstSchema } from '../../utils/schemaValidate.js';
 import { fenceUntrusted } from '../../utils/untrustedContent.js';
 // D1.3: SamplingClient for MCP sampling fallback (lazy — only imported if needed)
 let _SamplingClient = null;
@@ -173,48 +173,6 @@ function buildInputSchema(schema) {
   return format === 'json' ? { type: 'object', properties: {}, additionalProperties: true } : format;
 }
 
-/**
- * Build a zod validator from a JSON-Schema-like hint. Best-effort: unknown
- * shapes fall back to `z.any()` so validation never rejects on constructs the
- * converter does not understand.
- */
-function jsonSchemaToZod(schema) {
-  if (!schema || typeof schema !== 'object') return z.any();
-
-  // Flat hint map (no `type`/`properties`) → treat values as field hints.
-  const isJsonSchema = schema.type || schema.properties || schema.items;
-  if (!isJsonSchema) {
-    const shape = {};
-    for (const [key, val] of Object.entries(schema)) {
-      shape[key] = jsonSchemaToZod(typeof val === 'string' ? { type: val } : val).nullable().optional();
-    }
-    return z.object(shape).passthrough();
-  }
-
-  switch (schema.type) {
-    case 'string': return z.string();
-    case 'number':
-    case 'integer': return z.number();
-    case 'boolean': return z.boolean();
-    case 'null': return z.null();
-    case 'array': return z.array(schema.items ? jsonSchemaToZod(schema.items) : z.any());
-    case 'object': {
-      const shape = {};
-      const required = Array.isArray(schema.required) ? schema.required : [];
-      for (const [key, val] of Object.entries(schema.properties || {})) {
-        const field = jsonSchemaToZod(val);
-        // The model is told to answer null for a field the content never
-        // states, so null is the honest answer for a field the schema does
-        // not require — not a type violation. A required field stays strict:
-        // null there is exactly what the caller needs to hear about.
-        shape[key] = required.includes(key) ? field : field.nullable().optional();
-      }
-      return z.object(shape).passthrough();
-    }
-    default: return z.any();
-  }
-}
-
 /** JSON Schema type keywords, used to spot a type declaration posing as a value. */
 const SCHEMA_TYPE_KEYWORDS = new Set(['string', 'number', 'integer', 'boolean', 'object', 'array', 'null']);
 
@@ -279,25 +237,6 @@ function hasNoExtractableData(parsed) {
   // Object.values covers arrays too; an empty object/array vacuously satisfies
   // every(), which is the answer we want.
   return Object.values(parsed).every(hasNoExtractableData);
-}
-
-/**
- * Validate parsed output against the schema hint.
- * @returns {{ valid: boolean, errors: string[] }}
- */
-function validateAgainstSchema(parsed, schema) {
-  try {
-    const validator = jsonSchemaToZod(schema);
-    const result = validator.safeParse(parsed);
-    if (result.success) return { valid: true, errors: [] };
-    return {
-      valid: false,
-      errors: result.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
-    };
-  } catch {
-    // Converter failure should not block extraction — treat as unvalidated.
-    return { valid: true, errors: [] };
-  }
 }
 
 // ── OpenAI call ───────────────────────────────────────────────────────────────

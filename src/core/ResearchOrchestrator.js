@@ -2000,7 +2000,13 @@ export class ResearchOrchestrator extends EventEmitter {
         sessionId: this.researchState.sessionId,
         topic,
         synthesisMode: 'raw_evidence',
-        note: "This response contains raw research evidence with no AI synthesis. The calling LLM (you) should synthesize these sources to answer the user's question. To enable internal LLM synthesis instead, set OPENAI_API_KEY or ANTHROPIC_API_KEY in the MCP server environment.",
+        // Raw evidence has two quite different causes and the note used to
+        // report only one of them: a run that synthesized fine until its
+        // token budget ran out was still told to set an API key it already
+        // had (R19). Say which one actually happened.
+        note: this.researchState.tokenBudgetExceeded
+          ? `This response contains raw research evidence with no AI synthesis. Synthesis ran until the research token budget (${this.researchState.tokenBudgetChars.toLocaleString()} chars of source content) was exhausted, then stopped for the rest of the session. The calling LLM (you) should synthesize these sources. To get internal synthesis, narrow the topic or lower maxUrls, or raise RESEARCH_TOKEN_BUDGET_CHARS in the MCP server environment.`
+          : "This response contains raw research evidence with no AI synthesis. The calling LLM (you) should synthesize these sources to answer the user's question. To enable internal LLM synthesis instead, set OPENAI_API_KEY or ANTHROPIC_API_KEY in the MCP server environment.",
         sources,
         findings: [],
         researchSummary: {

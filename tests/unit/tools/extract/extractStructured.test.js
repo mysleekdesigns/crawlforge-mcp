@@ -431,3 +431,65 @@ describe('extractStructured — no-LLM required-fields gate (real module)', () =
     assert.equal(result.extraction_method, 'css_fallback');
   });
 });
+
+/**
+ * R19 (2026-09-07): a required array that came back full of stray page text
+ * was neither missing nor empty, so `success` stayed true while `validation`
+ * said nothing — the shallow validator had passed it. With the validator
+ * fixed, a required field in the wrong shape has to fail the call too.
+ */
+describe('extractStructured — a required field in the wrong shape fails the call', () => {
+  const rowsSchema = {
+    type: 'object',
+    properties: {
+      countries: {
+        type: 'array',
+        items: { type: 'object', properties: { name: { type: 'string' }, capital: { type: 'string' } } }
+      }
+    },
+    required: ['countries']
+  };
+
+  test('an array of strings where objects were required is not a success', async () => {
+    const tool = new ExtractStructuredTool();
+    stubLlm(tool, {
+      data: { countries: ['Countries of the World: A Simple Example', 'build a simple web scraper'] },
+      valid: false,
+      validationErrors: ['Field "countries.0": expected object, got string']
+    });
+
+    const result = await tool.execute({ url: `${baseUrl}/product`, schema: rowsSchema });
+
+    assert.equal(result.success, false, 'junk rows must not report success');
+    assert.match(result.error, /wrong shape: countries/);
+    assert.equal(result.validation.valid, false);
+  });
+
+  test('a correctly shaped required array still succeeds', async () => {
+    const tool = new ExtractStructuredTool();
+    stubLlm(tool, {
+      data: { countries: [{ name: 'Andorra', capital: 'Andorra la Vella' }] },
+      valid: true,
+      validationErrors: []
+    });
+
+    const result = await tool.execute({ url: `${baseUrl}/product`, schema: rowsSchema });
+
+    assert.equal(result.success, true, result.error || '');
+  });
+
+  test('a missing required field still reports missing, not wrong shape', async () => {
+    const tool = new ExtractStructuredTool();
+    stubLlm(tool, {
+      data: { countries: [] },
+      valid: false,
+      validationErrors: ['Missing required field: countries']
+    });
+
+    const result = await tool.execute({ url: `${baseUrl}/product`, schema: rowsSchema });
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /missing or empty: countries/);
+    assert.doesNotMatch(result.error, /wrong shape/, 'an empty array is reported once, as empty');
+  });
+});

@@ -37,3 +37,59 @@ describe('validateAgainstSchema — null fields', () => {
     assert.deepEqual(errors, ['Field "step_count": expected number, got string']);
   });
 });
+
+/**
+ * R19 (2026-09-07): the validator only ever looked one level deep, so an array
+ * of the wrong thing passed as long as the top-level value was an array. A
+ * live extract_structured run returned three stray lines of page text as the
+ * `countries` array and reported valid: true.
+ */
+const rowsSchema = {
+  type: 'object',
+  properties: {
+    countries: {
+      type: 'array',
+      items: { type: 'object', properties: { name: { type: 'string' }, capital: { type: 'string' } } }
+    }
+  },
+  required: ['countries']
+};
+
+describe('validateAgainstSchema — nested shapes', () => {
+  test('an array of the wrong item type is reported, per item', () => {
+    const junk = { countries: ['Countries of the World: A Simple Example', 'build a simple web scraper'] };
+    const { valid, errors } = new LLMManager({}).validateAgainstSchema(junk, rowsSchema);
+    assert.equal(valid, false, 'an array of strings is not an array of objects');
+    assert.deepEqual(errors, [
+      'Field "countries.0": expected object, got string',
+      'Field "countries.1": expected object, got string'
+    ]);
+  });
+
+  test('a correctly shaped array is valid', () => {
+    const good = { countries: [{ name: 'Andorra', capital: 'Andorra la Vella' }] };
+    const { valid, errors } = new LLMManager({}).validateAgainstSchema(good, rowsSchema);
+    assert.equal(valid, true, errors.join('; '));
+  });
+
+  test('a wrong type inside an array element is reported with its path', () => {
+    const bad = { countries: [{ name: 'Andorra', capital: 12 }] };
+    const { errors } = new LLMManager({}).validateAgainstSchema(bad, rowsSchema);
+    assert.deepEqual(errors, ['Field "countries.0.capital": expected string, got number']);
+  });
+
+  test('enum violations survive the move to the shared validator', () => {
+    const enumSchema = { type: 'object', properties: { status: { type: 'string', enum: ['open', 'closed'] } } };
+    const { valid, errors } = new LLMManager({}).validateAgainstSchema({ status: 'ajar' }, enumSchema);
+    assert.equal(valid, false);
+    assert.deepEqual(errors, ['Field "status": value "ajar" not in enum ["open","closed"]']);
+  });
+
+  test('a malformed array reports at most ten errors plus a count', () => {
+    const numbers = { type: 'object', properties: { xs: { type: 'array', items: { type: 'number' } } } };
+    const { valid, errors } = new LLMManager({}).validateAgainstSchema({ xs: Array(30).fill('nope') }, numbers);
+    assert.equal(valid, false);
+    assert.equal(errors.length, 11, 'ten errors plus the overflow line');
+    assert.equal(errors.at(-1), '…and 20 more validation errors');
+  });
+});
