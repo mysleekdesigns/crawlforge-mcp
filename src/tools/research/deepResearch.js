@@ -451,8 +451,9 @@ export class DeepResearchTool {
    * Format research results according to output preferences
    */
   formatResults(results, params) {
-    // Raw evidence mode (no LLM configured): apply lightweight formatting so
-    // outputFormat is not silently ignored, and rank sources by credibility.
+    // Raw evidence mode (no LLM configured, or the token budget ran out
+    // mid-run): apply lightweight formatting so outputFormat is not silently
+    // ignored, and rank sources by credibility. `results.note` says which.
     if (results.synthesisMode === 'raw_evidence') {
       const rankedSources = (results.sources || [])
         .slice()

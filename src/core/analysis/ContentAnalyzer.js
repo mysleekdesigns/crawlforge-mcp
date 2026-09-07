@@ -144,6 +144,26 @@ export class ContentAnalyzer {
   }
 
   /**
+   * True when the text is written mostly in the Latin alphabet.
+   *
+   * The analyser's entity extraction (compromise) and its syllable counter are
+   * both English/Latin-only. Run over Russian they do not degrade, they invent:
+   * "дождь и порывистый" ("rain and gusty") came back as an organization, and
+   * every Cyrillic word counted as one syllable, which put a weather report at
+   * Flesch 100, "Very Easy" (R19). Text with too few Latin letters to work on
+   * is reported as not-applicable rather than analysed anyway.
+   *
+   * @param {string} text - Text to analyze
+   * @returns {boolean}
+   */
+  isLatinScriptText(text) {
+    const letters = (text || '').match(/\p{L}/gu);
+    if (!letters || letters.length === 0) return true; // nothing to misread
+    const latin = (text || '').match(/\p{Script=Latin}/gu);
+    return (latin ? latin.length : 0) / letters.length >= 0.5;
+  }
+
+  /**
    * Tokenize text into words with Intl.Segmenter (dictionary-based for CJK
    * scripts, whitespace/boundary-based otherwise). Only word-like segments
    * are returned — punctuation and whitespace segments are dropped.
@@ -534,6 +554,17 @@ export class ContentAnalyzer {
    */
   async extractEntities(text, options = {}) {
     try {
+      // compromise is an English model. On Russian it does not find fewer
+      // entities, it finds wrong ones — "дождь и порывистый" as an
+      // organization (R19). Say so rather than fill the categories with noise.
+      if (!this.isLatinScriptText(text)) {
+        return {
+          people: [], places: [], organizations: [], dates: [], money: [], other: [],
+          notApplicable: 'entity-extraction-requires-latin-script',
+          summary: { totalEntities: 0, uniqueEntities: 0, entityDensity: 0 }
+        };
+      }
+
       const doc = nlp(text);
 
       // compromise's out('array') keeps adjoining punctuation ("Craigslist.",
@@ -754,10 +785,13 @@ export class ContentAnalyzer {
         syllables: totalSyllables
       };
 
-      // Flesch is syllable-based and says nothing about CJK scripts. Report the
-      // metrics with an explicit reason instead of a fabricated score — a null
-      // return above already means "failed", so the two stay distinguishable.
-      if (isCjk) {
+      // Flesch is syllable-based, and countSyllables() only knows the Latin
+      // vowels — every Cyrillic, Greek or Arabic word scores one syllable, so
+      // the formula returns ~100 ("Very Easy") for any of them (R19). Report
+      // the metrics with an explicit reason instead of a fabricated score — a
+      // null return above already means "failed", so the two stay
+      // distinguishable.
+      if (isCjk || !this.isLatinScriptText(text)) {
         return {
           notApplicable: 'flesch-requires-syllable-based-language',
           metrics
@@ -1070,16 +1104,38 @@ export class ContentAnalyzer {
    * @returns {boolean} - True if stop word
    */
   isStopWord(word) {
-    const stopWords = [
-      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
-      'from', 'as', 'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
-      'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can',
-      'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me',
-      'him', 'her', 'us', 'them', 'my', 'your', 'his', 'its', 'our', 'their'
-    ];
-    
-    return stopWords.includes(word.toLowerCase());
+    return STOP_WORDS.has(word.toLowerCase());
   }
 }
+
+/**
+ * Stop words, by script. Russian was added after a weather report analysed with
+ * `analyze_content` returned bare prepositions and conjunctions among its
+ * topics — "над" ("over") ranked as one (R19). R17 had added Japanese the same
+ * way; every language whose function words are not on this list gets them back
+ * as topics.
+ */
+const STOP_WORDS = new Set([
+  // English
+  'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+  'from', 'as', 'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
+  'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can',
+  'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me',
+  'him', 'her', 'us', 'them', 'my', 'your', 'his', 'its', 'our', 'their',
+  // Russian — prepositions, conjunctions, particles and pronouns
+  'и', 'в', 'во', 'не', 'что', 'он', 'на', 'я', 'с', 'со', 'как', 'а', 'то', 'все', 'она',
+  'так', 'его', 'но', 'да', 'ты', 'к', 'у', 'же', 'вы', 'за', 'бы', 'по', 'только', 'ее',
+  'мне', 'было', 'вот', 'от', 'меня', 'еще', 'нет', 'о', 'из', 'ему', 'теперь', 'когда',
+  'даже', 'ну', 'вдруг', 'ли', 'если', 'уже', 'или', 'ни', 'быть', 'был', 'него', 'до',
+  'вас', 'нибудь', 'опять', 'уж', 'вам', 'ведь', 'там', 'потом', 'себя', 'ничего', 'ей',
+  'может', 'они', 'тут', 'где', 'есть', 'надо', 'ней', 'для', 'мы', 'тебя', 'их', 'чем',
+  'была', 'сам', 'чтоб', 'без', 'будто', 'чего', 'раз', 'тоже', 'себе', 'под', 'будет',
+  'ж', 'тогда', 'кто', 'этот', 'того', 'потому', 'этого', 'какой', 'совсем', 'ним',
+  'здесь', 'этом', 'один', 'почти', 'мой', 'тем', 'чтобы', 'нее', 'были', 'куда', 'зачем',
+  'всех', 'никогда', 'можно', 'при', 'наконец', 'два', 'об', 'другой', 'хоть', 'после',
+  'над', 'больше', 'тот', 'через', 'эти', 'нас', 'про', 'всего', 'них', 'какая', 'много',
+  'разве', 'три', 'эту', 'моя', 'впрочем', 'свою', 'этой', 'перед', 'иногда', 'лучше',
+  'чуть', 'том', 'нельзя', 'такой', 'им', 'более', 'всегда', 'конечно', 'всю', 'между'
+]);
 
 export default ContentAnalyzer;

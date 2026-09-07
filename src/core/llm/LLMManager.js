@@ -1,9 +1,31 @@
 import { OpenAIProvider } from './OpenAIProvider.js';
 import { extractionFormat } from '../../utils/extractionFormat.js';
+import { validateFieldsAgainstSchema } from '../../utils/schemaValidate.js';
 import { AnthropicProvider } from './AnthropicProvider.js';
 import { OllamaProvider } from './OllamaProvider.js';
 import { Logger } from '../../utils/Logger.js';
 import { isJudgementModel } from '../../utils/ollamaConfig.js';
+
+// Output-token ceilings for structured extraction. A schema of scalar fields
+// answers in a few hundred tokens; one asking for an array is writing rows,
+// and the same ceiling truncates it mid-object.
+const SCALAR_OUTPUT_CEILING = 2000;
+const ROW_OUTPUT_CEILING = 4000;
+const ROW_FIELD_ALLOWANCE = 1200;
+
+/**
+ * True when a JSON string that failed to parse simply stops partway — the
+ * signature of a response that hit its output-token limit, as opposed to one
+ * that is malformed from the start.
+ */
+function endsMidJson(text) {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return false;
+  // A complete document ends on its closing brace or bracket. Anything else
+  // — a dangling comma, an unterminated string, a half-written key — means
+  // the writer stopped rather than finished.
+  return !trimmed.endsWith('}') && !trimmed.endsWith(']');
+}
 
 /**
  * LLM Manager
@@ -916,9 +938,17 @@ Return the list and nothing else.`;
       ? content.substring(0, maxContentLength) + '...'
       : content;
 
-    // Scale maxTokens with schema complexity
-    const schemaFields = Object.keys(schema.properties || {}).length;
-    const scaledTokens = Math.min(2000, Math.max(maxTokens, schemaFields * 100 + 500));
+    // Scale maxTokens with schema complexity. An array-valued property is one
+    // key but many rows of output, so counting keys alone budgets a 250-row
+    // table exactly like a single string: the response stops mid-object and
+    // the whole extraction is thrown away as unparseable (R19).
+    const fields = Object.values(schema.properties || {});
+    const arrayFields = fields.filter((field) => field?.type === 'array').length;
+    const ceiling = arrayFields > 0 ? ROW_OUTPUT_CEILING : SCALAR_OUTPUT_CEILING;
+    const scaledTokens = Math.min(
+      ceiling,
+      Math.max(maxTokens, fields.length * 100 + arrayFields * ROW_FIELD_ALLOWANCE + 500)
+    );
 
     const systemPrompt = `You are a structured data extraction expert. Extract data from the provided content and return ONLY valid JSON that conforms to the given JSON Schema. Use null for any field the content does not state — never guess, infer, or fill a value from memory. Do not include any explanation or markdown — only the raw JSON object.`;
 
@@ -933,76 +963,74 @@ ${truncatedContent}
 
 Extract the data and return valid JSON:`;
 
-    try {
-      const response = await this.generateCompletion(extractionPrompt, {
-        systemPrompt,
-        maxTokens: scaledTokens,
-        temperature: 0.1,
-        // Constrain the output to the caller's shape with every field
-        // nullable, so a model shown content that does not state a field can
-        // answer null instead of being decoded into an invented string. Small
-        // local models otherwise wrap the JSON in prose and the parse throws.
-        format: extractionFormat(schema)
-      });
+    // Two attempts, the second with twice the budget: the failure this guards
+    // against is a response cut off mid-object, which re-asking at the same
+    // size reproduces exactly. Mirrors the retry in synthesizeFindings().
+    let lastError;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const budget = attempt === 0 ? scaledTokens : Math.min(ceiling * 2, scaledTokens * 2);
+      try {
+        const response = await this.generateCompletion(extractionPrompt, {
+          systemPrompt,
+          maxTokens: budget,
+          temperature: 0.1,
+          // Constrain the output to the caller's shape with every field
+          // nullable, so a model shown content that does not state a field can
+          // answer null instead of being decoded into an invented string. Small
+          // local models otherwise wrap the JSON in prose and the parse throws.
+          format: extractionFormat(schema)
+        });
 
-      // Strip markdown code fences if present
-      const cleaned = response.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
-      const parsed = JSON.parse(cleaned);
+        // Strip markdown code fences if present
+        const cleaned = response.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+        let parsed;
+        try {
+          parsed = JSON.parse(cleaned);
+        } catch (parseError) {
+          // Name the cause when the JSON simply stops: "unexpected end of
+          // input at position 2608" tells a caller nothing they can act on,
+          // whereas "cut off at the 1000-token limit" points at the schema.
+          throw endsMidJson(cleaned)
+            ? new Error(`model response was cut off at the ${budget}-token output limit (${cleaned.length} chars) — the schema asks for more rows than fit`)
+            : parseError;
+        }
 
-      // Lightweight validation
-      const validation = this.validateAgainstSchema(parsed, schema);
-      return {
-        data: parsed,
-        method: 'llm',
-        valid: validation.valid,
-        validationErrors: validation.errors
-      };
-    } catch (error) {
-      this.logger.warn('LLM structured extraction failed, using fallback', { error: error.message });
-      // Report which path produced the data. Callers previously labelled this
-      // result "llm", so a failed LLM call was returned as a high-confidence
-      // LLM extraction.
-      return { ...this.fallbackStructuredExtraction(content, schema), error: error.message };
+        const validation = this.validateAgainstSchema(parsed, schema);
+        return {
+          data: parsed,
+          method: 'llm',
+          valid: validation.valid,
+          validationErrors: validation.errors
+        };
+      } catch (error) {
+        lastError = error;
+        this.logger.warn('LLM structured extraction attempt failed', {
+          attempt: attempt + 1,
+          budget,
+          error: error.message
+        });
+      }
     }
+
+    this.logger.warn('LLM structured extraction failed, using fallback', { error: lastError.message });
+    // Report which path produced the data. Callers previously labelled this
+    // result "llm", so a failed LLM call was returned as a high-confidence
+    // LLM extraction.
+    return { ...this.fallbackStructuredExtraction(content, schema), error: lastError.message };
   }
 
   /**
-   * Validate a parsed object against a simple JSON Schema
+   * Validate a parsed object against a JSON Schema.
+   *
+   * Delegates to the shared validator so that it descends into `items` and
+   * nested `properties`. This used to be a hand-rolled one-level check, which
+   * passed `{countries: ["a string"]}` against
+   * `{countries: {type: 'array', items: {type: 'object'}}}` as valid — the
+   * top-level value really was an array, and nothing looked inside it, so an
+   * extraction full of stray page text was returned as `valid: true` (R19).
    */
   validateAgainstSchema(data, schema) {
-    const errors = [];
-    const properties = schema.properties || {};
-    const required = schema.required || [];
-
-    for (const field of required) {
-      // The decoder is told to answer null for a field the content never
-      // states, so a null here is "not filled in", the same as absent.
-      if (!(field in data) || data[field] === null) {
-        errors.push(`Missing required field: ${field}`);
-      }
-    }
-
-    for (const [key, fieldSchema] of Object.entries(properties)) {
-      if (key in data) {
-        const value = data[key];
-        // A null in a field the schema does not require is the honest answer
-        // for content that never states it, not a type error (typeof null is
-        // 'object', which used to read as "expected number, got object").
-        if (value === null) continue;
-        const expectedType = fieldSchema.type;
-        if (expectedType) {
-          const actualType = Array.isArray(value) ? 'array' : typeof value;
-          if (actualType !== expectedType) {
-            errors.push(`Field "${key}": expected ${expectedType}, got ${actualType}`);
-          }
-        }
-        if (fieldSchema.enum && !fieldSchema.enum.includes(value)) {
-          errors.push(`Field "${key}": value "${value}" not in enum ${JSON.stringify(fieldSchema.enum)}`);
-        }
-      }
-    }
-
-    return { valid: errors.length === 0, errors };
+    return validateFieldsAgainstSchema(data, schema);
   }
 
   /**

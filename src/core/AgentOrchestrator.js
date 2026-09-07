@@ -100,6 +100,62 @@ export function unverifiedValues(answer, sourceText) {
  */
 const CURRENT_STATE_RE = /\b(right now|currently|today|tonight|at the moment|as of (now|today)|latest|this (week|month|morning))\b|#\d+[^.?!]*\bnow\b/i;
 
+/** Version numbers as they appear in an answer, e.g. "2.11.4". */
+const VERSION_IN_TEXT = /\b\d+\.\d+(?:\.\d+){0,2}\b/g;
+
+/** Hosts that publish user discussion rather than a project's own statements. */
+const DISCUSSION_HOSTS = new Set([
+  'news.ycombinator.com', 'reddit.com', 'www.reddit.com', 'quora.com', 'www.quora.com',
+  'stackoverflow.com', 'serverfault.com', 'superuser.com', 'askubuntu.com',
+  'facebook.com', 'www.facebook.com', 'twitter.com', 'x.com'
+]);
+
+/**
+ * True when a URL is a discussion page — a forum, Q&A site or social post.
+ * Covers the hosted-forum conventions too: caddy.community, community.acme.io,
+ * forum.example.org, discuss.example.org, anything.stackexchange.com.
+ */
+export function isDiscussionSource(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return DISCUSSION_HOSTS.has(host)
+      || /(^|\.)(community|forum|forums|discuss|discourse)\./.test(host)
+      || /\.(community|forum)$/.test(host)
+      || /\.stackexchange\.com$/.test(host);
+  } catch {
+    return false;
+  }
+}
+
+/** True when the task asks for a version or release number. */
+export function isVersionQuestion(prompt) {
+  return /\b(version|versions|release|releases|released|changelog)\b/i.test(prompt || '');
+}
+
+/**
+ * Version numbers the answer states that no non-discussion source supports.
+ *
+ * A forum thread carries real version strings, so the literal provenance check
+ * passes them: asked for the current Caddy release, the agent answered "2.4.3"
+ * off a caddy.community thread about a different project, while caddyserver.com
+ * and the GitHub repo — both fetched — stated no version at all (R19). A
+ * version is a claim about the project, and a discussion page is not the
+ * project speaking.
+ *
+ * Returns [] when nothing but discussion pages was fetched: there is then no
+ * better source to have preferred, and the provenance check already applies.
+ */
+export function unsupportedVersionClaims(answer, evidence) {
+  if (!answer) return [];
+  // URLs are citations, not claims — a version inside one is not an assertion.
+  const claims = [...new Set(answer.replace(/https?:\/\/\S+/g, ' ').match(VERSION_IN_TEXT) || [])];
+  if (claims.length === 0) return [];
+  const authoritative = (evidence || []).filter(e => !isDiscussionSource(e.url));
+  if (authoritative.length === 0) return [];
+  const supported = authoritative.map(e => e.text || '').join('\n');
+  return claims.filter(version => !supported.includes(version));
+}
+
 export function isCurrentStateTask(prompt) {
   return CURRENT_STATE_RE.test(prompt || '');
 }
@@ -459,6 +515,10 @@ export class AgentOrchestrator {
     let degraded = false;
     let degradedReason;
     let unverified = [];
+    let forumOnlyVersions = [];
+    // Distinct from `degraded`: a run can be degraded because its version
+    // claims are unsupported and still have had its provenance checked.
+    let synthesisFailed = false;
 
     try {
       // Wording matters for small local models (llama3.2-class): without the
@@ -515,8 +575,49 @@ export class AgentOrchestrator {
           `\n\nProvenance warning: ${unverified.map(v => `"${v}"`).join(', ')} ` +
           `${unverified.length === 1 ? 'does' : 'do'} not appear in the fetched sources and may be invented.`;
       }
+
+      // Asked for a current version, the agent answered "2.4.3" from a forum
+      // thread about a different project while the project's own site and its
+      // GitHub repo — both fetched — stated no version at all (R19). The
+      // literal provenance check cannot catch this: the string really is on a
+      // fetched page. A version only a discussion page supports gets the same
+      // one corrective rewrite, and what survives it is flagged rather than
+      // presented as the answer.
+      if (currentState && isVersionQuestion(prompt)) {
+        forumOnlyVersions = unsupportedVersionClaims(answer, evidence);
+        if (forumOnlyVersions.length > 0) {
+          const versionRetryPrompt =
+            `${synthesisPrompt}\n\nYour previous answer was:\n${fenceUntrusted(answer, 'previous answer')}\n` +
+            `It states ${forumOnlyVersions.map(v => `"${v}"`).join(', ')}, which ${forumOnlyVersions.length === 1 ? 'appears' : 'appear'} ` +
+            `only in forum or discussion pages, not in the project's own pages among the sources. ` +
+            `A forum post about a different project is not a release announcement. ` +
+            `Rewrite the answer using only versions stated by the project's own sources. ` +
+            `If none of them states a current version, say plainly that the fetched sources do not state one.`;
+          try {
+            const { text: rewritten } = await this._getSamplingClient().complete(versionRetryPrompt, { maxTokens: 1024 });
+            if (rewritten && rewritten.trim()) {
+              answer = rewritten;
+              forumOnlyVersions = unsupportedVersionClaims(answer, evidence);
+            }
+          } catch {
+            // Keep the previous answer; it is flagged below.
+          }
+        }
+        if (forumOnlyVersions.length > 0) {
+          answer +=
+            `\n\nSource warning: ${forumOnlyVersions.map(v => `"${v}"`).join(', ')} ` +
+            `${forumOnlyVersions.length === 1 ? 'appears' : 'appear'} only in discussion pages among the fetched sources, ` +
+            `not in the project's own. Treat ${forumOnlyVersions.length === 1 ? 'it' : 'them'} as unconfirmed.`;
+          degraded = true;
+          degradedReason =
+            `Version claim unsupported by the project's own sources: ` +
+            `${forumOnlyVersions.map(v => `"${v}"`).join(', ')} ${forumOnlyVersions.length === 1 ? 'appears' : 'appear'} ` +
+            `only in discussion pages. The authoritative pages fetched state no version.`;
+        }
+      }
     } catch (err) {
       degraded = true;
+      synthesisFailed = true;
       degradedReason = `LLM synthesis unavailable: ${err.message}`;
       // Return raw evidence so the host LLM can synthesize
       answer = null;
@@ -531,7 +632,11 @@ export class AgentOrchestrator {
       reason: degradedReason,
       steps: step,
       urls_fetched: urlsFetched,
-      provenance: { checked: !degraded, unverified }
+      provenance: {
+        checked: !synthesisFailed,
+        unverified,
+        ...(forumOnlyVersions.length > 0 ? { unsupported_versions: forumOnlyVersions } : {})
+      }
     };
   }
 

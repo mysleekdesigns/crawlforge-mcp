@@ -3,6 +3,61 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [6.3.0] - 2026-09-07
+
+Four defects found by the R19 live sweep of all 30 tools. Each one returned a confident wrong
+answer rather than an error, so nothing downstream could tell.
+
+### Fixed
+
+- **`extract_structured` validated only one level deep.** `{countries: ["a stray line of page
+  text"]}` against a schema asking for an array of objects reported `valid: true`, because the
+  top-level value really was an array and nothing looked inside it. There were four copies of
+  the validator in the tree; the one in `extractWithLlm.js` was already correct but local and
+  unexported. It now lives in `src/utils/schemaValidate.js` and every consumer uses it,
+  including the CSS-selector fallback, which had checked only that required keys were *present*.
+  Errors name the path (`Field "countries.0.capital": expected string, got number`) and cap at
+  ten plus a count.
+
+- **`extract_structured` fell back to CSS selectors on a large table with no explanation.** The
+  output-token budget counted an array-valued property as one field, so a 250-row table got the
+  same 1000-token floor as a single string; the response stopped mid-object, the parse threw,
+  and the generic catch swallowed it. The budget now scales with the schema's array-ness, a
+  truncated response is retried once at twice the budget, and the failure says
+  "model response was cut off at the N-token output limit" instead of reporting a JSON offset.
+  The workable range goes from roughly 43 rows to roughly 156.
+
+- **`agent` answered a version question from a forum post.** Asked for the latest stable Caddy
+  release it returned a version from a `caddy.community` thread about a different project, and
+  passed the provenance check, because the string genuinely was on a fetched page — provenance
+  asks whether a value appears in the sources, not whether the source is the project. For a
+  current-state question that asks for a version, a version the answer states must now appear in
+  a source that is not a discussion page; what fails gets one corrective rewrite and whatever
+  survives is flagged in `provenance.unsupported_versions` rather than presented as fact. The
+  gate is inert unless the prompt asks for a version, so a question whose subject *is* a
+  discussion site is unaffected.
+
+- **`analyze_content` invented entities and a readability score for non-Latin text.** compromise
+  is an English model: on Russian it did not find fewer entities, it found wrong ones — "дождь и
+  порывистый" ("rain and gusty") as an organization. The syllable counter knows only the Latin
+  vowels, so every Cyrillic word scored one syllable and Flesch rated a weather report 100,
+  "Very Easy". Both now report `notApplicable` with the metrics that do not need syllables,
+  extending the existing CJK guard to Cyrillic, Greek, Arabic and Devanagari. Russian stop words
+  joined the English list, so bare prepositions stop ranking as topics.
+
+### Changed
+
+- **`extract_structured` `success` is now false when a required field is present but the wrong
+  shape**, not only when it is missing or empty. A required array full of stray page text is a
+  failed extraction; it previously returned `success: true`. Callers that branch on `success`
+  will see failures they used to see as successes — which is the point, but it is a visible
+  change.
+
+- `agent` results carry `provenance.unsupported_versions` when the gate above fires, and
+  `provenance.checked` now reports whether the check ran rather than whether the run degraded.
+
+- `analyze_content` `entities` and `readability` may carry `notApplicable` with a reason.
+
 ## [6.2.0] - 2026-09-07
 
 Phase 6 of the 2026 feature plan (6.1 and 6.2): a scheduled monitor can run on CrawlForge's

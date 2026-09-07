@@ -332,7 +332,7 @@ const searchWebShape = {
 // ── extract_structured ───────────────────────────────────────────────────────
 
 const extractStructuredShape = {
-  success: z.boolean().optional().describe('False when the extraction errored or a required field came back missing or empty'),
+  success: z.boolean().optional().describe('False when the extraction errored, or a required field came back missing, empty, or in the wrong shape'),
   url: z.string().optional(),
   data: z.record(z.unknown()).optional().describe('Extracted fields matching the requested schema'),
   extraction_method: z.string().optional().describe('"llm" | "css_fallback" | "keyword_fallback" | "none"'),

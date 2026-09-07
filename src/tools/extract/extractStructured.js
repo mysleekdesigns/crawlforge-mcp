@@ -12,6 +12,7 @@ import { CRAWLFORGE_USER_AGENT } from '../../utils/fetchIdentity.js';
 import { fetchAndParse, flattenBodyText } from './_fetchAndParse.js';
 import { extractMainContent } from '../scrape/_mainContent.js';
 import { verifyNumericProvenance } from '../../utils/provenance.js';
+import { validateAgainstSchema, validateFieldsAgainstSchema } from '../../utils/schemaValidate.js';
 
 // Semantic element selectors for well-known field names, tried as a last
 // resort in the CSS fallback so common fields (e.g. "title") still resolve when
@@ -394,7 +395,21 @@ export class ExtractStructuredTool {
       const missingRequired = (schema.required || []).filter(
         (field) => isEmptyValue((extractionResult.data || {})[field])
       );
-      const failedRequired = extractionResult.valid !== true && missingRequired.length > 0;
+      // Same reasoning for a required field that arrived in the wrong shape:
+      // `{countries: ["a stray line of page text"]}` for an array of objects
+      // is a failed extraction too, and it is neither missing nor empty, so
+      // the check above waves it through (R19). Re-validated per field rather
+      // than parsed out of the error strings.
+      const invalidRequired = extractionResult.valid !== true
+        ? (schema.required || []).filter((field) => {
+            if (missingRequired.includes(field)) return false;
+            const fieldSchema = schema.properties?.[field];
+            if (!fieldSchema) return false;
+            return validateAgainstSchema((extractionResult.data || {})[field], fieldSchema).valid !== true;
+          })
+        : [];
+      const failedRequired = extractionResult.valid !== true
+        && (missingRequired.length > 0 || invalidRequired.length > 0);
 
       return {
         success: !failedRequired,
@@ -405,7 +420,12 @@ export class ExtractStructuredTool {
         schema_used: schema,
         processingTime: Date.now() - startTime,
         ...(failedRequired
-          ? { error: `Required field(s) missing or empty: ${missingRequired.join(', ')}` }
+          ? {
+              error: `Required field(s) ${[
+                missingRequired.length ? `missing or empty: ${missingRequired.join(', ')}` : '',
+                invalidRequired.length ? `wrong shape: ${invalidRequired.join(', ')}` : ''
+              ].filter(Boolean).join('; ')}`
+            }
           : {}),
         validation: {
           valid: extractionResult.valid || false,
@@ -566,18 +586,15 @@ export class ExtractStructuredTool {
       return null; // No fields found via CSS, let keyword fallback handle it
     }
 
-    // Validate required fields
-    const errors = [];
-    const required = schema.required || [];
-    for (const field of required) {
-      if (!(field in extracted)) {
-        errors.push(`Missing required field: ${field}`);
-      }
-    }
+    // Validate the extracted fields. This used to check only that each
+    // required key was present, which is why a fallback that swept three
+    // stray <p> elements into an array-of-objects field reported valid: true
+    // (R19) — presence says nothing about shape.
+    const { valid, errors } = validateFieldsAgainstSchema(extracted, schema);
 
     return {
       data: extracted,
-      valid: errors.length === 0,
+      valid,
       validationErrors: errors,
       extractionNotes: ['Used CSS selector fallback extraction']
     };

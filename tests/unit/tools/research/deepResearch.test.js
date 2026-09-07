@@ -331,3 +331,37 @@ describe('deepResearch — maxUrls confirmation gate (real module)', () => {
     assert.equal(conducted, 1);
   });
 });
+
+/**
+ * R19 (2026-09-07): a run whose Ollama synthesis worked, then stopped when the
+ * research token budget ran out, still told the caller to "set OPENAI_API_KEY
+ * or ANTHROPIC_API_KEY" — a key it already had, for a cause that was not the
+ * one that fired.
+ */
+describe('raw_evidence note names the cause that actually fired', () => {
+  function noteFor(tokenBudgetExceeded) {
+    const orchestrator = new ResearchOrchestrator();
+    orchestrator.researchState = {
+      sessionId: 's', tokenBudgetChars: 1_000_000, tokenBudgetUsed: 1_200_000,
+      tokenBudgetExceeded, currentDepth: 5
+    };
+    orchestrator.metrics = { urlsProcessed: 3, sourcesVerified: 3 };
+    return orchestrator.compileResearchResults(
+      'topic', { synthesisMode: 'raw_evidence', rawEvidence: [] }, {}
+    ).note;
+  }
+
+  test('no LLM configured: keeps the API-key instruction', () => {
+    const note = noteFor(false);
+    assert.match(note, /set OPENAI_API_KEY or ANTHROPIC_API_KEY/);
+    assert.doesNotMatch(note, /token budget/);
+  });
+
+  test('budget exhausted: says so, and does not ask for an API key', () => {
+    const note = noteFor(true);
+    assert.match(note, /token budget/);
+    assert.match(note, /RESEARCH_TOKEN_BUDGET_CHARS/);
+    assert.doesNotMatch(note, /set OPENAI_API_KEY or ANTHROPIC_API_KEY/,
+      'the key was configured and synthesis had been working');
+  });
+});
