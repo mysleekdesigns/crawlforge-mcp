@@ -20,6 +20,17 @@ multi-round-trip `input_required` returns, and a confirmation costs nothing.
   returns; the SDK hands them to a 2026-era client directly, and on a 2025-era connection its
   legacy shim issues the real request and re-enters the handler. One code path serves both eras.
 
+- **`crawlforge login` — browser handoff for API keys.** The CLI mints a session id and a PKCE
+  verifier/challenge pair, prints an approval URL (`/cli-auth` on the website) for the human to
+  open, and polls `POST /api/auth/cli/status` every 3 seconds — backing off on 429, giving up
+  after 10 consecutive failures or the `--wait` limit (default 600 s). Once the signed-in user
+  approves in the browser, the website delivers a freshly minted key exactly once; the CLI
+  validates it and writes `~/.crawlforge/config.json` (mode 0600). It never touches a client
+  config — the next step is `crawlforge init --client <name>`. It exists so a coding agent can
+  obtain a key for its user without the key ever being pasted into a terminal: the agent runs the
+  command, relays the URL, and the human approves. `--name` sets the key's name (default
+  `CLI on <hostname>`); `--json` prints one status line to stdout, never the key.
+
 ### Changed
 
 - **A confirmation round trip is never billed.** A tool call that returns asking for confirmation

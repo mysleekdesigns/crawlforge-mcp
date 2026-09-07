@@ -59,6 +59,7 @@ import { register as registerMonitor } from './commands/monitor.js';
 import { register as registerInstallSkills } from './commands/install-skills.js';
 import { register as registerUninstallSkills } from './commands/uninstall-skills.js';
 import { register as registerInit } from './commands/init.js';
+import { register as registerLogin } from './commands/login.js';
 
 // ─── MCP stdio server mode (backward compatibility) ──────────────────────────
 // Before v4.1.0 the `crawlforge` bin WAS the MCP server. v4.1.0 turned it into
@@ -138,6 +139,7 @@ registerMonitor(program);
 registerInstallSkills(program);
 registerUninstallSkills(program);
 registerInit(program);
+registerLogin(program);
 
 // `crawlforge mcp` / `crawlforge serve` — explicitly start the MCP server over
 // stdio. Extra args (e.g. --http) are read directly by server.js from argv.

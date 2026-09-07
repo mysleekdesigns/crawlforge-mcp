@@ -69,7 +69,13 @@ npm install -g crawlforge-mcp-server
 
 ### 2. Setup Your API Key (required)
 
-Every tool requires a CrawlForge API key — new accounts get 1,000 free trial credits to start:
+Every tool requires a CrawlForge API key — new accounts get 1,000 free trial credits to start. The recommended path signs you in through the browser, so the key is never pasted into a terminal (a coding agent can run this for you and relay the URL):
+
+```bash
+crawlforge login
+```
+
+It prints an approval URL; open it, approve, and the key is stored in `~/.crawlforge/config.json`. Then run `crawlforge init` to register the MCP server with your client. Or use the interactive wizard, which also configures your clients:
 
 ```bash
 npx crawlforge-setup
