@@ -3,6 +3,70 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [6.2.0] - 2026-09-07
+
+Phase 6 of the 2026 feature plan (6.1 and 6.2): a scheduled monitor can run on CrawlForge's
+servers, and the two notification paths that never sent anything are gone or honest.
+
+### Added
+
+- **`scheduledMonitorOptions.hosted: true` on `track_changes`.** `create_scheduled_monitor` with
+  the flag registers the monitor with the website's `/api/v1/monitors` under the configured API
+  key instead of the local store, and returns the hosted id, the schedule the website accepted,
+  the estimated monthly credits and a dashboard link. The website's cron then fetches, compares,
+  bills the account (3 credits per compared target per check; blocked and errored targets are
+  free) and sends the notifications — email, and webhooks signed with the monitor's secret — so
+  the monitor fires whether or not this process is alive. That is the guarantee a stdio MCP
+  server can never give: its timers die with the process, which the local `firingGuarantee`
+  note has said since 4.8. `list_scheduled_monitors` merges the local and hosted lists, each
+  entry stamped `hosted: true|false`, with `localCount` and `hostedCount` beside `count`; a
+  website that cannot be reached leaves the local list intact and adds `hostedError`.
+  `stop_scheduled_monitor` deletes either kind by id, and by URL also removes every hosted
+  monitor whose targets are all that URL (`stoppedHosted`) — never a multi-target monitor that
+  merely includes it. With the flag unset, local behaviour is unchanged.
+
+  An `interval` becomes a cron slot the website accepts: a minute step that divides 60 and is at
+  least 5 (`*/15 * * * *`), or an hour step that divides 24 (`0 */6 * * *`). Anything else is
+  rounded to the nearest slot with a warning, because the website refuses schedules whose
+  consecutive runs are under 5 minutes apart and `*/7` has a 4-minute gap at the top of every
+  hour. An explicit `schedule` cron is passed through as given. `goal` and
+  `notificationThreshold` are local-only and produce a warning on a hosted create: a hosted
+  monitor notifies on every changed, new, blocked or errored page. `scheduledMonitorOptions.name`
+  sets the hosted display name (default: the URL host). When neither `interval` nor `schedule`
+  is given the website's hourly default applies — the schema's 5-minute
+  `monitoringOptions.interval` default is deliberately not consulted for a billed check. A
+  hosted create and a hosted-only stop do no work on this machine and the monitors API is free,
+  so they report an actual cost of 0 against the projected 3 (G4).
+
+- **CLI: `monitor:create --hosted`, `--email <addresses>` and `--name <text>`.** `monitor:list`
+  and `monitor:stop` merge and delete through the tool, so they need no flags.
+
+### Changed
+
+- **One input shape for `track_changes`.** `server.js` carried a second, near-duplicate inline
+  schema for the tool — the `.describe()` strings without the defaults — and the tool module
+  carried the defaults without the descriptions; they had already drifted (the tool's `email`
+  notification block and its default `excludeSelectors` never reached `tools/list`). The tool
+  module now exports `TRACK_CHANGES_INPUT_SHAPE` and `server.js` spreads it, the way `scrape` has
+  since 5.6.11 (G5). Parsing is unchanged for existing callers; the wire schema now shows the
+  defaults and the `email` block the tool always validated with.
+
+- **Email from a local monitor is reported honestly.** The notifier's email path emitted
+  `notificationSent { success: true }` with a note that it "requires external service
+  integration" — a success for a message that was never sent. It now emits `notificationError`
+  saying that local monitors do not send email and that a hosted monitor
+  (`scheduledMonitorOptions.hosted: true`, or the website dashboard) does. Webhook and Slack
+  sends are untouched.
+
+### Removed
+
+- **`src/core/AlertNotificationSystem.js`** (601 lines). Imported by nothing since it was written:
+  its webhook path duplicated `notifier.js`, which is the live one and sits behind the SSRF guard,
+  and its email path was the same placeholder that counted a success without sending. Phase 6.2
+  asked for a decision — wire it behind the hosted monitor's notification settings, or delete it —
+  and there was nothing to wire: hosted monitors' email and signed webhooks are sent by the
+  website's cron, not by this server.
+
 ## [6.1.0] - 2026-09-07
 
 Phase 4.4 of the 2026 feature plan, the item that closes Phase 4: confirmations become
