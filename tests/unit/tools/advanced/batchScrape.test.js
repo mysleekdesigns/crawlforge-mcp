@@ -19,6 +19,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { isInputRequiredResult, CLIENT_CAPABILITIES_META_KEY } from '@modelcontextprotocol/server';
 import { BatchScrapeSchema } from '../../../../src/tools/advanced/batchScrape/schema.js';
 import { ResultStore } from '../../../../src/core/ResultStore.js';
 
@@ -408,5 +409,100 @@ describe('batchScrape worker — selectors keep table structure', () => {
     assert.equal(x.wrapper, `Bitcoin Price History\nDate | Open* | High\n${ROWS}\n* Earliest data in range`);
     assert.deepEqual(x.dates, ['Sep 03, 2026', 'Sep 02, 2026'], 'a multi-match selector still returns an array of cell strings');
     assert.equal(x.heading, 'Bitcoin Price History');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4.4 — the large-sync gate is an input-required round trip. The SDK answers it
+// by re-entering execute() from the top, so the gate has to run before the
+// batch counter and the webhook registration, both of which a second entry
+// would otherwise repeat.
+// ---------------------------------------------------------------------------
+
+const GATE_KEY = 'batch_scrape:large_sync';
+const askableCtx = () => ({ mcpReq: { envelope: { [CLIENT_CAPABILITIES_META_KEY]: { elicitation: {} } } } });
+const answeredCtx = (response) => ({ mcpReq: { inputResponses: { [GATE_KEY]: response } } });
+const totalHits = () => [...hits.values()].reduce((sum, n) => sum + n, 0);
+
+describe('BatchScrapeTool (real module) — large-sync confirmation gate', () => {
+  const urls = (n, tag) => Array.from({ length: n }, (_, i) => `${baseUrl}/${tag}/${i}`);
+  // The fixture server is local: the schema's default 100ms inter-request
+  // delay would dominate every run that gets past the gate.
+  const fast = { maxConcurrency: 20, delayBetweenRequests: 0 };
+
+  test('a small sync batch is never gated', async () => {
+    const tool = makeTool();
+    const result = await tool.execute({ ...fast, urls: urls(3, 'small'), mode: 'sync' }, askableCtx());
+    assert.equal(isInputRequiredResult(result), false);
+    assert.equal(result.totalUrls, 3);
+  });
+
+  test('an async batch of the same size is never gated', async () => {
+    const tool = makeTool();
+    const result = await tool.execute({ urls: urls(26, 'async-nogate'), mode: 'async' }, askableCtx());
+    assert.equal(isInputRequiredResult(result), false);
+    assert.equal(result.mode, 'async');
+  });
+
+  test('> 25 URLs in sync mode asks, fetches nothing and counts no batch', async () => {
+    const tool = makeTool();
+    const before = totalHits();
+    const result = await tool.execute({ urls: urls(26, 'gated'), mode: 'sync' }, askableCtx());
+    assert.ok(isInputRequiredResult(result), 'the gate must return an input_required result verbatim');
+    assert.ok(result.inputRequests[GATE_KEY]);
+    assert.equal(totalHits(), before, 'an unanswered gate must not fetch anything');
+    assert.equal(tool.stats.totalBatches, 0, 'an unanswered gate must not count a batch');
+  });
+
+  test('an accepted answer proceeds on re-entry', async () => {
+    const tool = makeTool();
+    // Only the gate decision is under test; the fetching itself is covered by
+    // this file's other sync-mode suites.
+    tool._processBatchSync = async (batchId, urlConfigs) => ({ batchId, ran: urlConfigs.length });
+    const result = await tool.execute(
+      { ...fast, urls: urls(26, 'accepted'), mode: 'sync' },
+      answeredCtx({ action: 'accept', content: { confirmed: true } })
+    );
+    assert.equal(isInputRequiredResult(result), false);
+    assert.equal(result.ran, 26);
+    assert.equal(tool.stats.totalBatches, 1);
+  });
+
+  test('a declined answer returns the cancelled payload', async () => {
+    const tool = makeTool();
+    const before = totalHits();
+    const result = await tool.execute(
+      { urls: urls(26, 'declined'), mode: 'sync' },
+      answeredCtx({ action: 'decline' })
+    );
+    assert.equal(result.success, false);
+    assert.equal(result.mode, 'sync');
+    assert.equal(result.error, 'Batch scrape cancelled by user (elicitation declined).');
+    assert.equal(result.totalUrls, 26);
+    assert.equal(typeof result.batchId, 'string');
+    assert.equal(totalHits(), before);
+  });
+
+  test('an unanswered gate registers no webhook', async () => {
+    const tool = makeTool({ enableWebhookNotifications: true });
+    // Delivery is out of scope here — only the registration is under test.
+    tool.webhookDispatcher.dispatch = async () => {};
+    const params = { ...fast, urls: urls(26, 'webhook'), mode: 'sync', webhook: { url: 'https://example.com/hook' } };
+
+    const asked = await tool.execute(params, askableCtx());
+    assert.ok(isInputRequiredResult(asked));
+    assert.equal(tool.webhookDispatcher.webhookUrls.size, 0, 'nothing is registered while the question is outstanding');
+
+    const accepted = await tool.execute(params, answeredCtx({ action: 'accept', content: { confirmed: true } }));
+    assert.equal(accepted.success, true);
+    assert.equal(tool.webhookDispatcher.webhookUrls.size, 1, 'the answered run registers it once');
+  });
+
+  test('a client that cannot be asked proceeds unasked (fail-open, unchanged)', async () => {
+    const tool = makeTool();
+    tool._processBatchSync = async (batchId, urlConfigs) => ({ batchId, ran: urlConfigs.length });
+    const result = await tool.execute({ ...fast, urls: urls(26, 'failopen'), mode: 'sync' }, undefined);
+    assert.equal(isInputRequiredResult(result), false);
+    assert.equal(result.ran, 26);
   });
 });

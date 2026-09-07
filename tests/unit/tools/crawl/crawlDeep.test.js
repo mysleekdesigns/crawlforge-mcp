@@ -6,6 +6,7 @@
 import { test, describe, beforeEach, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { isInputRequiredResult, CLIENT_CAPABILITIES_META_KEY } from '@modelcontextprotocol/server';
 
 // The real-module describe block below (Phase 2 fixes) needs safeFetch to
 // reach a local server. safeFetch enforces SSRF protection (blocks loopback
@@ -237,5 +238,82 @@ describe('crawlDeep tool — real module (Phase 2 fixes)', () => {
 
     assert.ok(unfilteredUrls.some(u => u.endsWith('/skip')), 'unfiltered call should visit /skip');
     assert.ok(!filteredUrls.some(u => u.endsWith('/skip')), 'exclude_patterns call must not visit /skip (and must not reuse the unfiltered cache entry)');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4.4 — the max_pages gate is an input-required round trip (real module).
+// The fixture server counts requests, so a gate that has not been answered can
+// be shown to have fetched nothing at all.
+// ---------------------------------------------------------------------------
+
+const GATE_KEY = 'crawl_deep:max_pages';
+const askableCtx = () => ({ mcpReq: { envelope: { [CLIENT_CAPABILITIES_META_KEY]: { elicitation: {} } } } });
+const answeredCtx = (response) => ({ mcpReq: { inputResponses: { [GATE_KEY]: response } } });
+
+describe('crawlDeep — max_pages confirmation gate (real module)', () => {
+  let server;
+  let baseUrl;
+  let hits;
+
+  before(async () => {
+    server = http.createServer((req, res) => {
+      hits++;
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<html><body><h1>Only page</h1></body></html>');
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    baseUrl = `http://127.0.0.1:${server.address().port}`;
+  });
+  after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+  beforeEach(() => { hits = 0; });
+
+  // maxPages here is the operator ceiling the tool clamps max_pages against;
+  // the shipped default (100) would clamp every request below the threshold.
+  const makeTool = () => new CrawlDeepTool({ cacheEnabled: false, timeout: 5000, maxPages: 1000 });
+  const baseParams = { respect_robots: false, enable_link_analysis: false, max_depth: 1 };
+
+  test('a small crawl is never gated', async () => {
+    const result = await makeTool().execute({ ...baseParams, url: baseUrl, max_pages: 10 }, askableCtx());
+    assert.equal(isInputRequiredResult(result), false);
+    assert.ok(result.pages_crawled >= 1);
+  });
+
+  test('max_pages > 500 asks and fetches nothing', async () => {
+    const result = await makeTool().execute({ ...baseParams, url: baseUrl, max_pages: 600 }, askableCtx());
+    assert.ok(isInputRequiredResult(result), 'the gate must return an input_required result verbatim');
+    assert.ok(result.inputRequests[GATE_KEY]);
+    assert.equal(hits, 0, 'an unanswered gate must not fetch the site');
+  });
+
+  test('an accepted answer proceeds on re-entry', async () => {
+    const result = await makeTool().execute(
+      { ...baseParams, url: baseUrl, max_pages: 600 },
+      answeredCtx({ action: 'accept', content: { confirmed: true } })
+    );
+    assert.equal(isInputRequiredResult(result), false);
+    assert.ok(result.pages_crawled >= 1);
+    assert.ok(hits > 0);
+  });
+
+  test('a declined answer returns the cancelled payload', async () => {
+    const result = await makeTool().execute(
+      { ...baseParams, url: baseUrl, max_pages: 600 },
+      answeredCtx({ action: 'decline' })
+    );
+    assert.deepEqual(result, {
+      success: false,
+      error: 'Crawl cancelled by user (elicitation declined).',
+      url: baseUrl
+    });
+    assert.equal(hits, 0);
+  });
+
+  test('a client that cannot be asked proceeds unasked (fail-open, unchanged)', async () => {
+    const result = await makeTool().execute({ ...baseParams, url: baseUrl, max_pages: 600 }, undefined);
+    assert.equal(isInputRequiredResult(result), false);
+    assert.ok(result.pages_crawled >= 1);
   });
 });

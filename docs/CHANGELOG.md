@@ -3,39 +3,75 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
-## [Unreleased]
+## [6.1.0] - 2026-09-07
 
-### Fixed
+Phase 4.4 of the 2026 feature plan, the item that closes Phase 4: confirmations become
+multi-round-trip `input_required` returns, and a confirmation costs nothing.
 
-- **Elicitation now fires over the HTTP transport.** Both HTTP legs serve from a cloned
-  `McpServer` — one per session on the 2025-era path, one per request on the 2026-07-28 leg — and
-  only a clone is ever connected. `ElicitationHelper` was built against the top-level template,
-  which is never connected, so `getClientCapabilities()` and `getNegotiatedProtocolVersion()` both
-  returned `undefined`, `supported` was always false, and every HTTP session silently proceeded
-  unasked. The transport now stamps the serving clone on the request context and the helper
-  resolves it from there, falling back to the injected instance on stdio. Broken since v3.2.0;
-  stdio was never affected.
+### Added
 
-  Clients that declare form-capable elicitation over 2025-era HTTP will now see the confirmations
-  for `deep_research` (over 50 URLs), `batch_scrape` (sync mode, over 25 URLs), `crawl_deep` (over
-  500 pages), `agent` (`model: "pro"`) and `extract_structured` (no LLM configured with more than
-  three required fields), plus the low-credit "proceed anyway?" prompt. Clients that declare no
-  elicitation capability are unaffected — including the website REST proxy, which sends
-  `capabilities: {}` and is billing-exempt, so it never reaches the credit check that prompts.
-  2026-07-28 clients still proceed unasked: that revision has no server-to-client request channel.
+- **Confirmation prompts now reach 2026-07-28-era clients.** The five tools that ask before an
+  expensive run — `deep_research` (over 50 URLs), `batch_scrape` (sync mode, over 25 URLs),
+  `crawl_deep` (over 500 pages), `agent` (`model: "pro"`) and `extract_structured` (no LLM
+  configured with more than three required fields) — plus the low-credit "proceed anyway?" prompt,
+  were built on the 2025-era inline `elicitation/create` request. SEP-2577 removed the
+  server-to-client request channel, so on the 2026-07-28 revision those prompts could not be sent
+  and every gated operation proceeded unasked. They are now `input_required` results the handler
+  returns; the SDK hands them to a 2026-era client directly, and on a 2025-era connection its
+  legacy shim issues the real request and re-enters the handler. One code path serves both eras.
 
 ### Changed
 
-- `withAuth` now forwards the SDK's per-request `ctx` to the wrapped tool handler. The MCP SDK v2
-  calls a tool callback with `(args, ctx)`, and the wrapper was 1-arity, so no tool or helper could
-  see the protocol era, the elicitation answers or the request id. Existing 1-arity handlers are
-  unchanged — JavaScript ignores the extra argument — and no billing behaviour changed.
+- **A confirmation round trip is never billed.** A tool call that returns asking for confirmation
+  has fetched nothing, so it is charged zero credits and writes no usage record; the charge is
+  taken once, on the entry that actually produces a result. Declining a confirmation is free too.
+  This is what the round-trip form required: an `input_required` result is not an error result, so
+  without an explicit branch `withAuth` would have booked each round as a success and billed it in
+  full — up to eight rounds for a call that did no work.
 
-- An elicitation prompt is now sent with `relatedRequestId` set to the in-flight `tools/call` id,
-  taken from that forwarded `ctx`. Without it the 2025-era HTTP transport routes a server-to-client
-  request to the standalone GET SSE stream and drops it outright when the client never opened one,
-  turning a prompt into a silent 60-second timeout. The stdio transport ignores the option, so
-  stdio is byte-identical.
+- **Gates moved above the work they guard.** Because the SDK re-enters the handler from the top,
+  everything above a gate runs twice. `batch_scrape` registered its webhook and incremented its
+  batch counter above the old gate, and `extract_structured` gated after the page fetch; both now
+  gate first.
+
+- `ElicitationHelper.confirm()` is synchronous and takes `(ctx, key, message, details)`, returning
+  `proceed` / `cancelled` / `ask`. `AuthManager.checkCredits()` takes an optional `ctx` and may
+  return an `input_required` result instead of a boolean. `requestString()` is unchanged — it is
+  the one elicitation path no tool calls, and keeps the inline form.
+
+- `withAuth` forwards the SDK's per-request `ctx` to the wrapped tool handler. The MCP SDK v2 calls
+  a tool callback with `(args, ctx)`, and the wrapper was 1-arity, so no tool or helper could see
+  the protocol era, the elicitation answers or the request id — this is what gated the whole item.
+  Existing 1-arity handlers are unchanged; JavaScript ignores the extra argument.
+
+- An inline elicitation prompt is sent with `relatedRequestId` set to the in-flight `tools/call`
+  id, taken from that forwarded `ctx`. Without it the 2025-era HTTP transport routes a
+  server-to-client request to the standalone GET SSE stream and drops it outright when the client
+  never opened one, turning a prompt into a silent 60-second timeout. The stdio transport ignores
+  the option, so stdio is byte-identical.
+
+### Fixed
+
+- **Elicitation now fires over the HTTP transport at all.** Both HTTP legs serve from a cloned
+  `McpServer` — one per session on the 2025-era path, one per request on the 2026-07-28 leg — and
+  only a clone is ever connected. `ElicitationHelper` was built against the top-level template,
+  which is never connected, so `getClientCapabilities()` returned `undefined`, `supported` was
+  always false, and every HTTP session silently proceeded unasked. The transport now stamps the
+  serving clone on the request context and the helper resolves it from there, falling back to the
+  injected instance on stdio. Broken since v3.2.0; stdio was never affected.
+
+- The `.mcpb` bundle smoke test in CI no longer sets a placeholder API key.
+
+### Notes
+
+- Clients that declare no elicitation capability are unaffected and are never asked — including
+  the website REST proxy, which sends `capabilities: {}`. That gate is deliberate: the SDK answers
+  an `input_required` return on such a connection with an error, so asking an undeclared client
+  would turn a prompt into a failed call.
+- One narrow behaviour change: a client that *declares* elicitation and then fails while answering
+  now receives an error result, where the old inline path proceeded. The failure happens inside the
+  SDK after the handler has returned, so the server cannot intercept it. It costs the caller
+  nothing.
 
 ## [6.0.0] - 2026-09-06
 

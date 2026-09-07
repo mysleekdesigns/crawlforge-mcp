@@ -1,221 +1,203 @@
 /**
- * ElicitationHelper — capability gate, era guard, and the fail-open contract.
+ * ElicitationHelper — the multi-round-trip confirmation contract (Phase 4.4).
+ *
+ * `confirm()` no longer sends anything and no longer awaits. It reads any answer
+ * off the SDK's per-request context and otherwise hands back an `input_required`
+ * result for the tool to RETURN. What is pinned here is the behaviour that is
+ * easy to lose: the capability gate (dropping it turns a nicety into a failed
+ * call), asking at most once, and reading capabilities from the 2026-era
+ * envelope where there is no connected server instance to ask.
+ *
  * Run: node --test tests/unit/elicitationHelper.test.js
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
+import { isInputRequiredResult, CLIENT_CAPABILITIES_META_KEY } from '@modelcontextprotocol/server';
 import { ElicitationHelper } from '../../src/core/ElicitationHelper.js';
 import { requestContext } from '../../src/server/requestContext.js';
 
-const withClient = (request, caps = { elicitation: { form: {} } }, negotiated = '2025-11-25') =>
+const FORM = { elicitation: { form: {} } };
+
+/** A helper whose (2025-era) serving instance declares `caps`. */
+const withCaps = (caps = FORM, request = async () => ({ action: 'accept', content: { confirmed: true } }), negotiated = '2025-11-25') =>
   new ElicitationHelper({
     mcpServer: {
-      server: {
-        request,
-        getClientCapabilities: () => caps,
-        getNegotiatedProtocolVersion: () => negotiated,
-      },
+      server: { request, getClientCapabilities: () => caps, getNegotiatedProtocolVersion: () => negotiated },
     },
   });
 
-const accept = (content) => async () => ({ action: 'accept', content });
+/** The ctx a 2026-era request arrives with: capabilities in the _meta envelope. */
+const modernCtx = (caps = FORM, inputResponses) => ({
+  mcpReq: { envelope: { [CLIENT_CAPABILITIES_META_KEY]: caps }, ...(inputResponses ? { inputResponses } : {}) },
+});
+
+/** The ctx of a retry carrying an answer for `key`. */
+const answeredCtx = (key, response, caps = FORM) => ({
+  mcpReq: { envelope: { [CLIENT_CAPABILITIES_META_KEY]: caps }, inputResponses: { [key]: response } },
+});
 
 describe('ElicitationHelper.supported', () => {
-  test('false when the server cannot send requests', () => {
-    assert.equal(new ElicitationHelper({ mcpServer: { server: {} } }).supported, false);
-  });
-  test('false when client did not advertise elicitation capability', () => {
-    assert.equal(withClient(accept({}), {}).supported, false);
+  test('false when the client declared no elicitation capability', () => {
+    assert.equal(withCaps({}).supported(), false);
   });
   test('true when the client advertises elicitation.form', () => {
-    assert.equal(withClient(accept({})).supported, true);
+    assert.equal(withCaps(FORM).supported(), true);
   });
   test('true for a bare `elicitation: {}` — the pre-mode 2025 meaning is form', () => {
-    assert.equal(withClient(accept({}), { elicitation: {} }).supported, true);
+    assert.equal(withCaps({ elicitation: {} }).supported(), true);
   });
   test('false when the client advertises ONLY url elicitation', () => {
-    assert.equal(withClient(accept({}), { elicitation: { url: {} } }).supported, false);
+    assert.equal(withCaps({ elicitation: { url: {} } }).supported(), false);
   });
   test('true when url and form are both advertised', () => {
-    assert.equal(withClient(accept({}), { elicitation: { url: {}, form: {} } }).supported, true);
+    assert.equal(withCaps({ elicitation: { url: {}, form: {} } }).supported(), true);
   });
-  test('false on a 2026-07-28-era connection — no server-to-client channel exists there', () => {
-    assert.equal(withClient(accept({}), { elicitation: { form: {} } }, '2026-07-28').supported, false);
+  test('false when there is no server and no ctx to read capabilities from', () => {
+    assert.equal(new ElicitationHelper({ mcpServer: null }).supported(), false);
   });
-  test('true when the server exposes no version accessor at all', () => {
-    const h = new ElicitationHelper({
-      mcpServer: { server: { request: accept({}), getClientCapabilities: () => ({ elicitation: { form: {} } }) } },
-    });
-    assert.equal(h.supported, true);
+
+  // The 2026-07-28 regression this phase exists to fix. The old helper reported
+  // `supported === false` for every modern connection and skipped every prompt.
+  test('reads capabilities from the 2026-era _meta envelope, with no connected instance', () => {
+    const h = new ElicitationHelper({ mcpServer: null });
+    assert.equal(h.supported(modernCtx(FORM)), true);
+    assert.equal(h.supported(modernCtx({})), false);
+  });
+  test('the envelope wins over the serving instance when both are present', () => {
+    assert.equal(withCaps({}).supported(modernCtx(FORM)), true);
   });
 });
 
-describe('ElicitationHelper.confirm', () => {
-  test('unsupported client fails open (proceeds)', async () => {
-    const h = new ElicitationHelper({ mcpServer: { server: {} } });
-    assert.equal(await h.confirm('proceed?'), true);
-  });
-  test('accept + confirmed:true proceeds', async () => {
-    assert.equal(await withClient(accept({ confirmed: true })).confirm('proceed?'), true);
-  });
-  test('decline cancels', async () => {
-    assert.equal(await withClient(async () => ({ action: 'decline' })).confirm('proceed?'), false);
-  });
-  test('cancel cancels', async () => {
-    assert.equal(await withClient(async () => ({ action: 'cancel' })).confirm('proceed?'), false);
-  });
-  test('accept but confirmed:false cancels', async () => {
-    assert.equal(await withClient(accept({ confirmed: false })).confirm('proceed?'), false);
-  });
-  test('request throwing fails open', async () => {
-    const h = withClient(async () => { throw new Error('boom'); });
-    assert.equal(await h.confirm('proceed?'), true);
+describe('ElicitationHelper.confirm — asking', () => {
+  test('an unaskable client proceeds rather than failing the call', () => {
+    const gate = withCaps({}).confirm(undefined, 'k', 'proceed?');
+    assert.deepEqual(gate, { status: 'proceed' });
   });
 
-  test('a bare-`elicitation` client is actually asked, not skipped', async () => {
-    let sent = null;
-    const h = withClient(async (req) => { sent = req; return { action: 'accept', content: { confirmed: true } }; }, { elicitation: {} });
-
-    assert.equal(await h.confirm('Proceed?', { urls: 60 }), true);
-    assert.equal(sent.method, 'elicitation/create');
-    assert.equal(sent.params.mode, 'form');
-    assert.equal(sent.params.message, 'Proceed?\n\n  urls: 60');
-    assert.deepEqual(sent.params.requestedSchema.required, ['confirmed']);
+  test('a url-only client is never asked and proceeds', () => {
+    assert.equal(withCaps({ elicitation: { url: {} } }).confirm(undefined, 'k', 'proceed?').status, 'proceed');
   });
 
-  test('a url-only client is never asked and proceeds', async () => {
-    let called = false;
-    const h = withClient(async () => { called = true; return { action: 'decline' }; }, { elicitation: { url: {} } });
+  test('an askable client gets an input_required result keyed by the gate key', () => {
+    const gate = withCaps(FORM).confirm(undefined, 'crawl_deep:large', 'Proceed?', { urls: 60 });
 
-    assert.equal(await h.confirm('proceed?'), true);
-    assert.equal(called, false);
+    assert.equal(gate.status, 'ask');
+    assert.ok(isInputRequiredResult(gate.result), 'the SDK must recognise what we hand back');
+    const req = gate.result.inputRequests['crawl_deep:large'];
+    assert.equal(req.method, 'elicitation/create');
+    assert.equal(req.params.mode, 'form');
+    assert.equal(req.params.message, 'Proceed?\n\n  urls: 60', 'details render under the message');
+    assert.deepEqual(req.params.requestedSchema.required, ['confirmed']);
   });
 
-  test('a 2026-era connection proceeds without sending anything', async () => {
-    let called = false;
-    const h = withClient(async () => { called = true; return { action: 'decline' }; }, { elicitation: { form: {} } }, '2026-07-28');
+  test('a message with no details carries no blank detail block', () => {
+    const gate = withCaps(FORM).confirm(undefined, 'k', 'Proceed?');
+    assert.equal(gate.result.inputRequests.k.params.message, 'Proceed?');
+  });
 
-    assert.equal(await h.confirm('proceed?'), true);
-    assert.equal(called, false);
+  test('a 2026-era request is asked — the era guard that skipped it is gone', () => {
+    const h = new ElicitationHelper({ mcpServer: null });
+    assert.equal(h.confirm(modernCtx(FORM), 'k', 'Proceed?').status, 'ask');
   });
 });
 
-describe('ElicitationHelper.requestString', () => {
-  test('returns provided value on accept', async () => {
-    assert.equal(await withClient(accept({ value: 'hello' })).requestString('give value'), 'hello');
+describe('ElicitationHelper.confirm — reading the answer back', () => {
+  test('accept + confirmed:true proceeds', () => {
+    const ctx = answeredCtx('k', { action: 'accept', content: { confirmed: true } });
+    assert.deepEqual(withCaps(FORM).confirm(ctx, 'k', 'proceed?'), { status: 'proceed' });
   });
-  test('returns default on decline', async () => {
-    const h = withClient(async () => ({ action: 'decline' }));
-    assert.equal(await h.requestString('give value', { defaultValue: 'def' }), 'def');
+  test('decline cancels', () => {
+    const ctx = answeredCtx('k', { action: 'decline' });
+    assert.deepEqual(withCaps(FORM).confirm(ctx, 'k', 'proceed?'), { status: 'cancelled' });
   });
-  test('a non-string answer is rejected, not passed through', async () => {
-    const h = withClient(accept({ value: { not: 'a string' } }));
-    assert.equal(await h.requestString('give value', { defaultValue: 'def' }), 'def');
+  test('cancel cancels', () => {
+    const ctx = answeredCtx('k', { action: 'cancel' });
+    assert.deepEqual(withCaps(FORM).confirm(ctx, 'k', 'proceed?'), { status: 'cancelled' });
+  });
+  test('accept but confirmed:false cancels', () => {
+    const ctx = answeredCtx('k', { action: 'accept', content: { confirmed: false } });
+    assert.deepEqual(withCaps(FORM).confirm(ctx, 'k', 'proceed?'), { status: 'cancelled' });
+  });
+  test('accept with no content cancels — silence is not consent', () => {
+    const ctx = answeredCtx('k', { action: 'accept' });
+    assert.deepEqual(withCaps(FORM).confirm(ctx, 'k', 'proceed?'), { status: 'cancelled' });
+  });
+
+  test('a retry whose answer did not survive proceeds instead of asking again', () => {
+    // `inputResponses` is present (so we already asked) but carries nothing for
+    // this key — a dropped entry, or a response of another kind. Re-asking would
+    // burn the shim's rounds and end in a failed call.
+    const ctx = { mcpReq: { envelope: { [CLIENT_CAPABILITIES_META_KEY]: FORM }, inputResponses: { other: { action: 'accept' } } } };
+    assert.deepEqual(withCaps(FORM).confirm(ctx, 'k', 'proceed?'), { status: 'proceed' });
+  });
+
+  test('answers are read per key, so two gates in one tool do not cross', () => {
+    const ctx = answeredCtx('a', { action: 'decline' });
+    assert.equal(withCaps(FORM).confirm(ctx, 'a', 'x').status, 'cancelled');
+    assert.equal(withCaps(FORM).confirm(ctx, 'b', 'x').status, 'proceed', 'b was already asked in this round');
   });
 });
 
-// ── Serving-instance resolution (the HTTP fix) ────────────────────────────────
+// ── Serving-instance resolution (the 2025-era HTTP fix) ───────────────────────
 //
 // server.js builds ONE helper against the top-level template McpServer, but
 // neither HTTP leg serves from it: the 2025-era path connects a clone per
-// session and the modern leg builds one per request. The template is never
-// connected, so reading capabilities or the negotiated version off it returned
-// undefined and every HTTP session silently proceeded unasked. The transport
-// now stamps the serving clone on the request context; the helper reads it
-// from there and falls back to the injected instance (stdio).
-
-const fakeServer = (request, caps, negotiated) => ({
-  server: {
-    request,
-    getClientCapabilities: () => caps,
-    getNegotiatedProtocolVersion: () => negotiated,
-  },
-});
+// session. The template is never connected, so reading capabilities off it
+// returned undefined and every HTTP session silently proceeded unasked.
 
 describe('ElicitationHelper serving-instance resolution', () => {
-  test('falls back to the injected instance when nothing is stamped (stdio)', async () => {
-    let sentOn = null;
-    const injected = fakeServer(async () => { sentOn = 'injected'; return { action: 'accept', content: { confirmed: true } }; },
-      { elicitation: {} }, '2025-11-25');
-    const h = new ElicitationHelper({ mcpServer: injected });
+  const fake = (caps) => ({ server: { request: async () => ({}), getClientCapabilities: () => caps, getNegotiatedProtocolVersion: () => '2025-11-25' } });
 
-    assert.equal(h.supported, true);
-    assert.equal(await h.confirm('proceed?'), true);
-    assert.equal(sentOn, 'injected');
+  test('falls back to the injected instance when nothing is stamped (stdio)', () => {
+    assert.equal(new ElicitationHelper({ mcpServer: fake({ elicitation: {} }) }).supported(), true);
   });
 
-  test('prefers the serving instance from the request context over the injected one', async () => {
-    let sentOn = null;
-    // The template as server.js has it over HTTP: never connected, so no
-    // negotiated version and no client capabilities.
-    const template = fakeServer(async () => { sentOn = 'template'; return { action: 'decline' }; }, undefined, undefined);
-    const sessionClone = fakeServer(async () => { sentOn = 'clone'; return { action: 'accept', content: { confirmed: true } }; },
-      { elicitation: {} }, '2025-11-25');
+  test('prefers the stamped serving clone over the injected template', () => {
+    const h = new ElicitationHelper({ mcpServer: fake(undefined) });
+    assert.equal(h.supported(), false, 'the unconnected template alone can never elicit');
 
-    const h = new ElicitationHelper({ mcpServer: template });
-    assert.equal(h.supported, false, 'the template alone can never elicit — the pre-fix behaviour');
-
-    await requestContext.run({ servingServer: sessionClone, servingEra: 'legacy' }, async () => {
-      assert.equal(h.supported, true);
-      assert.equal(await h.confirm('proceed?'), true);
-    });
-    assert.equal(sentOn, 'clone', 'the prompt went to the connected clone, not the template');
-  });
-
-  test('a 2025-era session clone declaring a bare `elicitation: {}` is supported', () => {
-    const template = fakeServer(async () => ({ action: 'decline' }), undefined, undefined);
-    const sessionClone = fakeServer(async () => ({ action: 'accept', content: { confirmed: true } }),
-      { elicitation: {} }, '2025-11-25');
-    const h = new ElicitationHelper({ mcpServer: template });
-
-    requestContext.run({ servingServer: sessionClone, servingEra: 'legacy' }, () => {
-      assert.equal(h.supported, true);
+    requestContext.run({ servingServer: fake({ elicitation: {} }), servingEra: 'legacy' }, () => {
+      assert.equal(h.supported(), true);
+      assert.equal(h.confirm(undefined, 'k', 'proceed?').status, 'ask');
     });
   });
 
-  test('a modern-era serving instance is unsupported and proceeds without sending', async () => {
-    let called = false;
-    const template = fakeServer(async () => ({ action: 'decline' }), undefined, undefined);
-    const modernClone = fakeServer(async () => { called = true; return { action: 'decline' }; },
-      { elicitation: { form: {} } }, '2026-07-28');
-    const h = new ElicitationHelper({ mcpServer: template });
-
-    await requestContext.run({ servingServer: modernClone, servingEra: 'modern' }, async () => {
-      assert.equal(h.supported, false, 'the 2026 era has no server-to-client request channel');
-      assert.equal(await h.confirm('proceed?'), true, 'fail-open: the operation proceeds unasked');
-    });
-    assert.equal(called, false, 'nothing was sent');
-  });
-
-  test('a serving instance that cannot send fails open rather than failing the call', async () => {
-    const injected = fakeServer(async () => ({ action: 'accept', content: { confirmed: true } }), { elicitation: {} }, '2025-11-25');
-    const h = new ElicitationHelper({ mcpServer: injected });
-
-    await requestContext.run({ servingServer: { server: {} } }, async () => {
-      assert.equal(h.supported, false);
-      assert.equal(await h.confirm('proceed?'), true);
+  test('a serving instance with no capability accessor fails open', () => {
+    const h = new ElicitationHelper({ mcpServer: fake({ elicitation: {} }) });
+    requestContext.run({ servingServer: { server: {} } }, () => {
+      assert.equal(h.supported(), false);
+      assert.equal(h.confirm(undefined, 'k', 'proceed?').status, 'proceed');
     });
   });
 });
 
-describe('ElicitationHelper relatedRequestId', () => {
-  test('rides the in-flight request when the context knows its id', async () => {
-    let opts = 'unset';
-    const clone = fakeServer(async (_req, o) => { opts = o; return { action: 'accept', content: { confirmed: true } }; },
-      { elicitation: {} }, '2025-11-25');
-    const h = new ElicitationHelper({ mcpServer: null });
-
-    await requestContext.run({ servingServer: clone, servingEra: 'legacy', servingRequestId: 17 }, () => h.confirm('proceed?'));
-    assert.deepEqual(opts, { relatedRequestId: 17 }, 'the prompt is tied to the tools/call stream');
+// ── requestString: still the 2025-era inline form, still called by nothing ────
+describe('ElicitationHelper.requestString', () => {
+  test('returns provided value on accept', async () => {
+    assert.equal(await withCaps(FORM, async () => ({ action: 'accept', content: { value: 'hello' } })).requestString('give value'), 'hello');
   });
-
-  test('sends with no options when no id is known — stdio is byte-identical', async () => {
-    let opts = 'unset';
-    const injected = fakeServer(async (_req, o) => { opts = o; return { action: 'accept', content: { confirmed: true } }; },
-      { elicitation: {} }, '2025-11-25');
-    const h = new ElicitationHelper({ mcpServer: injected });
-
-    await h.confirm('proceed?');
-    assert.equal(opts, undefined);
+  test('returns default on decline', async () => {
+    const h = withCaps(FORM, async () => ({ action: 'decline' }));
+    assert.equal(await h.requestString('give value', { defaultValue: 'def' }), 'def');
+  });
+  test('a non-string answer is rejected, not passed through', async () => {
+    const h = withCaps(FORM, async () => ({ action: 'accept', content: { value: { not: 'a string' } } }));
+    assert.equal(await h.requestString('give value', { defaultValue: 'def' }), 'def');
+  });
+  test('an unaskable client returns the default without sending', async () => {
+    let called = false;
+    const h = withCaps({}, async () => { called = true; return { action: 'accept', content: { value: 'x' } }; });
+    assert.equal(await h.requestString('give value', { defaultValue: 'def' }), 'def');
+    assert.equal(called, false);
+  });
+  test('a 2026-era connection returns the default — there is no inline channel there', async () => {
+    let called = false;
+    const h = withCaps(FORM, async () => { called = true; return { action: 'accept', content: { value: 'x' } }; }, '2026-07-28');
+    assert.equal(await h.requestString('give value', { defaultValue: 'def' }), 'def');
+    assert.equal(called, false);
+  });
+  test('a throwing request returns the default rather than failing', async () => {
+    const h = withCaps(FORM, async () => { throw new Error('boom'); });
+    assert.equal(await h.requestString('give value', { defaultValue: 'def' }), 'def');
   });
 });

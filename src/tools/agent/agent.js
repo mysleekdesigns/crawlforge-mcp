@@ -35,16 +35,21 @@ export class AgentTool {
     this._elicitation = new ElicitationHelper({ mcpServer });
   }
 
-  async execute(params) {
+  async execute(params, ctx) {
     const validated = AgentInputSchema.parse(params);
 
-    // Request confirmation before a pro run (expensive)
+    // Request confirmation before a pro run (expensive). An unanswered gate
+    // returns an input-required result the SDK answers by re-entering this
+    // handler from the top, so nothing above it may fetch or leave a trace.
     if (validated.model === 'pro') {
-      const proceed = await this._elicitation.confirm(
+      const gate = this._elicitation.confirm(
+        ctx,
+        'agent:pro_model',
         'agent tool: pro model uses ResearchOrchestrator and may incur significant costs.',
         { model: 'pro', maxUrls: validated.maxUrls, note: 'External LLM API costs billed separately if keys are set.' }
       );
-      if (!proceed) {
+      if (gate.status === 'ask') return gate.result;
+      if (gate.status === 'cancelled') {
         return {
           success: false,
           cancelled: true,

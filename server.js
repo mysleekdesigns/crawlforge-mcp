@@ -5,7 +5,7 @@
 export { isCreatorModeVerified } from './src/core/creatorMode.js';
 
 // Import everything else
-import { McpServer, ResourceTemplate } from "@modelcontextprotocol/server";
+import { McpServer, ResourceTemplate, isInputRequiredResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { logger } from "./src/utils/Logger.js";
 import { SearchWebTool } from "./src/tools/search/searchWeb.js";
@@ -107,7 +107,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "6.0.0",
+  version: "6.1.0",
   description: "Production-ready MCP server with 30 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -607,12 +607,15 @@ registerToolIfEnabled("crawl_deep", {
     ...REDACT_PII_PARAM
   },
   outputSchema: OUTPUT_SCHEMAS.crawl_deep
-}, withAuth("crawl_deep", async ({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, content_max_length, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session }) => {
+}, withAuth("crawl_deep", async ({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, content_max_length, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session }, ctx) => {
     try {
       if (!url) {
         return { content: [{ type: "text", text: "URL parameter is required" }], isError: true };
       }
-      const result = await crawlDeepTool.execute({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, content_max_length, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session });
+      const result = await crawlDeepTool.execute({ url, max_depth, max_pages, include_patterns, exclude_patterns, follow_external, respect_robots, extract_content, content_max_length, concurrency, enable_link_analysis, link_analysis_options, domain_filter, import_filter_config, session }, ctx);
+      // A confirmation round trip is the SDK's result shape, not a tool payload:
+      // it must reach the transport unwrapped (Phase 4.4).
+      if (isInputRequiredResult(result)) return result;
       return dualOutput(result);
     } catch (error) {
       return { content: [{ type: "text", text: `Crawl failed: ${error.message}` }], isError: true };
@@ -763,12 +766,13 @@ registerToolIfEnabled("extract_structured", {
     ...VERIFY_NUMBERS_PARAM
   },
   outputSchema: OUTPUT_SCHEMAS.extract_structured
-}, withAuth("extract_structured", async (params) => {
+}, withAuth("extract_structured", async (params, ctx) => {
   try {
     // Forward params whole. This wrapper used to destructure a fixed six, which
     // silently dropped respect_robots and user_agent — both declared here and
     // read by the tool, so the G5 override was accepted and ignored.
-    const result = await extractStructuredTool.execute(params);
+    const result = await extractStructuredTool.execute(params, ctx);
+    if (isInputRequiredResult(result)) return result;
     return dualOutput(result);
   } catch (error) {
     return { content: [{ type: "text", text: `Structured extraction failed: ${error.message}` }], isError: true };
@@ -855,9 +859,10 @@ registerToolIfEnabled("batch_scrape", {
     ...MAX_INLINE_CHARS_PARAM,
     ...REDACT_PII_PARAM
   }
-}, withAuth("batch_scrape", async (params) => {
+}, withAuth("batch_scrape", async (params, ctx) => {
     try {
-      const result = await batchScrapeTool.execute(params);
+      const result = await batchScrapeTool.execute(params, ctx);
+      if (isInputRequiredResult(result)) return result;
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     } catch (error) {
       return { content: [{ type: "text", text: `Batch scrape failed: ${error.message}` }], isError: true };
@@ -1056,9 +1061,10 @@ registerToolIfEnabled("deep_research", {
     }).optional().describe("Webhook for progress and completion notifications"),
     ...MAX_INLINE_CHARS_PARAM
   }
-}, withAuth("deep_research", async (params) => {
+}, withAuth("deep_research", async (params, ctx) => {
     try {
-      const result = await deepResearchTool.execute(params);
+      const result = await deepResearchTool.execute(params, ctx);
+      if (isInputRequiredResult(result)) return result;
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     } catch (error) {
       return { content: [{ type: "text", text: `Deep research failed: ${error.message}` }], isError: true };
@@ -1120,9 +1126,10 @@ registerToolIfEnabled("agent", {
     maxSteps: z.number().min(1).max(10).optional().default(5).describe("Max fetch iterations (hard cap: 10)"),
     maxUrls: z.number().min(1).max(20).optional().default(10).describe("Max URLs to fetch (hard cap: 20)")
   }
-}, withAuth("agent", async (params) => {
+}, withAuth("agent", async (params, ctx) => {
     try {
-      const result = await agentTool.execute(params);
+      const result = await agentTool.execute(params, ctx);
+      if (isInputRequiredResult(result)) return result;
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     } catch (error) {
       return { content: [{ type: "text", text: `Agent failed: ${error.message}` }], isError: true };

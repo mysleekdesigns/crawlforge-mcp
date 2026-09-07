@@ -8,7 +8,11 @@
  *     so a valid API key is required for every invocation
  *   - try/finally guarantees a single `tool invocation` log line per call
  *   - log payload: { toolName, paramHash, durationMs, outcome, creditCost, creatorMode }
- *   - outcome ∈ { 'success' | 'error' | 'insufficient_credits' }
+ *   - outcome ∈ { 'success' | 'error' | 'insufficient_credits' | 'input_required' }
+ *   - an `input_required` return (Phase 4.4) is a round trip, not an answer: the
+ *     handler did no work, so it is billed NOTHING and reports no usage. The
+ *     SDK re-enters the handler with the reply and the terminal entry bills
+ *     once, so a confirmation costs exactly what the call always cost (G4).
  *   - error results get a "Next step:" hint naming the tool to try next
  *     (src/server/fallbackHints.js) so a failure is not followed by a blind retry
  *   - emits an OTel span via src/observability/tracing.js (no-op if disabled)
@@ -16,6 +20,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { isInputRequiredResult } from '@modelcontextprotocol/server';
 import { recordToolInvocation } from '../observability/tracing.js';
 import { isInternalRequest, preflightRefusal, reportedActualCost, requestContext } from './requestContext.js';
 import { appendFallbackHint } from './fallbackHints.js';
@@ -109,7 +114,14 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
         // end user's credits before forwarding — checking the static key's
         // balance here would gate users on an unrelated account).
         if (!billingExempt) {
-          const hasCredits = await authManager.checkCredits(creditCost);
+          const hasCredits = await authManager.checkCredits(creditCost, ctx);
+          // The low-credit warning asks as a round trip (Phase 4.4). Nothing has
+          // run, so this costs nothing and reports no usage; the SDK re-enters
+          // with the answer.
+          if (isInputRequiredResult(hasCredits)) {
+            outcome = 'input_required';
+            return hasCredits;
+          }
           if (!hasCredits) {
             outcome = 'insufficient_credits';
             return {
@@ -128,6 +140,20 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
 
         handlerStarted = true;
         const result = await handler(params, ctx);
+
+        // Phase 4.4: a multi-round-trip handler answers `input_required` when it
+        // needs the user before it can start. Nothing was fetched, so nothing is
+        // owed: no charge, no usage report, and none of the result stages below
+        // (there is no result yet to redact, shape or price). The SDK gathers the
+        // answer and re-enters this same wrapper; whichever entry finally returns
+        // a real result is the one that bills, exactly once. Without this branch
+        // an `input_required` is not `isError`, so it books as a success and
+        // bills in full on every round — up to eight — for a call that did no
+        // work, and a declined confirmation bills too (G4).
+        if (isInputRequiredResult(result)) {
+          outcome = 'input_required';
+          return result;
+        }
 
         // Tools catch their own failures and return { isError:true } rather than
         // throwing (the shared pattern in server.js). That is still an ERROR

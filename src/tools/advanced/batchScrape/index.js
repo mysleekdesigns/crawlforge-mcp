@@ -83,11 +83,40 @@ export class BatchScrapeTool extends EventEmitter {
     this._elicitation = new ElicitationHelper({ mcpServer });
   }
 
-  async execute(params) {
+  async execute(params, ctx) {
     try {
       const validated = BatchScrapeSchema.parse(params);
-      this.stats.totalBatches++;
       const batchId = this._generateBatchId();
+
+      // D1.4: Elicitation — warn when batch is large in sync mode. An
+      // unanswered gate returns an input-required result the SDK answers by
+      // re-entering this handler from the top, so it runs before anything that
+      // leaves a trace: below it are the batch counter and the webhook
+      // registration, which a second entry would repeat (a second webhook
+      // registration for one batch). The count comes from validated.urls,
+      // which _normalizeUrlConfigs maps one-for-one.
+      if (validated.mode === 'sync' && validated.urls.length > 25) {
+        const gate = this._elicitation.confirm(
+          ctx,
+          'batch_scrape:large_sync',
+          `batch_scrape (sync mode) will fetch ${validated.urls.length} URLs synchronously. This may take a while and consume significant credits.`,
+          {
+            url_count: validated.urls.length,
+            mode: 'sync',
+            suggestion: 'Consider using mode:"async" for large batches.',
+          }
+        );
+        if (gate.status === 'ask') return gate.result;
+        if (gate.status === 'cancelled') {
+          return {
+            batchId, mode: 'sync', success: false,
+            error: 'Batch scrape cancelled by user (elicitation declined).',
+            totalUrls: validated.urls.length,
+          };
+        }
+      }
+
+      this.stats.totalBatches++;
       const startTime = Date.now();
 
       this._log('info', `Starting batch scrape ${batchId} with ${validated.urls.length} URLs in ${validated.mode} mode`);
@@ -97,25 +126,6 @@ export class BatchScrapeTool extends EventEmitter {
       let webhookConfig = null;
       if (validated.webhook && this.enableWebhookNotifications) {
         webhookConfig = this._registerWebhook(validated.webhook, batchId);
-      }
-
-      // D1.4: Elicitation — warn when batch is large in sync mode
-      if (validated.mode === 'sync' && urlConfigs.length > 25) {
-        const proceed = await this._elicitation.confirm(
-          `batch_scrape (sync mode) will fetch ${urlConfigs.length} URLs synchronously. This may take a while and consume significant credits.`,
-          {
-            url_count: urlConfigs.length,
-            mode: 'sync',
-            suggestion: 'Consider using mode:"async" for large batches.',
-          }
-        );
-        if (!proceed) {
-          return {
-            batchId, mode: 'sync', success: false,
-            error: 'Batch scrape cancelled by user (elicitation declined).',
-            totalUrls: urlConfigs.length,
-          };
-        }
       }
 
       if (validated.mode === 'sync') {

@@ -241,9 +241,16 @@ class AuthManager {
   }
 
   /**
-   * Check if user has enough credits for a tool
+   * Check if user has enough credits for a tool.
+   *
+   * @param {number} estimatedCredits
+   * @param {object} [ctx] the SDK per-request context, so the low-credit
+   *   warning can ask as a multi-round-trip step (Phase 4.4).
+   * @returns {Promise<boolean|object>} `true`/`false` as before, or an
+   *   `input_required` result the caller must RETURN verbatim — `withAuth`
+   *   detects it, bills nothing and lets the SDK gather the answer.
    */
-  async checkCredits(estimatedCredits = 1) {
+  async checkCredits(estimatedCredits = 1, ctx) {
     // Creator mode has unlimited credits
     if (this.isCreatorMode()) {
       return true;
@@ -277,10 +284,16 @@ class AuthManager {
         this.lastCreditCheck = now;
         this.lastSuccessfulCreditCheck.set(this.config.userId, now);
 
-        // D1.4: If credits are close to running out, elicit confirmation instead of hard-failing
+        // D1.4: If credits are close to running out, elicit confirmation instead
+        // of hard-failing. Phase 4.4: the ask is a round trip now — `ask` hands
+        // an `input_required` result back to withAuth, which returns it unbilled
+        // and is re-entered here with the answer. A client that cannot be asked
+        // still proceeds, which is what the inline helper did.
         if (data.creditsRemaining < estimatedCredits) {
           if (this._elicitation) {
-            const proceed = await this._elicitation.confirm(
+            const gate = this._elicitation.confirm(
+              ctx,
+              'credits:low',
               `Low credits: ${data.creditsRemaining} remaining, this tool needs ~${estimatedCredits}. Proceed anyway?`,
               {
                 credits_remaining: data.creditsRemaining,
@@ -288,8 +301,8 @@ class AuthManager {
                 note: 'Top up at https://www.crawlforge.dev/dashboard',
               }
             );
-            if (!proceed) return false;
-            return true; // user confirmed — let tool attempt it
+            if (gate.status === 'ask') return gate.result;
+            return gate.status === 'proceed'; // confirmed (or unaskable) — let tool attempt it
           }
           return false; // no elicitation — standard hard-fail behavior
         }

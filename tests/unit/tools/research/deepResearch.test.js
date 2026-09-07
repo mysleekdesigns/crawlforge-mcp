@@ -3,9 +3,11 @@
  * Run: node --test tests/unit/tools/research/deepResearch.test.js
  */
 
-import { test, describe, beforeEach } from 'node:test';
+import { test, describe, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { isInputRequiredResult, CLIENT_CAPABILITIES_META_KEY } from '@modelcontextprotocol/server';
 import { DeepResearchTool } from '../../../../src/tools/research/deepResearch.js';
+import { ResearchOrchestrator } from '../../../../src/core/ResearchOrchestrator.js';
 
 // ---------------------------------------------------------------------------
 // Stub ResearchOrchestrator
@@ -251,4 +253,81 @@ describe('deepResearch buildOrchestratorConfig — searchConfig.rankingOptions/d
       assert.equal(cfg.cacheEnabled, false, `${approach}: cacheResults:false must reach cacheEnabled`);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// 4.4 — the maxUrls gate is an input-required round trip (real module).
+// ResearchOrchestrator.prototype.conductResearch is replaced for the whole
+// block, so a run that gets past the gate reports a marker instead of
+// researching anything.
+// ---------------------------------------------------------------------------
+
+const GATE_KEY = 'deep_research:max_urls';
+const askableCtx = () => ({ mcpReq: { envelope: { [CLIENT_CAPABILITIES_META_KEY]: { elicitation: {} } } } });
+const answeredCtx = (response) => ({ mcpReq: { inputResponses: { [GATE_KEY]: response } } });
+
+describe('deepResearch — maxUrls confirmation gate (real module)', () => {
+  const originalConductResearch = ResearchOrchestrator.prototype.conductResearch;
+  let conducted;
+
+  before(() => {
+    ResearchOrchestrator.prototype.conductResearch = async () => {
+      conducted++;
+      return { error: 'stubbed — no research ran' };
+    };
+  });
+  after(() => {
+    ResearchOrchestrator.prototype.conductResearch = originalConductResearch;
+  });
+  beforeEach(() => { conducted = 0; });
+
+  test('a small run is never gated', async () => {
+    const tool = new DeepResearchTool();
+    const result = await tool.execute({ topic: 'CrawlForge MCP', maxUrls: 10 }, askableCtx());
+    assert.equal(isInputRequiredResult(result), false);
+    assert.equal(conducted, 1);
+  });
+
+  test('maxUrls > 50 asks, registers no session and researches nothing', async () => {
+    const tool = new DeepResearchTool();
+    const result = await tool.execute({ topic: 'CrawlForge MCP', maxUrls: 60 }, askableCtx());
+    assert.ok(isInputRequiredResult(result), 'the gate must return an input_required result verbatim');
+    assert.ok(result.inputRequests[GATE_KEY]);
+    assert.equal(conducted, 0);
+    // The gate sits above the activeSessions registration: a re-entry would
+    // otherwise leave one session behind per round trip.
+    assert.equal(tool.activeSessions.size, 0, 'an unanswered gate must not register a session');
+  });
+
+  test('an accepted answer proceeds on re-entry', async () => {
+    const tool = new DeepResearchTool();
+    const result = await tool.execute(
+      { topic: 'CrawlForge MCP', maxUrls: 60 },
+      answeredCtx({ action: 'accept', content: { confirmed: true } })
+    );
+    assert.equal(isInputRequiredResult(result), false);
+    assert.equal(conducted, 1);
+    assert.equal(result.error, 'stubbed — no research ran');
+    assert.equal(tool.activeSessions.size, 0);
+  });
+
+  test('a declined answer returns the cancelled payload', async () => {
+    const tool = new DeepResearchTool();
+    const result = await tool.execute(
+      { topic: 'CrawlForge MCP', maxUrls: 60 },
+      answeredCtx({ action: 'decline' })
+    );
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'Research cancelled by user before starting (elicitation declined).');
+    assert.ok(result.sessionId, 'the cancelled payload still carries the session id');
+    assert.equal(conducted, 0);
+    assert.equal(tool.activeSessions.size, 0);
+  });
+
+  test('a client that cannot be asked proceeds unasked (fail-open, unchanged)', async () => {
+    const tool = new DeepResearchTool();
+    const result = await tool.execute({ topic: 'CrawlForge MCP', maxUrls: 60 }, undefined);
+    assert.equal(isInputRequiredResult(result), false);
+    assert.equal(conducted, 1);
+  });
 });
