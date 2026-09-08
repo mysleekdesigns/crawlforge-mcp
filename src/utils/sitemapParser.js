@@ -10,6 +10,23 @@ import { noteRetryAfter } from './hostRateLimiter.js';
 
 const gunzip = promisify(zlib.gunzip);
 
+/**
+ * A sitemap <loc> resolved against the sitemap's own URL and normalized;
+ * null when it is empty or not a URL. The protocol wants absolute locs, but
+ * boeing.com's 1,878-entry sitemap is written with relative paths ("/",
+ * "/commercial"): `normalizeUrl("/")` threw out of the entry loop, the whole
+ * sitemap read as empty, and map_site fell back to crawling links — 75 URLs
+ * (R20, 2026-09-07). One bad entry must not discard the rest either.
+ */
+function resolveLoc(loc, base) {
+  if (!loc) return null;
+  try {
+    return normalizeUrl(new URL(loc, base).href);
+  } catch {
+    return null;
+  }
+}
+
 export class SitemapParser {
   constructor(options = {}) {
     const {
@@ -121,11 +138,11 @@ export class SitemapParser {
       // Parse sitemap index entries
       $('sitemap').each((_, element) => {
         const $sitemap = $(element);
-        const loc = $sitemap.find('loc').text().trim();
-        
+        const loc = resolveLoc($sitemap.find('loc').text().trim(), indexUrl);
+
         if (loc) {
           const sitemap = {
-            url: normalizeUrl(loc),
+            url: loc,
             lastmod: $sitemap.find('lastmod').text().trim() || null
           };
           sitemaps.push(sitemap);
@@ -347,7 +364,9 @@ export class SitemapParser {
     const cacheKey = this.cache?.generateKey(url, { depth: currentDepth });
     if (this.cache && cacheKey) {
       const cached = await this.cache.get(cacheKey);
-      if (cached) {
+      // An empty cached parse is a failure that got remembered (see the
+      // write side below); re-parse rather than serve it for an hour.
+      if (cached && (cached.urls?.length > 0 || cached.sitemaps?.length > 0)) {
         this.stats.cacheHits++;
         return cached;
       }
@@ -378,8 +397,12 @@ export class SitemapParser {
         }
       }
 
-      // Cache the result
-      if (this.cache && cacheKey) {
+      // Cache the result — but never an empty one. A parse that yielded no
+      // URL and no child sitemap is far more likely a failure than a fact
+      // (the relative-<loc> throw above sat in the disk cache for an hour
+      // and map_site kept answering 75 for boeing.com after the parser was
+      // fixed, R20 2026-09-07).
+      if (this.cache && cacheKey && (result.urls.length > 0 || result.sitemaps.length > 0)) {
         await this.cache.set(cacheKey, result);
       }
 
@@ -469,11 +492,11 @@ export class SitemapParser {
     // Parse standard URLs
     $('url').each((_, element) => {
       const $url = $(element);
-      const loc = $url.find('loc').text().trim();
-      
+      const loc = resolveLoc($url.find('loc').text().trim(), url);
+
       if (loc && result.urls.length < this.maxUrlsPerSitemap) {
         const urlData = {
-          loc: normalizeUrl(loc),
+          loc,
           lastmod: $url.find('lastmod').text().trim() || null,
           changefreq: $url.find('changefreq').text().trim() || null,
           priority: $url.find('priority').text().trim() || null
@@ -565,10 +588,10 @@ export class SitemapParser {
 
     $('sitemap').each((_, element) => {
       const $sitemap = $(element);
-      const loc = $sitemap.find('loc').text().trim();
-      
+      const loc = resolveLoc($sitemap.find('loc').text().trim(), url);
+
       if (loc) {
-        result.sitemaps.push(normalizeUrl(loc));
+        result.sitemaps.push(loc);
       }
     });
 

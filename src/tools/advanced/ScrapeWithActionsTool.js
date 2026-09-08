@@ -13,6 +13,7 @@ import ExtractContentTool from '../extract/extractContent.js';
 import { stealthDocumentVerdict } from '../../utils/stealthVerdict.js';
 import { elementText } from '../../utils/elementText.js';
 import { pageTitle } from '../../utils/pageTitle.js';
+import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 
 // Recording / replay helpers
 import {
@@ -723,6 +724,26 @@ export class ScrapeWithActionsTool extends EventEmitter {
         if (readable.length < 300 && bodyText.length > readable.length) {
           extractResult.content.text = bodyText;
           extractResult.content.textSource = 'body';
+        }
+      }
+
+      // extractContent hands back text alone when Readability finds no
+      // article. support.southwest.com's help centre is a JS shell: after an
+      // 8 s wait the body text was there, `html` came back empty and
+      // `markdown` was the "Content not available" placeholder, reported as
+      // success (R20, 2026-09-07). The post-action DOM is in hand, so serve
+      // the requested formats from it instead of a placeholder.
+      if (chainResult?.finalHtml) {
+        extractResult.content = extractResult.content || {};
+        if (params.formats?.includes('markdown') && !extractResult.content.markdown) {
+          const bodyMarkdown = htmlToMarkdown(chainResult.finalHtml);
+          if (bodyMarkdown) {
+            extractResult.content.markdown = bodyMarkdown;
+            extractResult.content.markdownSource = 'body';
+          }
+        }
+        if (params.formats?.includes('html') && !extractResult.content.html) {
+          extractResult.content.html = chainResult.finalHtml;
         }
       }
 

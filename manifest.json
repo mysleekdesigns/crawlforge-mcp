@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "crawlforge-mcp-server",
   "display_name": "CrawlForge",
-  "version": "6.3.1",
+  "version": "6.4.0",
   "description": "Web scraping, crawling, deep research and autonomous extraction — 30 MCP tools returning clean Markdown and structured JSON.",
   "long_description": "CrawlForge turns any web page into clean Markdown or structured JSON. It bundles 30 tools: a unified multi-format `scrape`, batch scraping, deep crawling and site mapping, an autonomous `agent` that researches from a plain-English prompt, stealth browsing for bot-protected sites, pre-built site templates, change tracking, and llms.txt generation. LLM-backed extraction defaults to a local Ollama model, so no third-party AI key is required; OpenAI and Anthropic are opt-in.\n\nRequires a free CrawlForge API key from https://www.crawlforge.dev — tool calls are metered in credits against that account.",
   "author": {

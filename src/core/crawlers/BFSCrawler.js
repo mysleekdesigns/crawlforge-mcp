@@ -12,6 +12,7 @@ import { robotsPreflight, RobotsDisallowedError } from '../../utils/robotsGate.j
 import { throttleHost } from '../../utils/hostRateLimiter.js';
 import { CRAWLFORGE_USER_AGENT, identityHeaders } from '../../utils/fetchIdentity.js';
 import { pageTitle } from '../../utils/pageTitle.js';
+import { extractMainContent, isThinMainContent } from '../../tools/scrape/_mainContent.js';
 
 const logger = new Logger('BFSCrawler');
 
@@ -391,9 +392,27 @@ export class BFSCrawler {
     // Extract title
     const title = pageTitle($) || $('h1').first().text().trim() || '';
     
-    // Extract main content
+    // Extract main content. A page's chrome (header, mega-menu, footer)
+    // repeats on every page of a crawl and comes first in body order, so the
+    // 500-char preview showed the same "Explore Products" menu for all six
+    // Cessna pages, whose menu is plain <div>s outside any <nav> (R20,
+    // 2026-09-07). Use the same main-content pass scrape uses, fall back to
+    // the body minus its landmark chrome when Readability finds nothing or
+    // only a thin fragment, and to the whole body as a last resort.
     $('script, style, noscript').remove();
-    const content = $('body').text().replace(/\s+/g, ' ').trim();
+    const squash = (text) => text.replace(/\s+/g, ' ').trim();
+    let content = '';
+    try {
+      const main = extractMainContent(html, url);
+      if (main.html && !isThinMainContent(main.html, html)) {
+        content = squash(load(main.html)('body').text());
+      }
+    } catch { /* fall through to the body */ }
+    if (!content) {
+      const $body = $('body').clone();
+      $body.find('header, nav, footer, aside, [role="navigation"], [role="banner"], [role="contentinfo"]').remove();
+      content = squash($body.text()) || squash($('body').text());
+    }
     
     // Extract metadata
     const metadata = {

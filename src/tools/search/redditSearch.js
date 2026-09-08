@@ -373,7 +373,18 @@ export class RedditSearchTool {
       // caller the 422. Thread mode returned above, so both remaining modes
       // (posts, comments) narrow.
       const narrowable = Boolean(v.query) && !v.after;
-      if (!error.retryable || !narrowable) throw error;
+      if (!error.retryable || !narrowable) {
+        // The caller's window is respected, so the 422 is theirs to act on —
+        // but the generic hint ("add subreddit or author") is useless on a
+        // search that is already scoped (R20: r/aviation "737 MAX" after=30d).
+        if (error.retryable && v.query && v.after) {
+          throw new Error(
+            `${error.message} — Arctic Shift timed out searching your after=${v.after} window. ` +
+            'Pass a narrower after (7d, 3d, 1d), drop the query to list the newest posts in the scope, or read one post with mode:"thread" and link_id.'
+          );
+        }
+        throw error;
+      }
       let lastError = error;
       for (const window of ['7d', '3d', '1d']) {
         await new Promise((resolve) => setTimeout(resolve, this.retryDelayMs));
