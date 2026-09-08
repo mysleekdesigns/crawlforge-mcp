@@ -16,9 +16,41 @@
 
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
+import { load } from 'cheerio';
 import { stripHiddenHtml } from './hiddenContent.js';
 
 let _td = null;
+
+/**
+ * turndown-plugin-gfm renders a table as a pipe table only when its first row
+ * is entirely <th>. A corner cell written as an empty <td> — WestJet's fee
+ * table opens `<td> </td><th>1st Bag</th><th>2nd Bag</th>` — fails that test,
+ * so the whole table fell to the layout-table rule and flattened to text
+ * lines with the columns lost (R20, 2026-09-07). Promote empty corner cells
+ * in an otherwise all-<th> first row so the table renders as a table.
+ * @param {string} html
+ * @returns {string}
+ */
+export function promoteCornerHeaderCells(html) {
+  if (!/<th[\s>]/i.test(html)) return html;
+  try {
+    const $ = load(html);
+    let changed = false;
+    $('table').each((_, table) => {
+      const firstRow = $(table).find('tr').first();
+      if (!firstRow.length || firstRow.closest('table')[0] !== table) return;
+      const cells = firstRow.children('th, td');
+      const tds = cells.filter('td');
+      if (cells.filter('th').length === 0 || tds.length === 0) return;
+      if (tds.toArray().some((td) => $(td).text().trim() !== '')) return;
+      tds.each((__, td) => { td.name = 'th'; });
+      changed = true;
+    });
+    return changed ? $.html() : html;
+  } catch {
+    return html;
+  }
+}
 
 // Mirrors turndown-plugin-gfm's own heading-row test, which is what decides
 // whether it converts a table or keeps it as raw HTML.
@@ -112,7 +144,7 @@ export function htmlToMarkdown(html, options = {}) {
     const visible = options.keepHiddenContent
       ? html
       : stripHiddenHtml(html, { css: options.css });
-    return getTurndown().turndown(visible).trim();
+    return getTurndown().turndown(promoteCornerHeaderCells(visible)).trim();
   } catch {
     // Fallback: strip tags, return plain text
     return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();

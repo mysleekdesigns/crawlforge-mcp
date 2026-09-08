@@ -333,6 +333,23 @@ export class AgentOrchestrator {
         quotedTerms.every(t => q.toLowerCase().includes(t.toLowerCase())) ? q : `${q} ${quotedTerms.join(' ')}`.trim()
       );
     }
+    // A current-state plan is told to make its first query the bare entity
+    // name, and a small model often stops there. The bare query surfaces the
+    // live front page, which rarely states the fact asked for: "what does
+    // Southwest charge for a first checked bag" fetched southwest.com's home,
+    // booking and careers pages and answered that the fee is not stated
+    // (R20, 2026-09-07). Keep the entity query first — the domain vote and
+    // live-root promotion depend on it — and add the task's own words as a
+    // second query so the page that states the fact is in the queue too.
+    if (currentState && searchQueries.length === 1) {
+      try {
+        const { compactSearchTopic, clampSearchQuery } = await import('./ResearchOrchestrator.js');
+        const factQuery = clampSearchQuery(compactSearchTopic(prompt));
+        if (factQuery && factQuery.toLowerCase() !== searchQueries[0].toLowerCase()) {
+          searchQueries.push(factQuery);
+        }
+      } catch { /* the entity query alone is the pre-R20 behaviour */ }
+    }
 
     // ── GATHER (search) ───────────────────────────────────────────────────────
     const urlQueue = [...seedUrls]; // start with any user-provided seeds
@@ -389,7 +406,11 @@ export class AgentOrchestrator {
     // and never enters evidence.
     if (currentState && searchResults.length > 0) {
       const originCounts = new Map();
+      // Only the bare entity query votes: the fact query added above returns
+      // guides and news sites, which must not outvote the official domain.
+      const entityQuery = searchQueries[0];
       for (const s of searchResults) {
+        if (s.query !== entityQuery) continue;
         try {
           const origin = new URL(s.url).origin;
           originCounts.set(origin, (originCounts.get(origin) || 0) + 1);
@@ -536,7 +557,7 @@ export class AgentOrchestrator {
         // Short and imperative on purpose: the executing model is a small
         // local one (gemma3:4b-class) and ignores hedged phrasing.
         (currentState
-          ? `- The task asks about the CURRENT state. Answer from the FIRST source below (the live page). NEVER present older or dated content as the current answer.\n`
+          ? `- The task asks about the CURRENT state. Answer from the FIRST source below (the live page); if the FIRST source does not state the answer, take it from the next sources in order. NEVER present older or dated content as the current answer.\n`
           : '') +
         `- Answer ONLY from the provided sources; do not use outside knowledge.\n` +
         `- Read the sources carefully before concluding anything is missing from them.\n` +

@@ -30,6 +30,9 @@ export const INLINE_THRESHOLD_TOOLS = Object.freeze({
   extract_content: { textPaths: ['content.markdown', 'content.text', 'content.html', 'content.cleanedHTML'], truncate: true },
   crawl_deep: { textPaths: [], truncate: true },
   batch_scrape: { textPaths: [], truncate: true },
+  // A page of 25 markdown results is the same payload batch_scrape shapes;
+  // an async job's page came back as 111 KB whole (R20, 2026-09-07).
+  get_batch_results: { textPaths: [], truncate: true },
   stealth_mode: { textPaths: ['content.markdown', 'content.text', 'content.html'], truncate: true, when: (params) => params?.operation === 'scrape' },
   scrape_with_actions: { textPaths: ['content.markdown', 'content.text', 'content.html'], truncate: true },
   process_document: { textPaths: ['content.text'], truncate: true },

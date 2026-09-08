@@ -173,6 +173,22 @@ function isDataTable(table) {
 }
 
 /**
+ * A table whose author marked header cells carries data whatever its size —
+ * layout tables do not use <th>. The size test above misses every small fee
+ * or spec table: WestJet's checked-bag fees are 6 rows × 3 columns inside a
+ * `com-tabs` component (Readability's `negative` regex matches `com-`), and
+ * the page came back reading "fees are as follows:" with nothing following
+ * (R20, 2026-09-07).
+ * @param {HTMLTableElement} table
+ * @returns {boolean}
+ */
+function isHeadedTable(table) {
+  if (table.rows.length < 2) return false;
+  if (!table.querySelector('th')) return false;
+  return Array.from(table.rows).some((row) => row.cells.length >= 2);
+}
+
+/**
  * A data table's text with its structure kept: one line per row, cells joined
  * by " | ". A bare `textContent` runs every cell together
  * ("DateOpen*HighLowClose**…"), which is what scrape_with_actions' selector
@@ -216,7 +232,7 @@ export function recoverDroppedTables(html, url, keptText = '') {
       // A nested table travels with its parent; re-attaching it separately
       // would duplicate it.
       .filter((table) => !table.parentElement?.closest('table'))
-      .filter(isDataTable)
+      .filter((table) => isDataTable(table) || isHeadedTable(table))
       .filter((table) => {
         const signature = normalizeWhitespace(table.textContent || '').slice(0, SIGNATURE_LENGTH);
         return signature.length > 0 && !kept.includes(signature);

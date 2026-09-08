@@ -42,7 +42,9 @@ export async function extractLinksHandler({ url, filter_external, base_url, user
       const href = $(element).attr('href');
       const text = $(element).text().trim();
 
-      if (!href) return;
+      // A javascript: pseudo-link ("Cookie Settings") is a button, not a
+      // link; it was counted as an external link on boeing.com (R20).
+      if (!href || /^\s*javascript:/i.test(href)) return;
 
       try {
         const absoluteUrl = new URL(href, baseUrl).toString();

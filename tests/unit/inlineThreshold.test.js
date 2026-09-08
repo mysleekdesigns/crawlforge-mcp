@@ -52,10 +52,10 @@ test('MAX_INLINE_CHARS_PARAM is one optional int in [1000, 10,000,000]', () => {
   assert.equal(schema.safeParse({ max_inline_chars: 10_000_001 }).success, false);
 });
 
-test('the ten large-output tools are configured; extract_embedded_state never truncates', () => {
+test('the eleven large-output tools are configured; extract_embedded_state never truncates', () => {
   assert.deepEqual(Object.keys(INLINE_THRESHOLD_TOOLS).sort(), [
     'batch_scrape', 'crawl_deep', 'deep_research', 'extract_content', 'extract_embedded_state',
-    'fetch_url', 'process_document', 'scrape', 'scrape_with_actions', 'stealth_mode'
+    'fetch_url', 'get_batch_results', 'process_document', 'scrape', 'scrape_with_actions', 'stealth_mode'
   ]);
   assert.equal(INLINE_THRESHOLD_TOOLS.extract_embedded_state.truncate, false);
   for (const [name, cfg] of Object.entries(INLINE_THRESHOLD_TOOLS)) {

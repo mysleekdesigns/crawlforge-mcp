@@ -3,6 +3,64 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [6.4.0] - 2026-09-07
+
+Five defects and five gaps from the R20 live sweep: 415 retail, travel and aviation URLs
+pre-flighted, all 30 tools run against the ones that answered. As in R19, every defect returned
+`success: true` with something missing rather than an error.
+
+### Fixed
+
+- **`map_site` read 75 of boeing.com's 1,878 sitemap URLs.** The sitemap is written with
+  relative `<loc>` paths (`/`, `/commercial`), which the protocol does not allow but sites ship.
+  `normalizeUrl("/")` threw out of the entry loop, the whole sitemap parsed as empty, and the
+  tool fell back to crawling the home page's links. A `<loc>` is now resolved against the
+  sitemap's own URL, an entry that still is not a URL is skipped on its own, and an empty parse
+  is neither written to the sitemap cache nor served from it — the empty result had sat in
+  `cache/sitemaps` for an hour and kept answering 75 after the parser was fixed.
+
+- **`scrape` dropped WestJet's checked-bag fee table at the default `onlyMainContent`.** The
+  page read "fees when you prepay are as follows:" and stopped. The table is 6 rows by 3
+  columns inside a `com-tabs` component: too small for Readability's data-table test (10 rows
+  or 5 columns), and `com-` is in Readability's `negative` class regex, so the component was
+  scored out and the table with it. A dropped table whose author marked `<th>` header cells is
+  now recovered whatever its size — layout tables do not use `<th>`. The same table opened with
+  an empty corner `<td>`, which turndown-plugin-gfm treats as "not a header row", so even the
+  full-page markdown flattened it to text lines; an empty corner cell in an otherwise all-`<th>`
+  first row is promoted so the table renders as a pipe table with its columns.
+
+- **`scrape_with_actions` returned "Content not available in markdown format" as a success.**
+  support.southwest.com's help centre is a JavaScript shell: after an 8 s wait the body text was
+  there, but Readability found no article, so `extract_content` handed back text alone and the
+  tool filled `markdown` with the placeholder and `html` with an empty string. Both are now
+  served from the post-action DOM when the extractor has nothing for them, with
+  `markdownSource: "body"` saying so.
+
+- **`agent` answered a fee question without the fee.** Asked what Southwest charges for a first
+  checked bag, the planner produced only the bare entity query the current-state rule asks for
+  first, so the queue held the home, booking and careers pages and the answer was that the fee
+  is not stated. When a current-state plan stops at one query, the task's own words are added
+  as a second; only the entity query votes for the live root, so guides and news sites cannot
+  outvote the official domain, and synthesis may move past the live page when it does not state
+  the answer. Live: "$45 … for travel ticketed on or after April 9, 2026", cited to
+  southwest.com's fee page.
+
+- **`crawl_deep` content previews were the site's menu on every page.** `content` was the body
+  text, and a mega-menu written as plain `<div>`s (Cessna's "Explore Products …") came first
+  on all six pages, so the 500-character preview was identical for each. Pages now go through
+  the same main-content pass `scrape` uses, then the body minus its landmark chrome when that
+  finds nothing or only a fragment.
+
+### Changed
+
+- `get_batch_results` takes `max_inline_chars` and is shaped like `batch_scrape`: a page over
+  the limit comes back as a preview with a `result_handle` for `read_result` (a 25-result page
+  of markdown had arrived as 111 KB whole).
+- `extract_links` no longer counts a `javascript:` pseudo-link as a link.
+- `reddit_search`, when Arctic Shift times out inside a window the caller chose, says which
+  window and how to narrow it instead of the generic "add subreddit or author" hint on a search
+  that already had one. The caller's window is still respected — no automatic narrowing.
+
 ## [6.3.1] - 2026-09-07
 
 ### Fixed

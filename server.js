@@ -107,7 +107,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "6.3.1",
+  version: "6.4.0",
   description: "Production-ready MCP server with 30 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -876,7 +876,8 @@ registerToolIfEnabled("get_batch_results", {
   inputSchema: {
     batchId: z.string().describe("The batch ID returned by batch_scrape"),
     page: z.number().min(1).default(1).describe("Page number (1-based)"),
-    pageSize: z.number().min(1).max(100).default(25).describe("Number of results per page")
+    pageSize: z.number().min(1).max(100).default(25).describe("Number of results per page"),
+    ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("get_batch_results", async ({ batchId, page = 1, pageSize = 25 }) => {
   try {
