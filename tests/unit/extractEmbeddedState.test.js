@@ -167,3 +167,21 @@ describe('compliance', () => {
     );
   });
 });
+
+// R21 (2026-09-09): four Next.js pages in a row failed on path:"props.pageProps"
+// because a path is written against the payload, not this tool's envelope.
+describe('a bare path is resolved inside the page\'s only payload', () => {
+  test('"props.pageProps" reads next_data.props.pageProps and says so', async () => {
+    const bare = await extract('/ticketmaster', 'props.pageProps');
+    const prefixed = await extract('/ticketmaster', 'next_data.props.pageProps');
+    assert.equal(bare.path, 'next_data.props.pageProps');
+    assert.deepEqual(bare.data, prefixed.data);
+    assert.ok(bare.warnings.some((w) => /read as "next_data\.props\.pageProps"/.test(w)), bare.warnings.join('\n'));
+  });
+
+  test('an envelope path is left alone', async () => {
+    const result = await extract('/ticketmaster', 'next_data.props');
+    assert.equal(result.path, 'next_data.props');
+    assert.ok(!result.warnings.some((w) => /was read as/.test(w)));
+  });
+});

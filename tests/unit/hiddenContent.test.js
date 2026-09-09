@@ -14,7 +14,10 @@ import { load } from 'cheerio';
 import {
   stripHiddenFromDom,
   stripHiddenHtml,
-  collectVisibilitySelectors
+  collectVisibilitySelectors,
+  mediaAppliesToScreen,
+  inlineStyleText,
+  splitSelectorList
 } from '../../src/utils/hiddenContent.js';
 
 /** Condensed copy of the real Dawn price block. */
@@ -230,4 +233,55 @@ test('malformed html and css never throw', () => {
   assert.doesNotThrow(() => stripHiddenHtml('<div><span>unclosed', { css: '}{bad css{{' }));
   assert.equal(stripHiddenHtml(''), '');
   assert.equal(stripHiddenHtml(null), null);
+});
+
+// R21 (2026-09-09): irs.gov's tax-bracket page links a media="print" sheet that
+// hides every screen element and shows a print-only logo; read as screen CSS
+// it emptied the page to that logo.
+test('mediaAppliesToScreen: print and other non-screen sheets never apply', () => {
+  assert.equal(mediaAppliesToScreen(undefined), true);
+  assert.equal(mediaAppliesToScreen(''), true);
+  assert.equal(mediaAppliesToScreen('all'), true);
+  assert.equal(mediaAppliesToScreen('screen'), true);
+  assert.equal(mediaAppliesToScreen('not print'), true);
+  assert.equal(mediaAppliesToScreen('print, screen'), true, 'a list applies when any member does');
+  assert.equal(mediaAppliesToScreen('print'), false);
+  assert.equal(mediaAppliesToScreen('PRINT'), false);
+  assert.equal(mediaAppliesToScreen('speech'), false);
+  assert.equal(mediaAppliesToScreen('not screen'), false);
+  assert.equal(mediaAppliesToScreen('not all'), false);
+  // A media query applies to a screen render, but only conditionally.
+  assert.equal(mediaAppliesToScreen('(max-width: 600px)'), true);
+  assert.equal(mediaAppliesToScreen('screen and (max-width: 600px)'), true);
+  assert.equal(mediaAppliesToScreen('(max-width: 600px)', { unconditional: true }), false);
+  assert.equal(mediaAppliesToScreen('screen and (max-width: 600px)', { unconditional: true }), false);
+  assert.equal(mediaAppliesToScreen('screen', { unconditional: true }), true);
+});
+
+test('a <style media="print"> block does not hide screen content', () => {
+  const $ = load(`
+    <style media="print">.screen-only{display:none}</style>
+    <style>.print-only{display:none}</style>
+    <div class="screen-only">Tax brackets table</div>
+    <img class="print-only" alt="print logo">
+  `);
+  assert.doesNotMatch(inlineStyleText($), /screen-only/, 'print rules are not collected');
+  stripHiddenFromDom($, { css: '' });
+  assert.match($.text(), /Tax brackets table/, 'content a print sheet hides must survive');
+  assert.equal($('.print-only').length, 0, 'the screen sheet still applies');
+});
+
+// R21 (2026-09-09): irs.gov hides empty callout boxes with a `:has(...)` list —
+// `.callout:has(> .a, .b, p, ul, h2, h3, table){display:none !important}`. A
+// split on every comma turned the arguments into bare element rules and the
+// article body vanished.
+test('commas inside :has()/:not() do not split a selector into bare element rules', () => {
+  assert.deepEqual(splitSelectorList('.a:has(> .b, .c, p), .d, [data-x="1,2"], .e'), ['.a:has(> .b, .c, p)', ' .d', ' [data-x="1,2"]', ' .e']);
+  const css = '.callout:has(> .pup-callout:empty, .pup-callout > .field:empty, p, ul, h2, h3, table){display:none !important;}';
+  const { hide } = collectVisibilitySelectors(css);
+  assert.deepEqual(hide, [], ':has() is not evaluated, and its arguments are not rules');
+  const $ = load('<div><h2>Tax rates</h2><p>You pay tax as a percentage of your income.</p><table><tr><td>10%</td></tr></table></div>');
+  stripHiddenFromDom($, { css });
+  assert.match($.text(), /Tax rates/);
+  assert.match($.text(), /10%/);
 });

@@ -72,6 +72,27 @@ export function resultTextView(resultObject, textPaths = []) {
   return { view: 'json', view_path: null, text: JSON.stringify(resultObject, null, 2) };
 }
 
+/**
+ * The non-text fields of `content` small enough to stay inline: everything
+ * except the text views (markdown, text, html, …) up to a quarter of the
+ * inline budget each. Null when there is nothing to keep.
+ */
+export function keepSmallContentFields(content, textPaths = [], maxInline = DEFAULT_MAX_INLINE_CHARS) {
+  if (!content || typeof content !== 'object' || Array.isArray(content)) return null;
+  const textLeaves = new Set(
+    textPaths.filter((p) => p.startsWith('content.')).map((p) => p.slice('content.'.length))
+  );
+  const cap = Math.max(1000, Math.floor(maxInline / 4));
+  const kept = {};
+  for (const [key, value] of Object.entries(content)) {
+    if (textLeaves.has(key) || value === undefined) continue;
+    if (typeof value === 'string' && value.length > cap) continue;
+    if (typeof value === 'object' && value !== null && JSON.stringify(value).length > cap) continue;
+    kept[key] = value;
+  }
+  return Object.keys(kept).length > 0 ? kept : null;
+}
+
 function warningsOf(resultObject) {
   return Array.isArray(resultObject.warnings) ? resultObject.warnings.filter((w) => typeof w === 'string') : [];
 }
@@ -129,7 +150,9 @@ export function applyInlineThreshold(toolName, resultObject, params, { store, en
   }
 
   const preview = text.slice(0, maxInline);
-  const hint = `Result is ${json.length} chars as JSON, over the inline limit of ${maxInline}; preview holds the first ${preview.length} chars of ${viewDesc} (${text.length} chars in total) and the full result is kept for 1 hour under result_handle ${handle}: ${readWith}.`;
+  const keptFields = keepSmallContentFields(resultObject.content, config.textPaths, maxInline);
+  const keptDesc = keptFields ? `; content.${Object.keys(keptFields).join(', content.')} kept inline` : '';
+  const hint = `Result is ${json.length} chars as JSON, over the inline limit of ${maxInline}; preview holds the first ${preview.length} chars of ${viewDesc} (${text.length} chars in total)${keptDesc} and the full result is kept for 1 hour under result_handle ${handle}: ${readWith}.`;
 
   const shaped = {};
   for (const [key, value] of Object.entries(resultObject)) {
@@ -143,6 +166,13 @@ export function applyInlineThreshold(toolName, resultObject, params, { store, en
   if (resultObject.redaction && typeof resultObject.redaction === 'object') {
     shaped.redaction = resultObject.redaction;
   }
+  // The query-scoped formats live beside the page text under `content`
+  // (highlights, answer, json, metadata, links). They are the small, exact
+  // answer the caller paid for, and truncating the markdown must not drop
+  // them: an nhs.uk scrape with highlights and a question came back as a
+  // markdown preview and nothing else (R21, 2026-09-09). Keep every
+  // non-text `content` field that fits a quarter of the inline budget.
+  if (keptFields) shaped.content = keptFields;
   Object.assign(shaped, {
     preview,
     result_handle: handle,

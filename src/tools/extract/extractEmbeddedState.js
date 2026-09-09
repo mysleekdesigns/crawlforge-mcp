@@ -41,7 +41,23 @@ export async function extractEmbeddedStateHandler({ url, path, user_agent, respe
       );
     }
 
-    const data = path ? selectJsonPath(state.data, path) : state.data;
+    // A path is naturally written against the payload ("props.pageProps"),
+    // not against this tool's envelope ("next_data.props.pageProps"). When
+    // the page carries exactly one payload and the path's root is not one of
+    // the envelope keys, read it inside that payload and say so (R21,
+    // 2026-09-09: four Next.js pages in a row failed on the bare path).
+    let effectivePath = path;
+    if (path && state.found.length === 1) {
+      const root = path.split(/[.[]/)[0];
+      if (root && !(root in state.data)) {
+        effectivePath = `${state.found[0].name}.${path}`;
+        warnings.push(
+          `path "${path}" was read as "${effectivePath}": "${state.found[0].name}" is the only payload on this page, so the path is resolved inside it.`
+        );
+      }
+    }
+
+    const data = effectivePath ? selectJsonPath(state.data, effectivePath) : state.data;
     const bytes = Buffer.byteLength(JSON.stringify(data) ?? '');
 
     if (!path && bytes > LARGE_RESULT_BYTES) {
@@ -57,7 +73,7 @@ export async function extractEmbeddedStateHandler({ url, path, user_agent, respe
         text: JSON.stringify({
           url: finalUrl,
           found: state.found,
-          path: path || null,
+          path: effectivePath || null,
           bytes,
           data,
           warnings

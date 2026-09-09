@@ -258,6 +258,9 @@ export class ExtractStructuredTool {
           if (result?.method === 'llm') {
             extractionResult = result;
             extractionMethod = 'llm';
+            // A salvaged cut-off response: the rows are real, the caller must
+            // know the list is not the whole table (R21, 2026-09-09).
+            if (result.warning) warnings.push(result.warning);
           } else {
             llmErrorMessage = result?.error || 'LLM did not return usable JSON';
           }
@@ -433,6 +436,7 @@ export class ExtractStructuredTool {
         },
         extractionNotes,
         provenance,
+        ...(extractionResult.partial ? { partial: true } : {}),
         ...(warnings?.length ? { warnings } : {})
       };
 

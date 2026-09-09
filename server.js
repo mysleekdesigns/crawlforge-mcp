@@ -107,7 +107,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "6.4.0",
+  version: "6.5.0",
   description: "Production-ready MCP server with 30 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -680,7 +680,7 @@ registerToolIfEnabled("extract_content", {
 
 // Tool: process_document
 registerToolIfEnabled("process_document", {
-  description: "Use this to extract text from a PDF URL or file - research papers, contracts, reports. Returns structured sections, metadata, and word count. Not for ordinary web pages (scrape), though an HTML URL is accepted. Cost: 2 credits. Example: process_document({source: \"https://example.com/report.pdf\", sourceType: \"pdf_url\"})",
+  description: "Use this to extract text from a PDF or DOCX URL or file - research papers, contracts, reports. The body decides how it is read: a PDF or Word document served under sourceType \"url\" still reaches its parser, and a body this tool cannot read (an image, an archive) is refused by name. Returns structured sections, metadata, and word count. Not for ordinary web pages (scrape), though an HTML URL is accepted. Cost: 2 credits. Example: process_document({source: \"https://example.com/report.pdf\", sourceType: \"pdf_url\"})",
   annotations: { title: "Process Document", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     source: z.string().describe("Document source - URL or file path"),
@@ -991,11 +991,15 @@ registerToolIfEnabled("scrape_with_actions", {
 
     // Publish captured screenshots as crawlforge://screenshot/{actionId}
     // resources (the documented contract) and annotate each with its URI.
+    // The base64 `data` is dropped once stored, as the stealth_mode block
+    // below already does: a failed chain's error screenshot came back inline
+    // as 1.7 MB of base64 beside a 40-char markdown (R21, 2026-09-09).
     if (Array.isArray(result.screenshots)) {
       result.screenshots = result.screenshots.map((shot) => {
         if (shot?.actionId && shot?.data) {
           resourceRegistry.storeScreenshot(shot.actionId, shot.data);
-          return { ...shot, resourceUri: `crawlforge://screenshot/${shot.actionId}` };
+          const { data, ...rest } = shot;
+          return { ...rest, resourceUri: `crawlforge://screenshot/${shot.actionId}` };
         }
         return shot;
       });

@@ -542,7 +542,14 @@ export class UnifiedScrapeTool {
             // Themes split visibility rules across many component sheets — the
             // rule hiding Shopify's sold-out badge sits at index 12 of 38 on a
             // stock Dawn storefront, so a cap of 10 silently misses it.
-            maxStylesheets: 20
+            maxStylesheets: 20,
+            // Only sheets a screen render applies unconditionally: a
+            // media="print" sheet hid every screen element of irs.gov's
+            // tax-bracket page and left the print logo (R21, 2026-09-09).
+            media: 'unconditional-screen',
+            // stripHiddenFromDom reads style="" per element; folded into
+            // universal rules they hid the whole page (R21).
+            inlineStyles: false
           });
           css = collected.cssText || '';
         }

@@ -28,6 +28,70 @@ function endsMidJson(text) {
 }
 
 /**
+ * Recover the complete rows of a JSON response the model stopped writing.
+ *
+ * Walks the text tracking strings and the bracket stack, remembers the end of
+ * every complete element written directly inside an array, cuts there and
+ * closes what is still open. Returns null when no element completed, so a
+ * caller can still fall back. A schema asking for a table of rows routinely
+ * overruns a small model's output budget — the ECB key-rates table came back
+ * cut off at 1,800 and again at 3,600 tokens and the whole extraction failed,
+ * although dozens of rows were complete (R21, 2026-09-09).
+ *
+ * @param {string} text
+ * @returns {{ data: unknown, rows: number }|null}
+ */
+export function salvageTruncatedJson(text) {
+  const src = text.trim();
+  if (!src.startsWith('{') && !src.startsWith('[')) return null;
+  const stack = [];
+  let inString = false;
+  let cut = -1;
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (inString) {
+      if (ch === '\\') i++;
+      else if (ch === '"') {
+        inString = false;
+        // A string written directly into an array is a complete element.
+        if (stack[stack.length - 1] === '[') cut = i + 1;
+      }
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{' || ch === '[') stack.push(ch);
+    else if (ch === '}' || ch === ']') {
+      stack.pop();
+      if (stack[stack.length - 1] === '[') cut = i + 1;
+    }
+  }
+  if (cut < 0) return null;
+  // Close everything still open at the cut, innermost first.
+  const open = [];
+  inString = false;
+  for (let i = 0; i < cut; i++) {
+    const ch = src[i];
+    if (inString) { if (ch === '\\') i++; else if (ch === '"') inString = false; continue; }
+    if (ch === '"') inString = true;
+    else if (ch === '{' || ch === '[') open.push(ch);
+    else if (ch === '}' || ch === ']') open.pop();
+  }
+  const closers = open.reverse().map((c) => (c === '{' ? '}' : ']')).join('');
+  let data;
+  try {
+    data = JSON.parse(src.slice(0, cut) + closers);
+  } catch {
+    return null;
+  }
+  let rows = 0;
+  (function count(v) {
+    if (Array.isArray(v)) { rows += v.length; v.forEach(count); }
+    else if (v && typeof v === 'object') Object.values(v).forEach(count);
+  })(data);
+  return rows > 0 ? { data, rows } : null;
+}
+
+/**
  * LLM Manager
  * Manages multiple LLM providers and provides unified interface
  */
@@ -987,12 +1051,25 @@ Extract the data and return valid JSON:`;
         try {
           parsed = JSON.parse(cleaned);
         } catch (parseError) {
+          if (!endsMidJson(cleaned)) throw parseError;
           // Name the cause when the JSON simply stops: "unexpected end of
           // input at position 2608" tells a caller nothing they can act on,
           // whereas "cut off at the 1000-token limit" points at the schema.
-          throw endsMidJson(cleaned)
-            ? new Error(`model response was cut off at the ${budget}-token output limit (${cleaned.length} chars) — the schema asks for more rows than fit`)
-            : parseError;
+          const cutOff = `model response was cut off at the ${budget}-token output limit (${cleaned.length} chars) — the schema asks for more rows than fit`;
+          // The doubled budget was the retry; when that is cut off too, the
+          // rows it did complete are worth more than a fallback that has none.
+          const salvaged = attempt > 0 ? salvageTruncatedJson(cleaned) : null;
+          if (!salvaged) throw new Error(cutOff);
+          const validation = this.validateAgainstSchema(salvaged.data, schema);
+          this.logger.warn('LLM structured extraction salvaged a cut-off response', { budget, rows: salvaged.rows });
+          return {
+            data: salvaged.data,
+            method: 'llm',
+            valid: validation.valid,
+            validationErrors: validation.errors,
+            partial: true,
+            warning: `${cutOff}; kept the ${salvaged.rows} complete row(s) it had written. Ask for fewer rows (a prompt naming the rows you need, or a narrower schema) to get the rest.`
+          };
         }
 
         const validation = this.validateAgainstSchema(parsed, schema);
@@ -1016,7 +1093,7 @@ Extract the data and return valid JSON:`;
     // Report which path produced the data. Callers previously labelled this
     // result "llm", so a failed LLM call was returned as a high-confidence
     // LLM extraction.
-    return { ...this.fallbackStructuredExtraction(content, schema), error: lastError.message };
+    return { ...this.fallbackStructuredExtraction(content, schema, lastError.message), error: lastError.message };
   }
 
   /**
@@ -1036,7 +1113,7 @@ Extract the data and return valid JSON:`;
   /**
    * Fallback structured extraction without LLM — keyword/regex matching for primitives
    */
-  fallbackStructuredExtraction(content, schema) {
+  fallbackStructuredExtraction(content, schema, reason = 'no LLM provider available') {
     const extracted = {};
     const properties = schema.properties || {};
 
@@ -1065,7 +1142,10 @@ Extract the data and return valid JSON:`;
       data: extracted,
       method: 'keyword_fallback',
       valid: false,
-      validationErrors: ['Used fallback extraction — no LLM provider available']
+      // Name the real reason: this fallback also runs after an LLM attempt
+      // that failed, and "no LLM provider available" beside a working Ollama
+      // sent a caller looking at the wrong thing (R21, 2026-09-09).
+      validationErrors: [`Used fallback extraction — ${reason}`]
     };
   }
 
