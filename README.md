@@ -48,7 +48,7 @@
 | | **CrawlForge MCP** | Firecrawl | Raw scraping API |
 |---|:---:|:---:|:---:|
 | Native MCP server | ✅ 30 tools | ✅ | ❌ |
-| Free tier | ✅ 1,000 credits, rollover | Limited | Varies |
+| Free tier | ✅ 1,000 credits, one-time, never expire | Limited | Varies |
 | Self-hosted / local LLM extraction (Ollama) | ✅ default, $0/token | ❌ | ❌ |
 | Autonomous agent (no URLs needed) | ✅ `agent` | ✅ | ❌ |
 | Deep research with source verification | ✅ `deep_research` | Partial | ❌ |
