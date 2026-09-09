@@ -178,9 +178,27 @@ export async function preflightFetch(url, options = {}) {
   return {
     headers: outboundHeaders(decision.userAgent, signature),
     userAgent: decision.userAgent,
-    warnings: decision.warnings,
+    warnings: [...decision.warnings, ...crawlDelayWarning(url, decision.crawlDelayMs)],
     overridden: decision.overridden
   };
+}
+
+/**
+ * Name a long Crawl-delay, so a slow multi-page call reads as compliance
+ * rather than a stall: eff.org asks every agent for 30 s, and a 10-page
+ * llms.txt run took 13 minutes with nothing in the response saying why (R21,
+ * 2026-09-09).
+ * @param {string} url
+ * @param {number} crawlDelayMs
+ * @returns {string[]}
+ */
+function crawlDelayWarning(url, crawlDelayMs) {
+  if (!(crawlDelayMs >= 5000)) return [];
+  let host = url;
+  try { host = new URL(url).host; } catch { /* keep the raw url */ }
+  return [
+    `robots.txt on ${host} asks for a ${Math.round(crawlDelayMs / 1000)} s crawl delay; requests to it are spaced by that much, so a multi-page call takes about that long per page.`
+  ];
 }
 
 /**
@@ -213,7 +231,7 @@ export async function browserPreflight(url, options = {}) {
   }
 
   await throttleHost(url, { crawlDelayMs: decision.crawlDelayMs });
-  return decision.warnings;
+  return [...decision.warnings, ...crawlDelayWarning(url, decision.crawlDelayMs)];
 }
 
 /** Test/diagnostic hook: drop every cached robots.txt. */

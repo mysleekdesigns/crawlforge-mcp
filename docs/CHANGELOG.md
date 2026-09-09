@@ -3,6 +3,102 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [6.5.0] - 2026-09-09
+
+Six defects and four gaps from the R21 live sweep: ~600 URLs across real estate, healthcare,
+finance, education, sports, food, entertainment, law and government, industrial supply,
+telecom and SaaS pricing, non-profits, outdoors and science pre-flighted, all 30 tools run
+against the ~470 that answered. Every defect again returned `success: true` with something
+missing, wrong or misnamed.
+
+### Added
+
+- **`process_document` reads Word documents.** A `.docx` fetched with `sourceType: "url"` had
+  gone through the HTML pipeline and come back as a megabyte of ZIP bytes reported as page text
+  (calibre's demo.docx). The fetched body now decides how it is read: a DOCX (by Content-Type,
+  `.docx` extension or its `word/document.xml` entry) is read by mammoth as text, and as
+  markdown under `outputFormat: "markdown"`; a PDF served under `sourceType: "url"` reaches the
+  PDF parser; a body the tool cannot read — an archive, an image — is refused by name
+  ("application/zip content is not a document this tool reads: process_document reads PDF, DOCX,
+  HTML and plain text"). Text bodies are decoded by their declared charset.
+
+### Fixed
+
+- **`scrape` returned irs.gov's tax-bracket page as its header.** Three faults in the
+  hidden-content pass, each enough on its own: the page links a `media="print"` stylesheet that
+  hides every screen element and shows a print-only logo, and the CSS collector took every
+  `<link rel="stylesheet">` regardless of its `media` attribute; every inline `style=""`
+  attribute was folded into a universal `*{...}` rule for the branding extractor's benefit, so
+  one `style="display:none"` element became a rule hiding every element small enough to pass
+  the bulk guard; and the selector-list splitter cut on every comma, so a
+  `.callout:has(> .a, .b, p, ul, h2, h3, table){display:none !important}` rule became bare
+  `p`, `ul`, `h2`, `h3` and `table` rules. Print and other non-screen sheets (and
+  `<style media="print">` blocks) are skipped, the hidden-content pass no longer reads inline
+  styles as rules (it reads them per element itself), selector lists split on top-level commas
+  only, and `:has()` joins `:not()` among the selectors the stripper does not evaluate. The page
+  now returns its four rate tables.
+
+- **`track_changes` reported a feed that gained a whole record as "No significant changes
+  detected".** The text-change term of the significance score read `change.added.length` off a
+  diff *group* (`{type:'word_diff', changes:[…]}`), so it was always 0 and a text-only
+  document scored on similarity alone: the USGS all-hour earthquake feed gained an event (622
+  words, 84% similar) and `compare` answered `hasChanges: false` beside `totalChanges: 5`. The
+  term now sums the characters of the added and removed diff parts; a rotated timestamp alone
+  still scores `none`.
+
+- **`extract_structured` failed a whole table extraction when the model overran its output
+  budget, and blamed a missing provider.** The ECB key-rates table came back cut off at 1,800
+  and again at 3,600 tokens, the extraction fell back to keyword matching with
+  `validation.errors: ["Used fallback extraction — no LLM provider available"]` beside a
+  working Ollama, and `required: ["rates"]` made the call `success: false`. The retry's
+  complete rows are now kept — `salvageTruncatedJson` cuts at the last complete array element
+  and closes the document — returned as `extraction_method: "llm"` with `partial: true` and a
+  warning naming the token limit and the row count; only a response with no complete row still
+  falls back, and the fallback's validation error now carries the real reason.
+
+- **`map_site` ignored the seed's path and its `search`.** `map_site("https://www.nps.gov/yell/",
+  search: "fees", max_urls: 200)` returned 200 alphabetical URLs of the park service's
+  site-wide sitemap — Abraham Lincoln Birthplace pages — none about fees, every one ranked
+  0.19. A seed with a path now scopes the map to that subtree (`scope: "/yell/"`; a page URL
+  scopes to its directory; the whole site is listed with a warning only when nothing is under
+  the path), a search widens the sitemap pool to ten times `max_urls` before the cut so the
+  relevant URLs can enter, orders the list by how many search terms the URL's own path
+  carries, and `ranked_urls` adds that count to the ranker's score — `/yell/planyourvisit/fees.htm`
+  now ranks first.
+
+- **A truncated `scrape` result dropped the `highlights`, `question` and `json` answers.** The
+  inline-threshold preview kept only scalars beside the markdown preview, so a call that asked
+  for query-scoped formats and hit `max_inline_chars` got the page text it did not want and lost
+  the small answers it did. Every non-text `content` field that fits a quarter of the inline
+  budget now stays inline, and the hint names them (`content.highlights, content.answer kept
+  inline`).
+
+- **A failed `scrape_with_actions` chain shipped its error screenshot as 1.7 MB of base64.**
+  The error screenshot had no `actionId`, so the server could not publish it as a
+  `crawlforge://screenshot/{actionId}` resource; it now gets one, and the published shot drops
+  its inline `data` on the top-level `screenshots` list as it already did under `content`.
+
+### Changed
+
+- **`extract_embedded_state` resolves a bare path inside the page's only payload.** A path is
+  written against the payload (`props.pageProps`), not this tool's envelope
+  (`next_data.props.pageProps`); four Next.js pages in a row failed on the bare form. When the
+  page carries exactly one payload and the path's root is not an envelope key, the path is read
+  inside that payload and the response says so.
+- **A long `Crawl-delay` is named.** eff.org's robots.txt asks every agent for 30 s between
+  requests; a 10-page `generate_llms_txt` run took 13 minutes with nothing in the response saying
+  why. The robots gate now adds a warning naming the host and the delay whenever it is 5 s or
+  more, on every tool that surfaces fetch warnings.
+
+### Not defects, recorded so they are not re-logged
+
+- `fetch_url` refuses `clinicaltrials.gov/api/`, `api.open-meteo.com`, `export.arxiv.org` and
+  `musicbrainz.org/ws/`: each robots.txt disallows the path.
+- A Premier League table page scraped without a browser is a JavaScript shell (1,241 visible
+  characters of navigation); `scrape_with_actions` returns the table.
+- `extract_with_llm` on gemma3:4b answered the lowest bracket for "top marginal rate"; a model
+  limitation, not an extraction fault (the page text was complete).
+
 ## [6.4.0] - 2026-09-07
 
 Five defects and five gaps from the R20 live sweep: 415 retail, travel and aviation URLs

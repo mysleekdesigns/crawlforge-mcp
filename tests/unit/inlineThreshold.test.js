@@ -110,12 +110,14 @@ test('over the threshold, scrape returns a preview + handle and the store holds 
   assert.match(shaped.result_handle, /^res_/);
   assert.match(shaped.expires_at, /^\d{4}-\d{2}-\d{2}T/);
 
-  // Scalars and short strings are kept; large/nested values are not.
+  // Scalars and short strings are kept; large/nested values are not — except
+  // the small non-text fields under `content`, which are the exact answers a
+  // caller asked for beside the page text (R21, 2026-09-09).
   assert.equal(shaped.success, true);
   assert.equal(shaped.url, 'https://example.com/long');
   assert.equal(shaped.status, 200);
   assert.equal(shaped.title, 'Long page');
-  assert.equal('content' in shaped, false);
+  assert.deepEqual(shaped.content, { links: { links: [], total_count: 0 } });
   assert.equal('metadata' in shaped, false);
 
   // Original warnings survive, the hint is appended last and names the facts.
@@ -196,4 +198,27 @@ test('fetch_url uses the body as the text view', () => {
   assert.equal(out.result.preview, body.slice(0, 1000));
   assert.equal(out.result.status, 200);
   assert.equal('headers' in out.result, false, 'nested objects are dropped from the inline copy');
+});
+
+test('highlights, a question answer and json survive markdown truncation', () => {
+  const highlights = [{ text: 'Common side effects of metformin include:', offset: 3114, length: 41, score: 7.0 }];
+  const answer = { text: 'Metformin usually comes as tablets.', grounded: true, evidence: [{ offset: 26, length: 37 }] };
+  const result = {
+    success: true,
+    url: 'https://example.com/nhs',
+    content: { markdown: bigMarkdown, highlights, answer, json: { name: 'x', price: 1 } }
+  };
+  const out = applyInlineThreshold('scrape', result, { url: 'https://example.com/nhs', max_inline_chars: 3000 }, { store, env });
+  const shaped = out.result;
+  assert.equal(shaped.truncated, true);
+  assert.equal(shaped.preview, bigMarkdown.slice(0, 3000));
+  assert.deepEqual(shaped.content, { highlights, answer, json: { name: 'x', price: 1 } });
+  assert.equal('markdown' in shaped.content, false, 'the text view is previewed, not duplicated');
+  assert.match(shaped.warnings.at(-1), /content\.highlights, content\.answer, content\.json kept inline/);
+});
+
+test('a content field bigger than a quarter of the budget is left to read_result', () => {
+  const result = { success: true, url: 'https://example.com/big', content: { markdown: bigMarkdown, links: { links: Array.from({ length: 200 }, (_, i) => ({ href: `https://example.com/${i}`, text: `link ${i}` })) } } };
+  const out = applyInlineThreshold('scrape', result, { url: 'https://example.com/big', max_inline_chars: 2000 }, { store, env });
+  assert.equal('content' in out.result, false);
 });

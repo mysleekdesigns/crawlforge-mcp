@@ -83,6 +83,38 @@ function stripConditionalBlocks(css) {
   return out;
 }
 
+/**
+ * Split a selector list on its top-level commas only. A naive split cut
+ * irs.gov's `.callout:has(> .a, .b, p, ul, h2, h3, table)` into bare `p`,
+ * `ul`, `h2`, `h3` and `table` rules carrying its `display:none !important`,
+ * and the stripper then deleted the article body (R21, 2026-09-09).
+ * @param {string} list
+ * @returns {string[]}
+ */
+export function splitSelectorList(list) {
+  const out = [];
+  let depth = 0;
+  let quote = null;
+  let start = 0;
+  for (let i = 0; i < list.length; i++) {
+    const ch = list[i];
+    if (quote) {
+      if (ch === '\\') i++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '(' || ch === '[') depth++;
+    else if (ch === ')' || ch === ']') depth = Math.max(0, depth - 1);
+    else if (ch === ',' && depth === 0) {
+      out.push(list.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(list.slice(start));
+  return out;
+}
+
 /** True when cheerio cannot meaningfully evaluate the selector. */
 function isUnsupportedSelector(selector) {
   return (
@@ -91,7 +123,7 @@ function isUnsupportedSelector(selector) {
     // case and these rules would hide content every real visitor sees.
     /(^|[\s.#\[])no-js(\b|[.\[])/.test(selector) ||
     selector.includes('::') ||
-    /:(hover|focus|focus-within|focus-visible|active|target|checked|disabled|placeholder|before|after|root|host|where|is|not\()/i.test(selector) ||
+    /:(hover|focus|focus-within|focus-visible|active|target|checked|disabled|placeholder|before|after|root|host|where|is|not\(|has\()/i.test(selector) ||
     selector.includes('@') ||
     selector.length === 0
   );
@@ -199,7 +231,7 @@ export function collectVisibilitySelectors(css) {
 
     const important = /!\s*important/i.test(body);
 
-    for (const raw of selectorList.split(',')) {
+    for (const raw of splitSelectorList(selectorList)) {
       const selector = raw.trim();
       if (isUnsupportedSelector(selector) || NEVER_REMOVE.has(selector)) continue;
       const entry = { selector, spec: specificity(selector), order, important };
@@ -249,10 +281,43 @@ function renderedSize($, el) {
 export function inlineStyleText($) {
   const parts = [];
   $('style').each((_, el) => {
+    // A <style media="print"> block is only consulted when printing.
+    if (!mediaAppliesToScreen($(el).attr('media'), { unconditional: true })) return;
     const text = $(el).html();
     if (text) parts.push(text);
   });
   return parts.join('\n');
+}
+
+/**
+ * Whether a stylesheet's `media` attribute applies to a screen render.
+ *
+ * `<link rel="stylesheet" media="print">` is consulted only when printing.
+ * irs.gov's tax-bracket page ships one that hides every screen element and
+ * shows a print-only logo; read as screen CSS it emptied the page to that logo
+ * (R21, 2026-09-09). Absent or empty, `all`, `screen` and `not print` apply.
+ * `print`, `speech` and the other non-screen types, and `not screen`/`not all`,
+ * do not. With `unconditional: true` a media QUERY (`screen and (max-width:
+ * 600px)`, a bare `(prefers-color-scheme: dark)`) does not apply either — the
+ * hidden-content pass ignores @media blocks for the same reason.
+ *
+ * @param {string|undefined} media - the attribute value
+ * @param {{ unconditional?: boolean }} [options]
+ * @returns {boolean}
+ */
+export function mediaAppliesToScreen(media, { unconditional = false } = {}) {
+  const value = (media || '').trim().toLowerCase();
+  if (!value) return true;
+  return value.split(',').some((part) => {
+    const query = part.trim();
+    if (!query) return false;
+    if (unconditional && query.includes('(')) return false;
+    if (query.startsWith('(')) return true; // a bare feature query: type "all"
+    const m = query.match(/^(?:(not|only)\s+)?([a-z-]+)/);
+    if (!m) return true;
+    const screenType = m[2] === 'all' || m[2] === 'screen';
+    return m[1] === 'not' ? !screenType : screenType;
+  });
 }
 
 /**

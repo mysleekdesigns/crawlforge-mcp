@@ -13,7 +13,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { LLMManager } from '../../src/core/llm/LLMManager.js';
+import { LLMManager, salvageTruncatedJson } from '../../src/core/llm/LLMManager.js';
 
 const rowSchema = {
   type: 'object',
@@ -79,13 +79,37 @@ describe('extractStructured — retry on a truncated response', () => {
     assert.equal(result.valid, true);
   });
 
-  test('two truncated responses fall back, naming the token limit', async () => {
+  // R21 (2026-09-09): the ECB key-rates table was cut off at 1,800 and again
+  // at 3,600 tokens and the whole extraction failed, although dozens of rows
+  // were complete. The retry's complete rows are now kept, with a warning that
+  // names the limit; only a response with no complete row still falls back.
+  test('a second truncated response keeps its complete rows and names the token limit', async () => {
     const { manager } = stubCompletions([truncatedRows, truncatedRows]);
+    const result = await manager.extractStructured('content', rowSchema);
+
+    assert.equal(result.method, 'llm');
+    assert.equal(result.partial, true);
+    assert.deepEqual(result.data.countries, [{ name: 'Andorra', capital: 'Andorra la Vella' }]);
+    assert.match(result.warning, /cut off at the \d+-token output limit/);
+    assert.match(result.warning, /kept the 1 complete row/);
+    assert.doesNotMatch(result.warning, /position \d+/, 'a JSON offset is not an actionable message');
+  });
+
+  test('two truncated responses with no complete row fall back, naming the token limit', async () => {
+    const noRow = '{\n  "countries": [\n    {\n      "name": "Ando';
+    const { manager } = stubCompletions([noRow, noRow]);
     const result = await manager.extractStructured('content', rowSchema);
 
     assert.equal(result.method, 'css_fallback');
     assert.match(result.error, /cut off at the \d+-token output limit/);
     assert.doesNotMatch(result.error, /position \d+/, 'a JSON offset is not an actionable message');
+  });
+
+  test('the first truncated response is still retried, not salvaged', async () => {
+    const { manager, budgets } = stubCompletions([truncatedRows, validRows]);
+    const result = await manager.extractStructured('content', rowSchema);
+    assert.equal(budgets.length, 2);
+    assert.equal(result.partial, undefined);
   });
 
   test('malformed-from-the-start output keeps its own parse error', async () => {
@@ -103,5 +127,32 @@ describe('extractStructured — retry on a truncated response', () => {
     assert.equal(budgets.length, 2);
     assert.equal(result.method, 'css_fallback');
     assert.match(result.error, /ECONNREFUSED/);
+  });
+});
+
+describe('salvageTruncatedJson', () => {
+  test('keeps the complete objects of a cut-off array and closes the document', () => {
+    const cut = '{"rates":[{"date":"17 Jun.","deposit":2.25},{"date":"11 Jun.","deposit":2.00},{"date":"23 Apr.","dep';
+    const out = salvageTruncatedJson(cut);
+    assert.deepEqual(out.data, { rates: [{ date: '17 Jun.', deposit: 2.25 }, { date: '11 Jun.', deposit: 2.0 }] });
+    assert.equal(out.rows, 2);
+  });
+
+  test('handles nested arrays, strings with brackets, and a cut inside a string', () => {
+    const cut = '{"a":[{"tags":["x]","y{"],"n":1},{"tags":["z"],"n":2}],"b":[{"name":"unfinis';
+    const out = salvageTruncatedJson(cut);
+    // The cut sits after the last complete element, so the unfinished "b"
+    // array (no complete row yet) is not in the salvage at all.
+    assert.deepEqual(out.data, { a: [{ tags: ['x]', 'y{'], n: 1 }, { tags: ['z'], n: 2 }] });
+    assert.equal(out.rows, 5, 'two rows of a plus their three tags');
+  });
+
+  test('an array of strings is cut after the last complete string', () => {
+    assert.deepEqual(salvageTruncatedJson('{"side_effects":["nausea","diarrhoea","tum').data, { side_effects: ['nausea', 'diarrhoea'] });
+  });
+
+  test('nothing complete means null', () => {
+    assert.equal(salvageTruncatedJson('{"countries":[{"name":"Ando'), null);
+    assert.equal(salvageTruncatedJson('Sure! Here is'), null);
   });
 });

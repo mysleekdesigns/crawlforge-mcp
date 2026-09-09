@@ -15,6 +15,7 @@
  */
 
 import { safeFetch } from '../../utils/ssrfGuard.js';
+import { mediaAppliesToScreen } from '../../utils/hiddenContent.js';
 
 const GENERIC_FAMILIES = new Set([
   'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui',
@@ -123,19 +124,36 @@ export async function collectCssSources($, pageUrl, opts) {
   let inlineStyleEls = 0;
   let cssText = '';
 
+  // Print (and other non-screen) stylesheets never paint a screen render, so
+  // neither branding nor the hidden-content pass may read them. `media:
+  // 'unconditional-screen'` also drops sheets gated on a media query.
+  const unconditional = opts.media === 'unconditional-screen';
+  const applies = (el) => mediaAppliesToScreen($(el).attr('media'), { unconditional });
+
   $('style').each((_, el) => {
+    if (!applies(el)) return;
     const t = $(el).html();
     if (t) { cssText += '\n' + t; styleBlocks++; }
   });
 
-  $('[style]').each((_, el) => {
-    const t = $(el).attr('style');
-    if (t) { cssText += '\n*{' + t + '}'; inlineStyleEls++; }
-  });
+  // Inline style="" attributes are folded in as universal rules so branding
+  // can mine their colours and fonts. They are NOT visibility rules: one
+  // element carrying style="display:none" became `*{display:none}`, and the
+  // hidden-content pass then deleted every element small enough to pass its
+  // bulk guard — irs.gov's tax-bracket page came back as its header (R21,
+  // 2026-09-09). That pass reads inline styles per element itself, so it
+  // asks for `inlineStyles: false`.
+  if (opts.inlineStyles !== false) {
+    $('[style]').each((_, el) => {
+      const t = $(el).attr('style');
+      if (t) { cssText += '\n*{' + t + '}'; inlineStyleEls++; }
+    });
+  }
 
   if (opts.fetchLinkedCss) {
     const hrefs = [];
     $('link[rel~="stylesheet"][href]').each((_, el) => {
+      if (!applies(el)) return;
       const href = $(el).attr('href');
       if (href) hrefs.push(resolveUrl(href, pageUrl));
     });
@@ -404,7 +422,7 @@ function extractTokens(cssText, cssVariables) {
  * Extract the full branding object from a loaded cheerio $.
  * @param {import('cheerio').CheerioAPI} $
  * @param {string} pageUrl
- * @param {{ fetchLinkedCss?: boolean, maxStylesheets?: number, perFileTimeoutMs?: number, timeoutMs?: number, overallTimeoutMs?: number, stylesheetConcurrency?: number }} [opts]
+ * @param {{ fetchLinkedCss?: boolean, maxStylesheets?: number, perFileTimeoutMs?: number, timeoutMs?: number, overallTimeoutMs?: number, stylesheetConcurrency?: number, media?: 'screen'|'unconditional-screen', inlineStyles?: boolean }} [opts]
  * @returns {Promise<object>}
  */
 export async function extractBranding($, pageUrl, opts = {}) {

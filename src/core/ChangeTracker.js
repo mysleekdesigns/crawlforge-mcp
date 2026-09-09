@@ -720,14 +720,16 @@ export class ChangeTracker extends EventEmitter {
     significanceScore += Math.min(totalElements * 0.05, 1) * 
       (weights.additions + weights.removals + weights.modifications);
     
-    // Text changes impact
-    if (changeAnalysis.textChanges.length > 0) {
-      const textChangeRatio = changeAnalysis.textChanges.reduce(
-        (sum, change) => sum + (change.added?.length || 0) + (change.removed?.length || 0),
-        0
-      ) / 1000; // Normalize by character count
-      
-      significanceScore += Math.min(textChangeRatio, 1) * weights.textChanges;
+    // Text changes impact. textChanges holds diff GROUPS — {type:'word_diff',
+    // changes:[{added, removed, value}]} — not flat parts, so reading
+    // `change.added.length` off a group was always 0 and this term never
+    // fired: a feed that grew by a whole record scored on similarity alone.
+    // The USGS all-hour earthquake feed gained an event (622 words, 84%
+    // similar) and compare reported hasChanges:false, "No significant
+    // changes detected" (R21, 2026-09-09).
+    const changedChars = this.changedTextChars(changeAnalysis.textChanges);
+    if (changedChars > 0) {
+      significanceScore += Math.min(changedChars / 1000, 1) * weights.textChanges;
     }
     
     // Determine significance level
@@ -1313,6 +1315,21 @@ export class ChangeTracker extends EventEmitter {
 
     return diff.changes.reduce(
       (count, part) => count + (part.added || part.removed ? 1 : part.omittedEntries || 0),
+      0
+    );
+  }
+
+  /**
+   * Characters added or removed at the text level, for significance scoring.
+   * Same word-diff-then-line-diff choice as countTextChanges, and for the
+   * same reason: the two describe one edit.
+   */
+  changedTextChars(textChanges = []) {
+    const diff = textChanges.find(c => c.type === 'word_diff')
+      || textChanges.find(c => c.type === 'line_diff');
+    if (!diff) return 0;
+    return diff.changes.reduce(
+      (chars, part) => chars + ((part.added || part.removed) && typeof part.value === 'string' ? part.value.length : 0),
       0
     );
   }

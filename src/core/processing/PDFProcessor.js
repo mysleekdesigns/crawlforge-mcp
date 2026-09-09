@@ -12,7 +12,9 @@ import { config } from '../../constants/config.js';
 import { identityHeaders } from '../../utils/fetchIdentity.js';
 
 const PDFProcessorSchema = z.object({
-  source: z.string().min(1),
+  // A Buffer is the 'buffer' source: process_document hands over a body it
+  // has already fetched and sniffed as a PDF (R21, 2026-09-09).
+  source: z.union([z.string().min(1), z.instanceof(Buffer)]),
   sourceType: z.enum(['url', 'file', 'buffer']).default('url'),
   options: z.object({
     extractMetadata: z.boolean().default(true),

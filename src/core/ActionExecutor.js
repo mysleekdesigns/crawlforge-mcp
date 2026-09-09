@@ -314,7 +314,15 @@ export class ActionExecutor extends EventEmitter {
               fullPage: true,
               description: 'Error screenshot'
             });
-            executionContext.screenshots.push(errorScreenshot);
+            // An actionId is what lets the server publish the shot as a
+            // crawlforge://screenshot/{actionId} resource and drop the base64
+            // from the result; without one a failed chain shipped 1.7 MB of
+            // PNG inline (R21, 2026-09-09).
+            executionContext.screenshots.push({
+              ...errorScreenshot,
+              actionId: this.generateActionId(),
+              error: true
+            });
           } catch (screenshotError) {
             this.log('warn', 'Failed to capture error screenshot: ' + screenshotError.message);
           }

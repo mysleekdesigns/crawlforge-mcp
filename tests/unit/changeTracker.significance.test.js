@@ -130,3 +130,30 @@ describe('price changes are scored by magnitude, not by page share', () => {
     assert.equal(result.significance, 'moderate', '+7.7% is not a major move');
   });
 });
+
+// R21 (2026-09-09): the text-change term read `change.added.length` off a diff
+// GROUP ({type:'word_diff', changes:[...]}) and was therefore always 0. A JSON
+// feed that grew by a whole record scored on similarity alone (84%) and
+// compare answered hasChanges:false, "No significant changes detected".
+describe('a text-only document that grows by a record registers as a change', () => {
+  const FEED = { granularity: 'text', trackText: true, trackStructure: false, trackLinks: false, ignoreWhitespace: true };
+  const event = (id, place) =>
+    `{"type":"Feature","properties":{"mag":1.2,"place":"${place}","time":1788983931030,"url":"https://example.com/eventpage/${id}","status":"automatic","tsunami":0,"sig":16,"net":"nc","code":"${id}","ids":",${id},","sources":",nc,","types":",nearby-cities,origin,phase-data,"},"geometry":{"type":"Point","coordinates":[-122.8,38.8,2.1]},"id":"${id}"}`;
+  const feed = (generated, events) => `{"type":"FeatureCollection","metadata":{"generated":${generated},"count":${events.length}},"features":[${events.join(',')}]}`;
+  const base = Array.from({ length: 14 }, (_, i) => event(`nc${i}`, `${i} km NW of The Geysers, CA`));
+
+  test('a new record in the feed is a change', async () => {
+    const before = feed(1788984014000, base);
+    const after = feed(1788984134000, [...base, event('nc75432747', '11 km NW of The Geysers, CA'), event('nc75432748', '4 km E of Anza, CA')]);
+    const result = await compare(before, after, FEED);
+    assert.equal(result.hasChanges, true, 'two new records must register');
+    assert.notEqual(result.significance, 'none');
+    assert.ok(result.summary.totalChanges > 0);
+  });
+
+  test('a rotated timestamp alone is not', async () => {
+    const result = await compare(feed(1788984014000, base), feed(1788984134000, base), FEED);
+    assert.equal(result.significance, 'none', 'a 13-digit timestamp is not a material change');
+    assert.equal(result.hasChanges, false);
+  });
+});

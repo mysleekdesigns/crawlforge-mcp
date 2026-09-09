@@ -73,6 +73,8 @@ completed or in-progress job. Cheap (1 credit) because the batch was already
 paid for. Completed jobs are also exposed as `crawlforge://job/{jobId}`
 resources. Stored batch results share the local 1-hour result store that
 `read_result` reads, with the same eviction, so page through a batch within the hour.
+Like `batch_scrape`, it takes `max_inline_chars` (default 40,000): a page over the
+limit comes back as a `preview` plus a `result_handle` for `read_result`.
 
 ## scrape_with_actions — interact, then scrape (cost: 5)
 

@@ -118,6 +118,57 @@ const ProcessDocumentResult = z.object({
   error: z.string().optional()
 });
 
+/**
+ * What a fetched body is, from its Content-Type, magic bytes and URL:
+ * 'pdf', 'docx', 'binary' (something this tool cannot read) or 'html'
+ * (HTML, XML, JSON and plain text all go through the page pipeline).
+ * @param {string} contentType
+ * @param {Buffer} buffer
+ * @param {string} [url]
+ * @returns {'pdf'|'docx'|'binary'|'html'}
+ */
+export function sniffDocumentKind(contentType = '', buffer, url = '') {
+  const type = String(contentType).split(';')[0].trim().toLowerCase();
+  const head = buffer.subarray(0, 8).toString('latin1');
+  let path = String(url).toLowerCase();
+  try { path = new URL(url).pathname.toLowerCase(); } catch { /* keep the raw string */ }
+
+  if (type === 'application/pdf' || head.startsWith('%PDF')) return 'pdf';
+
+  const zip = head.startsWith('PK\u0003\u0004');
+  if (
+    type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    (zip && (path.endsWith('.docx') || buffer.includes('word/document.xml')))
+  ) return 'docx';
+
+  if (zip) return 'binary';
+  if (/^(image|audio|video|font)\//.test(type)) return 'binary';
+  if (/^application\/(x-)?(zip|gzip|tar|7z|rar|msword|vnd\.)/.test(type)) return 'binary';
+  const textual = type.startsWith('text/') || /html|xml|json|javascript/.test(type);
+  if (!textual && buffer.subarray(0, 512).includes(0)) return 'binary';
+  return 'html';
+}
+
+/**
+ * Decode a text body by its Content-Type charset, else the <meta charset>
+ * it declares, else UTF-8.
+ * @param {Buffer} buffer
+ * @param {string} contentType
+ * @returns {string}
+ */
+export function decodeTextBody(buffer, contentType = '') {
+  let charset = (/charset=["']?([\w-]+)/i.exec(contentType) || [])[1];
+  if (!charset) {
+    const head = buffer.subarray(0, 4096).toString('latin1');
+    charset = (/<meta[^>]+charset=["']?([\w-]+)/i.exec(head) || [])[1];
+  }
+  try {
+    return new TextDecoder(charset || 'utf-8').decode(buffer);
+  } catch {
+    return buffer.toString('utf8');
+  }
+}
+
 export class ProcessDocumentTool {
   constructor() {
     this.pdfProcessor = new PDFProcessor();
@@ -340,13 +391,55 @@ export class ProcessDocumentTool {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      html = await response.text();
+      // What came back decides how it is read, not the sourceType the caller
+      // guessed: a .docx fetched as 'url' was run through the HTML pipeline
+      // and returned its ZIP bytes as page text, success:true (R21,
+      // 2026-09-09). PDFs reach their parser the same way.
+      const contentType = response.headers.get('content-type') || '';
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const kind = sniffDocumentKind(contentType, buffer, source);
+      if (kind === 'pdf') {
+        result.documentType = 'pdf';
+        await this.processPDFDocument(result, buffer, 'pdf_buffer', options, identity);
+        return;
+      }
+      if (kind === 'docx') {
+        result.documentType = 'docx';
+        await this.processDocxBuffer(result, buffer, options);
+        return;
+      }
+      if (kind === 'binary') {
+        throw new Error(
+          `${contentType.split(';')[0] || 'This'} content is not a document this tool reads: ` +
+            'process_document reads PDF, DOCX, HTML and plain text.'
+        );
+      }
+      html = decodeTextBody(buffer, contentType);
       pageTitle = this.extractTitleFromHTML(html);
     }
 
     result.title = pageTitle;
 
     await this.processFetchedHtml(result, html, source, options);
+  }
+
+  /**
+   * Read a Word document: its text (and markdown when asked) via mammoth.
+   * @param {Object} result - Result object to populate
+   * @param {Buffer} buffer - the .docx bytes
+   * @param {Object} options - Processing options
+   */
+  async processDocxBuffer(result, buffer, options) {
+    const mammoth = (await import('mammoth')).default;
+    const raw = await mammoth.extractRawText({ buffer });
+    result.content = { text: (raw.value || '').trim() };
+    if (options.outputFormat === 'markdown') {
+      const md = await mammoth.convertToMarkdown({ buffer });
+      result.content.markdown = md.value || '';
+    }
+    result.title = null;
+    const notes = (raw.messages || []).map((m) => m.message).filter(Boolean);
+    if (notes.length > 0) result.warnings = [...(result.warnings || []), ...notes.slice(0, 5)];
   }
 
   /**

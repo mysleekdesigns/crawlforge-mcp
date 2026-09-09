@@ -10,6 +10,44 @@ import { CRAWLFORGE_USER_AGENT } from '../../utils/fetchIdentity.js';
 import { preflightFetch } from '../../utils/robotsGate.js';
 import { pageTitle } from '../../utils/pageTitle.js';
 
+/**
+ * The path prefix a seed URL asks for: nps.gov/yell/ means the Yellowstone
+ * subtree, not the first 200 URLs of the park service's site-wide sitemap
+ * (R21, 2026-09-09: map_site returned Abraham Lincoln Birthplace pages for it).
+ * A page URL scopes to its directory; the site root scopes to nothing.
+ * @param {string} url
+ * @returns {string|null} e.g. "/yell/", or null for the root
+ */
+export function scopePathOf(url) {
+  try {
+    const { pathname } = new URL(url);
+    const dir = pathname.endsWith('/') ? pathname : pathname.slice(0, pathname.lastIndexOf('/') + 1);
+    return dir && dir !== '/' ? dir : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How many of a search's terms a URL's own path and query contain — the
+ * relevance signal the generic ranker lacks when every candidate is a bare
+ * URL (it scored 0.19 for all 200 nps.gov URLs of a "fees" search, none of
+ * which mentioned fees).
+ * @param {string} url
+ * @param {string} search
+ * @returns {number}
+ */
+export function searchScore(url, search) {
+  const terms = [...new Set(String(search || '').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((t) => t.length >= 2))];
+  if (terms.length === 0) return 0;
+  let haystack = url.toLowerCase();
+  try {
+    const { pathname, search: query } = new URL(url);
+    haystack = decodeURIComponent(pathname + query).toLowerCase();
+  } catch { /* keep the raw url */ }
+  return terms.filter((t) => haystack.includes(t)).length;
+}
+
 // Lazy singleton — avoids creating a CacheManager timer per request
 let _ranker = null;
 function getRanker() {
@@ -107,22 +145,47 @@ export class MapSiteTool {
         }
       }
 
+      // A seed with a path asks for that subtree, and a search needs a pool
+      // wider than max_urls to rank — otherwise the cut falls before the
+      // relevant URLs ever enter (the sitemap head is alphabetical).
+      const scopePath = scopePathOf(validated.url);
+      const widen = scopePath || validated.search;
+      const poolLimit = widen ? Math.min(10000, Math.max(validated.max_urls * 10, 2000)) : validated.max_urls;
+      const warnings = [];
+
       // Try to fetch sitemap first
       if (validated.include_sitemap) {
-        const sitemapUrls = await this.fetchSitemapUrls(baseUrl, domainFilter, validated.max_urls);
+        const sitemapUrls = await this.fetchSitemapUrls(baseUrl, domainFilter, poolLimit, scopePath);
         sitemapUrls.forEach(url => urls.add(normalizeUrl(url)));
       }
 
       // Fetch and parse the main page for additional URLs
       const pageUrls = await this.fetchPageUrls(validated.url, domainFilter, identity);
       pageUrls.forEach(url => {
-        if (urls.size < validated.max_urls) {
+        if (urls.size < poolLimit) {
           urls.add(normalizeUrl(url));
         }
       });
 
+      let pool = Array.from(urls);
+      if (scopePath) {
+        const inScope = pool.filter((u) => { try { return new URL(u).pathname.startsWith(scopePath); } catch { return false; } });
+        if (inScope.length > 0) {
+          pool = inScope;
+        } else {
+          warnings.push(`No URL under ${scopePath} was found in the sitemap or on the page; the whole site is listed instead.`);
+        }
+      }
+      if (validated.search) {
+        // Stable: relevance first, discovery order among equals.
+        pool = pool
+          .map((url, i) => ({ url, i, score: searchScore(url, validated.search) }))
+          .sort((a, b) => b.score - a.score || a.i - b.i)
+          .map((x) => x.url);
+      }
+
       // Convert to array and limit
-      const urlArray = Array.from(urls).slice(0, validated.max_urls);
+      const urlArray = pool.slice(0, validated.max_urls);
 
       // Fetch metadata if requested
       if (validated.include_metadata) {
@@ -142,7 +205,9 @@ export class MapSiteTool {
         site_map: this.generateSiteMap(urlArray),
         statistics: this.generateStatistics(urlArray),
         domain_filter_config: domainFilter ? domainFilter.exportConfig() : null,
-        filter_stats: domainFilter ? domainFilter.getStats() : null
+        filter_stats: domainFilter ? domainFilter.getStats() : null,
+        ...(scopePath ? { scope: scopePath } : {}),
+        ...(warnings.length ? { warnings } : {})
       };
 
       // Optional: rank URLs by relevance to a search string
@@ -157,7 +222,11 @@ export class MapSiteTool {
             return { link: url, title, snippet: '' };
           });
           const ranked = await getRanker().rankResults(rankerInput, validated.search);
-          result.ranked_urls = ranked.map(r => ({ url: r.link, score: r.finalScore ?? 0 }));
+          // The ranker's score is flat across bare URLs; the path-term count
+          // is what separates /yell/planyourvisit/fees.htm from the rest.
+          result.ranked_urls = ranked
+            .map(r => ({ url: r.link, score: Number(((r.finalScore ?? 0) + searchScore(r.link, validated.search)).toFixed(3)) }))
+            .sort((a, b) => b.score - a.score);
         } catch {
           // ranking is best-effort; don't fail the whole call
           result.ranked_urls = urlArray.map(u => ({ url: u, score: 0 }));
@@ -193,7 +262,11 @@ export class MapSiteTool {
     });
   }
 
-  async fetchSitemapUrls(baseUrl, domainFilter = null, maxUrls = Infinity) {
+  async fetchSitemapUrls(baseUrl, domainFilter = null, maxUrls = Infinity, scopePath = null) {
+    const inScope = (url) => {
+      if (!scopePath) return true;
+      try { return new URL(url).pathname.startsWith(scopePath); } catch { return false; }
+    };
     // Discover sitemaps via robots.txt and common paths, then parse with full
     // SitemapParser support (sitemap-index recursion, gzip, CDATA/entities).
     const discovered = await this.sitemapParser.discoverSitemaps(baseUrl, {
@@ -212,6 +285,7 @@ export class MapSiteTool {
         if (parsed.success) {
           for (const entry of parsed.urls) {
             const url = entry.loc || entry;
+            if (!inScope(url)) continue;
             if (!domainFilter || domainFilter.isAllowed(url).allowed) {
               urls.add(url);
             }
