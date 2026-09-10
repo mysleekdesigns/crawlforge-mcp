@@ -80,6 +80,9 @@ export function appendFallbackHint(toolName, result) {
     // plain text
   }
 
+  // An error that already names its next step — a reddit.com refusal points
+  // at reddit_search — keeps it: the tool's generic hint would contradict it.
+  if (parsed?.next_step || /\bNext step:/.test(first.text)) return result;
   const hint = hintFor(toolName, parsed);
   if (!hint || first.text.includes(hint)) return result;
   if (parsed) {

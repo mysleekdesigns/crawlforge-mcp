@@ -101,8 +101,7 @@ describe('RedditSearchTool — validation & routing', () => {
     await assert.rejects(() => tool.execute({ query: 'x', source: 'reddit' }), isZod);
   });
 
-  // PullPush is no longer tried automatically (it refuses automated clients as
-  // of August 2026), but source:"pullpush" still reaches it unchanged.
+  // source:"pullpush" reaches PullPush directly, without Arctic Shift first.
   test('an explicit PullPush search sends the documented query shape', async () => {
     stubFetch(() => okResponse({ data: [RAW_POST], error: null }));
     const tool = new RedditSearchTool();
@@ -137,19 +136,43 @@ describe('RedditSearchTool — validation & routing', () => {
     assert.equal(res.subreddit, 'keyboards');
   });
 
-  // PullPush used to be the automatic fallback here. It now refuses automated
-  // clients outright, so falling back to it only spent a request and buried the
-  // real Arctic Shift error behind a second failure.
-  test('Arctic Shift failure surfaces directly rather than falling back to PullPush', async () => {
+  // Arctic Shift first, PullPush second: a scoped search Arctic Shift fails is
+  // answered by PullPush, and the response says so.
+  test('Arctic Shift failure falls back to PullPush with fallback_used set', async () => {
     stubFetch((url) => String(url).includes('arctic-shift')
       ? errResponse(500, 'Internal Server Error')
       : okResponse({ data: [RAW_POST], error: null }));
     const tool = new RedditSearchTool();
+    const res = await tool.execute({ query: 'switches', subreddit: 'MechanicalKeyboards' });
+    assert.equal(res.source, 'pullpush');
+    assert.match(res.fallback_used, /arctic_shift: HTTP 500/);
+    assert.equal(requests.length, 2);
+    assert.match(requests[0].url.hostname, /arctic-shift/);
+    assert.equal(requests[1].url.hostname, 'api.pullpush.io');
+  });
+
+  // PullPush's policy 429 is a refusal, not a throttle: it is not retried, so
+  // the fallback costs one request and the error names both sources.
+  test('PullPush\'s policy refusal is not retried, and the error names both sources', async () => {
+    stubFetch((url) => String(url).includes('arctic-shift')
+      ? errResponse(500, 'Internal Server Error')
+      : ({ ...errResponse(429), json: async () => ({ error: 'This website does not provide free scraping resources for agents' }) }));
+    const tool = new RedditSearchTool();
     await assert.rejects(
       () => tool.execute({ query: 'switches', subreddit: 'MechanicalKeyboards' }),
+      /arctic_shift: HTTP 500.*pullpush: rate limited \(429\)/s,
+    );
+    assert.equal(requests.length, 2, 'one Arctic Shift request, one PullPush request, no retry');
+  });
+
+  test('thread mode has no second source', async () => {
+    stubFetch(() => errResponse(500, 'Internal Server Error'));
+    const tool = new RedditSearchTool();
+    await assert.rejects(
+      () => tool.execute({ mode: 'thread', link_id: '1twm1zh' }),
       /arctic_shift: HTTP 500/,
     );
-    assert.equal(requests.length, 1, 'no PullPush attempt');
+    assert.ok(requests.every((r) => /arctic-shift/.test(r.url.hostname)), 'no PullPush attempt');
   });
 
   test('a failing archive surfaces its own error', async () => {
@@ -750,7 +773,9 @@ describe('reddit_search scoped search window ladder', () => {
       () => tool.execute({ query: 'react', subreddit: 'webdev', mode: 'comments', after: '30d', limit: 5 }),
       /Timeout\. Maybe slow down a bit/
     );
-    assert.equal(requests.length, 2, 'the caller\'s window is respected: one attempt plus the throttle retry');
+    // Arctic Shift requests only: the PullPush fallback runs after the ladder gives up.
+    const arctic = requests.filter((r) => /arctic-shift/.test(r.url.hostname));
+    assert.equal(arctic.length, 2, 'the caller\'s window is respected: one attempt plus the throttle retry');
   });
 
   test('a non-throttle failure inside the ladder surfaces as itself', async () => {
@@ -762,7 +787,7 @@ describe('reddit_search scoped search window ladder', () => {
       () => tool.execute({ query: 'react', subreddit: 'webdev', mode: 'comments', limit: 5 }),
       /HTTP 500/
     );
-    assert.equal(requests.length, 3);
+    assert.equal(requests.filter((r) => /arctic-shift/.test(r.url.hostname)).length, 3);
   });
 });
 

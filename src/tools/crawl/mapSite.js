@@ -341,7 +341,7 @@ export class MapSiteTool {
       // A gate refusal is the answer to the request, not a page we failed to
       // read: surface it instead of returning an emptier map than the caller
       // would notice.
-      if (error.code === 'ROBOTS_DISALLOWED' || error.code === 'HOST_BLOCKED') throw error;
+      if (error.code === 'ROBOTS_DISALLOWED' || error.code === 'HOST_BLOCKED' || error.code === 'USE_REDDIT_SEARCH') throw error;
       return [];
     }
   }

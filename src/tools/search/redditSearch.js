@@ -15,11 +15,14 @@
  *   cross-subreddit full-text search, but has known post-2023 archive gaps
  *   and recurring outages.
  *
- * Routing: scoped searches go to Arctic Shift. An unscoped keyword search
- * finds posts through a site-restricted web search and then reads them — or
- * searches their comments — in the archive by id. PullPush stopped serving
- * automated clients in August 2026 and is used only on explicit request.
- * Both archives are free and need no credentials.
+ * Routing: Arctic Shift first, PullPush second. A scoped search queries
+ * Arctic Shift and, if that fails, PullPush. An unscoped keyword search finds
+ * posts through a site-restricted web search and reads them — or searches
+ * their comments — in Arctic Shift by id, then falls back to PullPush's own
+ * full-text search. Thread mode is Arctic Shift only. PullPush has refused
+ * automated clients since August 2026, so the fallback usually reports that
+ * refusal; it stays second for whenever it answers again. Both archives are
+ * free and need no credentials.
  *
  * Optional official-API path: if the user sets REDDIT_CLIENT_ID and
  * REDDIT_CLIENT_SECRET (their own Reddit app), posts/thread requests can read
@@ -101,9 +104,8 @@ export class RedditSearchTool {
     // Lazily constructed on first official-path use; overridable for tests.
     this._officialAdapter = options.officialAdapter || null;
 
-    // Web discovery serves the one shape no archive can: a keyword search
-    // across all of Reddit. Arctic Shift requires a subreddit or author scope,
-    // and PullPush stopped serving automated clients in August 2026.
+    // Web discovery serves the one shape Arctic Shift cannot: a keyword search
+    // across all of Reddit, which it requires a subreddit or author scope for.
     this.searchAdapter = options.searchAdapter || null;
     this.searchApiKey = options.searchApiKey || null;
     this.searchApiBaseUrl = options.searchApiBaseUrl || null;
@@ -179,13 +181,16 @@ export class RedditSearchTool {
       order = ['pullpush'];
     } else {
       // auto: prefer the user's own official API (live, authoritative) when it
-      // can serve this request, then fall back to the community archives.
-      // PullPush is no longer tried automatically: every request now returns
-      // 429 "This website does not provide free scraping resources for agents",
-      // or a Cloudflare 403 challenge. It stays available on explicit request.
+      // can serve this request, then the community archives — Arctic Shift
+      // first, PullPush second (owner's call, 2026-09-10). PullPush has refused
+      // automated clients since August 2026 — 429 "This website does not
+      // provide free scraping resources for agents", or a Cloudflare 403
+      // challenge — so the fallback is one un-retried request that usually
+      // reports that refusal after the real Arctic Shift error, and answers
+      // when PullPush is serving again. Thread mode has no second source.
       const archives = v.mode === 'thread' ? ['arctic_shift']
-        : arcticPossible ? ['arctic_shift']
-        : discoveryPossible ? ['web_discovery']
+        : arcticPossible ? ['arctic_shift', 'pullpush']
+        : discoveryPossible ? ['web_discovery', 'pullpush']
         : [];
       order = officialPossible ? ['reddit_api', ...archives] : archives;
     }
@@ -252,7 +257,7 @@ export class RedditSearchTool {
         ? 'Reddit-wide comment search: posts were found with a site-restricted web search, then each post\'s comments were searched for the keywords in the Arctic Shift archive, in post relevance order.'
         : 'Reddit-wide keyword search: posts were found with a site-restricted web search, then read from the Arctic Shift archive by ID.',
       'Results are ordered by web-search relevance, not by score or date.',
-      'Arctic Shift cannot keyword-search across all of Reddit, and PullPush no longer serves automated clients — scope the search to a subreddit or author to query the archive directly.',
+      'Arctic Shift cannot keyword-search across all of Reddit — scope the search to a subreddit or author to query the archive directly.',
     ];
     if (v.after || v.before) {
       // Silently dropping a date filter would return results the caller
@@ -489,12 +494,14 @@ export class RedditSearchTool {
     if (response.status === 429) {
       const reset = response.headers?.get?.('x-ratelimit-reset');
       // PullPush's 429 body states its actual policy ("does not provide free
-      // scraping resources for agents...") — pass that through verbatim.
+      // scraping resources for agents...") — pass that through verbatim. That
+      // policy refusal is not a transient throttle: retrying it only spends the
+      // delay, which matters now that PullPush is the automatic second source.
       let detail = '';
       try { detail = (await response.json())?.error ?? ''; } catch { /* no body */ }
       throw Object.assign(
         new Error(`rate limited (429)${reset ? `, retry in ${reset}s` : ''}${detail ? ` — ${detail}` : ''}`),
-        { retryable: true },
+        { retryable: !/does not provide free scraping/i.test(detail) },
       );
     }
     if (!response.ok) {

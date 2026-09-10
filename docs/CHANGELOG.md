@@ -3,6 +3,28 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [Unreleased]
+
+### Changed
+
+- **A reddit.com URL is refused before any fetch and pointed at `reddit_search`.** reddit.com
+  refuses every non-browser client (403, stealth browsers included — the block is IP/TLS
+  reputation), so `fetch_url`, `scrape` and every other fetching tool always failed there and
+  the member was left guessing. The pre-fetch gate now refuses reddit.com (and its subdomains,
+  and bare redd.it links) with `USE_REDDIT_SEARCH`, bills nothing, and names the exact
+  `reddit_search` call derived from the URL: a post permalink becomes `mode:"thread"` with its
+  `link_id`, `/r/<sub>/search?q=` a subreddit-scoped query, `/search?q=` a Reddit-wide one,
+  `/r/<sub>` the subreddit and `/user/<name>` the author. Not overridable by `respect_robots`.
+  The tool's generic "Next step" hint is no longer appended to an error that already names
+  its next step. Same rule on the website's REST API (`src/lib/tools/reddit-hosts.ts`).
+- **`reddit_search` tries Arctic Shift first and PullPush second.** In `auto`, a scoped search
+  that Arctic Shift fails, and a Reddit-wide keyword search the web-discovery path fails, now
+  fall back to PullPush and report `fallback_used`; thread mode stays Arctic Shift only.
+  PullPush's policy 429 ("does not provide free scraping resources for agents") is no longer
+  retried, so the fallback costs one request. PullPush has refused automated clients since
+  August 2026, so that fallback usually reports its refusal after the real Arctic Shift error;
+  it stays second for whenever PullPush answers again.
+
 ## [6.5.0] - 2026-09-09
 
 Six defects and four gaps from the R21 live sweep: ~600 URLs across real estate, healthcare,
