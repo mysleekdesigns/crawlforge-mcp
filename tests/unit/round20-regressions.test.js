@@ -304,8 +304,9 @@ test('G4: a throttled scoped search with a caller window names the window and ho
     json: async () => ({})
   });
   const realFetch = globalThis.fetch;
+  // Arctic Shift requests only: PullPush is tried second once the ladder gives up.
   let calls = 0;
-  globalThis.fetch = async () => { calls++; return throttled(); };
+  globalThis.fetch = async (url) => { if (/arctic-shift/.test(String(url))) calls++; return throttled(); };
   try {
     const tool = new RedditSearchTool({ retryDelayMs: 0 });
     await assert.rejects(

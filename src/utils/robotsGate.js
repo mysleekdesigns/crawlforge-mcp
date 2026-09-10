@@ -19,6 +19,7 @@
 
 import { RobotsChecker } from './robotsChecker.js';
 import { assertHostAllowed } from './hostBlocklist.js';
+import { assertNotRedditUrl } from './redditHosts.js';
 import { identityHeaders, resolveUserAgent } from './fetchIdentity.js';
 import { throttleHost } from './hostRateLimiter.js';
 import { recordComplianceEvent, apiKeyId } from './complianceAudit.js';
@@ -75,8 +76,13 @@ export async function robotsPreflight(url, options = {}) {
   // costs the caller nothing: we refused, we fetched nothing.
   try {
     assertHostAllowed(url);
+    // reddit.com refuses every non-browser client, so it is never fetched and
+    // the caller is pointed at reddit_search instead. Also not overridable.
+    assertNotRedditUrl(url);
   } catch (error) {
-    if (error?.code === 'HOST_BLOCKED') markPreflightRefusal('HOST_BLOCKED');
+    if (error?.code === 'HOST_BLOCKED' || error?.code === 'USE_REDDIT_SEARCH') {
+      markPreflightRefusal(error.code);
+    }
     throw error;
   }
 
