@@ -8,6 +8,13 @@ services:
     runtime: docker
     plan: standard           # 2 GB RAM. Kept in sync with the dashboard so a
                              # blueprint re-apply can't downgrade the box.
+    # SINGLE INSTANCE IS LOAD-BEARING once interactive browser sessions ship
+    # (BROWSER_SESSION_PLAN.md, D5 — decision taken 2026-09-12). A session is an
+    # in-process handle to a live browser context, the same shape as the
+    # read_result handles: no other instance can see it. Enabling autoscaling,
+    # or any rolling deploy, silently drops every live session on the outgoing
+    # instance. Keep this service at ONE instance until sessions are backed by
+    # shared state — scale the box, never the instance count.
     region: oregon
     dockerfilePath: ./Dockerfile
     dockerContext: .
@@ -38,6 +45,10 @@ services:
       # worst case is 2-3x this across multiple browser processes. 6 is
       # comfortable on the 2 GB standard box while bounding that blow-up; raise
       # or lower it with the plan size. (npm/local users keep the default 10.)
+      # Interactive browser sessions draw from this SAME cap — they are backed
+      # by the existing BrowserContextPool, not a second pool — and they are by
+      # design long-lived. A hard per-API-key session cap is therefore required
+      # or one caller starves the box (BROWSER_SESSION_PLAN.md, D5 / 2.2).
       - key: MAX_BROWSER_CONTEXTS
         value: "6"
       # The stealth fingerprint's timezone persona follows the host's own zone
