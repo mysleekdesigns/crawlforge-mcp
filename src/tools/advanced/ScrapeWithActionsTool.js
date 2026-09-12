@@ -129,6 +129,14 @@ const ExecuteJavaScriptActionSchema = BaseActionSchema.extend({
   returnResult: z.boolean().default(true)
 });
 
+// camelCase fields, matching ActionExecutor's SnapshotActionSchema - this
+// union runs first, so a mismatch here rejects the action before it gets there.
+const SnapshotActionSchema = BaseActionSchema.extend({
+  type: z.literal('snapshot'),
+  interactiveOnly: z.boolean().default(true),
+  maxNodes: z.number().min(1).max(1000).optional()
+});
+
 const ActionSchema = z.union([
   WaitActionSchema,
   ClickActionSchema,
@@ -139,7 +147,8 @@ const ActionSchema = z.union([
   HoverActionSchema,
   NavigateActionSchema,
   ScreenshotActionSchema,
-  ExecuteJavaScriptActionSchema
+  ExecuteJavaScriptActionSchema,
+  SnapshotActionSchema
 ]);
 
 // Form field schema for auto-fill

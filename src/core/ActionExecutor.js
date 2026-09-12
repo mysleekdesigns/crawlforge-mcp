@@ -9,6 +9,7 @@ import { EventEmitter } from 'events';
 import { createHash } from 'node:crypto';
 import { assertUrlAllowed } from '../utils/ssrfGuard.js';
 import { browserPreflight } from '../utils/robotsGate.js';
+import { isRef, resolveRef, captureSnapshot } from './browser/snapshot.js';
 
 // executeJavaScript hardening limits (only relevant when the deploy-time flag
 // ALLOW_JAVASCRIPT_EXECUTION=true is set; JS execution stays off by default).
@@ -148,6 +149,14 @@ const ExecuteJavaScriptActionSchema = BaseActionSchema.extend({
   returnResult: z.boolean().default(true)
 });
 
+// camelCase (interactiveOnly/maxNodes) to match every other field in the same
+// action object: clickCount, fullPage, toElement, captureAfter.
+const SnapshotActionSchema = BaseActionSchema.extend({
+  type: z.literal('snapshot'),
+  interactiveOnly: z.boolean().default(true),
+  maxNodes: z.number().min(1).max(1000).optional()
+});
+
 const ActionSchema = z.union([
   WaitActionSchema,
   ClickActionSchema,
@@ -158,7 +167,8 @@ const ActionSchema = z.union([
   HoverActionSchema,
   NavigateActionSchema,
   ScreenshotActionSchema,
-  ExecuteJavaScriptActionSchema
+  ExecuteJavaScriptActionSchema,
+  SnapshotActionSchema
 ]);
 
 const ActionChainSchema = z.object({
@@ -636,6 +646,23 @@ export class ActionExecutor extends EventEmitter {
   }
 
   /**
+   * Resolve a caller-supplied selector.
+   *
+   * A selector starting with `@` names a ref a prior snapshot action assigned,
+   * and resolves to the attribute selector that snapshot stamped on the
+   * element; anything else is already a CSS selector. Every selector a caller
+   * writes goes through here, so refs work in every action type without any
+   * schema change — and, because a ref resolves to an ordinary CSS selector,
+   * in the stealth human-behaviour paths too.
+   * @param {Page} page - Playwright page
+   * @param {string} selector - CSS selector, or an `@e1` snapshot ref
+   * @returns {string} CSS selector
+   */
+  resolveSelector(page, selector) {
+    return isRef(selector) ? resolveRef(page, selector) : selector;
+  }
+
+  /**
    * Locator for an action's selector.
    *
    * `.first()` preserves the first-match semantics of the page.waitForSelector()
@@ -643,11 +670,11 @@ export class ActionExecutor extends EventEmitter {
    * selector matching more than one element, which would break action chains
    * that work today.
    * @param {Page} page - Playwright page
-   * @param {string} selector - CSS/text selector
+   * @param {string} selector - CSS/text selector, or an `@e1` snapshot ref
    * @returns {Locator} Playwright locator
    */
   elementLocator(page, selector) {
-    return page.locator(selector).first();
+    return page.locator(this.resolveSelector(page, selector)).first();
   }
 
   /**
@@ -733,6 +760,8 @@ export class ActionExecutor extends EventEmitter {
         return await this.executeScreenshotAction(page, action);
       case 'executeJavaScript':
         return await this.executeJavaScriptAction(page, action);
+      case 'snapshot':
+        return await this.executeSnapshotAction(page, action);
       default:
         throw new Error('Unknown action type: ' + action.type);
     }
@@ -792,7 +821,9 @@ export class ActionExecutor extends EventEmitter {
       // be there before it starts (locator.click() would have waited for it).
       await locator.waitFor({ state: 'visible', timeout });
       // Use human-like clicking behavior
-      await humanBehaviorSimulator.simulateClick(page, action.selector, {
+      // The simulator takes a raw selector string rather than a locator, so
+      // it needs the resolved form — it never goes through elementLocator.
+      await humanBehaviorSimulator.simulateClick(page, this.resolveSelector(page, action.selector), {
         button: action.button,
         clickCount: action.clickCount,
         delay: action.delay,
@@ -849,7 +880,7 @@ export class ActionExecutor extends EventEmitter {
       // Same as click: the simulator works from the selector, so wait first.
       await locator.waitFor({ state: 'visible', timeout });
       // Use human-like typing behavior
-      await humanBehaviorSimulator.simulateTyping(page, action.selector, action.text);
+      await humanBehaviorSimulator.simulateTyping(page, this.resolveSelector(page, action.selector), action.text);
     } else {
       // Standard typing behavior
       await locator.pressSequentially(action.text, { delay: action.delay, timeout });
@@ -907,7 +938,7 @@ export class ActionExecutor extends EventEmitter {
       if (humanBehaviorSimulator) {
         // Use human-like scrolling to element
         await humanBehaviorSimulator.simulateScroll(page, {
-          target: action.toElement
+          target: this.resolveSelector(page, action.toElement)
         });
       } else {
         // scrollIntoViewIfNeeded, not scrollIntoView — the latter is a DOM API
@@ -1130,6 +1161,21 @@ export class ActionExecutor extends EventEmitter {
       result: action.returnResult ? result : undefined
     };
   }
+
+  /**
+   * Execute snapshot action - the page's interactive elements, each stamped
+   * with a ref later actions can target instead of a guessed CSS selector.
+   * @param {Page} page - Playwright page
+   * @param {Object} action - Snapshot action
+   * @returns {Promise<Object>} Snapshot tree with refs
+   */
+  async executeSnapshotAction(page, action) {
+    return await captureSnapshot(page, {
+      interactiveOnly: action.interactiveOnly,
+      maxNodes: action.maxNodes
+    });
+  }
+
   /**
    * Capture screenshot
    * @param {Page} page - Playwright page
@@ -1321,6 +1367,13 @@ export class ActionExecutor extends EventEmitter {
    * @returns {Promise<Object>} Recovery result
    */
   async attemptErrorRecovery(page, action, error, executionContext) {
+    // A stale ref names an element that went away with the old document, so no
+    // strategy here can find it again. Re-snapshotting is the caller's job:
+    // fail the action now rather than spend the recovery budget on it.
+    if (error?.name === 'StaleRefError') {
+      return { success: false };
+    }
+
     const strategies = this.errorRecoveryStrategies.get(action.type) || [];
     // `retries` caps how many strategies get a turn. Walking all of them
     // unconditionally would add a second full round of timeouts to every action
