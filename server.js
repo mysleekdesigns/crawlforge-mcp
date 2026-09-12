@@ -901,13 +901,13 @@ registerToolIfEnabled("read_result", {
 
 // Tool: scrape_with_actions
 registerToolIfEnabled("scrape_with_actions", {
-  description: "Use this when you must interact with a page before scraping - login, click buttons, fill forms, scroll, or wait for dynamic content to load - for SPAs, login-gated content, or multi-step flows. Actions: wait, click, type, press, scroll, screenshot, executeJavaScript, select (dropdowns), hover, navigate. Set browserOptions.stealth:true to run the chain in the stealth browser. robots.txt is respected on every navigation. Screenshots from this tool are stored as crawlforge://screenshot/{actionId} resources. Not for pages that render without interaction (scrape) and not as the first attempt on a blocked site (stealth_mode operation:\"scrape\"). Cost: 5 credits. Example: scrape_with_actions({url: \"https://app.com/dashboard\", actions: [{type:\"click\",selector:\"#login\"},{type:\"type\",selector:\"#email\",text:\"user@a.com\"}]})",
+  description: "Use this when you must interact with a page before scraping - login, click buttons, fill forms, scroll, or wait for dynamic content to load - for SPAs, login-gated content, or multi-step flows. Actions: snapshot, wait, click, type, press, scroll, screenshot, executeJavaScript, select (dropdowns), hover, navigate. Start a chain with {type:\"snapshot\"} to list the page's interactive elements with stable refs (@e1, @e2 ...), then target those refs in later actions instead of guessing CSS selectors; navigation invalidates refs, so snapshot again after one. Set browserOptions.stealth:true to run the chain in the stealth browser. robots.txt is respected on every navigation. Screenshots from this tool are stored as crawlforge://screenshot/{actionId} resources. Not for pages that render without interaction (scrape) and not as the first attempt on a blocked site (stealth_mode operation:\"scrape\"). Cost: 5 credits. Example: scrape_with_actions({url: \"https://app.com/dashboard\", actions: [{type:\"snapshot\"},{type:\"type\",selector:\"@e2\",text:\"user@a.com\"},{type:\"click\",selector:\"@e4\"}]})",
   annotations: { title: "Scrape with Browser Actions", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to scrape"),
     actions: z.array(z.object({
-      type: z.enum(['wait', 'click', 'type', 'press', 'scroll', 'screenshot', 'executeJavaScript', 'select', 'hover', 'navigate']),
-      selector: z.string().optional(),
+      type: z.enum(['snapshot', 'wait', 'click', 'type', 'press', 'scroll', 'screenshot', 'executeJavaScript', 'select', 'hover', 'navigate']),
+      selector: z.string().optional().describe("A CSS selector, or a @e1 ref from an earlier snapshot action in this chain"),
       text: z.string().optional(),
       key: z.string().optional(),
       script: z.string().optional(),
@@ -916,6 +916,9 @@ registerToolIfEnabled("scrape_with_actions", {
       continueOnError: z.boolean().optional(),
       retries: z.number().min(0).max(5).optional(),
       captureAfter: z.boolean().optional().describe("Capture page content after this action"),
+      // snapshot
+      interactiveOnly: z.boolean().optional().describe("snapshot: only interactive elements (default true)"),
+      maxNodes: z.number().min(1).max(1000).optional().describe("snapshot: cap on nodes listed (default 200, max 1000); the result says truncated when the cap stopped the walk"),
       // wait
       duration: z.number().min(0).max(30000).optional().describe("wait: milliseconds to wait"),
       condition: z.enum(['visible', 'hidden', 'enabled', 'disabled', 'stable']).optional().describe("wait: condition on selector"),
