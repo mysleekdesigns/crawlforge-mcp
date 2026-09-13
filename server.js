@@ -228,7 +228,15 @@ const extractWithLlmTool = new ExtractWithLlm();
 const listOllamaModelsTool = new ListOllamaModelsTool();
 const batchScrapeTool = new BatchScrapeTool();
 const scrapeWithActionsTool = new ScrapeWithActionsTool();
-const browserSessionTool = new BrowserSessionTool();
+const browserSessionTool = new BrowserSessionTool({
+  // Share the one ActionExecutor, as unifiedScrapeTool does below: an executor
+  // owns a lazily-launched BrowserProcessor, so a second one is a second
+  // Chromium on a 2 GB box whose whole budget is MAX_BROWSER_CONTEXTS=6.
+  // Sessions are long-lived by design, which makes that the expensive mistake
+  // to make here rather than the cheap one. destroy() knows it does not own an
+  // injected executor and leaves it to scrapeWithActionsTool.
+  actionExecutor: scrapeWithActionsTool.actionExecutor
+});
 const deepResearchTool = new DeepResearchTool();
 const trackChangesTool = new TrackChangesTool();
 const generateLLMsTxtTool = new GenerateLLMsTxtTool();

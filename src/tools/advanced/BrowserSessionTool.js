@@ -130,6 +130,10 @@ export class BrowserSessionTool {
       enableLogging = true
     } = options;
 
+    // An injected executor belongs to whoever built it (server.js hands us
+    // scrape_with_actions'), and destroying it would take that tool's browser
+    // down with ours. Only an executor we made ourselves is ours to destroy.
+    this._ownsExecutor = !actionExecutor;
     this.actionExecutor = actionExecutor || new ActionExecutor({ enableLogging });
     this.extractContentTool = extractContentTool || new ExtractContentTool();
     this.storeOptions = storeOptions;
@@ -426,10 +430,14 @@ export class BrowserSessionTool {
     this.store = new BrowserSessionStore(this.storeOptions);
   }
 
-  /** Process exit: close the sessions, then the browser the executor owns. */
+  /**
+   * Process exit: close the sessions, then the browser — but only if the
+   * executor is ours. Sessions always close here; that is why this tool is in
+   * server.js's shutdown list even when it shares another tool's executor.
+   */
   async destroy() {
     await this.store.destroy();
-    await this.actionExecutor.destroy();
+    if (this._ownsExecutor) await this.actionExecutor.destroy();
   }
 }
 
