@@ -3,6 +3,37 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [6.6.1] - 2026-09-12
+
+The first live test of `browser_session` since 6.6.0 shipped, across five kinds of site: a static
+news front page, a client-rendered SPA, a login app, an e-commerce catalog, and a real
+bot-protected commercial site. The loop itself held up — logins persist across calls, refs survive
+and invalidate exactly when they should, and the SSRF, robots, TTL and per-owner caps all refuse
+cleanly. Four defects behind it did not, and three of them returned `success: true` while doing so.
+
+### Fixed
+
+- **A bot wall or an HTTP error page read as a successful session.** `open` and `read` reported no
+  HTTP status and had no challenge detection, so a DataDome 403 with an empty body came back as
+  `success: true` and `read` handed over the single word "g2.com" as the page — while `scrape` on
+  the same URL named the vendor and the 403. `open` and `read` now publish the same
+  `success` / `httpStatus` / `blocked` contract `scrape_with_actions` does, from the same shared
+  `documentVerdict`, and `act` reports the status of the navigation it made. Success reflects the
+  document, not the mechanics. A blocked `open` keeps its session and names the id in the error, so
+  a caller reading only `success` does not abandon a live browser context to its TTL.
+- **`executeJavaScript` in a session returned nothing.** Its value is gated on `returnResult`, whose
+  `true` default was declared on a schema whose parsed value is discarded, so in a session the
+  action succeeded and handed back no data — the same script through `scrape_with_actions` returned
+  it. The default is applied now, and `act` also publishes the flat `jsResult` field
+  `scrape_with_actions` has always published, so one action reads the same whichever tool ran it.
+- **`read` had no inline cap** — the only content-returning tool without one. Reading a large
+  article returned 541,308 characters inline where `scrape` returns about 42,000. It is capped at
+  `max_inline_chars` now, with a preview and a `result_handle` for `read_result`, matched to the
+  REST route's existing rule so both surfaces shape the same call the same way.
+- **The startup banner reported `Tools available (30/30)`** and omitted `browser_session`, from a
+  hand-maintained copy of the tool list that never learned the 31st tool. It is derived from the
+  tool groups the filter itself uses, and reports 31/31.
+
 ## [6.6.0] - 2026-09-12
 
 Interactive browser sessions, and the observation primitive underneath them. `scrape_with_actions`
