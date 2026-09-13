@@ -4,7 +4,12 @@
 
 import assert from 'node:assert/strict';
 import { describe, it, before } from 'node:test';
-import { ResourceRegistry, parseResourceUri, hashUrl } from '../../../src/resources/ResourceRegistry.js';
+import {
+  ResourceRegistry,
+  parseResourceUri,
+  hashUrl,
+  MAX_RESOURCE_BLOB_BYTES
+} from '../../../src/resources/ResourceRegistry.js';
 
 describe('parseResourceUri', () => {
   it('parses valid research URI', () => {
@@ -167,5 +172,56 @@ describe('ResourceRegistry', () => {
     assert.equal(result.contents[0].uri, 'crawlforge://research/sess-r1');
     const data = JSON.parse(result.contents[0].text);
     assert.equal(data.topic, 'AI');
+  });
+});
+
+/**
+ * R23, 2026-09-13: a full-page screenshot of a long article is 17.4 MB, and
+ * emitting it closed the stdio transport — the whole MCP session, every tool
+ * with it, because the SDK's ReadBuffer treats an oversized message as fatal
+ * rather than as a failed call. A refusal here costs the caller one read.
+ */
+describe('screenshot blob budget (stdio message ceiling)', () => {
+  it('keeps the budget under the 10 MB stdio ceiling once base64 is paid for', () => {
+    const encoded = Math.ceil(MAX_RESOURCE_BLOB_BYTES / 3) * 4;
+    assert.ok(
+      encoded < 10 * 1024 * 1024,
+      `base64 of the budget is ${encoded} bytes, which the transport would refuse`
+    );
+  });
+
+  it('reports the size and the verdict when a screenshot is stored', () => {
+    const registry = new ResourceRegistry();
+    const small = registry.storeScreenshot('act-small', Buffer.alloc(64));
+    assert.deepEqual(small, { bytes: 64, withinInlineBudget: true });
+
+    const huge = registry.storeScreenshot('act-huge', Buffer.alloc(MAX_RESOURCE_BLOB_BYTES + 1));
+    assert.equal(huge.bytes, MAX_RESOURCE_BLOB_BYTES + 1);
+    assert.equal(huge.withinInlineBudget, false);
+  });
+
+  it('refuses to read an oversized screenshot, naming the size and the limit', async () => {
+    const registry = new ResourceRegistry();
+    const oversized = MAX_RESOURCE_BLOB_BYTES + 1;
+    registry.storeScreenshot('act-oversized', Buffer.alloc(oversized));
+
+    await assert.rejects(
+      () => registry.readResource('crawlforge://screenshot/act-oversized'),
+      (error) => {
+        assert.match(error.message, new RegExp(String(oversized)));
+        assert.match(error.message, new RegExp(String(MAX_RESOURCE_BLOB_BYTES)));
+        // The remedy travels with the refusal: the caller has to know what to
+        // take instead, not merely that this failed.
+        assert.match(error.message, /full_page/);
+        return true;
+      }
+    );
+  });
+
+  it('still reads a screenshot that sits exactly on the budget', async () => {
+    const registry = new ResourceRegistry();
+    registry.storeScreenshot('act-atlimit', Buffer.alloc(MAX_RESOURCE_BLOB_BYTES));
+    const result = await registry.readResource('crawlforge://screenshot/act-atlimit');
+    assert.ok(result.contents[0].blob);
   });
 });

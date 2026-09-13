@@ -1184,12 +1184,13 @@ export class ActionExecutor extends EventEmitter {
     const timeout = this.actionTimeout(action);
 
     await assertUrlAllowed(action.url, { resolveDns: true });
-    await this.assertRobotsAllowed(action.url, executionContext?.browserOptions);
+    const gateWarnings = await this.assertRobotsAllowed(action.url, executionContext?.browserOptions);
 
     await this.navigateToUrl(page, action.url, {
       waitUntil: action.waitUntil,
       timeout
     });
+    page.__crawlforgeGateWarnings = gateWarnings;
 
     return {
       url: action.url,
@@ -1380,9 +1381,13 @@ export class ActionExecutor extends EventEmitter {
    * @throws {BlockedHostError|RobotsDisallowedError}
    */
   async assertRobotsAllowed(url, browserOptions = {}) {
-    await browserPreflight(url, {
+    return await browserPreflight(url, {
       respectRobots: browserOptions?.respectRobots,
-      tool: 'scrape_with_actions'
+      // The audit row is the record of the CUSTOMER's decision (G5), so it has
+      // to name the tool that actually made it. browser_session borrows this
+      // executor, and until R23 every session's override was filed against
+      // scrape_with_actions.
+      tool: browserOptions?.tool || 'scrape_with_actions'
     });
   }
 
@@ -1402,12 +1407,16 @@ export class ActionExecutor extends EventEmitter {
     // or a disallowed path never costs a Chromium process. preflightFetch is
     // deliberately not used here: its identity/signature headers belong on an
     // HTTP fetch, not on a browser context.
-    await this.assertRobotsAllowed(url, browserOptions);
+    const gateWarnings = await this.assertRobotsAllowed(url, browserOptions);
 
     const isStealth = !!browserOptions.stealthMode?.enabled;
 
     // Use the enhanced BrowserProcessor initialization that supports stealth mode
     const page = await this.browserProcessor.initializePage(browserOptions);
+
+    // Stamped on the page for the same reason __crawlforgeNavigation is: the
+    // caller's result is assembled a layer up, and the gate ran a layer down.
+    page.__crawlforgeGateWarnings = gateWarnings;
 
     try {
       // Apply CloudFlare and reCAPTCHA detection if stealth mode is enabled

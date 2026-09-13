@@ -36,6 +36,7 @@ const {
 const { isCreatorModeVerified } = await import('../../../src/core/creatorMode.js');
 const { ActionExecutor } = await import('../../../src/core/ActionExecutor.js');
 const { requestContext } = await import('../../../src/server/requestContext.js');
+const { getComplianceAuditRows } = await import('../../../src/utils/complianceAudit.js');
 const ExtractContentTool = (await import('../../../src/tools/extract/extractContent.js')).default;
 
 let browser = null;
@@ -559,5 +560,62 @@ describe('browser_session against a real page', { skip: !browser && 'Chromium no
     assert.equal(reopened.success, true, 'cleanup is not destroy — the tool still opens sessions');
     await tool.execute({ operation: 'close', session_id: reopened.sessionId });
     await tool.store.destroy();
+  });
+});
+
+/**
+ * R23, 2026-09-13: the gate ran, but nothing it said reached the caller. The
+ * shared `respect_robots` description promises "returns a warning in the
+ * response" — `scrape` kept that promise and the browser path did not, because
+ * ActionExecutor awaited browserPreflight and threw the array away. The audit
+ * row was worse than missing: it was filed against scrape_with_actions, so the
+ * record of *which tool the customer overrode robots with* named the wrong one.
+ */
+describe('browser_session publishes the gate decision it made', () => {
+  test('an override returns the warning and is audited against browser_session', async () => {
+    const store = new BrowserSessionStore();
+    const tool = makeTool(store);
+    const session = seat(store, tool.ownerId(), { url: `${BASE}/click` });
+    const before = getComplianceAuditRows().length;
+
+    const result = await tool.execute({
+      operation: 'act',
+      session_id: session.id,
+      respect_robots: false,
+      actions: [{ type: 'navigate', url: `${BASE}/private` }]
+    });
+
+    assert.equal(result.success, true, result.error);
+    assert.ok(
+      Array.isArray(result.warnings) && result.warnings.length > 0,
+      'the override the customer asked for has to come back in the response'
+    );
+    assert.match(result.warnings.join(' '), /respect_robots was disabled/i);
+
+    const overrides = getComplianceAuditRows()
+      .slice(before)
+      .filter((row) => row.event === 'robots_override');
+    assert.equal(overrides.length, 1);
+    assert.equal(overrides[0].tool, 'browser_session');
+    assert.equal(overrides[0].url, `${BASE}/private`);
+
+    await store.destroy();
+  });
+
+  test('a navigation that needed no override carries no warnings', async () => {
+    const store = new BrowserSessionStore();
+    const tool = makeTool(store);
+    const session = seat(store, tool.ownerId(), { url: `${BASE}/click` });
+
+    const result = await tool.execute({
+      operation: 'act',
+      session_id: session.id,
+      actions: [{ type: 'navigate', url: `${BASE}/click` }]
+    });
+
+    assert.equal(result.success, true, result.error);
+    assert.equal(result.warnings, undefined, 'an ordinary hop should stay quiet');
+
+    await store.destroy();
   });
 });

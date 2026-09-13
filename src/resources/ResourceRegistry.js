@@ -7,6 +7,23 @@
 import { createHash } from 'crypto';
 
 /**
+ * The stdio transport frames one JSON-RPC message at a time, and since SDK
+ * 1.30 its ReadBuffer CLOSES the transport when a message runs past
+ * STDIO_MESSAGE_CEILING_BYTES: the whole session dies, every tool with it, and
+ * the overflow is not recoverable (modelcontextprotocol/typescript-sdk#2793).
+ * A full-page PNG of a long article is 17.4 MB — en.wikipedia.org/wiki/World_War_II
+ * is 61,341px tall — and JPEG only brings it to 11.3 MB, so neither format saves
+ * a caller who passes full_page (R23, 2026-09-13).
+ *
+ * Hence a budget on the blob a read may emit: base64 costs four bytes per three,
+ * and a tenth of the ceiling is left for the JSON-RPC envelope around it.
+ */
+const STDIO_MESSAGE_CEILING_BYTES = 10 * 1024 * 1024;
+export const MAX_RESOURCE_BLOB_BYTES =
+  Number(process.env.CRAWLFORGE_MAX_RESOURCE_BLOB_BYTES) ||
+  Math.floor(STDIO_MESSAGE_CEILING_BYTES * 0.9 * 3 / 4);
+
+/**
  * Supported resource types and their MIME types.
  */
 const RESOURCE_MIME = {
@@ -84,6 +101,12 @@ export class ResourceRegistry {
       createdAt: Date.now(),
       ttl: this.defaultTtl,
     });
+    // Handed back so the tool that took the shot can say, in the same result
+    // that carries the URI, whether that URI is readable over stdio at all.
+    return {
+      bytes: buf.length,
+      withinInlineBudget: buf.length <= MAX_RESOURCE_BLOB_BYTES,
+    };
   }
 
   /**
@@ -152,7 +175,7 @@ export class ResourceRegistry {
         resources.push({
           uri: `crawlforge://screenshot/${actionId}`,
           name: `Screenshot ${actionId}`,
-          description: 'Screenshot from scrape_with_actions',
+          description: 'Screenshot from a CrawlForge browser tool',
           mimeType: RESOURCE_MIME.screenshot,
         });
       }
@@ -264,6 +287,17 @@ export class ResourceRegistry {
     const entry = this._screenshots.get(actionId);
     if (!entry || Date.now() - entry.createdAt >= entry.ttl) {
       throw new Error(`Screenshot not found or expired: ${actionId}`);
+    }
+    // Refuse rather than emit: an oversized message costs the caller their
+    // whole session, and this error costs them one read they can act on.
+    if (entry.data.length > MAX_RESOURCE_BLOB_BYTES) {
+      throw new Error(
+        `Screenshot ${actionId} is ${entry.data.length} bytes, over the ` +
+        `${MAX_RESOURCE_BLOB_BYTES}-byte limit for one MCP message. Returning it would ` +
+        `close the connection instead of failing this read, so it is refused. Take the ` +
+        `shot again without full_page, or as format:"jpeg" with a lower quality, or ` +
+        `scoped to one element with selector.`
+      );
     }
     return {
       contents: [{
