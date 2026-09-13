@@ -17,6 +17,7 @@ import {
   captureSnapshot,
   resolveRef,
   attachRefTracking,
+  clearRefs,
   isRef,
   StaleRefError,
   REF_ATTRIBUTE
@@ -224,6 +225,65 @@ describe('resolveRef', { skip: !browser && 'Chromium not installed' }, () => {
         return true;
       });
     });
+  });
+});
+
+
+/**
+ * A navigation landing *during* the walk is the one case a real browser will
+ * not reproduce on demand: the window is a few milliseconds wide and nothing
+ * drives it. These drive it directly instead — a stub page whose evaluate()
+ * clears the refs before it resolves is exactly what a framenavigated event
+ * arriving mid-walk does. No Chromium needed, so they run even when the
+ * fixture-backed suites above skip.
+ */
+describe('a navigation during the walk', () => {
+  const WALK_RESULT = {
+    title: 'Second page',
+    lines: ['  @e1 [button] "Go"'],
+    refs: [{ id: 'e1', role: 'button', name: 'Go', tag: 'button' }],
+    truncated: false
+  };
+
+  /** @param {(attempt: number) => boolean} navigatesOn */
+  const stubPage = (navigatesOn) => {
+    let attempts = 0;
+    const page = {
+      on() {},
+      mainFrame: () => 'main',
+      url: () => 'https://example.test/',
+      get attempts() { return attempts; },
+      async evaluate() {
+        attempts++;
+        if (navigatesOn(attempts)) clearRefs(page);
+        return WALK_RESULT;
+      }
+    };
+    return page;
+  };
+
+  test('is retried against the new document', async () => {
+    const page = stubPage((attempt) => attempt === 1);
+    const snapshot = await captureSnapshot(page);
+
+    assert.equal(page.attempts, 2, 'the first walk described a document that had gone');
+    assert.equal(snapshot.refCount, 1);
+    assert.equal(resolveRef(page, '@e1'), `[${REF_ATTRIBUTE}="e1"]`,
+      'the refs published are the ones the surviving walk assigned');
+  });
+
+  test('gives up rather than publish a tree for a page nobody is on', async () => {
+    const page = stubPage(() => true);
+
+    await assert.rejects(() => captureSnapshot(page), (error) => {
+      assert.ok(error instanceof StaleRefError);
+      assert.match(error.message, /navigated while the snapshot was being taken/);
+      return true;
+    });
+    assert.equal(page.attempts, 2, 'one retry, not an unbounded loop');
+    // No refs were published, so acting on one names the snapshot rather than
+    // timing out on a selector that can never match.
+    assert.throws(() => resolveRef(page, '@e1'), StaleRefError);
   });
 });
 

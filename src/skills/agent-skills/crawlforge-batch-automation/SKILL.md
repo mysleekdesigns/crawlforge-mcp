@@ -97,8 +97,11 @@ browser actions before extraction.
 }
 ```
 
-Allowed action types: `wait`, `click`, `type`, `press`, `scroll`, `screenshot`,
-`executeJavaScript`. `executeJavaScript` is disabled unless the deploy sets
+Allowed action types: `snapshot`, `wait`, `click`, `type`, `press`, `scroll`,
+`screenshot`, `executeJavaScript`, `select`, `hover`, `navigate`. Start a chain
+with `{"type": "snapshot"}` to list the page's interactive elements with stable
+refs (`@e1`, `@e2` …) and target those in later actions instead of guessing CSS
+selectors. `executeJavaScript` is disabled unless the deploy sets
 `ALLOW_JAVASCRIPT_EXECUTION=true`. 1–20 actions per call. Screenshots are stored
 as `crawlforge://screenshot/{actionId}` resources. Full action schemas:
 [actions](references/actions.md). CLI:

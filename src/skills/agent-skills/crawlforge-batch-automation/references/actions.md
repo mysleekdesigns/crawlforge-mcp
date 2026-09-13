@@ -1,10 +1,16 @@
 # scrape_with_actions — Action Types
 
 `scrape_with_actions` runs an ordered `actions[]` array (1–20 items) before
-scraping. Only these 7 action types are allowed (allow-listed in ActionExecutor).
-Each action object has a `type` plus type-specific fields. Common optional
-fields on every action: `timeout`, `description`, `continueOnError`, `retries`
-(0–5), `captureAfter`.
+scraping. Only these action types are allowed (allow-listed in ActionExecutor):
+`snapshot`, `wait`, `click`, `type`, `press`, `scroll`, `screenshot`,
+`executeJavaScript`, `select`, `hover`, `navigate`. Each action object has a
+`type` plus type-specific fields. Common optional fields on every action:
+`timeout`, `description`, `continueOnError`, `retries` (0–5), `captureAfter`.
+
+**Start with a snapshot.** Section 8 returns the page's interactive elements
+with stable refs, and any action's `selector` may name one (`@e1`) instead of a
+CSS selector you have not seen. That is the difference between landing a
+multi-step flow first try and burning the call on a guess.
 
 ## 1. wait
 
@@ -100,6 +106,46 @@ Disabled unless the deployment sets `ALLOW_JAVASCRIPT_EXECUTION=true`.
 ```json
 { "type": "executeJavaScript", "script": "return document.title", "returnResult": true }
 ```
+
+## 8. snapshot
+
+List the page's interactive elements, each with a stable ref later actions can
+target. Refs are assigned `@e1…@eN` in document order and are **invalidated by
+navigation** — snapshot again after one, or acting on an old ref fails with a
+named error telling you to.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `interactiveOnly` | boolean | Default true. False also lists headings and landmarks, which carry no ref. |
+| `maxNodes` | number | Cap on nodes listed (default 200, max 1000). The result sets `truncated` when the cap stopped the walk. |
+
+```json
+{ "type": "snapshot" }
+```
+
+The tree comes back in `actionResults[i].result.tree`, alongside `snapshotId`,
+`url`, `title`, `refCount`, `nodeCount`, `truncated` and `interactiveOnly`:
+
+```
+[document] "Sign in"
+  @e1 [textbox] "Email"
+  @e2 [textbox] "Password"
+  @e3 [button] "Sign in"
+```
+
+```json
+[
+  { "type": "snapshot" },
+  { "type": "type", "selector": "@e1", "text": "user@example.com" },
+  { "type": "click", "selector": "@e3" }
+]
+```
+
+The tool is stateless, so a chain cannot adapt to its own snapshot mid-flight:
+read the refs in one call, act on them in the next. A fresh load of the same
+page numbers them the same way, and the second chain snapshots again first so
+the refs are stamped on the document it is acting against. The walk covers the
+main frame only — elements inside iframes and shadow DOM get no refs.
 
 ## Top-level options
 
