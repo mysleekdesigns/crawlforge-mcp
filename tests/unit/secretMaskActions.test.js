@@ -72,6 +72,21 @@ describe('maskSecrets typed action text', () => {
     assert.equal(result.credentials, MASK);
   });
 
+  // Nothing logs the REST owner token today — the transport logs no headers,
+  // and withAuth never reports usage for an internal request (it is
+  // billing-exempt, so creditCost is 0). This is the backstop for the day
+  // someone adds a log line that carries it: the token names one customer, and
+  // a log line naming customers is a log line that has to be scrubbed.
+  test('an owner token is masked wherever it appears', () => {
+    const token = 'a'.repeat(32);
+    const result = maskSecrets({ ownerToken: token, auth: { ownerToken: token } });
+    assert.ok(!JSON.stringify(result).includes(token), 'the token must not survive a log call');
+    // The usual last-4 tail, same as an API key gets: enough to tell two log
+    // lines apart, far too little to name the customer behind either.
+    assert.equal(result.ownerToken, `${MASK}...aaaa`);
+    assert.equal(result.auth, MASK);
+  });
+
   test('formAutoFill is masked whole in both shapes', () => {
     const structured = maskSecrets({ formAutoFill: { fields: [{ selector: '#password', value: 'hunter2' }] } });
     const flat = maskSecrets({ formAutoFill: { '#password': 'hunter2' } });

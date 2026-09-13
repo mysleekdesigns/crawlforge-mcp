@@ -16,7 +16,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { z } from 'zod';
 import { connectStreamableHttp } from '../../src/server/transports/streamableHttp.js';
 import { applySpecHygiene } from '../../src/server/specHygiene.js';
-import { isInternalRequest, servingEra, servingServer } from '../../src/server/requestContext.js';
+import { internalOwnerToken, isInternalRequest, servingEra, servingServer } from '../../src/server/requestContext.js';
 import { createMetricsRegistry } from '../../src/observability/metrics.js';
 
 function makeAuth({ apiKey = 'cf-test', creator = false } = {}) {
@@ -741,6 +741,93 @@ test('dual-era: the internal-proxy request context reaches a tool handler on the
     delete process.env.INTERNAL_PROXY_SECRET;
     await close(env);
   }
+});
+
+// ── The per-user owner token (X-CrawlForge-Owner) ─────────────────────────────
+//
+// The internal secret says which SERVICE is calling; this header says which of
+// that service's customers it is calling for, and browser_session binds a live
+// browser page to the answer. Two properties are load-bearing, and both are
+// decided here rather than in the tool: the header is honoured ONLY on a
+// request that already proved the internal secret, and a value that is not
+// plain bounded hex is treated as absent — never coerced into a tenant key.
+
+/** A template server whose one tool reports the owner token the context resolved to. */
+function makeOwnerProbeServer() {
+  const server = new McpServer({ name: 'test', version: '0.0.0' }, { capabilities: { tools: {} } });
+  server.registerTool('report_owner', {
+    description: 'reports the owner token on the request context',
+    inputSchema: {}
+  }, async () => ({ content: [{ type: 'text', text: String(internalOwnerToken()) }] }));
+  return server;
+}
+
+/** What internalOwnerToken() resolves to inside a handler, for these request headers. */
+async function ownerTokenSeenBy(extraHeaders) {
+  const env = await startServer({ server: makeOwnerProbeServer() });
+  try {
+    const { headers, body } = modernRequest(1, 'tools/call', { name: 'report_owner', arguments: {} });
+    const res = await fetchPath(env.port, '/mcp', {
+      method: 'POST',
+      body,
+      headers: { ...headers, ...extraHeaders }
+    });
+    assert.equal(res.status, 200);
+    return (await readRpcBody(res)).result.content[0].text;
+  } finally {
+    await close(env);
+  }
+}
+
+test('owner token: a valid header on an internal request reaches the tool handler', async () => {
+  process.env.INTERNAL_PROXY_SECRET = 'test-internal-secret';
+  const token = 'a'.repeat(32);
+  try {
+    const seen = await ownerTokenSeenBy({
+      'x-internal-secret': 'test-internal-secret',
+      'x-crawlforge-owner': token
+    });
+    assert.equal(seen, token);
+  } finally {
+    delete process.env.INTERNAL_PROXY_SECRET;
+  }
+});
+
+test('owner token: a malformed value is absent, never a strange owner', async () => {
+  process.env.INTERNAL_PROXY_SECRET = 'test-internal-secret';
+  const rejected = {
+    'non-hex characters': 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz',
+    'uppercase hex': 'A'.repeat(32),
+    'too short': 'abc',
+    'oversized': 'a'.repeat(4096),
+    'a path fragment': '../'.repeat(11),
+    'empty': ''
+  };
+  try {
+    for (const [why, value] of Object.entries(rejected)) {
+      const seen = await ownerTokenSeenBy({
+        'x-internal-secret': 'test-internal-secret',
+        'x-crawlforge-owner': value
+      });
+      assert.equal(seen, 'null', `${why}: must be treated as no owner at all`);
+    }
+    // Absent is the same answer, which is the point — the tool cannot tell a
+    // malformed token from a missing one, and refuses either way.
+    const absent = await ownerTokenSeenBy({ 'x-internal-secret': 'test-internal-secret' });
+    assert.equal(absent, 'null');
+  } finally {
+    delete process.env.INTERNAL_PROXY_SECRET;
+  }
+});
+
+test('owner token: a request that did not prove the internal secret cannot claim an owner', async () => {
+  // A perfectly well-formed token, presented by an ordinary API-key caller.
+  // Honouring it would let anyone with a key name any customer's tenant.
+  const seen = await ownerTokenSeenBy({
+    authorization: 'Bearer cf-test',
+    'x-crawlforge-owner': 'a'.repeat(32)
+  });
+  assert.equal(seen, 'null', 'the owner header is only ever read on the internal-secret branch');
 });
 
 // ── The serving instance (elicitation over HTTP) ──────────────────────────────

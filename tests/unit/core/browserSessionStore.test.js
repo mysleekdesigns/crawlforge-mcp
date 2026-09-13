@@ -225,6 +225,24 @@ describe('caps', () => {
     assert.equal(store.get(fresh.id, 'key-a').id, fresh.id);
   });
 
+  test('a per-call maxPerOwner tightens the cap for that owner alone', () => {
+    // How the tool holds a hosted REST customer to one session on a box whose
+    // whole capacity is three, without changing what a stdio install gets.
+    const store = makeStore({ maxPerOwner: 3, maxTotal: 10 });
+    open(store, 'rest:token-a', releaseSpy(), { maxPerOwner: 1 });
+
+    const err = captureError(() => open(store, 'rest:token-a', releaseSpy(), { maxPerOwner: 1 }));
+    assert.ok(err instanceof SessionLimitError);
+    assert.equal(err.code, 'SESSION_LIMIT');
+    assert.match(err.message, /1 open browser session,/, 'the refusal counts in the singular');
+
+    // The store's own cap is untouched for everyone who did not ask for one.
+    open(store, 'key-a');
+    open(store, 'key-a');
+    open(store, 'key-a');
+    assert.deepEqual(store.getStats(), { total: 4, byOwner: { 'rest:token-a': 1, 'key-a': 3 } });
+  });
+
   test('the process-wide cap refuses once the store is full', () => {
     const store = makeStore({ maxPerOwner: 5, maxTotal: 2 });
     open(store, 'key-a');

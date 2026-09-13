@@ -128,9 +128,13 @@ export class BrowserSessionStore {
    * @param {boolean} [args.stealth=false]
    * @param {number} [args.ttlMs] — clamped into [TTL_MIN_MS, TTL_MAX_MS]
    * @param {number} [args.activityTtlMs] — clamped into [ACTIVITY_TTL_MIN_MS, ACTIVITY_TTL_MAX_MS]
+   * @param {number} [args.maxPerOwner] — a tighter cap for THIS owner, in place
+   *   of the store's. Some callers are not equal: a hosted REST customer shares
+   *   one box with every other one, where a stdio install has the box to itself.
+   *   Only the creator may say so, because only the creator knows who is asking.
    * @throws {SessionLimitError} when the owner is at maxPerOwner, or the store at maxTotal
    */
-  create({ ownerId, page, releasePage, url = null, stealth = false, ttlMs, activityTtlMs }) {
+  create({ ownerId, page, releasePage, url = null, stealth = false, ttlMs, activityTtlMs, maxPerOwner }) {
     // Both of these are load-bearing rather than defensive: without an ownerId
     // two tenants' sessions would share one anonymous bucket, and without a
     // releasePage the page's context is pinned with no way to give it back.
@@ -148,9 +152,10 @@ export class BrowserSessionStore {
     // A refusal, never a queue. BrowserContextPool can make a caller wait for a
     // slot because a context frees in milliseconds; a session slot frees on its
     // TTL, minutes away, so waiting would simply hang the call.
-    if (this._countFor(ownerId) >= this._maxPerOwner) {
+    const ownerCap = maxPerOwner ?? this._maxPerOwner;
+    if (this._countFor(ownerId) >= ownerCap) {
       throw new SessionLimitError(
-        `You already have ${this._maxPerOwner} open browser sessions, the maximum per API key. ` +
+        `You already have ${ownerCap} open browser session${ownerCap === 1 ? '' : 's'}, the maximum per API key. ` +
         `Close one before opening another — sessions also close themselves when their TTL expires.`
       );
     }
