@@ -36,6 +36,7 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
 | `analyze_content` | Sentiment / entities / keywords. |
 | `extract_structured` | Schema-driven (LLM + CSS fallback). |
 | `extract_with_llm` | NL-prompt extraction. |
+| `browser_session` | Ceiling, charged for `open`. **Priced per operation:** `open` 3, `read` 2, `snapshot` / `act` / `screenshot` / `close` / `list` 1 each. |
 
 ## 4 credits
 
@@ -75,6 +76,9 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
 - Cap dynamic tools: `deep_research`/`agent` via `maxUrls`, `crawl_deep` via
   `max_pages`, `batch_scrape` via the URL list size.
 - `get_batch_results` (1) is cheap — submit a batch once, page through results.
+- A `browser_session` pays the 3-credit `open` once; every look after that is 1.
+  Use it when a flow spans several calls, and `scrape_with_actions` (5, one call)
+  when the whole interaction can be written down in advance.
 - A result over `max_inline_chars` costs nothing extra; read the stored copy with
   `read_result` (1) instead of fetching again.
 - On a site that blocks, one `scrape` with `escalate:true` costs at most 7 and

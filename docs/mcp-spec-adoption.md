@@ -125,7 +125,7 @@ wrong and retry with corrected arguments.
 }
 ```
 
-**Which tools:** All 30 registered tools — this is a transport/SDK-level behavior change, not
+**Which tools:** All 31 registered tools — this is a transport/SDK-level behavior change, not
 a per-tool opt-in.
 
 **Client compatibility:** Any client already checking `isError` on tool results (the standard
@@ -205,7 +205,7 @@ result out of the context while you page through it.
 ## 6. Client-side tool selection
 
 **What it is:** Two environment variables let an MCP client (or the person configuring it)
-whitelist which of the 30 registered tools are actually exposed over `tools/list` — useful for
+whitelist which of the 31 registered tools are actually exposed over `tools/list` — useful for
 trimming context/tool-budget on smaller clients, or for locking a deployment down to a specific
 workflow.
 

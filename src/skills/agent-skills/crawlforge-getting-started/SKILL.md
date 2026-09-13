@@ -1,6 +1,6 @@
 ---
 name: crawlforge-getting-started
-description: "Orientation and tool-selection guide for the CrawlForge MCP server's 30 web tools. Use when the user is getting started with CrawlForge, asks which CrawlForge tool to use, how to set up the API key, how skills or the CLI work, what a tool costs in credits, or when one tool fails and a fallback is needed. Routes requests to the right specialized skill (web scraping, deep research, stealth, structured extraction, change tracking, batch automation), and explains MCP-tools-vs-CLI, the Ollama-first LLM fallback chain, and per-tool credit costs."
+description: "Orientation and tool-selection guide for the CrawlForge MCP server's 31 web tools. Use when the user is getting started with CrawlForge, asks which CrawlForge tool to use, how to set up the API key, how skills or the CLI work, what a tool costs in credits, or when one tool fails and a fallback is needed. Routes requests to the right specialized skill (web scraping, deep research, stealth, structured extraction, change tracking, batch automation, browser sessions), and explains MCP-tools-vs-CLI, the Ollama-first LLM fallback chain, and per-tool credit costs."
 metadata:
   version: 5.6.6
   source: crawlforge-mcp-server
@@ -8,7 +8,7 @@ metadata:
 
 # CrawlForge: Getting Started
 
-CrawlForge is an MCP server with **30 tools** for web scraping, crawling,
+CrawlForge is an MCP server with **31 tools** for web scraping, crawling,
 extraction, research, change tracking, and AI-compliance. This skill orients you
 and routes each request to the right specialized skill.
 
@@ -51,8 +51,9 @@ stored at `~/.crawlforge/config.json`.
 | Extract JSON/fields, parse a PDF, summarize, analyze sentiment | **crawlforge-structured-extraction** |
 | Watch a page for changes / monitor pricing | **crawlforge-change-tracking** |
 | Scrape many URLs, run browser actions, generate llms.txt | **crawlforge-batch-automation** |
+| Keep a browser open across calls: log in then read, click through a multi-step flow | **crawlforge-browser-sessions** |
 
-## The 30 tools at a glance
+## The 31 tools at a glance
 
 - **Basic (6):** fetch_url, extract_text, extract_links, extract_metadata, scrape_structured, read_result
 - **Unified (1):** scrape (multi-format single fetch)
@@ -62,12 +63,13 @@ stored at `~/.crawlforge/config.json`.
 - **Batch & automation (4):** batch_scrape, get_batch_results, scrape_with_actions, generate_llms_txt
 - **Stealth & locale (2):** stealth_mode, localization
 - **Templates & tracking (2):** scrape_template, track_changes
+- **Browser sessions (1):** browser_session (one page kept alive across calls)
 
 ## MCP tools vs CLI
 
 - **MCP tools** — call inline within an AI assistant session (Claude Code,
   Cursor, etc.). This is the default in chat.
-- **CLI** (`crawlforge <command>`) — for scripts, CI, and pipelines. 15 tool
+- **CLI** (`crawlforge <command>`) — for scripts, CI, and pipelines. 16 tool
   commands + 2 skill commands. See [cli](references/cli.md).
 
 Both hit the same backend and consume the same credits.
@@ -94,6 +96,7 @@ Do not suggest adding API keys — local Ollama is the intended zero-cost defaul
 | No template for a known site | `scrape_structured` → `extract_structured` → `extract_with_llm` |
 | LLM extraction unavailable (no Ollama/keys) | `scrape_structured` with CSS selectors |
 | Single page too slow / many pages | `batch_scrape` (async + webhook) |
+| A `scrape_with_actions` chain keeps breaking on guessed selectors, or the flow needs more than one call | `browser_session` — snapshot for refs, then act (crawlforge-browser-sessions) |
 | Wrong region / currency shown | `localization` |
 | Need a big report but cost is high | lower `maxUrls` on `deep_research` |
 | Result came back `truncated: true` with a `result_handle` | `read_result` (search, slice, lines, json_path) — never fetch the page again |

@@ -52,6 +52,7 @@ import { register as registerResearch } from './commands/research.js';
 import { register as registerStealth } from './commands/stealth.js';
 import { register as registerBatch } from './commands/batch.js';
 import { register as registerActions } from './commands/actions.js';
+import { register as registerBrowser } from './commands/browser.js';
 import { register as registerLocalize } from './commands/localize.js';
 import { register as registerLlmstxt } from './commands/llmstxt.js';
 import { register as registerTemplate } from './commands/template.js';
@@ -120,7 +121,7 @@ program.hook('preAction', (thisCommand) => {
   }
 });
 
-// Register all 15 tool commands + 2 skills commands
+// Register all 16 tool commands + 2 skills commands
 registerScrape(program);
 registerSearch(program);
 registerCrawl(program);
@@ -132,6 +133,7 @@ registerResearch(program);
 registerStealth(program);
 registerBatch(program);
 registerActions(program);
+registerBrowser(program);
 registerLocalize(program);
 registerLlmstxt(program);
 registerTemplate(program);
