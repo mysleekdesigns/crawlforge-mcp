@@ -19,7 +19,8 @@
  *   - `ExtractContentTool` turns the live DOM into the requested formats.
  *
  * Ownership is a tenant boundary, not a nicety — see ownerId() for what that
- * means for the hosted REST path, which this tool refuses.
+ * means for the hosted REST path, which is served only to a request carrying a
+ * per-user owner token and refused to any other.
  */
 
 import { z } from 'zod';
@@ -36,11 +37,30 @@ import BrowserSessionStore, {
 import { captureSnapshot } from '../../core/browser/snapshot.js';
 import authManager from '../../core/AuthManager.js';
 import { isCreatorModeVerified } from '../../core/creatorMode.js';
-import { isInternalRequest } from '../../server/requestContext.js';
+import { internalOwnerToken, isInternalRequest } from '../../server/requestContext.js';
 import { isRemoteTransport } from '../../utils/remoteMode.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 
 const SECOND = 1000;
+
+/** The prefix that marks an owner id derived from a hosted REST owner token. */
+const REST_OWNER_PREFIX = 'rest:';
+
+/**
+ * A hosted REST customer may hold ONE session at a time, where a stdio install
+ * keeps the store's default of three.
+ *
+ * Arithmetic, not caution. On Render MAX_BROWSER_CONTEXTS=6, so
+ * DEFAULT_MAX_SESSIONS_TOTAL is floor(6/2) = 3 for the WHOLE box while
+ * DEFAULT_MAX_SESSIONS_PER_OWNER is 3 — meaning one REST customer opening three
+ * sessions occupies the entire hosted session capacity, and every other paying
+ * customer is refused until those sessions age out, up to ten minutes later.
+ * Capping REST owners at one lets three distinct customers work at once.
+ *
+ * stdio and self-hosted installs keep the three: there the process IS the
+ * customer, the box is theirs, and there is nobody else to lock out.
+ */
+const REST_MAX_SESSIONS_PER_OWNER = 1;
 
 /**
  * The action array is `scrape_with_actions`' own, passed through untouched:
@@ -159,17 +179,22 @@ export class BrowserSessionTool {
    * Who the caller is — the identity every session is bound to and every
    * lookup is scoped by.
    *
-   * THE HOSTED REST PATH IS REFUSED HERE, DELIBERATELY. Do not delete this as
-   * over-caution. The website's REST proxy authenticates to this server with a
-   * single shared X-Internal-Secret (`authenticateRequest` in
-   * src/server/transports/streamableHttp.js) and forwards no end-user identity
-   * (crawlforge-website/src/lib/tools/mcp-proxy.ts), so every REST customer
-   * arrives as the same internal caller. Binding a session to that identity
-   * would put all of them inside one tenant: any customer could name any other
-   * customer's session id and be handed their logged-in browser. There is no
-   * owner to derive, so there is no session — and saying so is honest, where
-   * pretending would be a cross-tenant hole. Phase 3 of the browser-session
-   * plan adds a per-user owner token before the REST route ships.
+   * On the hosted REST path the shared secret is not an identity. The website's
+   * proxy authenticates to this server with a single X-Internal-Secret
+   * (`authenticateRequest` in src/server/transports/streamableHttp.js), so
+   * every REST customer arrives as the same internal caller; binding a session
+   * to THAT would put all of them inside one tenant, where any customer could
+   * name any other customer's session id and be handed their logged-in browser.
+   * The per-user owner token is the missing half: the proxy derives it per end
+   * user and sends it on X-CrawlForge-Owner, the transport honours it only on a
+   * request that already proved the secret, and it lands here as the tenant key.
+   *
+   * NO FALLBACK WHEN IT IS ABSENT, DELIBERATELY — do not "tidy" the refusal
+   * below into a default owner. It is what makes the two repos safe to deploy
+   * in either order: an old server ignores the new header, a new server meets
+   * an old website that sends none, and in both cases sessions are refused
+   * rather than silently collapsing into one shared tenant. A missing owner is
+   * a missing tenant boundary, and the honest answer to that is "no session".
    *
    * Everywhere else the install is the tenant: over stdio, and over self-hosted
    * HTTP authenticated with the install's API key or an OAuth token, the same
@@ -178,13 +203,17 @@ export class BrowserSessionTool {
    */
   ownerId() {
     if (isInternalRequest()) {
+      const ownerToken = internalOwnerToken();
+      if (ownerToken) return `${REST_OWNER_PREFIX}${ownerToken}`;
+
       throw refuse(
         'SESSIONS_NOT_AVAILABLE_OVER_REST',
-        'browser_session is not available over the CrawlForge REST API yet. The API proxy ' +
-        'authenticates as a single shared internal caller and cannot yet identify which ' +
-        'customer a request belongs to, so a session id could not be bound to the account ' +
-        'that opened it. Use scrape_with_actions for a one-shot interaction chain, or run ' +
-        'the CrawlForge MCP server locally (stdio) where sessions work normally.'
+        'browser_session could not be opened over the CrawlForge REST API: the API proxy ' +
+        'authenticated as a shared internal caller without saying which customer this request ' +
+        'belongs to, so a session id could not be bound to the account that opened it. That is ' +
+        'usually a version skew mid-deploy — try again shortly. Meanwhile, use ' +
+        'scrape_with_actions for a one-shot interaction chain, or run the CrawlForge MCP ' +
+        'server locally (stdio) where sessions work normally.'
       );
     }
 
@@ -241,7 +270,10 @@ export class BrowserSessionTool {
         url: page.url(),
         stealth: params.stealth,
         ttlMs: params.ttl === undefined ? undefined : params.ttl * SECOND,
-        activityTtlMs: params.activity_ttl === undefined ? undefined : params.activity_ttl * SECOND
+        activityTtlMs: params.activity_ttl === undefined ? undefined : params.activity_ttl * SECOND,
+        // undefined for every other owner, which leaves the store's own cap in
+        // force — the override exists for the hosted box alone.
+        maxPerOwner: ownerId.startsWith(REST_OWNER_PREFIX) ? REST_MAX_SESSIONS_PER_OWNER : undefined
       });
     } catch (error) {
       // A cap refusal arrives with a live page in hand. Give it back before

@@ -28,7 +28,11 @@ process.env.ALLOWED_DOMAINS = '127.0.0.1';
 delete process.env.SSRF_PROTECTION_ENABLED;
 
 const { BrowserSessionTool } = await import('../../../src/tools/advanced/BrowserSessionTool.js');
-const { BrowserSessionStore } = await import('../../../src/core/browser/SessionStore.js');
+const {
+  BrowserSessionStore,
+  SessionLimitError,
+  DEFAULT_MAX_SESSIONS_PER_OWNER
+} = await import('../../../src/core/browser/SessionStore.js');
 const { isCreatorModeVerified } = await import('../../../src/core/creatorMode.js');
 const { ActionExecutor } = await import('../../../src/core/ActionExecutor.js');
 const { requestContext } = await import('../../../src/server/requestContext.js');
@@ -98,7 +102,22 @@ function stubPage(url) {
   return {
     url: () => current,
     async goto(target) { current = target; return { status: () => 200 }; },
-    async content() { return '<html><body></body></html>'; }
+    async content() { return '<html><body></body></html>'; },
+    // What releaser() reaches for when a session is closed or refused.
+    context: () => ({ close: async () => {} }),
+    async close() {}
+  };
+}
+
+/**
+ * An executor that hands out stub pages. The tenancy rules — who owns a
+ * session, and how many one owner may hold — are decided before a browser is
+ * ever asked for, so proving them must not depend on Chromium being installed.
+ */
+function stubExecutor() {
+  return {
+    initializePage: async (url) => stubPage(url),
+    browserProcessor: { releaseStealthPage: async () => {} }
   };
 }
 
@@ -179,7 +198,7 @@ describe('browser_session ownership', () => {
 });
 
 describe('browser_session transport gates', () => {
-  test('the hosted REST proxy is refused by name, before anything is opened', async () => {
+  test('an internal request with no owner token is refused by name, before anything is opened', async () => {
     const store = new BrowserSessionStore();
     const tool = makeTool(store);
 
@@ -194,6 +213,10 @@ describe('browser_session transport gates', () => {
       assert.match(error.message, /scrape_with_actions/);
     }
 
+    // The fail-closed half of the contract: an old server ignoring the new
+    // header, and a new server meeting a website that sends none, both land
+    // here. Neither may fall back to a default owner — that would put every
+    // REST customer in one tenant, which is the hole the refusal exists for.
     assert.equal(store.getStats().total, 0, 'a refused open must not have opened a session');
     await store.destroy();
   });
@@ -238,6 +261,104 @@ describe('browser_session transport gates', () => {
     const local = await tool.execute(act);
     assert.equal(local.actionResults[0].success, false);
     assert.match(local.actionResults[0].error, /JavaScript execution is disabled/);
+    await store.destroy();
+  });
+});
+
+// The hosted REST path, once the proxy forwards a per-user owner token. The
+// token is opaque here — the website derives it with an HMAC keyed on the
+// shared internal secret — so all these tests need is that two customers get
+// two different ones. The transport decides which values count as tokens at
+// all (tests/unit/streamableHttp.test.js); by the time a value reaches the
+// tool it is either a token or absent.
+describe('browser_session over the hosted REST proxy', () => {
+  const TOKEN_A = 'a'.repeat(32);
+  const TOKEN_B = 'b'.repeat(32);
+
+  /** A tool whose pages are stubs — tenancy is decided before a browser matters. */
+  function makeRestTool(store) {
+    return new BrowserSessionTool({
+      store,
+      actionExecutor: stubExecutor(),
+      extractContentTool,
+      enableLogging: false
+    });
+  }
+
+  /** Run one call the way the transport runs it, on behalf of one REST customer. */
+  function asRestCustomer(ownerToken, fn) {
+    return requestContext.run({ internal: true, ownerToken }, fn);
+  }
+
+  test('the owner token is the tenant key, and two customers get two keys', async () => {
+    const store = new BrowserSessionStore();
+    const tool = makeRestTool(store);
+
+    assert.equal(asRestCustomer(TOKEN_A, () => tool.ownerId()), `rest:${TOKEN_A}`);
+    assert.notEqual(
+      asRestCustomer(TOKEN_B, () => tool.ownerId()),
+      asRestCustomer(TOKEN_A, () => tool.ownerId())
+    );
+    // Nothing changes off the internal path: stdio is still the API key digest.
+    assert.match(tool.ownerId(), /^(key:[0-9a-f]{16}|local)$/);
+    await store.destroy();
+  });
+
+  test('one REST customer cannot reach another\'s session', async () => {
+    const store = new BrowserSessionStore();
+    const tool = makeRestTool(store);
+
+    const opened = await asRestCustomer(TOKEN_A, () =>
+      tool.execute({ operation: 'open', url: `${BASE}/click` }));
+    assert.ok(opened.sessionId, 'a customer with a token gets a session');
+
+    for (const op of [{ operation: 'snapshot' }, { operation: 'read' }, { operation: 'close' }]) {
+      const error = await refusal(() =>
+        asRestCustomer(TOKEN_B, () => tool.execute({ ...op, session_id: opened.sessionId })));
+      // "Session not found", not "forbidden": the same answer an id that never
+      // existed gets, which is what stops ids being probed across tenants.
+      assert.equal(error.code, 'SESSION_NOT_FOUND', `${op.operation}: ${error.message}`);
+    }
+
+    assert.equal((await asRestCustomer(TOKEN_B, () => tool.execute({ operation: 'list' }))).count, 0);
+    assert.equal((await asRestCustomer(TOKEN_A, () => tool.execute({ operation: 'list' }))).count, 1);
+    await store.destroy();
+  });
+
+  test('a REST customer holds one session at a time, and only their own slot', async () => {
+    const store = new BrowserSessionStore();
+    const tool = makeRestTool(store);
+    const openOne = () => tool.execute({ operation: 'open', url: `${BASE}/click` });
+
+    const mine = await asRestCustomer(TOKEN_A, openOne);
+    const error = await refusal(() => asRestCustomer(TOKEN_A, openOne));
+    assert.ok(error instanceof SessionLimitError, error.message);
+    assert.equal(error.code, 'SESSION_LIMIT');
+
+    // Why the cap is 1: the hosted box holds three sessions in total, so a
+    // customer allowed three could lock every other customer out for the ten
+    // minutes a session lives. A second customer must still be able to work.
+    const theirs = await asRestCustomer(TOKEN_B, openOne);
+    assert.ok(theirs.sessionId);
+    assert.equal(store.getStats().total, 2);
+
+    // And the slot comes back on close, rather than only on the TTL.
+    await asRestCustomer(TOKEN_A, () =>
+      tool.execute({ operation: 'close', session_id: mine.sessionId }));
+    assert.ok((await asRestCustomer(TOKEN_A, openOne)).sessionId);
+    await store.destroy();
+  });
+
+  test('the cap does not follow the tool home — stdio keeps the default', async () => {
+    const store = new BrowserSessionStore({ maxTotal: DEFAULT_MAX_SESSIONS_PER_OWNER + 1 });
+    const tool = makeRestTool(store);
+    const openOne = () => tool.execute({ operation: 'open', url: `${BASE}/click` });
+
+    for (let i = 0; i < DEFAULT_MAX_SESSIONS_PER_OWNER; i++) await openOne();
+    assert.equal(store.getStats().byOwner[tool.ownerId()], DEFAULT_MAX_SESSIONS_PER_OWNER);
+
+    const error = await refusal(openOne);
+    assert.equal(error.code, 'SESSION_LIMIT');
     await store.destroy();
   });
 });

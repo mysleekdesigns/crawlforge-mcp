@@ -314,9 +314,11 @@ export async function connectStreamableHttp(server, authManager, logger, options
       // — never expose an unauthenticated MCP endpoint on a public interface.
       // `internal` marks a request from the website's REST proxy
       // (INTERNAL_PROXY_SECRET): it is billing-exempt in withAuth because the
-      // website already charged the end user. Request-scoped only — never
-      // persisted on the session.
+      // website already charged the end user. `ownerToken` says which of the
+      // website's customers it is being made for. Both are request-scoped only
+      // — never persisted on the session.
       let internal = false;
+      let ownerToken;
       if (!(authManager.isCreatorMode() && hostIsLoopback)) {
         const authResult = await authenticateRequest(req, authManager, oauthProvider);
         if (!authResult.ok) {
@@ -332,6 +334,7 @@ export async function connectStreamableHttp(server, authManager, logger, options
           return;
         }
         internal = authResult.internal === true;
+        ownerToken = authResult.ownerToken;
       }
 
       // Era routing. Only a POST can carry the 2026-07-28 per-request envelope;
@@ -355,7 +358,7 @@ export async function connectStreamableHttp(server, authManager, logger, options
         if (parsedBody !== undefined) {
           const probe = await toWebRequest(req, parsedBody);
           if (!(await isLegacyRequest(probe, parsedBody))) {
-            await requestContext.run({ internal }, () => serveModern(req, res, parsedBody));
+            await requestContext.run({ internal, ownerToken }, () => serveModern(req, res, parsedBody));
             return;
           }
         }
@@ -370,7 +373,7 @@ export async function connectStreamableHttp(server, authManager, logger, options
 
       if (existing) {
         await requestContext.run(
-          { internal, servingServer: existing.server, servingEra: 'legacy' },
+          { internal, ownerToken, servingServer: existing.server, servingEra: 'legacy' },
           () => existing.transport.handleRequest(req, res, parsedBody)
         );
         return;
@@ -406,7 +409,7 @@ export async function connectStreamableHttp(server, authManager, logger, options
       try {
         await sessionServer.connect(transport);
         await requestContext.run(
-          { internal, servingServer: sessionServer, servingEra: 'legacy' },
+          { internal, ownerToken, servingServer: sessionServer, servingEra: 'legacy' },
           () => transport.handleRequest(req, res, parsedBody)
         );
       } catch (err) {
@@ -454,19 +457,42 @@ export async function connectStreamableHttp(server, authManager, logger, options
 }
 
 /**
+ * Hex, and bounded. The website emits 32 characters (mcpOwnerToken in
+ * crawlforge-website src/lib/tools/mcp-proxy.ts); the range is wider so the two
+ * repos can pick a different HMAC slice without a lockstep deploy, and narrow
+ * enough that nothing unbounded, non-printable or structured can ever become
+ * part of an owner id.
+ */
+const OWNER_TOKEN_RE = /^[0-9a-f]{16,64}$/;
+
+/**
+ * The owner token an internal request claims, or undefined.
+ *
+ * Undefined covers absent AND malformed alike, and the difference must not
+ * matter: everything downstream treats "no owner" as "no session", so a value
+ * that fails this check is simply not an owner rather than a strange one. Never
+ * relax this into a coercion — the token becomes part of a tenant key.
+ */
+function readOwnerToken(req) {
+  const value = (req.headers['x-crawlforge-owner'] || '').toString();
+  return OWNER_TOKEN_RE.test(value) ? value : undefined;
+}
+
+/**
  * Validate a request's credentials.
  *
  * Accepts:
  *   - `X-Internal-Secret: <INTERNAL_PROXY_SECRET>` — server-to-server requests
  *     from the crawlforge-website REST proxy. Returns { ok, internal: true };
  *     internal requests are billing-exempt in withAuth (the website already
- *     charged the end user). Only active when the env var is set.
+ *     charged the end user). Only active when the env var is set. Such a
+ *     request may also carry `X-CrawlForge-Owner` — see readOwnerToken.
  *   - `Authorization: Bearer <crawlforge-api-key>` (legacy static key)
  *   - `X-API-Key: <crawlforge-api-key>` (legacy static key)
  *   - `Authorization: Bearer <oauth-access-token>` if OAuth is enabled —
  *     the OAuth provider validates the token and maps it to the API key.
  *
- * @returns {Promise<{ok: true, internal?: boolean} | {ok: false, status: number, error: string, message: string, reason: string}>}
+ * @returns {Promise<{ok: true, internal?: boolean, ownerToken?: string} | {ok: false, status: number, error: string, message: string, reason: string}>}
  */
 async function authenticateRequest(req, authManager, oauthProvider) {
   // Internal proxy path first: presenting the header at all means the caller
@@ -480,7 +506,11 @@ async function authenticateRequest(req, authManager, oauthProvider) {
       const provided = createHash('sha256').update(providedSecret).digest();
       const expected = createHash('sha256').update(internalSecret).digest();
       if (timingSafeEqual(provided, expected)) {
-        return { ok: true, internal: true };
+        // Read ONLY here, on the branch that has just proved the secret. A
+        // request that authenticated any other way — or none — never has its
+        // owner header looked at, so claiming an owner requires already being
+        // the proxy.
+        return { ok: true, internal: true, ownerToken: readOwnerToken(req) };
       }
     }
     return {
