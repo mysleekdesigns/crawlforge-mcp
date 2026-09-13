@@ -67,7 +67,7 @@ import { ElicitationHelper } from "./src/core/ElicitationHelper.js";
 // Phase 6: MCP-spec adoption — structured output, tool filtering, spec hygiene
 import { OUTPUT_SCHEMAS } from "./src/schemas/toolOutputSchemas.js";
 import { dualOutput } from "./src/server/registerTool.js";
-import { createToolFilter } from "./src/server/toolFilter.js";
+import { createToolFilter, TOOL_GROUPS } from "./src/server/toolFilter.js";
 import { applySpecHygiene } from "./src/server/specHygiene.js";
 
 // Initialize Authentication Manager
@@ -1051,7 +1051,8 @@ registerToolIfEnabled("browser_session", {
     full_page: z.boolean().default(false).describe("screenshot: capture the full scrollable page"),
     format: z.enum(["png", "jpeg"]).default("png").describe("screenshot: image format"),
     quality: z.number().min(0).max(100).default(80).describe("screenshot: JPEG quality"),
-    selector: z.string().optional().describe("screenshot: capture just this element (a ref like \"@e2\" works)")
+    selector: z.string().optional().describe("screenshot: capture just this element (a ref like \"@e2\" works)"),
+    ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("browser_session", async (params) => {
   try {
@@ -1712,16 +1713,11 @@ async function runServer() {
   console.error(`Environment: ${config.server.nodeEnv}`);
   console.error("Search enabled: true (via CrawlForge proxy)");
 
-  const allTools = [
-    "fetch_url", "extract_text", "extract_links", "extract_metadata", "scrape_structured", "extract_embedded_state",
-    "search_web", "serp_rank", "reddit_search", "crawl_deep", "map_site",
-    "extract_content", "process_document", "summarize_content", "analyze_content",
-    "batch_scrape", "get_batch_results", "read_result", "scrape_with_actions",
-    "deep_research", "track_changes", "generate_llms_txt",
-    "stealth_mode", "localization", "extract_structured", "extract_with_llm",
-    "list_ollama_models", "scrape_template", // D3.3
-    "scrape", "agent"  // D4
-  ];
+  // Derived from TOOL_GROUPS, the same list the filter itself is built on, so a
+  // new tool is announced the moment it is grouped. The hand-written copy that
+  // used to live here silently under-reported: it never learned browser_session
+  // and so claimed "30/30" while 31 tools were registered and advertised.
+  const allTools = Object.values(TOOL_GROUPS).flat();
   const enabledTools = allTools.filter((name) => toolFilter.isEnabled(name));
   console.error(`Tools available (${enabledTools.length}/${allTools.length}): ${enabledTools.join(", ")}`);
 

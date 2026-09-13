@@ -52,15 +52,33 @@ test('MAX_INLINE_CHARS_PARAM is one optional int in [1000, 10,000,000]', () => {
   assert.equal(schema.safeParse({ max_inline_chars: 10_000_001 }).success, false);
 });
 
-test('the eleven large-output tools are configured; extract_embedded_state never truncates', () => {
+test('the twelve large-output tools are configured; extract_embedded_state never truncates', () => {
   assert.deepEqual(Object.keys(INLINE_THRESHOLD_TOOLS).sort(), [
-    'batch_scrape', 'crawl_deep', 'deep_research', 'extract_content', 'extract_embedded_state',
-    'fetch_url', 'get_batch_results', 'process_document', 'scrape', 'scrape_with_actions', 'stealth_mode'
+    'batch_scrape', 'browser_session', 'crawl_deep', 'deep_research', 'extract_content',
+    'extract_embedded_state', 'fetch_url', 'get_batch_results', 'process_document', 'scrape',
+    'scrape_with_actions', 'stealth_mode'
   ]);
   assert.equal(INLINE_THRESHOLD_TOOLS.extract_embedded_state.truncate, false);
   for (const [name, cfg] of Object.entries(INLINE_THRESHOLD_TOOLS)) {
     if (name !== 'extract_embedded_state') assert.equal(cfg.truncate, true, name);
   }
+});
+
+test('browser_session is shaped on read only', () => {
+  const rule = INLINE_THRESHOLD_TOOLS.browser_session;
+  // read hands back the same content shape scrape_with_actions does and was
+  // uncapped: 541,308 characters for one Wikipedia article (2026-09-12).
+  // The same three the REST route shapes (CONTENT_OPERATIONS), so one call is
+  // shaped identically whichever surface serves it.
+  for (const operation of ['read', 'snapshot', 'act']) {
+    assert.equal(rule.when({ operation }), true, operation);
+  }
+  // The other four return a session id and an expiry; shaping those would
+  // replace them with a preview and a handle.
+  for (const operation of ['open', 'screenshot', 'close', 'list']) {
+    assert.equal(rule.when({ operation }), false, operation);
+  }
+  assert.ok(rule.textPaths.includes('snapshot.tree'), 'a 1,000-node tree is shapeable too');
 });
 
 test('readDottedPath and resultTextView: first present string wins, else pretty JSON', () => {
