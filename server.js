@@ -61,7 +61,7 @@ import { REDACT_PII_PARAM } from "./src/server/redaction.js"; // Phase 5 (5.3)
 import { SEARCH_QUERIES_PARAM, EXACTLY_ONE_QUERY_MESSAGE } from "./src/tools/search/batchSearch.js"; // Phase 5 (5.1)
 import { markPreflightRefusal } from "./src/server/requestContext.js";
 // D1.1 Resources + D1.2 Prompts + D1.4 Elicitation
-import { ResourceRegistry } from "./src/resources/ResourceRegistry.js";
+import { ResourceRegistry, MAX_RESOURCE_BLOB_BYTES } from "./src/resources/ResourceRegistry.js";
 import { PROMPTS, getPromptMessages } from "./src/prompts/PromptRegistry.js";
 import { ElicitationHelper } from "./src/core/ElicitationHelper.js";
 // Phase 6: MCP-spec adoption — structured output, tool filtering, spec hygiene
@@ -1063,9 +1063,24 @@ registerToolIfEnabled("browser_session", {
     // is megabytes beside a few lines of JSON (R21, 2026-09-09).
     const publish = (shot) => {
       if (!shot?.actionId || !shot?.data) return shot;
-      resourceRegistry.storeScreenshot(shot.actionId, shot.data);
+      const { bytes, withinInlineBudget } = resourceRegistry.storeScreenshot(shot.actionId, shot.data);
       const { data, ...rest } = shot;
-      return { ...rest, resourceUri: `crawlforge://screenshot/${shot.actionId}` };
+      return {
+        ...rest,
+        resourceUri: `crawlforge://screenshot/${shot.actionId}`,
+        bytes,
+        // full_page is a knob this tool hands the caller, and on a long page it
+        // produces an image no MCP message can carry. Saying so here costs one
+        // field; learning it from the read costs a wasted call (R23).
+        ...(withinInlineBudget
+          ? {}
+          : {
+              warning: `This image is ${bytes} bytes, too large to read back over MCP ` +
+                `(limit ${MAX_RESOURCE_BLOB_BYTES} bytes) — reading the resource will be refused. ` +
+                `Take it again without full_page, or as format:"jpeg" with a lower quality, or ` +
+                `scoped to one element with selector.`
+            })
+      };
     };
     if (result.screenshot) result.screenshot = publish(result.screenshot);
     if (Array.isArray(result.screenshots)) result.screenshots = result.screenshots.map(publish);

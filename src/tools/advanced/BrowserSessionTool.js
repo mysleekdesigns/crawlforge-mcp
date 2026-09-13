@@ -170,6 +170,21 @@ function withJsResult(result) {
   return { ...result, jsResult: result.result.result };
 }
 
+/**
+ * The gate's warnings — a respect_robots override, a crawl-delay note — are
+ * what the shared parameter description promises the caller gets back
+ * ("returns a warning in the response"). `scrape` publishes them through
+ * unifiedScrape; the browser path dropped them on the floor, so a session that
+ * overrode robots.txt was told nothing at all (R23, 2026-09-13).
+ *
+ * Last navigation wins, the same rule `__crawlforgeNavigation` follows: the
+ * warnings describe the hop the caller just made, not every hop of the session.
+ */
+function gateWarningFields(page) {
+  const warnings = page?.__crawlforgeGateWarnings;
+  return warnings?.length ? { warnings } : {};
+}
+
 export class BrowserSessionTool {
   constructor(options = {}) {
     const {
@@ -278,7 +293,8 @@ export class BrowserSessionTool {
       viewportWidth: params.viewport?.width,
       viewportHeight: params.viewport?.height,
       timeout: params.timeout,
-      respectRobots: params.respect_robots
+      respectRobots: params.respect_robots,
+      tool: 'browser_session'
     };
     if (params.stealth) {
       browserOptions.stealthMode = { enabled: true };
@@ -325,6 +341,7 @@ export class BrowserSessionTool {
       operation: 'open',
       ...sessionInfo(session),
       ...verdictFields(verdict),
+      ...gateWarningFields(page),
       // The page is a wall, but the session behind it is real and holds a
       // browser context — say so, or a caller reading only `success` abandons
       // it to its TTL instead of closing it or acting through the challenge.
@@ -411,7 +428,7 @@ export class BrowserSessionTool {
     const result = await this.actionExecutor.executeActionsOnPage(session.page, params.actions, {
       continueOnError: params.continue_on_error,
       timeout: params.timeout,
-      browserOptions: { respectRobots: params.respect_robots }
+      browserOptions: { respectRobots: params.respect_robots, tool: 'browser_session' }
     });
 
     this.store.touch(session, result.finalUrl);
@@ -424,6 +441,7 @@ export class BrowserSessionTool {
       ...(Number.isInteger(session.page.__crawlforgeNavigation?.status)
         ? { httpStatus: session.page.__crawlforgeNavigation.status }
         : {}),
+      ...gateWarningFields(session.page),
       error: result.error,
       actionResults: result.results.map(withJsResult),
       screenshots: result.screenshots,
