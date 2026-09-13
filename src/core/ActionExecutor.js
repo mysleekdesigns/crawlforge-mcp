@@ -526,6 +526,123 @@ export class ActionExecutor extends EventEmitter {
   }
 
   /**
+   * Run actions against a page this executor does NOT own.
+   *
+   * executeActionChain() is the one-shot path and owns its page: it creates it,
+   * closes it in `finally`, and re-navigates to the chain's starting URL before
+   * each retry. None of that is right for a browser session, where the page
+   * outlives the call and "the starting URL" is wherever the last call left it —
+   * re-navigating there would throw away the very state the session exists to
+   * keep. So this is the same per-action loop with the lifecycle removed: it
+   * opens nothing, closes nothing, never re-navigates, and deliberately does not
+   * register in `activeChains` (destroy() closes the pages of everything in
+   * there, which would take a live session's page out from under its store).
+   *
+   * Gating comes for free and must not be duplicated by callers: a `navigate`
+   * action goes through executeNavigateAction, which re-runs the SSRF guard and
+   * the blocklist/robots gate on every hop (see the comment at its definition).
+   * `browserOptions.respectRobots` is what reaches that gate.
+   *
+   * No `finalHtml` here, unlike the chain: the page is still open afterwards, so
+   * content is read from it when it is asked for rather than on every call.
+   *
+   * @param {Page} page - a live page owned by the caller
+   * @param {Array} actions - actions to run, in order
+   * @param {Object} [options]
+   * @param {boolean} [options.continueOnError=false] - keep going past a failed action
+   * @param {number} [options.timeout] - per-action deadline for actions that name none
+   * @param {Object} [options.browserOptions] - carries `respectRobots` to the navigate gate
+   * @returns {Promise<Object>} Same results/screenshots/capturedStates shape the chain returns
+   */
+  async executeActionsOnPage(page, actions, { continueOnError = false, timeout, browserOptions = {} } = {}) {
+    const startTime = Date.now();
+    // executeActionInternal reads `id` for its events and `browserOptions` for
+    // the navigate action's robots gate; nothing else on a chain context is
+    // consulted from there.
+    const executionContext = {
+      id: this.generateChainId(),
+      url: page.url(),
+      browserOptions,
+      startTime,
+      results: [],
+      screenshots: [],
+      capturedStates: []
+    };
+
+    let success = true;
+    let error;
+
+    for (let i = 0; i < actions.length; i++) {
+      // actionTimeout() reads the deadline off the action itself, so a caller's
+      // per-call timeout is applied as the default for actions that set none.
+      const action = timeout && !actions[i].timeout ? { ...actions[i], timeout } : actions[i];
+
+      const actionResult = await this.executeActionInternal(page, action, executionContext);
+      executionContext.results.push(actionResult);
+      this.stats.totalActions++;
+
+      if (actionResult.success) {
+        this.stats.successfulActions++;
+      } else {
+        this.stats.failedActions++;
+      }
+
+      // Collection kept in step with executeChainWithRetries — a screenshot
+      // action's payload and a captureAfter snapshot of the page reach the
+      // caller in the same fields either way.
+      if (actionResult.success && action.type === 'screenshot' && actionResult.result?.data) {
+        executionContext.screenshots.push({
+          actionId: actionResult.id,
+          data: actionResult.result.data,
+          format: actionResult.result.format,
+          fullPage: actionResult.result.fullPage,
+          timestamp: actionResult.timestamp
+        });
+      }
+
+      if (action.captureAfter) {
+        try {
+          const capturedHtml = await page.content();
+          executionContext.capturedStates.push({
+            afterActionIndex: i,
+            afterActionId: actionResult.id,
+            url: page.url(),
+            html: capturedHtml,
+            timestamp: Date.now()
+          });
+        } catch (captureErr) {
+          this.log('warn', 'Failed to capture intermediate state: ' + captureErr.message);
+        }
+      }
+
+      if (!actionResult.success && !action.continueOnError && !continueOnError) {
+        success = false;
+        error = actionResult.error;
+        break;
+      }
+
+      if (i < actions.length - 1 && this.actionDelay > 0) {
+        await this.delay(this.actionDelay);
+      }
+    }
+
+    return {
+      success,
+      error,
+      finalUrl: page.url(),
+      executionTime: Date.now() - startTime,
+      results: executionContext.results,
+      screenshots: executionContext.screenshots,
+      capturedStates: executionContext.capturedStates,
+      stats: {
+        totalActions: executionContext.results.length,
+        successfulActions: executionContext.results.filter(r => r.success).length,
+        failedActions: executionContext.results.filter(r => !r.success).length
+      }
+    };
+  }
+
+  /**
    * Execute individual action (original internal method)
    * @param {Page} page - Playwright page
    * @param {Object} action - Action to execute

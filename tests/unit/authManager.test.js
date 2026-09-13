@@ -280,6 +280,24 @@ test('getToolCost: fully-paid Scheme B table (no free tier, key required for all
   assert.equal(authManager.getToolCost('localization', { operation: 'configure_country', countryCode: 'DE' }), 2);
 });
 
+test('getToolCost: browser_session is priced per operation, and nothing in it is free', () => {
+  const schedule = { open: 3, snapshot: 1, act: 1, read: 2, screenshot: 1, close: 1, list: 1 };
+  for (const [operation, cost] of Object.entries(schedule)) {
+    assert.equal(authManager.getToolCost('browser_session', { operation }), cost, `${operation} costs ${cost}`);
+    assert.ok(cost >= 1, `${operation} is never free`);
+  }
+  // open launches a browser and navigates, so it is strictly dearer than scrape.
+  assert.ok(schedule.open > authManager.getToolCost('scrape'));
+  // No operation, or one this schedule has never heard of, pays the published
+  // flat price — the ceiling, never more.
+  assert.equal(authManager.getToolCost('browser_session'), 3);
+  assert.equal(authManager.getToolCost('browser_session', {}), 3);
+  assert.equal(authManager.getToolCost('browser_session', { operation: 'something_new' }), 3);
+  // A prototype key is a string, not an operation, and must not bill whatever
+  // an object lookup would have returned for it.
+  assert.equal(authManager.getToolCost('browser_session', { operation: 'constructor' }), 3);
+});
+
 test('getToolCost: serp_rank costs 5 configured, 0 when DataForSEO is unconfigured (no-op)', () => {
   const savedLogin = process.env.DATAFORSEO_LOGIN;
   const savedPw = process.env.DATAFORSEO_PASSWORD;

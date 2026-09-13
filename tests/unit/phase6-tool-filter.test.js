@@ -6,7 +6,7 @@
  *
  * No network, no process.env mutation — env is always injected explicitly.
  *
- * TOOL_GROUPS covers every one of the 30 tools server.js registers. Phase 2
+ * TOOL_GROUPS covers every one of the 31 tools server.js registers. Phase 2
  * added read_result to `basic`; reddit_search (search) and
  * extract_embedded_state (extract) had been missing from the groups since
  * they were added, so neither could be selected by name in CRAWLFORGE_TOOLS.
@@ -29,8 +29,8 @@ describe('TOOL_GROUPS', () => {
     assert.deepEqual(dupes, []);
   });
 
-  test('flattened union covers all 30 registered tool names', () => {
-    assert.equal(ALL_TOOL_NAMES.length, 30);
+  test('flattened union covers all 31 registered tool names', () => {
+    assert.equal(ALL_TOOL_NAMES.length, 31);
   });
 
   test('reddit_search and extract_embedded_state are selectable by name', () => {

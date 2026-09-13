@@ -1,7 +1,7 @@
 /**
  * toolFilter — client-side tool selection (Phase 6).
  *
- * Lets an MCP client load a subset of the 30 registered tools via env vars,
+ * Lets an MCP client load a subset of the 31 registered tools via env vars,
  * cutting context bloat (mirrors Bright Data / Exa's TOOLS / GROUPS pattern).
  *
  * Pure module: no I/O, no logging; process.env is only read via
@@ -17,7 +17,7 @@ export const TOOL_GROUPS = {
   search: ['search_web', 'serp_rank', 'reddit_search'],
   crawl: ['crawl_deep', 'map_site'],
   extract: ['extract_content', 'process_document', 'summarize_content', 'analyze_content', 'extract_structured', 'extract_with_llm', 'list_ollama_models', 'extract_embedded_state'],
-  batch: ['batch_scrape', 'get_batch_results', 'scrape_with_actions'],
+  batch: ['batch_scrape', 'get_batch_results', 'scrape_with_actions', 'browser_session'],
   research: ['deep_research'],
   tracking: ['track_changes'],
   llmstxt: ['generate_llms_txt'],

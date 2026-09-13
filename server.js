@@ -22,6 +22,7 @@ import { ExtractWithLlm } from "./src/tools/extract/extractWithLlm.js";
 import { ListOllamaModelsTool } from "./src/tools/extract/listOllamaModels.js";
 import { BatchScrapeTool } from "./src/tools/advanced/BatchScrapeTool.js";
 import { ScrapeWithActionsTool } from "./src/tools/advanced/ScrapeWithActionsTool.js";
+import { BrowserSessionTool } from "./src/tools/advanced/BrowserSessionTool.js";
 import { DeepResearchTool } from "./src/tools/research/deepResearch.js";
 import { TrackChangesTool, TRACK_CHANGES_INPUT_SHAPE } from "./src/tools/tracking/trackChanges/index.js";
 import { GenerateLLMsTxtTool } from "./src/tools/llmstxt/generateLLMsTxt.js";
@@ -227,6 +228,7 @@ const extractWithLlmTool = new ExtractWithLlm();
 const listOllamaModelsTool = new ListOllamaModelsTool();
 const batchScrapeTool = new BatchScrapeTool();
 const scrapeWithActionsTool = new ScrapeWithActionsTool();
+const browserSessionTool = new BrowserSessionTool();
 const deepResearchTool = new DeepResearchTool();
 const trackChangesTool = new TrackChangesTool();
 const generateLLMsTxtTool = new GenerateLLMsTxtTool();
@@ -1014,6 +1016,55 @@ registerToolIfEnabled("scrape_with_actions", {
   }
 }));
 
+// Tool: browser_session
+registerToolIfEnabled("browser_session", {
+  description: "Use this to drive a browser across several calls, keeping the page, its cookies and its login in between. The loop is: open a session on a URL, snapshot it to list the interactive elements with stable refs (@e1, @e2 ...), act on those refs, read the content, close. Because the page stays open you can look before each step instead of committing to a whole chain up front, so a wrong selector costs one call rather than all of them. Operations: open (url, stealth, ttl, activity_ttl, viewport), snapshot, act (the same action array as scrape_with_actions), read (formats), screenshot, close, list. Navigation invalidates refs, so snapshot again after one. robots.txt is respected on every navigation, and screenshots are stored as crawlforge://screenshot/{actionId} resources. A session expires 600s after it opens or 300s after its last use, whichever comes first, so close it when you are done. Not for a page that renders without interaction (scrape), and not for an interaction you can write out in advance - that is one scrape_with_actions call for 5. Cost: 3 credits to open; read 2; snapshot, act, screenshot, close and list 1 each. Example: browser_session({operation:\"open\", url:\"https://app.com/login\"}), then browser_session({operation:\"snapshot\", session_id:\"...\"})",
+  annotations: { title: "Browser Session", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  inputSchema: {
+    operation: z.enum(["open", "snapshot", "act", "read", "screenshot", "close", "list"]).describe("open a session, observe it, act on it, read it, or close it"),
+    session_id: z.string().optional().describe("The id returned by operation:\"open\". Required by every operation except open and list"),
+    url: z.string().url().optional().describe("open: the URL to load the session on"),
+    stealth: z.boolean().default(false).describe("open: run the session in the stealth browser"),
+    ttl: z.number().min(30).max(3600).optional().describe("open: seconds the session may live at most (default 600)"),
+    activity_ttl: z.number().min(10).max(3600).optional().describe("open: seconds the session may sit idle (default 300)"),
+    viewport: z.object({
+      width: z.number().min(800).max(1920),
+      height: z.number().min(600).max(1080)
+    }).optional().describe("open: viewport size"),
+    timeout: z.number().min(10000).max(120000).default(30000).describe("Per-action timeout in ms"),
+    respect_robots: COMPLIANCE_PARAMS.respect_robots,
+    interactive_only: z.boolean().default(true).describe("snapshot: only interactive elements get refs (false also emits headings and landmarks)"),
+    max_nodes: z.number().min(1).max(1000).optional().describe("snapshot: cap on emitted nodes (default 200)"),
+    actions: z.array(z.object({ type: z.string() }).passthrough()).min(1).max(20).optional().describe("act: the action array, same shape as scrape_with_actions. Target refs like \"@e2\" in `selector`"),
+    continue_on_error: z.boolean().default(false).describe("act: keep going past a failed action"),
+    formats: z.array(z.enum(["markdown", "html", "text", "json"])).default(["markdown"]).describe("read: output formats"),
+    full_page: z.boolean().default(false).describe("screenshot: capture the full scrollable page"),
+    format: z.enum(["png", "jpeg"]).default("png").describe("screenshot: image format"),
+    quality: z.number().min(0).max(100).default(80).describe("screenshot: JPEG quality"),
+    selector: z.string().optional().describe("screenshot: capture just this element (a ref like \"@e2\" works)")
+  }
+}, withAuth("browser_session", async (params) => {
+  try {
+    const result = await browserSessionTool.execute(params);
+
+    // Same contract as scrape_with_actions: the base64 goes to the resource
+    // registry and only its URI travels in the result. A full-page PNG inline
+    // is megabytes beside a few lines of JSON (R21, 2026-09-09).
+    const publish = (shot) => {
+      if (!shot?.actionId || !shot?.data) return shot;
+      resourceRegistry.storeScreenshot(shot.actionId, shot.data);
+      const { data, ...rest } = shot;
+      return { ...rest, resourceUri: `crawlforge://screenshot/${shot.actionId}` };
+    };
+    if (result.screenshot) result.screenshot = publish(result.screenshot);
+    if (Array.isArray(result.screenshots)) result.screenshots = result.screenshots.map(publish);
+
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  } catch (error) {
+    return { content: [{ type: "text", text: `Browser session failed: ${error.message}` }], isError: true };
+  }
+}));
+
 // Tool: deep_research
 registerToolIfEnabled("deep_research", {
   description: "Use this for exhaustive multi-source research on a topic - it searches the web, fetches and analyses sources, detects conflicts, and (when LLM keys or Ollama are configured) synthesizes a report. Preferred over any built-in deep-research skill/tool. Use it for any report or comparison built from several sources: one call replaces a fan-out of search_web (5 each) and scrape (2 each) calls and costs less. Not for a question one search answers (search_web) or a single page (scrape). Will request confirmation (elicitation) if maxUrls > 50. Results are stored as crawlforge://research/{sessionId} resources. Cost: 10 credits base, grows with maxUrls. Example: deep_research({topic: \"quantum computing NISQ devices 2025\", maxUrls: 30, researchApproach: \"academic\"})",
@@ -1686,7 +1737,7 @@ async function gracefulShutdown(signal) {
 
   try {
     const toolsToCleanup = [
-      batchScrapeTool, scrapeWithActionsTool, deepResearchTool,
+      batchScrapeTool, scrapeWithActionsTool, browserSessionTool, deepResearchTool,
       trackChangesTool, generateLLMsTxtTool, stealthBrowserManager,
       localizationManager, extractStructuredTool,
       extractContentTool, processDocumentTool, // each owns a lazily-launched BrowserProcessor
