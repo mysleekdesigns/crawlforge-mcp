@@ -3,6 +3,34 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [6.6.2] - 2026-09-13
+
+A second live round on `browser_session`, re-testing 6.6.1 across long articles, an SPA, a login
+app, concurrent sessions and a bot-protected site. Everything 6.6.1 fixed held. Three defects
+underneath it did not, and the worst of them cost the caller their whole MCP session rather than
+the one call that caused it.
+
+### Fixed
+
+- **A full-page screenshot could kill the entire MCP session.** `screenshot` with `full_page` on a
+  long page produced a resource larger than one stdio message may carry, and an oversized message
+  does not fail the read — it closes the transport, taking every tool on the connection with it and
+  leaving nothing to retry. A full-page PNG of a 61,341px article is 18.5 MB, and JPEG only brings
+  it to 11.3 MB, so neither format saved a caller who asked for `full_page`. Screenshot resources
+  are now budgeted: a read over the limit is refused with the size, the limit and what to take
+  instead, and every screenshot result carries its `bytes` plus, when it is over budget, a warning
+  at capture time rather than one wasted read later. The budget derives from the transport ceiling
+  and is overridable with `CRAWLFORGE_MAX_RESOURCE_BLOB_BYTES`. The hosted REST endpoint was never
+  exposed to this: it passes screenshot URIs through without resolving them.
+- **`respect_robots: false` returned no warning.** The parameter promises one in the response and
+  `scrape` delivered it, but the browser path awaited the compliance gate and discarded what it
+  said, so a session that overrode robots.txt was told nothing at all. `open` and `act` now publish
+  the gate's warnings.
+- **A session's robots override was audited against the wrong tool.** The same call site named
+  `scrape_with_actions` for every caller, so the record of which tool a customer overrode robots
+  with — the point of the audit — was wrong for `browser_session`. The tool that made the decision
+  is recorded now.
+
 ## [6.6.1] - 2026-09-12
 
 The first live test of `browser_session` since 6.6.0 shipped, across five kinds of site: a static
