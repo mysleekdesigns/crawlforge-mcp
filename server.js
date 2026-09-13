@@ -108,8 +108,8 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "6.5.0",
-  description: "Production-ready MCP server with 30 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
+  version: "6.6.0",
+  description: "Production-ready MCP server with 31 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, stateful browser sessions with element refs, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
   icons: [{ src: "https://www.crawlforge.dev/icon.png", mimeType: "image/png", sizes: ["any"] }],
@@ -119,15 +119,16 @@ const server = new McpServer({
     "CrawlForge: metered web tools (credits per call). Pick ONE tool per step from this ladder.",
     "- Read one page whose URL you have -> scrape (2). Ask for every format you need in that call: markdown, links, metadata, html, screenshot, json. Default for any page.",
     "- Raw JSON/XML/API body, headers or status -> fetch_url (1). Not for HTML you will read: scrape returns markdown from the same fetch.",
-    "- Find pages for a query -> search_web (5); snippets often answer without a scrape. Google organic position -> serp_rank (5). Reddit -> reddit_search (5); reddit.com blocks direct scraping.",
-    "- Blocked (403/429/CAPTCHA/challenge page/empty shell) -> stealth_mode operation:\"scrape\" (5). scrape with escalate:true when a site is known to block (projected 7, charged 2 when the plain fetch works); still never stealth_mode first. Needs a click, login or scroll -> scrape_with_actions (5). Never start with these.",
+    "- Find pages for a query -> search_web (5); snippets often answer without a scrape. Google organic position -> serp_rank (5). Reddit -> reddit_search (5); reddit.com blocks scrapers.",
+    "- Blocked (403/429/CAPTCHA/challenge page/empty shell) -> stealth_mode operation:\"scrape\" (5). scrape with escalate:true when a site is known to block (projected 7, charged 2 if not blocked). One fixed action chain on one page -> scrape_with_actions (5). Never start with these.",
+    "- See the page before choosing what to click, a flow over several calls, or a login that must persist -> browser_session (open 3, then 1-2 each).",
     "- 2-50 known URLs -> one batch_scrape (5), never a loop of scrape calls.",
     "- A site's URL list -> map_site (2); many pages of one site -> crawl_deep (4).",
     "- Exact values from a Next.js/Nuxt/Redux payload -> extract_embedded_state (2) with a path.",
     "- Known CSS selectors -> scrape_structured (2); fields you can describe but not select -> extract_structured (3).",
-    "- A report from several sources -> ONE deep_research call (10 + ~1 per 5 sources); it replaces a search_web + scrape fan-out that costs 5 per search and 2 per page. Open question with no URLs -> agent (8).",
-    "- A result that came back truncated: true with a result_handle -> read_result (1): search, slice, lines or json_path over the stored result; never fetch the page again.",
-    "Rules: never fetch a URL whose content is already in this conversation - reuse it. One call per page: scrape with several formats replaces fetch_url + extract_* pairs. Error results end with \"Next step:\" naming the tool to try; follow it instead of retrying the same call. Use the client's built-in web search/fetch only when CrawlForge is unavailable or out of credits."
+    "- A report from several sources -> ONE deep_research call (10 + ~1 per 5 sources); it replaces a search_web + scrape fan-out costing 5 per search and 2 per page. Open question with no URLs -> agent (8).",
+    "- A result with truncated: true and a result_handle -> read_result (1): search, slice, lines or json_path over it; never fetch the page again.",
+    "Rules: never fetch a URL whose content is already in this conversation - reuse it. One call per page: scrape with several formats replaces fetch_url + extract_* pairs. Error results end with \"Next step:\" naming the tool to try - follow it. Use the client's built-in web search/fetch only when CrawlForge is unavailable or out of credits."
   ].join("\n")
 });
 
@@ -140,7 +141,7 @@ server.registerPrompt("getting-started", {
       role: "user",
       content: {
         type: "text",
-        text: "You have access to CrawlForge MCP: 30 metered web tools (credits per call, shown in brackets). Pick one tool per step from this ladder, and reuse content already in the conversation instead of fetching it again.\n" +
+        text: "You have access to CrawlForge MCP: 31 metered web tools (credits per call, shown in brackets). Pick one tool per step from this ladder, and reuse content already in the conversation instead of fetching it again.\n" +
           "\n" +
           "Read a page\n" +
           "- scrape (2): one URL, every format you need in one call - markdown, links, metadata, html, screenshot, json. Default for any page whose URL you have.\n" +
@@ -162,6 +163,7 @@ server.registerPrompt("getting-started", {
           "- stealth_mode (5): after a 403/429/CAPTCHA/challenge page or an empty shell - never first.\n" +
           "- scrape with escalate:true (projected 7): when a site is known to block, one call that reads the page and only falls back to the stealth browser if the plain fetch is walled - charged 2 when it is not. Still never stealth_mode first.\n" +
           "- scrape_with_actions (5): click, log in, scroll or wait, then scrape.\n" +
+          "- browser_session (open 3, every later operation 1-2): a page that stays open across calls - open, snapshot to list the interactive elements as @e refs, act on a ref, read, close. Use it when you must see the page before choosing what to click, when the flow spans several calls, or when a login must hold across later reads; one fixed action chain on one page is scrape_with_actions.\n" +
           "- localization (2): country and locale context for geo-specific content.\n" +
           "\n" +
           "Structured data\n" +

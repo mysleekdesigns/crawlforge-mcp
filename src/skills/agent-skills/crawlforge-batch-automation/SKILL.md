@@ -107,6 +107,10 @@ as `crawlforge://screenshot/{actionId}` resources. Full action schemas:
 [actions](references/actions.md). CLI:
 `crawlforge actions https://example.com --script login.json --screenshot`.
 
+One-shot: the browser closes when the call returns. When the flow spans more
+than one call, or you need to see the page before choosing what to click, use
+`browser_session` instead (crawlforge-browser-sessions).
+
 ## generate_llms_txt — AI policy file (cost: 5)
 
 ```json

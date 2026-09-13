@@ -254,7 +254,7 @@ export async function uninstall({ target = 'all', cwd = process.cwd(), homeDir =
 const HOOK_MARKER = 'CrawlForge skill';
 const HOOK_COMMAND =
   "echo 'Consider whether a CrawlForge skill applies: web scraping, deep research, " +
-  "stealth browsing, structured extraction, change tracking, or batch automation.'";
+  "stealth browsing, structured extraction, change tracking, batch automation, or browser sessions.'";
 
 /**
  * Add a UserPromptSubmit forced-eval reminder to ~/.claude/settings.json.

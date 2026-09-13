@@ -13,8 +13,8 @@ import {
 
 describe('listAgentSkills + frontmatter validity', () => {
   const skills = listAgentSkills();
-  test('discovers 7 skills, each with a SKILL.md', () => {
-    assert.equal(skills.length, 7);
+  test('discovers 8 skills, each with a SKILL.md', () => {
+    assert.equal(skills.length, 8);
     for (const s of skills) assert.ok(existsSync(s.skillMd), `${s.name} has SKILL.md`);
   });
   test('every skill has valid frontmatter (name, description ≤1024, no angle brackets, no reserved words)', () => {

@@ -22,7 +22,7 @@ crawlforge init                            # detect key, install skills, merge M
 | `--timeout <ms>` | Request timeout (default 30000). |
 | `--version` / `--help` | Version / help. |
 
-## Tool commands (15)
+## Tool commands (16)
 
 | Command | Maps to | Example |
 |---------|---------|---------|
@@ -37,6 +37,7 @@ crawlforge init                            # detect key, install skills, merge M
 | `stealth <url>` | stealth_mode | `crawlforge stealth <url> --engine camoufox --screenshot` |
 | `batch <file>` | batch_scrape | `crawlforge batch urls.txt --format markdown --concurrency 10` |
 | `actions <url>` | scrape_with_actions | `crawlforge actions <url> --script flow.json --screenshot` |
+| `browser <url>` | browser_session | `crawlforge browser <url> --steps flow.json --read` |
 | `localize <url>` | localization | `crawlforge localize <url> --locale fr-FR --country FR` |
 | `llmstxt <url>` | generate_llms_txt | `crawlforge llmstxt <url> --include-full` |
 | `template <id> <target>` | scrape_template | `crawlforge template github-repo https://github.com/owner/repo` |
@@ -67,5 +68,9 @@ crawlforge scrape https://example.com --quiet && echo ok  # exit code only
 | `OLLAMA_DEFAULT_MODEL` | Default model for `extract`. |
 | `CRAWLFORGE_STEALTH_ENGINE` | Force `playwright` or `camoufox`. |
 | `CRAWLFORGE_BROWSER_BACKEND` | `local` or `browserbase`. |
+
+`crawlforge browser` runs a whole session (open, snapshot, steps, close) in one
+invocation — a session cannot span two CLI processes. Use the `browser_session`
+MCP tool when a session has to outlive the call that opened it.
 
 Exit code 0 = success, 1 = error. `crawlforge <command> --help` for per-command help.

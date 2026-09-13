@@ -3,6 +3,52 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [6.6.0] - 2026-09-12
+
+Interactive browser sessions, and the observation primitive underneath them. `scrape_with_actions`
+had to be handed every action up front, choosing CSS selectors for a page it had never seen, and the
+browser closed when the call returned — one wrong selector at step three wasted the whole call. Two
+things change that: a snapshot that names the elements on the page, and a session that survives
+between calls.
+
+### Added
+
+- **`browser_session` — the 31st tool.** One tool with seven operations (`open`, `snapshot`, `act`,
+  `read`, `screenshot`, `close`, `list`) holding one browser page alive across calls, with its
+  cookies and whatever it has already clicked. The loop is open → snapshot to list the interactive
+  elements as refs → act on a ref → read → close, so a login is paid for once and a wrong ref costs
+  one call instead of a whole chain. Priced per operation — `open` 3, `read` 2, and `snapshot`,
+  `act`, `screenshot`, `close` and `list` 1 each — so open → snapshot → act → read → close is 8
+  credits (9 if you re-snapshot after the login navigation), against 5 for a `scrape_with_actions`
+  call far likelier to fail. `ttl` defaults to 600s (30–3600) and
+  `activityTtl` to 300s (10–3600). Live on the REST API too, at `POST /api/v1/tools/browser_session`.
+- **`snapshot` as an action type in `scrape_with_actions`.** An injected DOM walk that stamps each
+  interactive element in document order and returns an indented accessibility tree — `@e1 [textbox]
+  "Username"`, `@e3 [button] "Login"` — built from real accessible names. Any action's `selector` may
+  then name a ref instead of guessing a CSS selector, so every existing action type gained ref
+  support with no schema change. Refs are cleared on navigation, and a stale ref fails by name
+  telling the caller to re-snapshot rather than silently hitting the wrong element. Options:
+  `interactiveOnly` (default true) and `maxNodes` (default 200, max 1000). Main frame only; shadow
+  DOM is not traversed.
+- **`crawlforge browser <url>` CLI command** — one whole session per invocation (open, snapshot,
+  `--steps`, optional `--read`, close), because a session lives in the process that opened it.
+- **`crawlforge-browser-sessions` agent skill**, the eighth, teaching the ref loop and when a session
+  beats a single `scrape_with_actions` call.
+
+### Security
+
+- A session is bound to the key that opened it. Every other caller is told "session not found" —
+  never "forbidden" — and unknown, wrong-owner and expired ids share one identical message, so ids
+  stay non-enumerable.
+- Every in-session navigation re-runs the same SSRF guard, host blocklist and robots gate that
+  `scrape_with_actions` applies, so a long-lived session cannot become a repeatable SSRF hop.
+- `executeJavaScript` is refused inside a session on remote transport unless creator mode is on:
+  arbitrary JS in a browser on our infrastructure is a materially different act from the same JS on
+  the customer's own laptop.
+- Sessions are capped per owner (3 on stdio and self-hosted, 1 over the hosted REST surface) and
+  process-wide at half `MAX_BROWSER_CONTEXTS`, so one caller cannot starve the box. A cap breach is a
+  named refusal, never a queue that hangs the caller.
+
 ## [6.5.0] - 2026-09-09
 
 Six defects and four gaps from the R21 live sweep: ~600 URLs across real estate, healthcare,
