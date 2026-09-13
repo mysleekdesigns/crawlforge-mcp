@@ -593,6 +593,7 @@ class AuthManager {
       analyze_content: 3,
       extract_structured: 3,
       extract_with_llm: 3,
+      browser_session: 3, // ceiling — `open`'s price; the schedule is per operation below
 
       // 4 credits
       summarize_content: 4,
@@ -633,6 +634,28 @@ class AuthManager {
     if (tool === 'stealth_mode') {
       const bookkeepingOps = new Set(['configure', 'enable', 'disable', 'get_stats', 'cleanup']);
       if (bookkeepingOps.has(params?.operation)) return 1;
+    }
+
+    // browser_session bills per operation for the same reason: one session is
+    // many calls, and a flat price would charge the ceiling for every cheap
+    // one. `open` launches a browser and navigates, so it costs more than a
+    // `scrape` (2); `read` extracts content and is priced with `scrape`;
+    // `snapshot`, `act` and `screenshot` are one injected script or one action
+    // batch against a page that is already open. `close` and `list` are
+    // bookkeeping but still cost 1 — nothing here runs for free. An unknown or
+    // absent operation falls through to the flat 3: the published price is the
+    // ceiling, never the floor.
+    if (tool === 'browser_session') {
+      const operationCosts = new Map([
+        ['open', 3],
+        ['snapshot', 1],
+        ['act', 1],
+        ['read', 2],
+        ['screenshot', 1],
+        ['close', 1],
+        ['list', 1]
+      ]);
+      if (operationCosts.has(params?.operation)) return operationCosts.get(params.operation);
     }
 
     // localize_search with a query runs a real web search through the same
@@ -718,6 +741,9 @@ class AuthManager {
         note = projected === 1
           ? 'Bookkeeping operation — launches no browser.'
           : 'Browser operation. configure/enable/disable/get_stats/cleanup cost 1 credit each.';
+        break;
+      case 'browser_session':
+        note = `Priced per operation: open 3, read 2, snapshot/act/screenshot/close/list 1. This call bills ${projected}.`;
         break;
       case 'serp_rank':
         note = projected === 0
