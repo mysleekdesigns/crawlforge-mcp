@@ -24,6 +24,9 @@ export const MAX_INLINE_CHARS_PARAM = {
  * false` keeps the whole result inline and only adds the handle
  * (extract_embedded_state's never-truncate rule). `when` gates on params.
  */
+/** The browser_session operations that hand back content worth shaping. */
+const BROWSER_SESSION_CONTENT_OPERATIONS = new Set(['snapshot', 'act', 'read']);
+
 export const INLINE_THRESHOLD_TOOLS = Object.freeze({
   scrape: { textPaths: ['content.markdown', 'content.text', 'content.html', 'content.rawHtml'], truncate: true },
   fetch_url: { textPaths: ['body'], truncate: true },
@@ -35,6 +38,18 @@ export const INLINE_THRESHOLD_TOOLS = Object.freeze({
   get_batch_results: { textPaths: [], truncate: true },
   stealth_mode: { textPaths: ['content.markdown', 'content.text', 'content.html'], truncate: true, when: (params) => params?.operation === 'scrape' },
   scrape_with_actions: { textPaths: ['content.markdown', 'content.text', 'content.html'], truncate: true },
+  // `read` hands back the same content shape scrape_with_actions does, and was
+  // the one content-returning tool with no cap: a read of the World War II
+  // article returned 541,308 characters inline where scrape returned 42,259
+  // (2026-09-12). The operations, the paths and their order are the REST
+  // route's (src/app/api/v1/tools/browser_session/route.ts, CONTENT_OPERATIONS)
+  // so the same call is shaped the same way whichever surface serves it; the
+  // other four return a session id and an expiry and must not be shaped.
+  browser_session: {
+    textPaths: ['content.markdown', 'content.text', 'content.html', 'snapshot.tree'],
+    truncate: true,
+    when: (params) => BROWSER_SESSION_CONTENT_OPERATIONS.has(params?.operation)
+  },
   process_document: { textPaths: ['content.text'], truncate: true },
   deep_research: { textPaths: [], truncate: true },
   extract_embedded_state: { textPaths: [], truncate: false }

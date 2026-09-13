@@ -40,6 +40,7 @@ import { isCreatorModeVerified } from '../../core/creatorMode.js';
 import { internalOwnerToken, isInternalRequest } from '../../server/requestContext.js';
 import { isRemoteTransport } from '../../utils/remoteMode.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
+import { stealthDocumentVerdict } from '../../utils/stealthVerdict.js';
 
 const SECOND = 1000;
 
@@ -76,7 +77,14 @@ const REST_MAX_SESSIONS_PER_OWNER = 1;
 const SessionActionSchema = z.object({
   type: z.string(),
   continueOnError: z.boolean().default(false),
-  retries: z.number().min(0).max(5).default(1)
+  retries: z.number().min(0).max(5).default(1),
+  // The third default ActionExecutor declares and then throws away. It is read
+  // only by executeJavaScript, where `action.returnResult ? result : undefined`
+  // decides whether the script's return value survives at all — so without it
+  // stamped here every executeJavaScript in a session succeeded and handed back
+  // nothing, while the same action through scrape_with_actions (which keeps its
+  // parsed value) returned the data. Harmless on the action types that ignore it.
+  returnResult: z.boolean().default(true)
 }).passthrough();
 
 const BrowserSessionSchema = z.object({
@@ -138,6 +146,28 @@ function sessionInfo(session) {
     expiresAt: session.createdAt + session.ttlMs,
     idleExpiresAt: session.lastUsedAt + session.activityTtlMs
   };
+}
+
+/**
+ * The verdict fields a result carries when there is something to say about the
+ * document — the same names `scrape` and `scrape_with_actions` publish.
+ */
+function verdictFields(verdict) {
+  return {
+    ...(Number.isInteger(verdict.status) ? { httpStatus: verdict.status } : {}),
+    ...(verdict.blocked ? { blocked: verdict.blocked } : {})
+  };
+}
+
+/**
+ * `scrape_with_actions` publishes an executeJavaScript action's return value as
+ * a flat `jsResult` beside the nested one (processActionResults); a session's
+ * `act` returned the nested shape alone, so the same action read differently
+ * depending on which tool ran it. Same hoist, same field name.
+ */
+function withJsResult(result) {
+  if (result?.type !== 'executeJavaScript' || !result.result) return result;
+  return { ...result, jsResult: result.result.result };
 }
 
 export class BrowserSessionTool {
@@ -282,7 +312,62 @@ export class BrowserSessionTool {
       throw error;
     }
 
-    return { success: true, operation: 'open', ...sessionInfo(session) };
+    // The session opened; whether the document it landed on is the page is a
+    // separate question. g2.com answered `open` with a DataDome 403 whose body
+    // was empty, and this returned success:true with no status at all, while
+    // `scrape` on the same URL named the vendor and the 403 — the same fault
+    // R18 found in scrape_with_actions (2026-09-04), in the one browser tool
+    // that never learned the lesson.
+    const verdict = await this.pageVerdict(page, { stealth: params.stealth });
+
+    return {
+      success: verdict.success,
+      operation: 'open',
+      ...sessionInfo(session),
+      ...verdictFields(verdict),
+      // The page is a wall, but the session behind it is real and holds a
+      // browser context — say so, or a caller reading only `success` abandons
+      // it to its TTL instead of closing it or acting through the challenge.
+      ...(verdict.error
+        ? { error: `${verdict.error} The session is open as ${session.id}: act on it, or close it.` }
+        : {})
+    };
+  }
+
+  /**
+   * What the session's page currently is: the page, a bot wall, an HTTP error
+   * page, or an error placeholder. One helper, shared with `scrape` and
+   * `scrape_with_actions`, so all three name a block identically instead of
+   * this tool staying silent about it.
+   *
+   * `allowEmpty` because a session is routinely opened on an app shell that
+   * only paints after the actions the caller is about to send — an empty
+   * document is a normal starting state here, not a failure. A real wall still
+   * fails on its challenge signature or its HTTP status, which is what the
+   * empty-document rule would have caught anyway.
+   *
+   * Never throws. A verdict is a diagnosis; a page that cannot be read for one
+   * (closed, mid-navigation) must not fail the operation being diagnosed.
+   */
+  async pageVerdict(page, { stealth = false, ...known } = {}) {
+    try {
+      const title = known.title !== undefined ? known.title : await page.title();
+      const html = known.html !== undefined ? known.html : await page.content();
+      const text = known.text !== undefined
+        ? known.text
+        : await page.evaluate(() => document.body?.innerText || '');
+
+      return stealthDocumentVerdict(
+        { url: page.url(), title, text, html, status: page.__crawlforgeNavigation?.status ?? null },
+        // The verdict's messages name whatever fetched the document, and its
+        // default is the stealth browser. A plain session is not that, and
+        // telling someone "the stealth browser did not pass it" when they never
+        // asked for stealth hides the one retry that might work.
+        { allowEmpty: true, fetcher: stealth ? 'the stealth browser session' : 'the browser session' }
+      );
+    } catch {
+      return { success: true, status: null };
+    }
   }
 
   async snapshotSession(params, ownerId) {
@@ -334,8 +419,13 @@ export class BrowserSessionTool {
       success: result.success,
       operation: 'act',
       ...sessionInfo(session),
+      // The status of the last navigation this chain made, if it made one —
+      // a `navigate` action onto a 404 or a wall is otherwise invisible.
+      ...(Number.isInteger(session.page.__crawlforgeNavigation?.status)
+        ? { httpStatus: session.page.__crawlforgeNavigation.status }
+        : {}),
       error: result.error,
-      actionResults: result.results,
+      actionResults: result.results.map(withJsResult),
       screenshots: result.screenshots,
       ...(result.capturedStates.length > 0 ? { capturedStates: result.capturedStates } : {}),
       stats: result.stats
@@ -378,11 +468,24 @@ export class BrowserSessionTool {
       };
     }
 
+    // Read is where the content is actually handed over, so it is the last
+    // place a wall can be named before a caller treats it as the page: g2.com
+    // came back here as the single word "g2.com" with success:true. The
+    // document is already in hand, so this costs no extra page work.
+    const verdict = await this.pageVerdict(session.page, {
+      stealth: session.stealth,
+      title: extracted.title ?? '',
+      text: extracted.content?.text || '',
+      html
+    });
+
     this.store.touch(session, url);
     return {
-      success: true,
+      success: verdict.success,
       operation: 'read',
       ...sessionInfo(session),
+      ...verdictFields(verdict),
+      ...(verdict.error ? { error: verdict.error } : {}),
       title: extracted.title ?? null,
       extractionMethod: extracted.extractionMethod,
       content

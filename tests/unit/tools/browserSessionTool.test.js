@@ -53,7 +53,13 @@ const PAGES = {
 <button id="inc" onclick="count.textContent = +count.textContent + 1">Increment</button>
 <div id="count">0</div>
 </body></html>`,
-  '/private': '<html><body><h1>Disallowed by robots.txt</h1></body></html>'
+  '/private': '<html><body><h1>Disallowed by robots.txt</h1></body></html>',
+  // A DataDome wall: the vendor's captcha frame on a body with no text, which
+  // is what g2.com actually served (2026-09-12) while `open` reported success.
+  '/walled': `<html><head><title>example.com</title></head><body>
+<iframe src="https://geo.captcha-delivery.com/captcha/?initialCid=abc"></iframe>
+</body></html>`,
+  '/gone': '<html><head><title>Not Found</title></head><body><p>no such thing</p></body></html>'
 };
 
 const server = http.createServer((req, res) => {
@@ -63,6 +69,10 @@ const server = http.createServer((req, res) => {
     return;
   }
   res.setHeader('content-type', 'text/html');
+  // The wall answers 403 and the missing page 404, as the real ones do: the
+  // verdict reads the navigation's status as well as the body.
+  if (req.url === '/walled') res.statusCode = 403;
+  if (req.url === '/gone') res.statusCode = 404;
   res.end(PAGES[req.url] || '<html><body>not a fixture</body></html>');
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -390,6 +400,104 @@ describe('browser_session per-navigation gating', () => {
     });
     assert.equal(allowed.success, true, allowed.error);
     await store.destroy();
+  });
+});
+
+describe('browser_session names what the document actually is', { skip: !browser && 'Chromium not installed' }, () => {
+  // R18's lesson, applied to the one browser tool that never got it: a chain
+  // that ran, or a session that opened, says nothing about whether the document
+  // it landed on is the page. g2.com answered `open` with a DataDome 403 and
+  // this tool reported success:true with no status, while `scrape` on the same
+  // URL named the vendor and the code (2026-09-12).
+  test('a bot wall is reported as blocked, with its vendor and status', async () => {
+    const store = new BrowserSessionStore();
+    const tool = makeTool(store);
+
+    const opened = await tool.execute({ operation: 'open', url: `${BASE}/walled` });
+    try {
+      assert.equal(opened.success, false, 'a challenge page is not a successful open');
+      assert.equal(opened.httpStatus, 403);
+      assert.equal(opened.blocked?.vendor, 'datadome');
+      // The session really is open behind the wall; the message has to say so
+      // or a caller reading only `success` leaks it until the TTL expires.
+      assert.match(opened.error, /The session is open as/);
+      assert.ok(opened.sessionId, 'a blocked open still hands back the session it made');
+
+      // read is where content is handed over, so it is the last place the wall
+      // can be named before a caller treats it as the page.
+      const read = await tool.execute({ operation: 'read', session_id: opened.sessionId });
+      assert.equal(read.success, false);
+      assert.equal(read.blocked?.vendor, 'datadome');
+      assert.equal(read.httpStatus, 403);
+    } finally {
+      await store.destroy();
+    }
+  });
+
+  test('an HTTP error page is reported with its status', async () => {
+    const store = new BrowserSessionStore();
+    const tool = makeTool(store);
+
+    const opened = await tool.execute({ operation: 'open', url: `${BASE}/gone` });
+    try {
+      assert.equal(opened.success, false);
+      assert.equal(opened.httpStatus, 404);
+      assert.equal(opened.blocked, undefined, 'a 404 is an error page, not a wall');
+    } finally {
+      await store.destroy();
+    }
+  });
+
+  test('an ordinary page still succeeds, and carries its 200', async () => {
+    const store = new BrowserSessionStore();
+    const tool = makeTool(store);
+
+    const opened = await tool.execute({ operation: 'open', url: `${BASE}/click` });
+    try {
+      assert.equal(opened.success, true, opened.error);
+      assert.equal(opened.httpStatus, 200);
+      assert.equal(opened.blocked, undefined);
+
+      const read = await tool.execute({ operation: 'read', session_id: opened.sessionId, formats: ['text'] });
+      assert.equal(read.success, true, read.error);
+      assert.equal(read.httpStatus, 200);
+    } finally {
+      await store.destroy();
+    }
+  });
+});
+
+describe('browser_session act result shape', { skip: !browser && 'Chromium not installed' }, () => {
+  // ActionExecutor validates each action and then discards the parsed value, so
+  // every default its own schemas declare is dead on arrival — including
+  // `returnResult: true`, the flag executeJavaScript reads to decide whether the
+  // script's return value survives. scrape_with_actions keeps its parsed value
+  // and so returned the data; a session dropped it and reported success.
+  test('executeJavaScript returns its value without being asked to', async () => {
+    const store = new BrowserSessionStore();
+    const tool = makeTool(store);
+    const previous = process.env.ALLOW_JAVASCRIPT_EXECUTION;
+    process.env.ALLOW_JAVASCRIPT_EXECUTION = 'true';
+
+    const opened = await tool.execute({ operation: 'open', url: `${BASE}/click` });
+    try {
+      const acted = await tool.execute({
+        operation: 'act',
+        session_id: opened.sessionId,
+        actions: [{ type: 'executeJavaScript', script: 'return 6 * 7' }]
+      });
+
+      assert.equal(acted.success, true, acted.error);
+      const [result] = acted.actionResults;
+      assert.equal(result.result.result, 42, 'the value must survive without returnResult');
+      // The flat field scrape_with_actions publishes, so the same action reads
+      // the same way whichever tool ran it.
+      assert.equal(result.jsResult, 42);
+    } finally {
+      if (previous === undefined) delete process.env.ALLOW_JAVASCRIPT_EXECUTION;
+      else process.env.ALLOW_JAVASCRIPT_EXECUTION = previous;
+      await store.destroy();
+    }
   });
 });
 
