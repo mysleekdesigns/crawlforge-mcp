@@ -32,6 +32,11 @@ export const REF_ATTRIBUTE = 'data-cf-ref';
 export const DEFAULT_MAX_NODES = 200;
 export const MAX_NODES_LIMIT = 1000;
 
+// Walks of one snapshot call, including the retry when the page navigates
+// mid-walk. Two: one retry is enough for a page that settles, and a page
+// navigating repeatedly is not one a snapshot can describe.
+const MAX_WALK_ATTEMPTS = 2;
+
 // Indentation follows the nesting of EMITTED nodes, and stops deepening past
 // this many levels so a deep DOM cannot produce runaway leading whitespace.
 const MAX_INDENT = 10;
@@ -212,7 +217,7 @@ function snapshotScript({ refAttribute, interactiveOnly, maxNodes, maxIndent, ma
 function stateFor(page) {
   let state = pageState.get(page);
   if (!state) {
-    state = { snapshotId: null, refs: null, invalidated: false, tracking: false };
+    state = { snapshotId: null, refs: null, invalidated: false, tracking: false, generation: 0 };
     pageState.set(page, state);
   }
   return state;
@@ -237,16 +242,35 @@ export async function captureSnapshot(page, options = {}) {
   // refs rather than leaving them to fail as a missing selector.
   attachRefTracking(page);
 
-  const { title, lines, refs, truncated } = await page.evaluate(snapshotScript, {
-    refAttribute: REF_ATTRIBUTE,
-    interactiveOnly,
-    maxNodes,
-    maxIndent: MAX_INDENT,
-    maxNameLength: MAX_NAME_LENGTH
-  });
+  const state = stateFor(page);
+  let title, lines, refs, truncated;
+
+  // A navigation that commits WHILE the walk is running would otherwise leave us
+  // holding refs for a document that has gone — the attributes were stamped on
+  // the old page, so `@e1` would match nothing and surface as a locator timeout
+  // instead of the named error D2 requires. `generation` moves on every
+  // main-frame navigation, so a change across the evaluate means exactly that.
+  // Walk the new document instead; if it navigates again, give up and leave the
+  // refs invalidated rather than publishing a tree for a page nobody is on.
+  for (let attempt = 0; ; attempt++) {
+    const generation = state.generation;
+    ({ title, lines, refs, truncated } = await page.evaluate(snapshotScript, {
+      refAttribute: REF_ATTRIBUTE,
+      interactiveOnly,
+      maxNodes,
+      maxIndent: MAX_INDENT,
+      maxNameLength: MAX_NAME_LENGTH
+    }));
+    if (state.generation === generation) break;
+    if (attempt >= MAX_WALK_ATTEMPTS - 1) {
+      clearRefs(page);
+      throw new StaleRefError(
+        'The page navigated while the snapshot was being taken — take a new snapshot.'
+      );
+    }
+  }
 
   const snapshotId = randomUUID().slice(0, 8);
-  const state = stateFor(page);
   state.snapshotId = snapshotId;
   state.refs = new Map(refs.map(({ id, role, name, tag }) => [id, { role, name, tag }]));
   state.invalidated = false;
@@ -316,4 +340,7 @@ export function clearRefs(page) {
   if (state.refs) state.invalidated = true;
   state.refs = null;
   state.snapshotId = null;
+  // Bumped on every clear so a walk in flight can tell the document changed
+  // under it — see captureSnapshot.
+  state.generation++;
 }
