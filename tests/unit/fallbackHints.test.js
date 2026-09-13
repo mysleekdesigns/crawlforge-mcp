@@ -21,14 +21,15 @@ const TOOLS = [
   'scrape_structured', 'search_web', 'serp_rank', 'reddit_search', 'crawl_deep', 'map_site',
   'extract_content', 'process_document', 'summarize_content', 'analyze_content',
   'extract_structured', 'extract_with_llm', 'list_ollama_models', 'batch_scrape',
-  'get_batch_results', 'read_result', 'scrape_with_actions', 'deep_research', 'scrape', 'agent',
-  'track_changes', 'generate_llms_txt', 'stealth_mode', 'localization', 'scrape_template'
+  'get_batch_results', 'read_result', 'scrape_with_actions', 'browser_session', 'deep_research',
+  'scrape', 'agent', 'track_changes', 'generate_llms_txt', 'stealth_mode', 'localization',
+  'scrape_template'
 ];
 
 test('every registered tool has a fallback hint, and no hint is orphaned', () => {
   for (const t of TOOLS) assert.ok(FALLBACK_HINTS[t], `missing hint for ${t}`);
   for (const t of Object.keys(FALLBACK_HINTS)) assert.ok(TOOLS.includes(t), `hint for unknown tool ${t}`);
-  assert.equal(Object.keys(FALLBACK_HINTS).length, 30);
+  assert.equal(Object.keys(FALLBACK_HINTS).length, 31);
 });
 
 const PARAM_TOKENS = new Set(['link_id', 'web_discovery', 'create_baseline', 'pdf_url', 'configure_country']);

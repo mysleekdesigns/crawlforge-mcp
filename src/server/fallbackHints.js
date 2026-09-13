@@ -32,6 +32,7 @@ export const FALLBACK_HINTS = Object.freeze({
   extract_with_llm: 'If Ollama is unreachable pass provider:"openai" or "anthropic" with a key, or use extract_structured (CSS fallback needs no LLM).',
   list_ollama_models: 'Ollama is not reachable - use extract_with_llm with provider:"openai"/"anthropic", or extract_structured.',
   scrape_with_actions: 'Check the selector against scrape formats:["html"] output; for a one-shot render of a blocked page use stealth_mode operation:"scrape".',
+  browser_session: 'A session that expired or was closed cannot be reused - start again with operation:"open". If a ref missed, take another snapshot first: navigation invalidates refs. For a chain that needs no session, use scrape_with_actions.',
   deep_research: 'Use agent for a shorter answer, or search_web followed by scrape on the sources that matter.',
   scrape: 'After a 403/429/CAPTCHA/challenge page or an empty shell use stealth_mode operation:"scrape"; if the content needs a click or login use scrape_with_actions.',
   agent: 'Use deep_research for exhaustive sourcing, or search_web followed by scrape on the sources that matter.',
