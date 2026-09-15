@@ -1,5 +1,5 @@
 #!/bin/bash
-# Check documentation coverage for all 19 MCP tools
+# Check documentation coverage for every MCP tool registered in server.js
 # Usage: ./check-coverage.sh [--verbose]
 
 set -e
@@ -13,28 +13,14 @@ echo "=== CrawlForge Documentation Coverage Check ==="
 echo "Project root: $PROJECT_ROOT"
 echo ""
 
-# Expected tools (19 total)
-TOOLS=(
-  "fetch_url"
-  "extract_text"
-  "extract_links"
-  "extract_metadata"
-  "scrape_structured"
-  "search_web"
-  "crawl_deep"
-  "map_site"
-  "extract_content"
-  "process_document"
-  "summarize_content"
-  "analyze_content"
-  "batch_scrape"
-  "scrape_with_actions"
-  "deep_research"
-  "track_changes"
-  "generate_llms_txt"
-  "stealth_mode"
-  "localization"
-)
+# Tool list is DERIVED from server.js, never hardcoded — a literal list here had
+# silently gone stale at 19 of 31 tools, under-reporting coverage.
+TOOLS=($(grep -oE 'registerToolIfEnabled\(\s*"[a-z_]+"' server.js | grep -oE '"[a-z_]+"' | tr -d '"' | sort -u))
+
+if [ ${#TOOLS[@]} -eq 0 ]; then
+  echo "Error: no tool registrations found in server.js — has registerToolIfEnabled been renamed?"
+  exit 1
+fi
 
 TOTAL=${#TOOLS[@]}
 DOCUMENTED=0
@@ -65,9 +51,6 @@ for tool in "${TOOLS[@]}"; do
     fi
   fi
 
-  # Check if tool is registered in server.js
-  SERVER_REGISTERED=$(grep -c "registerTool.*['\"]$tool['\"]" server.js 2>/dev/null || echo "0")
-
   if [ "$README_MENTION" -gt 0 ] || [ "$DOCS_EXIST" -eq 1 ]; then
     DOCUMENTED=$((DOCUMENTED + 1))
     if [ "$VERBOSE" = "--verbose" ]; then
@@ -79,11 +62,6 @@ for tool in "${TOOLS[@]}"; do
     if [ "$VERBOSE" = "--verbose" ]; then
       echo "  $tool: NOT DOCUMENTED"
     fi
-  fi
-
-  # Check if tool is registered but not documented
-  if [ "$SERVER_REGISTERED" -eq 0 ]; then
-    echo "  Warning: $tool not found in server.js"
   fi
 done
 

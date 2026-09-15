@@ -41,7 +41,7 @@ For detailed checklists, see: `checklists.md`
 ### Quick Checklist
 
 - [ ] Server starts without errors
-- [ ] All 19 tools discoverable
+- [ ] All 31 tools discoverable
 - [ ] Stdio transport working
 - [ ] Error responses proper format
 - [ ] npx execution works
