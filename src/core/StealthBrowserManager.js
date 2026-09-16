@@ -15,6 +15,7 @@ import HumanBehaviorSimulator from '../utils/HumanBehaviorSimulator.js';
 import { BrowserContextPool } from './BrowserContextPool.js';
 import { safeGoto } from '../utils/ssrfGuard.js';
 import { detectChallengePage } from '../utils/challengeDetection.js';
+import { guardFirefoxPageErrors } from '../utils/firefoxPageErrorGuard.js';
 
 // Grace given to a document that rendered no title and no text (see _waitOutEmptyDocument).
 export const EMPTY_DOCUMENT_GRACE_MS = 8000;
@@ -2826,6 +2827,10 @@ export class CamoufoxAdapter extends BrowserEngine {
     }
 
     await this._ensureMacOSLayout(camoufox);
+
+    // Before any Firefox page can run: camoufox reports an uncaught page error
+    // with no location, and playwright reads one anyway. See the guard.
+    guardFirefoxPageErrors();
 
     // camoufox's launcher is Camoufox(options) — the package has no launch()
     // export. It resolves the fetched Firefox binary (npx camoufox fetch) and
