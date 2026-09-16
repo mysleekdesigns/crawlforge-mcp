@@ -207,7 +207,16 @@ function fakeStealthPage({ status = 200, title = 'Page', text = 'Body text', emp
     waitForTimeout: async (ms) => { calls.push(['waitForTimeout', ms]); },
     title: async () => state.title,
     content: async () => `<html><head><title>${state.title}</title></head><body>${state.text}</body></html>`,
-    evaluate: async (fn) => (String(fn).includes('document.title') ? state.hasContent : state.text),
+    // Three different evaluates reach this double: _waitOutEmptyDocument's
+    // content check, _settleDom's MutationObserver (which resolves a number of
+    // milliseconds), and the body-text read. Tell them apart by source, or the
+    // settle's result lands in gracedMs as a string.
+    evaluate: async (fn) => {
+      const source = String(fn);
+      if (source.includes('document.title')) return state.hasContent;
+      if (source.includes('MutationObserver')) return 0;
+      return state.text;
+    },
     waitForFunction: async (fn, arg, options) => {
       calls.push(['waitForFunction', options?.timeout]);
       state.hasContent = true;
