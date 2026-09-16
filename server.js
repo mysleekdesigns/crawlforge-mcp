@@ -1363,7 +1363,7 @@ registerToolIfEnabled("stealth_mode", {
         enabled: z.boolean().default(false),
         proxies: z.array(z.string()).optional(),
         rotationInterval: z.number().default(300000)
-      }).optional(),
+      }).optional().describe("Route the browser through your own proxies. Each entry is a proxy URL — \"http://user:pass@host:port\" (percent-encode a password containing @ : or /), or a bare \"host:port\" for an unauthenticated HTTP proxy; http, https, socks4 and socks5 are accepted. rotationInterval is the minimum ms on one proxy before the list advances. Cloudflare scores the IP before it serves a challenge, so a residential proxy is what gets past a block that no fingerprint fixes. CrawlForge supplies no proxies."),
       antiDetection: z.object({
         cloudflareBypass: z.boolean().default(true),
         recaptchaHandling: z.boolean().default(true),

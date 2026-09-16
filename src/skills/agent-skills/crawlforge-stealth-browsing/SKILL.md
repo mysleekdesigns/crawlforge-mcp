@@ -68,6 +68,30 @@ Operations: `configure`, `enable`, `disable`, `create_context`, `create_page`,
 
 Full decision table: [engine selection](references/engine-selection.md).
 
+### Proxies
+
+A block that survives both engines is usually the IP, not the fingerprint:
+Cloudflare scores the address and its ASN before it serves a challenge. Route
+through your own residential proxy — CrawlForge supplies none.
+
+```json
+{
+  "tool": "stealth_mode",
+  "params": {
+    "operation": "scrape", "url": "https://protected-site.com", "engine": "camoufox",
+    "stealthConfig": {
+      "proxyRotation": { "enabled": true, "proxies": ["http://user:p%40ss@gw.provider.net:8080"] }
+    }
+  }
+}
+```
+
+Credentials go in the URL, percent-encoded if the password contains `@`, `:` or
+`/`. `http`, `https`, `socks4` and `socks5` are accepted. With a proxy, camoufox
+derives its timezone, locale and geolocation from the exit IP, so the browser
+agrees with the address the site sees — that lookup happens at launch, so a
+camoufox browser keeps one proxy until `cleanup`.
+
 ### CLI
 
 ```bash

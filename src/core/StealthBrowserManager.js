@@ -19,6 +19,10 @@ import { detectChallengePage } from '../utils/challengeDetection.js';
 // Grace given to a document that rendered no title and no text (see _waitOutEmptyDocument).
 export const EMPTY_DOCUMENT_GRACE_MS = 8000;
 
+// The proxy a camoufox browser was launched with, kept on the browser itself so
+// it survives being parked and restored by an engine switch.
+const CAMOUFOX_PROXY = Symbol('crawlforge.camoufoxProxy');
+
 const StealthConfigSchema = z.object({
   level: z.enum(['basic', 'medium', 'advanced']).default('medium'),
   randomizeFingerprint: z.boolean().default(true),
@@ -342,10 +346,28 @@ export class StealthBrowserManager {
           'camoufox is not installed. Run: npm install camoufox to use the Firefox-based stealth engine.'
         );
       }
-      this.browser = await adapter.launch({
+      // camoufox fixes its fingerprint — and, with geoip, its geolocation,
+      // timezone and locale — at launch, from the proxy it is launched with.
+      // So the proxy is resolved once here and reused for every context this
+      // browser serves (see createStealthContext): rotating underneath it would
+      // leave camoufox reporting the first proxy's city behind the second
+      // proxy's exit IP, which is a worse signal than not rotating at all.
+      // A rotation takes effect on the next launch, after cleanup().
+      const proxy = this.resolveProxy(validatedConfig);
+      const browser = await adapter.launch({
         headless: true,
+        proxy,
+        // Only ask for geoip when there is a proxy to derive it from. Without
+        // one it would look up this machine's own public IP — a network call,
+        // and an external service learning our address, to confirm a location
+        // the browser is already in.
+        geoip: !!proxy,
+        blockWebRTC: validatedConfig.blockWebRTC,
+        humanize: validatedConfig.simulateHumanBehavior,
         launchOptions: {}
       });
+      browser[CAMOUFOX_PROXY] = proxy;
+      this.browser = browser;
       this._launchedEngine = 'camoufox';
       return this.browser;
     }
@@ -424,11 +446,11 @@ export class StealthBrowserManager {
       );
     }
 
-    // Handle proxy configuration
-    const currentProxy = await this.rotateProxy(validatedConfig);
-    if (currentProxy) {
-      stealthArgs.push(`--proxy-server=${currentProxy}`);
-    }
+    // No proxy argument here. Chromium's --proxy-server= has no field for the
+    // user:pass every residential proxy requires, and a proxy fixed at launch
+    // could never rotate: the browser it was baked into is cached for the life
+    // of the process. Both engines take the proxy per context instead — see
+    // createStealthContext.
 
     const browser = await chromium.launch({
       headless: true,
@@ -507,19 +529,69 @@ export class StealthBrowserManager {
       serviceWorkers: 'block'
     };
 
-    // camoufox's Firefox build predates the Browser.setDefaultViewport fields
-    // playwright-core 1.62 sends (screenSize, isMobile, ...) and rejects unknown
-    // properties, so any fixed viewport fails. viewport:null skips that protocol
-    // call entirely (deviceScaleFactor/isMobile/hasTouch/screen are invalid or
-    // meaningless without a viewport). window.screen is still spoofed via
-    // addInitScript in applyAdvancedStealthConfigurations.
+    // The proxy rides on the context, credentials included: Chromium takes it
+    // on Target.createBrowserContext and camoufox's Juggler on
+    // Browser.setContextProxy. Both were verified against a local authenticating
+    // proxy. camoufox additionally gets one at launch, because its geoip lookup
+    // runs there — but a launch-time proxy routes traffic and drops the
+    // credentials, so the context is what actually authenticates, on both
+    // engines. camoufox stays on the proxy it was launched with: its geolocation,
+    // timezone and locale were derived from that exit IP, and rotating
+    // underneath it would leave the first proxy's city behind the second
+    // proxy's address.
+    const proxy = this._launchedEngine === 'camoufox'
+      ? (this.browser[CAMOUFOX_PROXY] || null)
+      : this.resolveProxy(validatedConfig);
+    if (proxy) {
+      contextOptions.proxy = proxy;
+    }
+
     if (this._launchedEngine === 'camoufox') {
+      // camoufox's Firefox build predates the Browser.setDefaultViewport fields
+      // playwright-core 1.62 sends (screenSize, isMobile, ...) and rejects
+      // unknown properties, so any fixed viewport fails. viewport:null skips
+      // that protocol call entirely (deviceScaleFactor/isMobile/hasTouch/screen
+      // are invalid or meaningless without a viewport). camoufox generates its
+      // own screen and window and spoofs them below the JS layer.
       contextOptions.viewport = null;
       delete contextOptions.deviceScaleFactor;
       delete contextOptions.isMobile;
       delete contextOptions.hasTouch;
       delete contextOptions.screen;
       delete contextOptions.serviceWorkers;
+
+      // camoufox arrives with a complete Firefox identity of its own. Ours was
+      // overwriting it, and not with a Firefox one: for this engine the browser
+      // distribution is left open, so about two thirds of camoufox contexts were
+      // handed a Chrome User-Agent on a Gecko engine. Every one of them also
+      // sent sec-ch-ua, sec-ch-ua-mobile and sec-ch-ua-platform — client hints
+      // Firefox has never implemented and never sends. That is a decision a
+      // detector can make from the request headers alone, before a line of
+      // script runs. Playwright still derives a correctly shaped Accept-Language
+      // from `locale`, so dropping these loses nothing real.
+      delete contextOptions.userAgent;
+      delete contextOptions.extraHTTPHeaders;
+
+      // Behind a proxy, camoufox has already derived locale, timezone and
+      // geolocation from the exit IP. Those three agree with the address the
+      // site sees; a persona drawn here does not, so it must not override them.
+      if (proxy) {
+        delete contextOptions.locale;
+        delete contextOptions.timezoneId;
+        delete contextOptions.geolocation;
+      }
+
+      // Keep what we hand back honest. create_context returns this fingerprint,
+      // and reporting a Chrome user agent and a persona the browser never uses
+      // is worse than reporting nothing: null reads as "the engine owns this".
+      fingerprint.userAgent = null;
+      fingerprint.headers = {};
+      fingerprint.viewport = null;
+      fingerprint.hardware = { ...fingerprint.hardware, platform: null };
+      if (proxy) {
+        fingerprint.locale = null;
+        fingerprint.timezone = null;
+      }
     }
 
     const context = await this.browser.newContext(contextOptions);
@@ -590,8 +662,11 @@ export class StealthBrowserManager {
       platform: fingerprint.hardware.platform,
       locale: fingerprint.locale,
       timezone: fingerprint.timezone,
-      // width/height only — the pool's selection weight is an internal.
-      viewport: { width: fingerprint.viewport.width, height: fingerprint.viewport.height }
+      // width/height only — the pool's selection weight is an internal. null on
+      // camoufox, which sizes its own window.
+      viewport: fingerprint.viewport
+        ? { width: fingerprint.viewport.width, height: fingerprint.viewport.height }
+        : null
     };
   }
 
@@ -1249,6 +1324,24 @@ export class StealthBrowserManager {
    * Apply advanced stealth configurations to browser context
    */
   async applyAdvancedStealthConfigurations(context, config, fingerprint) {
+    // Nothing is injected into camoufox.
+    //
+    // Every script below is Chromium-shaped — it deletes navigator.webdriver,
+    // installs a window.chrome, and patches getContext, AudioContext and font
+    // metrics from the main world. camoufox does all of that in its own
+    // C++/Juggler layer, where there is no JS seam to find, and a page that
+    // compares property descriptors, Function.prototype.toString output or the
+    // main thread against a Worker sees ours and not camoufox's. Injecting on
+    // top of an engine built to need no injection only adds back the tells the
+    // engine was chosen to avoid.
+    //
+    // This does not clear deviceandbrowserinfo.com's hasInconsistentWorkerValues
+    // on camoufox: that flag stayed set with every one of these disabled, so it
+    // is camoufox's own worker leak, not ours. What it removes is our share.
+    if (this._launchedEngine === 'camoufox') {
+      return;
+    }
+
     // Enhanced initialization script with comprehensive stealth measures
     await context.addInitScript((locale) => {
       // Remove webdriver property completely
@@ -1636,8 +1729,33 @@ export class StealthBrowserManager {
       // script; relative importScripts/fetch inside such a worker resolve
       // against the original script URL. Module workers, data:/blob: worker
       // URLs and a CSP that refuses blob workers fall through to the native
-      // constructor untouched. camoufox spoofs workers itself.
-      if (config.level === 'advanced' && this._launchedEngine !== 'camoufox') {
+      // constructor untouched. (camoufox never reaches here — this whole method
+      // returns early for it.)
+      //
+      // MEASURED COVERAGE, 2026-09-16, chromium, comparing a worker's navigator
+      // with the main thread's:
+      //
+      //   level      new Worker('/w.js')   new Worker(blob:)
+      //   medium     leaks all four        leaks all four
+      //   advanced   matches               leaks all four
+      //
+      // The four are platform, hardwareConcurrency, deviceMemory and languages;
+      // WebGL's unmasked vendor/renderer leaks the same way, because the
+      // prototype patch above lives in the window, not in a worker scope. So a
+      // detector that builds its worker from a Blob — which needs no second
+      // request and is the usual shape — reads straight past this at every
+      // level, and deviceandbrowserinfo.com's hasInconsistentWorkerValues
+      // stays set. Every one of those mismatches is ours: a worker reports the
+      // truth, and only the main thread was spoofed.
+      //
+      // Closing it properly means one of two things, and both are trades:
+      // rewrite blob/data worker sources so the patch reaches them (more
+      // surface, and it still misses module workers and SharedWorker), or stop
+      // spoofing in the window what cannot be spoofed in a worker (consistent,
+      // but then the real values show — 32 cores and a SwiftShader GPU, which
+      // is its own datacenter tell). Left as it is pending that call; do not
+      // read the `advanced` gate as coverage.
+      if (config.level === 'advanced') {
         await context.addInitScript(({ hardware, locale }) => {
           const NativeWorker = window.Worker;
           if (typeof NativeWorker !== 'function') return;
@@ -1960,25 +2078,93 @@ export class StealthBrowserManager {
   }
 
   /**
-   * Proxy rotation management
+   * Parse one proxyRotation entry into the { server, username, password } shape
+   * Playwright takes.
+   *
+   * Residential proxies — the only kind that helps against Cloudflare's IP
+   * reputation check — are issued as `http://user:pass@host:port`. Those
+   * credentials are the whole point: the previous code pushed the entry into
+   * `--proxy-server=`, a Chromium flag with nowhere to put them, so every
+   * authenticating proxy answered 407 and the request failed. Splitting them out
+   * here is what lets both engines authenticate.
+   *
+   * A malformed entry throws rather than returning null. A proxy that silently
+   * does not apply is the failure mode this whole path is being fixed for: the
+   * caller believes their traffic is proxied and it is not.
    */
-  async rotateProxy(config) {
-    if (!config.proxyRotation?.enabled || !config.proxyRotation?.proxies?.length) {
+  parseProxyEntry(entry) {
+    if (typeof entry !== 'string' || !entry.trim()) {
+      throw new Error('proxyRotation.proxies entries must be non-empty strings');
+    }
+    const raw = entry.trim();
+    // `host:port` with no scheme parses as protocol "host:" and an empty host,
+    // so give the bare form the http:// every proxy list assumes.
+    const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`;
+
+    let url;
+    try {
+      url = new URL(withScheme);
+    } catch {
+      throw new Error(`Invalid proxy "${this.redactProxy(raw)}": expected host:port or scheme://user:pass@host:port`);
+    }
+
+    const scheme = url.protocol.replace(':', '').toLowerCase();
+    if (!['http', 'https', 'socks4', 'socks5'].includes(scheme)) {
+      throw new Error(`Invalid proxy scheme "${scheme}": expected http, https, socks4 or socks5`);
+    }
+    if (!url.hostname) {
+      throw new Error(`Invalid proxy "${this.redactProxy(raw)}": no host`);
+    }
+
+    // url.origin is the string "null" for socks4/socks5 — they are not special
+    // schemes — so the server is rebuilt from protocol and host.
+    const proxy = { server: `${url.protocol}//${url.host}` };
+    // A password with a "@" or ":" in it must arrive percent-encoded to parse at
+    // all; the proxy expects the decoded value.
+    if (url.username) proxy.username = decodeURIComponent(url.username);
+    if (url.password) proxy.password = decodeURIComponent(url.password);
+    return proxy;
+  }
+
+  /** A proxy entry with its credentials removed, for logs and get_stats. */
+  redactProxy(entry) {
+    return String(entry).replace(/\/\/[^/@]*@/, '//');
+  }
+
+  /**
+   * Pick the proxy this context should use, advancing the rotation when its
+   * interval has elapsed.
+   *
+   * Called per context rather than per launch. The old call site ran once, at
+   * browser launch, and the browser is cached for the life of the process — so
+   * rotationInterval could never elapse anywhere that mattered and the second
+   * proxy in a list was never reached.
+   */
+  resolveProxy(config) {
+    const proxies = config.proxyRotation?.enabled ? (config.proxyRotation.proxies || []) : [];
+    if (!proxies.length) {
       return null;
     }
-    
+
     const now = Date.now();
-    const { rotationInterval, proxies } = config.proxyRotation;
-    
-    if (now - this.proxyManager.lastRotation > rotationInterval) {
-      this.proxyManager.proxyIndex = (this.proxyManager.proxyIndex + 1) % proxies.length;
-      this.proxyManager.currentProxy = proxies[this.proxyManager.proxyIndex];
+    if (this.proxyManager.currentProxy === null) {
+      // First use takes proxies[0]. The old code advanced the index before its
+      // first read, so a single-proxy list worked by wrapping to 0 and every
+      // longer list silently started at the second entry.
+      this.proxyManager.proxyIndex = 0;
       this.proxyManager.lastRotation = now;
-      
-      console.error('Rotated to proxy:', this.proxyManager.currentProxy);
+    } else if (now - this.proxyManager.lastRotation > config.proxyRotation.rotationInterval) {
+      this.proxyManager.proxyIndex = (this.proxyManager.proxyIndex + 1) % proxies.length;
+      this.proxyManager.lastRotation = now;
     }
-    
-    return this.proxyManager.currentProxy;
+
+    const entry = proxies[this.proxyManager.proxyIndex % proxies.length];
+    const parsed = this.parseProxyEntry(entry);
+    // Only ever hold the redacted form: getStats() returns currentProxy to the
+    // caller, and these strings carry a password.
+    this.proxyManager.currentProxy = this.redactProxy(entry);
+    this.proxyManager.activeProxies = proxies.map((p) => this.redactProxy(p));
+    return parsed;
   }
 
   /**
@@ -2056,6 +2242,80 @@ export class StealthBrowserManager {
     return Date.now() - started;
   }
 
+  /**
+   * Give the page the chance to finish rendering before it is read.
+   *
+   * Navigation returns at DOMContentLoaded, and everything before this only
+   * waits for the document to become non-empty (_waitOutEmptyDocument) or to
+   * stop being an interstitial (_waitOutChallenge). A page that already has
+   * prose and writes the part the caller came for in a load handler passed all
+   * of those as finished, and the read landed mid-render.
+   *
+   * The 6.6.2 bench recorded that as a format bug — "markdown silently dropped
+   * the verdict, text captured it" — but its two calls were two page loads and
+   * only one of them raced. One call asking for markdown and text returns the
+   * same content in both, because both are built from one render. The defect
+   * was the timing.
+   *
+   * Two bounded waits: the page's own load event, then quiet in the DOM. What
+   * this cannot do is predict a payload injected into a still page some
+   * arbitrary time later — that is what the caller's `wait_for` is for.
+   *
+   * @returns {Promise<number>} milliseconds actually waited, 0 for a page that
+   *   was already finished.
+   */
+  async _settleRender(page, { loadTimeoutMs = 3000, quietMs = 400, capMs = 2500 } = {}) {
+    const started = Date.now();
+    // Subresources are often what the render waits on. Bounded, because a page
+    // with a hanging tracker request never fires load at all.
+    await page.waitForLoadState('load', { timeout: loadTimeoutMs }).catch(() => {});
+    const loadMs = Date.now() - started;
+    return loadMs + await this._settleDom(page, { quietMs, capMs });
+  }
+
+  /**
+   * Resolve once the DOM has been unchanged for `quietMs`, or at `capMs`.
+   *
+   * A MutationObserver in the page, so this is one round trip and returns
+   * immediately on a page that was already still. The cap bounds a page that
+   * never stops animating.
+   *
+   * @returns {Promise<number>} milliseconds the DOM went on changing for — 0
+   *   when the page was already still, so a settled page reports no extra wait.
+   */
+  async _settleDom(page, { quietMs = 400, capMs = 2500 } = {}) {
+    try {
+      return await page.evaluate(({ quiet, cap }) => new Promise((resolve) => {
+        if (!document.documentElement) {
+          resolve(0);
+          return;
+        }
+        const started = Date.now();
+        let quietTimer;
+        const finish = () => {
+          observer.disconnect();
+          clearTimeout(quietTimer);
+          clearTimeout(capTimer);
+          // Subtract the quiet window itself: what is worth reporting is how
+          // long the page kept changing, not the time spent confirming it had
+          // stopped.
+          resolve(Math.max(0, Date.now() - started - quiet));
+        };
+        const observer = new MutationObserver(() => {
+          clearTimeout(quietTimer);
+          quietTimer = setTimeout(finish, quiet);
+        });
+        const capTimer = setTimeout(finish, cap);
+        quietTimer = setTimeout(finish, quiet);
+        observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+      }), { quiet: quietMs, cap: capMs });
+    } catch {
+      // Navigated away, closed or crashed mid-settle. The read that follows
+      // reports that properly; there is nothing to add here.
+      return 0;
+    }
+  }
+
   async _waitOutChallenge(page, { timeoutMs = 8000 } = {}) {
     let title;
     try {
@@ -2100,7 +2360,13 @@ export class StealthBrowserManager {
       // up, so the interstitial came back as success:true (R17, 2026-09-04).
       // An auto-solving challenge gets one bounded wait to finish first.
       await this._waitOutChallenge(page);
-      const gracedMs = await this._waitOutEmptyDocument(page);
+      const emptyGraceMs = await this._waitOutEmptyDocument(page);
+      // Last: let whatever is still rendering finish. Without this the read
+      // below can land between "the page has content" and "the page has the
+      // content the caller came for", and a half-rendered page is returned as
+      // a successful scrape.
+      const renderMs = await this._settleRender(page);
+      const gracedMs = emptyGraceMs + renderMs;
 
       // A failure to read the document is a failure. With every read wrapped
       // in .catch(() => ''), a renderer that crashed or a page closed during
@@ -2166,8 +2432,13 @@ export class StealthBrowserManager {
       }
     });
 
-    // Add request headers
-    await page.setExtraHTTPHeaders(fingerprint.headers);
+    // Add request headers — Chromium only. These carry sec-ch-ua,
+    // sec-ch-ua-mobile and sec-ch-ua-platform, client hints Gecko does not
+    // implement, so setting them here would put them straight back onto a
+    // camoufox page after createStealthContext had taken them off the context.
+    if (isChromium(page)) {
+      await page.setExtraHTTPHeaders(fingerprint.headers);
+    }
 
     // Emulate realistic network conditions.
     //
@@ -2560,10 +2831,44 @@ export class CamoufoxAdapter extends BrowserEngine {
     // export. It resolves the fetched Firefox binary (npx camoufox fetch) and
     // returns a Playwright-compatible Browser. Takes `headless` directly plus
     // passthrough Playwright Firefox launch options.
-    return camoufox.Camoufox({
+    //
+    // The snake_case names below are camoufox's own option names. They are the
+    // reason to run this engine at all: camoufox spoofs at the C++/Juggler
+    // level, where a page cannot see the seam, and every one of these was
+    // simply not being passed — camoufox ran with its own features off.
+    const options = {
       headless: config.headless !== false,
       ...config.launchOptions
-    });
+    };
+    // A bare `{ server }` is fine here; camoufox normalises both shapes.
+    if (config.proxy) options.proxy = config.proxy;
+    // geoip derives longitude, latitude, timezone, country and locale from the
+    // proxy's exit IP, which is the one thing that makes a proxied browser
+    // coherent. It costs a request through the proxy, and the first ever call
+    // downloads MaxMind's city database (~60 MB) into camoufox's install dir.
+    if (config.geoip) options.geoip = true;
+    // Blocking WebRTC is itself a signal. With geoip camoufox instead reports
+    // the proxy's exit IP through WebRTC, which is the coherent answer — so
+    // `blockWebRTC: false` is the stealthier setting behind a proxy.
+    if (config.blockWebRTC) options.block_webrtc = true;
+    // Native cursor humanization: camoufox moves the pointer along a plausible
+    // path rather than teleporting it.
+    if (config.humanize) options.humanize = true;
+
+    try {
+      return await camoufox.Camoufox(options);
+    } catch (err) {
+      if (options.geoip) {
+        // Do not quietly retry without geoip. A proxied camoufox whose
+        // geolocation says one country while its exit IP says another is a
+        // cleaner detection signal than an unproxied one.
+        throw new Error(
+          `camoufox failed to launch with geoip through the configured proxy: ${err.message}. ` +
+          'Check the proxy credentials and that the proxy can reach the internet.'
+        );
+      }
+      throw err;
+    }
   }
 
   /**
