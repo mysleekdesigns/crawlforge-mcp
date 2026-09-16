@@ -10,6 +10,7 @@ import { Logger } from '../utils/Logger.js';
 import { LLMManager } from './llm/LLMManager.js';
 import { safeFetch, safeGoto } from '../utils/ssrfGuard.js';
 import { preflightFetch, browserPreflight } from '../utils/robotsGate.js';
+import { guardFirefoxPageErrors } from '../utils/firefoxPageErrorGuard.js';
 import { noteRetryAfter } from '../utils/hostRateLimiter.js';
 import {
   isAdmissibleClaim,
@@ -956,6 +957,9 @@ export class ResearchOrchestrator extends EventEmitter {
             const require = createRequire(import.meta.url);
             const camoufox = require('camoufox'); // CJS build — ESM build is broken
             await this._ensureCamoufoxLayout(camoufox);
+            // A page whose own JavaScript throws must not take the process with
+            // it — see src/utils/firefoxPageErrorGuard.js.
+            guardFirefoxPageErrors();
             this._stealthBrowser = await camoufox.Camoufox({ headless: true });
             this._stealthEngineActive = 'camoufox';
             this.logger.info('Stealth fallback using Camoufox (Firefox) engine');
