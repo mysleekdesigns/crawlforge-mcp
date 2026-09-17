@@ -3,6 +3,63 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [6.7.0] - 2026-09-16
+
+A bot-detection bench run against 6.6.2 recommended routing through residential proxies to get
+past Cloudflare's IP reputation check. That configuration did nothing at all, and finding out why
+turned up more of the stealth path that was working against itself: Camoufox, the engine chosen
+for having nothing to detect, was being handed a Chrome identity and Chromium's client hints.
+
+### Added
+
+- **`stealthConfig.proxyRotation` now actually routes traffic.** Proxies are supplied as ordinary
+  URLs — `http://user:pass@host:port`, percent-encoded if the password contains `@`, `:` or `/`,
+  or a bare `host:port` for an unauthenticated HTTP proxy; `http`, `https`, `socks4` and `socks5`
+  are accepted. Credentials are split out and applied per browser context, so both engines
+  authenticate. A malformed entry is now an error rather than a silently unproxied request.
+  `rotationInterval` is the minimum time on one proxy before the list advances. CrawlForge
+  supplies no proxies; this routes through yours.
+- **Camoufox is launched with its own anti-detection features on.** `geoip` (only when a proxy is
+  configured), `block_webrtc` and `humanize` are forwarded to the engine. With a proxy, Camoufox
+  derives its longitude, latitude, timezone, country and locale from the exit IP, so the browser
+  agrees with the address the site sees. That lookup runs at launch, so a Camoufox browser keeps
+  one proxy for its lifetime and a rotation reaches it after `cleanup`. The first call ever made
+  with `geoip` downloads MaxMind's city database (~60 MB) into Camoufox's install directory.
+
+### Fixed
+
+- **`proxyRotation` was a no-op in three separate ways.** The proxy was pushed onto Chromium's
+  `--proxy-server=` flag, which has nowhere to carry the `user:pass` every residential proxy is
+  issued with, so an authenticating proxy answered 407 and the request failed. Camoufox's launch
+  path returned before the argument list was built, so the Firefox engine ran unproxied whatever
+  was asked for. And it was read once, at launch, while the browser is cached for the life of the
+  process, so `rotationInterval` could never elapse anywhere that mattered. Alongside it: the
+  rotation advanced its index before its first read, so a list of more than one proxy silently
+  started at the second entry, and `get_stats` returned the proxy string with its password in it.
+- **Camoufox was announcing itself as Chrome.** For this engine the user-agent pool was left open,
+  so about two thirds of Camoufox contexts presented a Chrome User-Agent on a Gecko engine, and
+  every one of them sent `sec-ch-ua`, `sec-ch-ua-mobile` and `sec-ch-ua-platform` — client hints
+  Firefox has never implemented and never sends. A detector could act on that from the request
+  headers alone, before a line of script ran. Camoufox now presents its own identity, and nothing
+  is injected into it: every anti-fingerprinting script in this codebase is Chromium-shaped, and
+  layering them over an engine that spoofs below the JavaScript layer only added back the tells
+  the engine was chosen to avoid. Behind a proxy, the locale, timezone and geolocation Camoufox
+  derived from the exit IP are left alone too. `create_context` reports `null` for the fields the
+  engine owns rather than a persona the browser never uses.
+- **A stealth scrape could read a page mid-render.** Navigation returns at `DOMContentLoaded`, and
+  the only waits after it were for an empty document to fill or an interstitial to clear. A page
+  that already had prose and wrote the part the caller came for in a load handler passed all of
+  them as finished. `operation: "scrape"` now waits for the page's own load event and then for the
+  DOM to stop changing, both bounded, and reports the wait in `waited_for_render_ms`. Content
+  injected into an already-still page some arbitrary time later is still what `wait_for` is for.
+- **A Firefox page's own JavaScript error ended the process.** Camoufox reports an uncaught page
+  error without a location, and Playwright reads one from it regardless; the resulting `TypeError`
+  is raised inside the protocol dispatch loop, where nothing awaits it. A single stray `<script>`
+  throw on a visited page was enough, and `bot.sannysoft.com` did it in the ordinary course of
+  running its checks. The hosted server absorbed this through its catch-all handler, but the CLI,
+  `deep_research` and any direct use of the browser did not. The missing value is now supplied at
+  its source, and the page error is still delivered rather than swallowed.
+
 ## [6.6.2] - 2026-09-13
 
 A second live round on `browser_session`, re-testing 6.6.1 across long articles, an SPA, a login
