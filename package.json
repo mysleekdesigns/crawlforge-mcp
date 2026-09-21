@@ -28,6 +28,8 @@
     "docker:build": "docker build -t crawlforge .",
     "docker:dev": "docker-compose up crawlforge-dev",
     "docker:prod": "docker-compose up crawlforge-prod",
+    "bench:stealth": "node scripts/stealth-bench.mjs",
+    "bench:stealth:ci": "node scripts/stealth-bench.mjs --ci",
     "eval:selection": "node scripts/tool-selection-eval.mjs",
     "usage:report": "node scripts/tool-usage-report.mjs"
   },

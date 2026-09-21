@@ -115,15 +115,32 @@ Each phase has a checklist and a verification gate. Phases 1 to 3 can run in par
 
 ### Phase 0: Repeatable benchmark harness
 
+**Completed:** 2026-09-21 — except the hosted-instance run, which cannot be made from a developer machine and stays open below.
+
 Goal: turn section 2 into a script that runs in minutes, so every later phase is measured instead of assumed.
 
-- [ ] Add a benchmark script (for example `scripts/stealth-bench.mjs`) that drives `StealthBrowserManager` and the plain fetch against a fixed target list and prints the pass/blocked matrix from section 2.2.
-- [ ] Encode the detector assertions from section 2.3 as pass/fail checks: rebrowser rows, CreepJS worker vs main-thread consistency, WebRTC candidate leak, `userAgentData` brands, sannysoft red rows.
-- [ ] Record host OS, IP type (via bot.incolumitas.com's IP API), engine, browser version and Playwright version in the output header.
-- [ ] Run it twice: once on a residential connection, once on the hosted instance. Keep both outputs in `docs/` as the baseline.
-- [ ] Wire a reduced version (detector pages only, no third-party bot walls) into CI so a Playwright or Camoufox bump that reopens `Runtime.enable` or a worker leak fails the build.
+- [x] Add a benchmark script (for example `scripts/stealth-bench.mjs`) that drives `StealthBrowserManager` and the plain fetch against a fixed target list and prints the pass/blocked matrix from section 2.2.
+- [x] Encode the detector assertions from section 2.3 as pass/fail checks: rebrowser rows, CreepJS worker vs main-thread consistency, WebRTC candidate leak, `userAgentData` brands, sannysoft red rows.
+  - Ten self-probes (`scripts/lib/stealth-bench/detectors.js`) run our own in-page checks on a neutral origin and are what CI gates on; five third-party page parsers (`detector-pages.js`) read the detector sites themselves. All five read. The rebrowser and CreepJS parsers both skipped on the first run and were fixed against the live pages: rebrowser states each verdict as an emoji at the head of the row's *name* cell rather than as a class or a background colour, and CreepJS puts every value on the line *after* its label, so a same-line `label: value` regex read nothing from it. rebrowser's four call-me probes (`dummyFn`, `sourceUrlLeak`, `mainWorldExecution`, `exposeFunctionLeak`) only fire when the client calls into them, so they are reported as `skip — not triggered` rather than counted as passes.
+- [x] Record host OS, IP type (via bot.incolumitas.com's IP API), engine, browser version and Playwright version in the output header.
+- [x] Run it on a residential connection and keep the output in `docs/` as the baseline. → [`stealth-bench-baseline-2026-09-21-residential.md`](./stealth-bench-baseline-2026-09-21-residential.md) (Comcast AS7922, Miami).
+- [ ] Run it on the hosted instance and keep that output in `docs/` as the second baseline. **Unmeasured, and deliberately not inferred.** The whole point of the second run is the exit IP, so it has to be produced on the hosted instance itself: `npm run bench:stealth -- --out docs/stealth-bench-baseline-<date>-hosted.md`. Until it exists, every datacenter claim in this document is prediction, not measurement — and Phase 2's verification gate depends on it.
+- [x] Wire a reduced version (detector pages only, no third-party bot walls) into CI so a Playwright or Camoufox bump that reopens `Runtime.enable` or a worker leak fails the build.
 
 Verify: the script reproduces the section 2 matrix within one run's noise, and CI fails when `navigator.webdriver` is forced to `true`.
+
+- [x] **Matrix reproduced, within one run's noise — and the noise is real.** Eleven of the twelve rows of 2.2 came back as the hand run recorded them, including the ones that carry the argument: Harrods passes on Camoufox and nowhere else, stackoverflow passes on both engines, trustpilot is skipped by robots.txt, and Quora is still the finding-6 false positive (both engines rendered the real 397-character login page and the verdict layer called it blocked). **leboncoin/Chromium is the exception**: it passed on the first run of the day, exactly as 2.2 records, and was Blocked on a second run an hour later from the same IP. Two runs, two answers, no code change between them — which is the clearest possible argument for having built the harness, and a standing warning against reading any single DataDome cell as a result. The committed baseline is the second run.
+- [x] **Negative control passes.** `--self-check` forces `navigator.webdriver` to `true` and exits 0 only because the harness reported it as a failure, on both engines. It runs as its own CI step.
+
+The detector assertions reproduce 2.3 closely. rebrowser on Chromium is `runtimeEnableLeak` green, `navigatorWebdriver` red, `useragent` red — the three rows the review named, in the states it named. rebrowser on Camoufox is green throughout. CreepJS worker-vs-main fails on Chromium across all three compared fields (worker `HeadlessChrome/151`, `MacIntel`, 32 cores against a main thread claiming Linux, Chrome 150, 16 cores) and passes on Camoufox. incolumitas returns the same three FAILs per engine that 2.3 lists.
+
+Three of this document's own claims did not survive contact with the harness, and are corrected here rather than left to mislead Phase 1:
+
+1. **The Chromium UA pool is not Windows-only** (finding 8). Four consecutive runs drew both Windows and Linux personas, and claimed Chrome 149 on one run and Chrome 150 on the next, on the same 151 binary. The pool is randomised per run, which also makes `persona-os-vs-host` intermittent rather than constant — and means a single observation of the persona proves nothing.
+2. **The spoofed user agent does reach Web Workers** (finding 9). The `worker-useragent` self-probe passes on both engines. What leaks is everything else about the worker — `platform` reports the real `MacIntel`, `hardwareConcurrency` the real core count — and CreepJS still shows the worker's *own* UA as `HeadlessChrome/151`. So the conclusion stands and the mechanism is narrower than "workers report the real UA": Playwright's `userAgent` option reaches the worker, and nothing else about the identity does.
+3. **WebRTC host candidates are clean.** Chromium returns mDNS `.local` candidates only, no raw address. The real-IP leak CreepJS showed came through a STUN server; the harness check deliberately uses none, so it stays deterministic in CI. **A STUN-backed check is still missing, and the IPv6 leak in finding 9 is therefore neither confirmed nor refuted by this run.**
+
+Also new, and not in section 2.3: Camoufox's user agent contradicts itself, advertising `rv:135.0` and `Firefox/151.0` in the same string. Worth folding into the Phase 1 persona work.
 
 ### Phase 1: Contained correctness fixes surfaced by the benchmark
 

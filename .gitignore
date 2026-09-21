@@ -186,3 +186,7 @@ TEST-RESULTS.md
 FIX-TRACK-CHANGES-TOOL.md
 publish.md
 Firecrawl-CLI-vs-CrawlForge-MCP-Analysis.md
+# Claude Code sub-agent scratch memory. Machine-local notes an agent writes to
+# itself, not project configuration — .claude/agents and .claude/skills are
+# tracked and stay tracked.
+.claude/agent-memory/

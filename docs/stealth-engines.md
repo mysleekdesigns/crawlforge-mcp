@@ -135,6 +135,13 @@ detector can act on from the request headers alone.
 
 ## Benchmark Methodology
 
+The steps below are also scripted. `npm run bench:stealth` drives both engines
+and the plain fetch against a fixed target list and the detector pages, and
+prints the pass/blocked matrix with its network context in the header — see
+[docs/stealth-bench.md](./stealth-bench.md). Use it in preference to running
+this by hand; the manual procedure remains here for a target the harness does
+not cover.
+
 To compare engines on a given target, run the following steps with a clean browser profile (incognito, no extensions):
 
 1. **bot.sannysoft.com** — Navigate with each engine; count red indicators. Fewer red = better.

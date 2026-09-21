@@ -3,6 +3,65 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [Unreleased]
+
+Phase 0 of the 2026-09 stealth review: the benchmark in that document was run by
+hand, and everything the review recommends is supposed to be measured against
+it. This makes it a command.
+
+### Added
+
+- **`scripts/stealth-bench.mjs` — the stealth benchmark as a script.** Drives
+  `StealthBrowserManager` and the plain fetch against the review's twelve bot
+  walls and five detector pages and prints the same pass/blocked matrix, headed
+  by host OS, exit-IP classification, engine, browser and Playwright versions —
+  because a Cloudflare result from a residential connection and one from a
+  datacenter are different measurements, and a baseline that does not say which
+  it is means nothing. robots.txt is checked before a target is touched, and a
+  stealth engine only runs where the plain fetch was blocked, so the shape of
+  the run matches what `scrape` actually does. `npm run bench:stealth`.
+- **Ten in-page self-probes** covering the review's section 2.3 assertions:
+  `navigator.webdriver`, `userAgentData` brands, worker-vs-main-thread user
+  agent, platform, cores and languages, WebRTC candidate leak, UA version
+  against the launched binary, persona OS against the host, and headless
+  markers. They need no third-party site, which is what makes them CI-able.
+- **A CI gate that fails on regression, not on the known.**
+  `npm run bench:stealth:ci` runs the self-probes alone and exits non-zero only
+  for a failure not listed in `scripts/lib/stealth-bench/ci-baseline.json`. The
+  leaks the review documented at 6.7.0 are listed there, so the build is green
+  today and turns red when a Playwright or Camoufox bump reopens something.
+  Fixing one of those leaks means deleting its id from that file in the same
+  commit. New workflow `.github/workflows/stealth-detectors.yml`.
+- **`--self-check`, the negative control.** Forces `navigator.webdriver` to
+  `true` and exits non-zero unless the harness reports it as a failure. A
+  detector suite that has quietly stopped detecting anything otherwise passes
+  forever. It runs as its own CI step.
+- **`docs/stealth-bench-baseline-2026-09-21-residential.md`** — the first real
+  run, and **`docs/stealth-bench.md`**, which explains how to read it.
+
+### Notes
+
+Eleven of the twelve wall rows reproduced the hand-run table, including the ones
+that carry the argument: Harrods passes on Camoufox and nowhere else,
+stackoverflow on both engines, and Quora is still reported blocked on a page
+both engines rendered. The twelfth — leboncoin on Chromium — passed on one run
+and was blocked on another an hour later from the same IP with nothing changed
+in between, which is the clearest argument available for measuring rather than
+assuming, and a standing warning against reading a single DataDome cell as a
+result. Three of the review's own claims did not survive the run and
+are corrected in it: the Chromium user-agent pool is randomised rather than
+Windows-only, the spoofed user agent *does* reach Web Workers (what leaks there
+is `platform` and `hardwareConcurrency`), and WebRTC host candidates carry no
+raw address — the IPv6 leak the review saw came through STUN, which this check
+deliberately does not use, so that finding is still unconfirmed either way.
+
+The hosted-instance baseline is **not** in this release. It has to be produced
+on the hosted instance, because its whole point is the exit IP, and inferring
+one would defeat the purpose of building the harness.
+
+No tool, schema, credit or behaviour changes: this ships a script, a CI job and
+two documents.
+
 ## [6.7.0] - 2026-09-16
 
 A bot-detection bench run against 6.6.2 recommended routing through residential proxies to get
