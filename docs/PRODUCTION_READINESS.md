@@ -21,6 +21,18 @@
 
 ---
 
+## Stealth Review Phase 0 — Repeatable benchmark harness (Complete, less the hosted baseline)
+
+**Completed:** 2026-09-21 | **Version:** 6.7.0 tree (no version bump — no product code changed) | **Plan:** [`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md) §6 Phase 0 | **Baseline:** [`stealth-bench-baseline-2026-09-21-residential.md`](./stealth-bench-baseline-2026-09-21-residential.md)
+
+First phase of the 2026-09 stealth plan, shipped by four parallel sub-agents (harness core, detector assertions, CI wiring, documentation) and integrated, run and gate-verified by the PM. **Harness:** `scripts/stealth-bench.mjs` + `scripts/lib/stealth-bench/` reproduces the review's section 2 by command — twelve bot walls and five detector pages across the plain fetch, Chromium stealth and Camoufox, robots-gated, with the exit IP classified in the header. **Assertions:** ten in-page self-probes encode section 2.3 (webdriver, `userAgentData` brands, worker-vs-main UA/platform/cores/languages, WebRTC candidates, UA-vs-binary, persona OS, headless markers) plus five third-party page parsers. **CI:** `.github/workflows/stealth-detectors.yml` runs the self-probes only, gated against `ci-baseline.json` so known leaks stay green and regressions go red, followed by the forced-`navigator.webdriver` negative control. **Gate:** both verification items pass — the wall matrix reproduced eleven of the twelve rows of §2.2 (Harrods Camoufox-only, stackoverflow both engines, trustpilot robots-skipped, Quora still the finding-6 false positive), with leboncoin/Chromium flipping Pass→Blocked between two runs an hour apart on the same IP, which is within the "one run per cell is noisy" tolerance the gate allows and is itself the harness's first useful finding; and `--self-check` exits 0 only by catching the forced `webdriver === true` on both engines. `npm run test:unit` **2322 tests / 0 failed (176 files)**; `npm test` **100.0% COMPLIANT / 0 errors**.
+
+Two parsers (rebrowser rows, CreepJS worker-vs-main) skipped on the first run and were fixed against the live pages before the baseline was committed. The run also corrected three claims in the review itself — the Chromium UA pool is randomised rather than Windows-only, the spoofed UA does reach Web Workers (what leaks is `platform`/`hardwareConcurrency`), and WebRTC host candidates are mDNS-only, leaving the finding-9 IPv6 leak unconfirmed pending a STUN-backed check.
+
+**Open:** the hosted-instance baseline. It measures the datacenter exit IP and therefore has to be run on the hosted instance (`npm run bench:stealth -- --out docs/stealth-bench-baseline-<date>-hosted.md`); it was deliberately not inferred. Phase 2's verification gate depends on it.
+
+---
+
 ## Remediation Phase 1 — Critical Security Holes: SSRF · OAuth · Secrets · Billing (Complete)
 
 **Completed:** 2026-08-03 | **Version:** 4.10.0 tree (unreleased) | **Plan:** [`plan/phase-1-critical-security.md`](../plan/phase-1-critical-security.md) (audit: [`CODEBASE_AUDIT_2026-08.md`](./CODEBASE_AUDIT_2026-08.md))

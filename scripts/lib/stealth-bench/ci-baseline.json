@@ -1,0 +1,24 @@
+{
+  "_comment": "Checks known to fail at v6.7.0 and scheduled for Phase 1 of docs/STEALTH_REVIEW_2026-09.md. CI reports them but does not fail on them. A check NOT listed here that fails is a regression and fails the build. Remove an id from this list the moment Phase 1 fixes it.",
+  "_seeded": "Corrected from the first real run (2026-09-21, macOS arm64, Chromium 151.0.7922.34 + Camoufox 135.0.1-beta.24, Playwright 1.62.1) — see docs/stealth-bench-baseline-2026-09-21-residential.md. Two seeded ids were dropped because the run showed them passing: worker-useragent (the spoofed UA does reach the worker) and webrtc-host-candidates (host candidates are mDNS .local only; the real-IP leak the review saw on CreepJS came through a STUN server, which this check deliberately does not use so it stays deterministic in CI). Every remaining id was observed failing. The list is deliberately engine- and platform-independent: an id is listed if it fails on either engine, because a pass/fail baseline captured on macOS would not hold on Linux CI.",
+  "_findings": {
+    "navigator-webdriver": "chromium: the property is deleted, not false (observed 2026-09-21; review finding 9). camoufox passes.",
+    "useragentdata-brands": "chromium: brands are Not=A?Brand 99, HeadlessChrome 151, Chromium 151 — no \"Google Chrome\" brand (observed 2026-09-21).",
+    "headless-markers": "chromium: \"Headless\" reaches userAgentData (observed 2026-09-21). camoufox passes.",
+    "worker-platform": "chromium: worker reports the real \"MacIntel\" against a spoofed main thread (observed 2026-09-21). camoufox passes.",
+    "worker-hardware-concurrency": "chromium: worker reports the real core count against the spoofed main thread (observed 2026-09-21). camoufox passes.",
+    "worker-languages": "both engines, in opposite directions: chromium worker \"en-US\" vs main \"en-US, en\"; camoufox worker \"en-US, en\" vs main \"en-US\" (observed 2026-09-21).",
+    "ua-version-vs-binary": "chromium: UA claims Chrome 149 on a 151 binary (observed 2026-09-21; review finding 8).",
+    "persona-os-vs-host": "chromium: claimed Windows, then Linux on a second run, on a macOS host. The persona is drawn per run, so this is intermittent on camoufox too — it claimed Windows on one run and macOS on the next (observed 2026-09-21). Listed because it fails on at least one draw."
+  },
+  "knownFailing": [
+    "navigator-webdriver",
+    "useragentdata-brands",
+    "headless-markers",
+    "worker-platform",
+    "worker-hardware-concurrency",
+    "worker-languages",
+    "ua-version-vs-binary",
+    "persona-os-vs-host"
+  ]
+}

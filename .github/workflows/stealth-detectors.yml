@@ -1,0 +1,84 @@
+# Stealth fingerprint gate.
+#
+# A reduced run of the Phase 0 stealth benchmark (docs/STEALTH_REVIEW_2026-09.md):
+# the harness's own detector self-probes only, no third-party bot walls and no
+# third-party detector pages, so the job does not depend on someone else's site
+# being up or on an IP reputation the runner cannot have.
+#
+# What it protects: the leaks that are version-coupled to the browser rather
+# than to our code. Playwright 1.62.1 happens not to trip the `Runtime.enable`
+# leak and Camoufox happens to keep its workers consistent with the main
+# thread; a Playwright or Camoufox bump can reopen either one silently. This
+# job turns that into a failed build.
+#
+# Kept separate from ci.yml on purpose: a browser run is the slowest and
+# flakiest thing we have, the stability of the main pipeline should not ride on
+# it, and after a browser bump this gate wants to be re-run on its own
+# (workflow_dispatch) without re-running everything else.
+#
+# The gate is a regression detector, not a clean bill of health. The leaks the
+# review documented at v6.7.0 and scheduled for Phase 1 are listed in
+# scripts/lib/stealth-bench/ci-baseline.json under `knownFailing`, so the job is
+# green today and goes red when something new breaks. Fixing a Phase 1 item
+# means removing its entry from that file.
+name: Stealth Detectors
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+    branches: [main, development]
+  workflow_dispatch:
+
+jobs:
+  stealth-detectors:
+    name: Stealth Detector Gate
+    runs-on: ubuntu-latest
+    # A browser that hangs on a probe must not sit here for six hours. The
+    # reduced run is minutes; this is headroom, not a target.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+
+      # `npm ci` installs the Playwright package, not the browsers it drives.
+      # A fresh runner has no Chromium until this runs, and --with-deps pulls
+      # the shared libraries Chromium needs on a bare ubuntu image.
+      #
+      # Camoufox is deliberately not installed: its binary is a large download
+      # we do not want on every push, and the harness reports its checks as
+      # `skip` when the binary is absent. Chromium is what this gate watches.
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Calls the same script a developer runs as `npm run bench:stealth:ci`,
+      # so CI and a local run exercise one code path.
+      - name: Run detector gate
+        run: npm run bench:stealth:ci -- --out "$RUNNER_TEMP/stealth-bench.md" --json "$RUNNER_TEMP/stealth-bench.json"
+
+      # Negative control, and the literal Phase 0 verification gate: re-run the
+      # self-probes with navigator.webdriver forced to `true` and assert the
+      # harness calls that a failure. A harness that has quietly stopped
+      # detecting anything would otherwise pass the step above forever.
+      #
+      # `always()` so a red gate above still reports whether the harness itself
+      # is working — that is the first thing you want to know when it fails.
+      - name: Negative control (forced navigator.webdriver must fail the harness)
+        if: always()
+        run: npm run bench:stealth -- --self-check
+
+      - name: Upload benchmark output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stealth-detector-report
+          path: |
+            ${{ runner.temp }}/stealth-bench.md
+            ${{ runner.temp }}/stealth-bench.json
+          if-no-files-found: warn
+          retention-days: 14
