@@ -1191,6 +1191,8 @@ Skills should reference BOTH MCP tools AND CLI commands:
 
 ## What's Next
 
+**2026-09-21 — Stealth review (findings only, not greenlit):** `docs/STEALTH_REVIEW_2026-09.md` records a live benchmark of plain fetch vs Chromium stealth vs Camoufox against Cloudflare/Akamai/DataDome walls and five detector pages, eleven verified code gaps (agent never escalates, Camoufox default nowhere, no cf_clearance persistence, no challenge click, worker/WebRTC leaks, verdict false positive on embedded Turnstile), and a seven-phase plan with checklists. Six owner decisions listed in its section 7.
+
 **Immediate priority:** Phase 2 (CLI Layer) — this unlocks CrawlForge for non-MCP users, CI/CD pipelines, and scriptable workflows. The pre-requisite work (creatorMode extraction) was specifically done to enable CLI tool reuse without triggering MCP server startup.
 
 **Branch:** `crawlforge-cli-upgrade` (created, no CLI work committed yet)
