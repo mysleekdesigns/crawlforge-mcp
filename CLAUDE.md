@@ -260,7 +260,7 @@ Key mechanisms for security-conscious future sessions:
 - **endpointGuard** (`src/core/endpointGuard.js`): Hard allow-list of `{crawlforge.dev, www.crawlforge.dev, api.crawlforge.dev}` for the server's own backend calls; HTTPS required; fail-closed. Localhost only in creator mode (v3.0.18).
 - **Action allowlist** (`src/core/ActionExecutor.js`): `scrape_with_actions` accepts only 7 action types: `wait`, `click`, `type`, `press`, `scroll`, `screenshot`, `executeJavaScript`. `executeJavaScript` throws unless `ALLOW_JAVASCRIPT_EXECUTION=true` is set at deploy time (off by default).
 - **Elicitation** (`src/core/ElicitationHelper.js`): User confirmation requested for `deep_research` (>50 URLs), `batch_scrape` (sync, >25 URLs), `crawl_deep` (projected >500 pages), `extract_structured` (schema has >3 required fields, no LLM configured), and credit-low situations. Fail-open if client does not support elicitation.
-- **Browser sandboxing**: Standard pool retains OS sandbox. Stealth Chromium uses `--no-sandbox` + `--disable-web-security` (deliberate fingerprint-spoofing trade-off). Camoufox (Firefox, v4.0.0) is the alternative — see `docs/stealth-engines.md`.
+- **Browser sandboxing**: Standard pool retains OS sandbox. Stealth Chromium uses `--no-sandbox` (deliberate fingerprint-spoofing trade-off); `--disable-web-security` was removed from it in Phase 1 of the 2026-09 stealth review — a page reads it in one line — but the non-stealth render browser (`BrowserProcessor`) still carries both flags. Camoufox (Firefox, v4.0.0) is the alternative — see `docs/stealth-engines.md`.
 
 See `docs/sandboxing-and-approvals.md` for the full reference.
 

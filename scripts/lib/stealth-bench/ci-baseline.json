@@ -1,24 +1,10 @@
 {
-  "_comment": "Checks known to fail at v6.7.0 and scheduled for Phase 1 of docs/STEALTH_REVIEW_2026-09.md. CI reports them but does not fail on them. A check NOT listed here that fails is a regression and fails the build. Remove an id from this list the moment Phase 1 fixes it.",
-  "_seeded": "Corrected from the first real run (2026-09-21, macOS arm64, Chromium 151.0.7922.34 + Camoufox 135.0.1-beta.24, Playwright 1.62.1) — see docs/stealth-bench-baseline-2026-09-21-residential.md. Two seeded ids were dropped because the run showed them passing: worker-useragent (the spoofed UA does reach the worker) and webrtc-host-candidates (host candidates are mDNS .local only; the real-IP leak the review saw on CreepJS came through a STUN server, which this check deliberately does not use so it stays deterministic in CI). Every remaining id was observed failing. The list is deliberately engine- and platform-independent: an id is listed if it fails on either engine, because a pass/fail baseline captured on macOS would not hold on Linux CI.",
+  "_comment": "Checks known to fail, and why. CI reports them but does not fail on them. A check NOT listed here that fails is a regression and fails the build. Remove an id from this list the moment it is fixed.",
+  "_seeded": "Seeded 2026-09-21 from the first real run with the eight leaks the review documented at v6.7.0. Phase 1 of docs/STEALTH_REVIEW_2026-09.md closed seven of them on 2026-09-21 and they were deleted from this list in the same commit: navigator-webdriver, useragentdata-brands, headless-markers, worker-platform, worker-hardware-concurrency, worker-languages, ua-version-vs-binary. Re-measured after the fixes on macOS arm64 (Chromium 151.0.7922.34 + Camoufox 135.0.1-beta.24, Playwright 1.62.1, residential AS7922): 19 pass, 0 fail, 1 skip — the skip is useragentdata-brands on camoufox, which Firefox does not expose.",
   "_findings": {
-    "navigator-webdriver": "chromium: the property is deleted, not false (observed 2026-09-21; review finding 9). camoufox passes.",
-    "useragentdata-brands": "chromium: brands are Not=A?Brand 99, HeadlessChrome 151, Chromium 151 — no \"Google Chrome\" brand (observed 2026-09-21).",
-    "headless-markers": "chromium: \"Headless\" reaches userAgentData (observed 2026-09-21). camoufox passes.",
-    "worker-platform": "chromium: worker reports the real \"MacIntel\" against a spoofed main thread (observed 2026-09-21). camoufox passes.",
-    "worker-hardware-concurrency": "chromium: worker reports the real core count against the spoofed main thread (observed 2026-09-21). camoufox passes.",
-    "worker-languages": "both engines, in opposite directions: chromium worker \"en-US\" vs main \"en-US, en\"; camoufox worker \"en-US, en\" vs main \"en-US\" (observed 2026-09-21).",
-    "ua-version-vs-binary": "chromium: UA claims Chrome 149 on a 151 binary (observed 2026-09-21; review finding 8).",
-    "persona-os-vs-host": "chromium: claimed Windows, then Linux on a second run, on a macOS host. The persona is drawn per run, so this is intermittent on camoufox too — it claimed Windows on one run and macOS on the next (observed 2026-09-21). Listed because it fails on at least one draw."
+    "persona-os-vs-host": "camoufox only, and it is upstream's. Chromium passes deterministically since Phase 1 (the persona OS is the host's). camoufox npm 0.1.19 accepts the documented `os` option, validates it, and then drops it: it forwards `{ screen, os }` to fingerprint-generator, whose option is `operatingSystems: string[]`, so the OS is drawn from market share instead — measured 2026-09-21 as a Mac persona about one launch in three on a Mac host, with and without `locale`. We still pass `os` (inert, and correct the moment upstream honours it). Owned by Phase 2 of the stealth review, which takes the camoufox client. Listed because it fails on roughly two draws in three."
   },
   "knownFailing": [
-    "navigator-webdriver",
-    "useragentdata-brands",
-    "headless-markers",
-    "worker-platform",
-    "worker-hardware-concurrency",
-    "worker-languages",
-    "ua-version-vs-binary",
     "persona-os-vs-host"
   ]
 }

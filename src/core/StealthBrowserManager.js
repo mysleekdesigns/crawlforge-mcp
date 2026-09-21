@@ -11,18 +11,32 @@
 import { chromium } from 'playwright';
 import { z } from 'zod';
 import crypto from 'crypto';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { createRequire } from 'module';
 import HumanBehaviorSimulator from '../utils/HumanBehaviorSimulator.js';
 import { BrowserContextPool } from './BrowserContextPool.js';
 import { safeGoto } from '../utils/ssrfGuard.js';
-import { detectChallengePage } from '../utils/challengeDetection.js';
+import { looksLikeInterstitial } from '../utils/challengeDetection.js';
 import { guardFirefoxPageErrors } from '../utils/firefoxPageErrorGuard.js';
 
 // Grace given to a document that rendered no title and no text (see _waitOutEmptyDocument).
 export const EMPTY_DOCUMENT_GRACE_MS = 8000;
 
+// The Chrome major claimed when the installed binary cannot be read at all.
+// Only ever a floor: installedChromeVersion() prefers playwright-core's own
+// browsers.json, and a launched browser's real version overrides both.
+const FALLBACK_CHROME_MAJOR = 151;
+
 // The proxy a camoufox browser was launched with, kept on the browser itself so
 // it survives being parked and restored by an engine switch.
 const CAMOUFOX_PROXY = Symbol('crawlforge.camoufoxProxy');
+
+// The locale that camoufox browser was launched with — null when geoip derived
+// one from the proxy's exit IP and we therefore do not know it. Kept on the
+// browser for the same reason as the proxy: camoufox fixes it at launch.
+const CAMOUFOX_LOCALE = Symbol('crawlforge.camoufoxLocale');
 
 const StealthConfigSchema = z.object({
   level: z.enum(['basic', 'medium', 'advanced']).default('medium'),
@@ -154,25 +168,19 @@ export class StealthBrowserManager {
     // UA thirty majors behind the engine — the pool sat at 119–121 while
     // Chrome 152 shipped — is a staleness tell for anything that reads
     // sec-ch-ua (R15, 2026-09-04).
+    //
+    // The Chrome major is now read from the installed binary rather than
+    // listed. A pool of four majors on one binary meant three of four personas
+    // mis-stated the version navigator.userAgentData reports — the UA claimed
+    // Chrome 149 on a 151 Chromium (2026-09-21 benchmark, ua-version-vs-binary).
+    // One string per OS is not lost entropy: Chrome's UA has been frozen since
+    // the UA-reduction rollout, so minor/build/patch are always 0.0.0 and the OS
+    // token is fixed, and that one string is the only one a real Chrome of that
+    // major sends. Variation lives in the display, fonts, hardware and persona.
+    this.chromeVersion = StealthBrowserManager.installedChromeVersion() || `${FALLBACK_CHROME_MAJOR}.0.0.0`;
+    this.chromeMajor = StealthBrowserManager.majorVersion(this.chromeVersion) || FALLBACK_CHROME_MAJOR;
     this.userAgentPools = {
-      chrome: {
-        windows: [
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36'
-        ],
-        macos: [
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36'
-        ],
-        linux: [
-          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
-          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
-          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36'
-        ]
-      },
+      chrome: this.buildChromeUserAgents(this.chromeMajor),
       firefox: {
         windows: [
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0'
@@ -193,13 +201,9 @@ export class StealthBrowserManager {
       }
     };
 
-    // Operating system distributions for realistic user agent selection
-    this.osDistribution = {
-      windows: 0.75,
-      macos: 0.15,
-      linux: 0.10
-    };
-    
+    // No OS distribution any more: the persona's OS is the host's (see
+    // selectOS), not a draw from market share.
+
     // Browser market share for realistic selection
     this.browserDistribution = {
       chrome: 0.65,
@@ -355,9 +359,42 @@ export class StealthBrowserManager {
       // proxy's exit IP, which is a worse signal than not rotating at all.
       // A rotation takes effect on the next launch, after cleanup().
       const proxy = this.resolveProxy(validatedConfig);
+      // The caller's locale goes to the launcher, not to the context. camoufox
+      // sets language, Accept-Language and Intl together below the JS layer,
+      // where a Worker reads the same answer as the document; Playwright's
+      // Firefox context override reaches the document only, so asking for
+      // de-DE there produced ["de-DE"] in the page beside camoufox's own list
+      // in its worker (2026-09-21 benchmark, worker-languages). Fixed at
+      // launch, like the proxy: a later context asking for a different locale
+      // inherits the launched one until cleanup(). With a proxy, geoip derives
+      // the locale from the exit IP and must win — a persona from this call
+      // would name a country the address contradicts.
+      const locale = proxy ? null : validatedConfig.locale;
       const browser = await adapter.launch({
         headless: true,
         proxy,
+        locale,
+        // camoufox draws its persona from ["windows","macos","linux"] when it
+        // is told nothing, so it claimed Windows on a Mac while still reporting
+        // an Apple M1 GPU and a `-apple-system: Mac` CSS platform hint
+        // (2026-09-21 benchmark, persona-os-vs-host). The host's OS is the only
+        // one the GPU strings, the font list and the TCP/IP fingerprint agree
+        // with, so it is the one camoufox is given.
+        //
+        // KNOWN NOT TO TAKE EFFECT on camoufox npm 0.1.19, measured 2026-09-21:
+        // ten launches asking for "macos" on a Mac produced a Mac persona about
+        // one time in three, which is the market-share draw, not the answer to a
+        // constraint. The client forwards `{ screen, os }` to
+        // fingerprint-generator (chunk-QNWJYPXY.js `generateFingerprint`), whose
+        // option for this is `operatingSystems: string[]` — `os` is not a key it
+        // knows, so it is dropped and the OS is drawn at random. The call below
+        // is the documented API and is kept: it is inert (camoufox only
+        // validates the value), it is correct the moment upstream honours it,
+        // and the alternative — generating a BrowserForge fingerprint ourselves
+        // and passing it through `fingerprint` — needs a dependency this package
+        // does not declare. Phase 2 of the stealth review owns the camoufox
+        // client; until then persona-os-vs-host stays baselined for camoufox.
+        os: this.hostOS(),
         // Only ask for geoip when there is a proxy to derive it from. Without
         // one it would look up this machine's own public IP — a network call,
         // and an external service learning our address, to confirm a location
@@ -368,6 +405,7 @@ export class StealthBrowserManager {
         launchOptions: {}
       });
       browser[CAMOUFOX_PROXY] = proxy;
+      browser[CAMOUFOX_LOCALE] = locale;
       this.browser = browser;
       this._launchedEngine = 'camoufox';
       return this.browser;
@@ -379,9 +417,7 @@ export class StealthBrowserManager {
       '--no-sandbox',
       '--disable-dev-shm-usage',
       '--disable-blink-features=AutomationControlled',
-      '--disable-web-security',
       '--disable-features=VizDisplayCompositor',
-      '--disable-extensions',
       '--disable-plugins',
       '--disable-background-timer-throttling',
       '--disable-backgrounding-occluded-windows',
@@ -397,12 +433,18 @@ export class StealthBrowserManager {
       '--safebrowsing-disable-auto-update',
       '--password-store=basic',
       '--use-mock-keychain',
-      
+
+      // A headless Chromium has no pointing device, so it reports
+      // primaryPointerType=coarse/none and hover:none — the media-query answer
+      // of a touchscreen kiosk under a desktop UA. These four blink settings
+      // (2 = HOVER_HOVER_TYPE, 4 = POINTER_FINE_TYPE) give it the mouse a
+      // desktop persona is supposed to have. Verified present in Chromium 151
+      // with `strings -a` on the binary.
+      '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4',
+
       // Additional stealth arguments
-      '--disable-default-apps',
       '--disable-component-extensions-with-background-pages',
       '--disable-background-networking',
-      '--disable-component-update',
       '--disable-client-side-phishing-detection',
       '--disable-domain-reliability',
       '--disable-ipc-flooding-protection',
@@ -415,9 +457,7 @@ export class StealthBrowserManager {
     if (validatedConfig.level === 'advanced') {
       stealthArgs.push(
         '--disable-gpu-sandbox',
-        '--disable-popup-blocking',
         '--disable-setuid-sandbox',
-        '--disable-site-isolation-trials',
         '--disable-threaded-animation',
         '--disable-threaded-scrolling',
         '--disable-in-process-stack-traces',
@@ -436,15 +476,15 @@ export class StealthBrowserManager {
       );
     }
 
-    // WebRTC blocking
+    // WebRTC blocking. The five flags that used to stand here disabled
+    // hardware codecs and extra routes — none of them stops an ICE candidate
+    // carrying the real address, which is what CreepJS read the host's IPv6
+    // out of (2026-09-21 benchmark, finding 9). This one is the switch that
+    // governs which local addresses WebRTC may use: with it, only the address
+    // the proxy already exposes is offered. Verified present in Chromium 151
+    // with `strings -a` on the binary.
     if (validatedConfig.blockWebRTC) {
-      stealthArgs.push(
-        '--disable-webrtc-hw-decoding',
-        '--disable-webrtc-hw-encoding',
-        '--disable-webrtc-multiple-routes',
-        '--disable-webrtc-hw-vp8-encoding',
-        '--enforce-webrtc-ip-permission-check'
-      );
+      stealthArgs.push('--webrtc-ip-handling-policy=disable_non_proxied_udp');
     }
 
     // No proxy argument here. Chromium's --proxy-server= has no field for the
@@ -459,11 +499,26 @@ export class StealthBrowserManager {
       // never reads it) — see Dockerfile.
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
       args: stealthArgs,
+      // patchright's "marks you as a stealth driver" list. Playwright passes
+      // all four by default, so dropping them from stealthArgs above is only
+      // half the job — they have to be taken off the default set too, or the
+      // command line still carries them. --disable-web-security went with them:
+      // it is readable in one line from any page (a cross-origin fetch that
+      // should throw and does not), and it contradicts this file's own decision
+      // to leave bypassCSP unset (R15, 2026-09-04).
       ignoreDefaultArgs: [
         '--enable-blink-features=IdleDetection',
-        '--enable-automation'
+        '--enable-automation',
+        '--disable-component-update',
+        '--disable-default-apps',
+        '--disable-extensions',
+        '--disable-popup-blocking'
       ]
     });
+
+    // A hosted image's system Chromium may not be the version browsers.json
+    // named, and the UA has to state the version that is actually running.
+    this._alignUserAgentsWithBinary(browser);
 
     // If this Chromium dies (OOM kill, crash), drop the handle so the next
     // call relaunches instead of reusing a corpse. The identity guard keeps a
@@ -568,16 +623,23 @@ export class StealthBrowserManager {
       // sent sec-ch-ua, sec-ch-ua-mobile and sec-ch-ua-platform — client hints
       // Firefox has never implemented and never sends. That is a decision a
       // detector can make from the request headers alone, before a line of
-      // script runs. Playwright still derives a correctly shaped Accept-Language
-      // from `locale`, so dropping these loses nothing real.
+      // script runs.
       delete contextOptions.userAgent;
       delete contextOptions.extraHTTPHeaders;
 
-      // Behind a proxy, camoufox has already derived locale, timezone and
-      // geolocation from the exit IP. Those three agree with the address the
-      // site sees; a persona drawn here does not, so it must not override them.
+      // The locale goes the same way, proxy or no proxy — but it is not
+      // dropped: _doLaunchStealthBrowser hands the caller's locale to camoufox
+      // itself, which sets language, Accept-Language and Intl together below
+      // the JS layer. Playwright's Firefox context override reaches the
+      // document only, so setting it here reported ["de-DE"] in the page beside
+      // camoufox's own list in its worker (2026-09-21 benchmark,
+      // worker-languages).
+      delete contextOptions.locale;
+
+      // Behind a proxy, camoufox has already derived timezone and geolocation
+      // from the exit IP. Those agree with the address the site sees; a persona
+      // drawn here does not, so it must not override them.
       if (proxy) {
-        delete contextOptions.locale;
         delete contextOptions.timezoneId;
         delete contextOptions.geolocation;
       }
@@ -589,8 +651,11 @@ export class StealthBrowserManager {
       fingerprint.headers = {};
       fingerprint.viewport = null;
       fingerprint.hardware = { ...fingerprint.hardware, platform: null };
+      // The locale camoufox was actually launched with, which is this call's
+      // only when this call is the one that launched it — null behind a proxy,
+      // where geoip derived a locale we never see.
+      fingerprint.locale = this.browser[CAMOUFOX_LOCALE] ?? null;
       if (proxy) {
-        fingerprint.locale = null;
         fingerprint.timezone = null;
       }
     }
@@ -702,17 +767,33 @@ export class StealthBrowserManager {
 
   /**
    * Choose a single OS ('windows' | 'macos' | 'linux') for a fingerprint.
-   * A custom UA pins the OS to whatever that UA reports; a non-random UA pins
-   * to windows (the default pool below); otherwise weighted-random.
+   * A custom UA pins the OS to whatever that UA reports; every other path takes
+   * the host's OS.
+   *
+   * A persona drawn at random claimed Windows, then Linux, on a macOS host
+   * (2026-09-21 benchmark, persona-os-vs-host). Nothing about the machine
+   * follows the draw: the TCP/IP fingerprint is the host kernel's, the GPU
+   * strings and the CSS platform hints are the host's, and a WebGL renderer
+   * reading "Apple M1" under a Windows UA is a cleaner signal than no spoofing
+   * at all. So the OS is the one thing in this fingerprint that is not
+   * randomised — it is observed.
    */
   selectOS(config = {}) {
     if (config.customUserAgent) {
       return this.inferOSFromUserAgent(config.customUserAgent);
     }
-    if (!config.useRandomUserAgent) {
-      return 'windows';
-    }
-    return this.weightedRandom(this.osDistribution);
+    return this.hostOS();
+  }
+
+  /**
+   * The host's own OS in the vocabulary the pools and generators use. Anything
+   * that is neither macOS nor Windows is treated as linux: it is the only other
+   * desktop persona modelled, and the closest to a BSD host's TCP fingerprint.
+   */
+  hostOS() {
+    if (process.platform === 'darwin') return 'macos';
+    if (process.platform === 'win32') return 'windows';
+    return 'linux';
   }
 
   /**
@@ -725,6 +806,64 @@ export class StealthBrowserManager {
   }
 
   /**
+   * The version of the Chromium that is actually installed, as
+   * `151.0.7922.34`. playwright-core's browsers.json names the build it
+   * downloads — the same file Scrapling reads — and is the only source
+   * available before a browser is launched; once one is running,
+   * _alignUserAgentsWithBinary() corrects for a hosted image that pointed
+   * PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH at a Chromium of its own.
+   */
+  static installedChromeVersion() {
+    try {
+      const require = createRequire(import.meta.url);
+      const file = path.join(path.dirname(require.resolve('playwright-core')), 'browsers.json');
+      const entry = JSON.parse(fs.readFileSync(file, 'utf8')).browsers
+        .find((browser) => browser.name === 'chromium');
+      return entry?.browserVersion || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** The leading integer of a version string: `151.0.7922.34` -> 151. */
+  static majorVersion(version) {
+    const match = /^(\d+)/.exec(String(version ?? '').trim());
+    return match ? Number(match[1]) : null;
+  }
+
+  /**
+   * One Chrome user agent per OS at `major`. Chrome froze every other token of
+   * the string years ago, so these are literal, not templates with room.
+   */
+  buildChromeUserAgents(major) {
+    const chrome = `AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
+    return {
+      windows: [`Mozilla/5.0 (Windows NT 10.0; Win64; x64) ${chrome}`],
+      macos: [`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ${chrome}`],
+      linux: [`Mozilla/5.0 (X11; Linux x86_64) ${chrome}`]
+    };
+  }
+
+  /**
+   * Re-derive the Chrome pool from the browser that actually launched. Only
+   * does anything when the running binary is not the one browsers.json named —
+   * a hosted image's system Chromium — which is exactly the case where the
+   * pool would otherwise mis-state the version userAgentData reports.
+   */
+  _alignUserAgentsWithBinary(browser) {
+    let version = null;
+    try {
+      version = browser.version();
+    } catch { /* a browser that cannot be asked keeps the installed version */ }
+    if (!version || version === this.chromeVersion) return;
+    this.chromeVersion = version;
+    const major = StealthBrowserManager.majorVersion(version);
+    if (!major || major === this.chromeMajor) return;
+    this.chromeMajor = major;
+    this.userAgentPools.chrome = this.buildChromeUserAgents(major);
+  }
+
+  /**
    * Select realistic user agent based on market distribution
    */
   selectRealisticUserAgent(config, selectedOS) {
@@ -733,12 +872,14 @@ export class StealthBrowserManager {
     }
 
     if (!config.useRandomUserAgent) {
-      return this.userAgentPools.chrome.windows[0];
+      // Not "the Windows default" any more: a fixed UA still has to be the
+      // host's, or it contradicts everything the machine itself reports.
+      return this.userAgentPools.chrome[this.hostOS()][0];
     }
 
-    // Use the OS chosen once for this fingerprint (falls back to a fresh draw
-    // if called without one, preserving the original standalone behavior).
-    selectedOS = selectedOS || this.weightedRandom(this.osDistribution);
+    // Use the OS chosen once for this fingerprint (falls back to the host's own
+    // if called without one, which is what selectOS would have returned).
+    selectedOS = selectedOS || this.hostOS();
 
     // Select browser based on distribution and OS compatibility
     let availableBrowsers = { ...this.browserDistribution };
@@ -872,24 +1013,41 @@ export class StealthBrowserManager {
   }
 
   /**
+   * The brand list Chrome presents, in both places it is read: the sec-ch-ua
+   * request header and navigator.userAgentData.brands.
+   *
+   * One source for both because the two used to disagree. The header was built
+   * here and said "Google Chrome"; userAgentData was left to Chromium, which
+   * filled it in from the binary and answered "HeadlessChrome 151, Chromium
+   * 151" with no Google Chrome brand at all — rebrowser flagged the page as
+   * Chrome for Testing (2026-09-21 benchmark, useragentdata-brands and
+   * headless-markers). _applyEmulatedIdentity now hands this list to the
+   * renderer, so the header and the JS API are the same list.
+   *
+   * @param {string} [userAgent] — the selected user agent string
+   * @returns {Array<{brand:string, version:string}>}
+   */
+  generateUserAgentBrands(userAgent = '') {
+    // Extract Chrome major version from the UA (e.g. "Chrome/151.0.0.0" → "151").
+    // Fall back to the installed Chromium's major if the UA is not a Chrome UA.
+    const match = String(userAgent).match(/Chrome\/(\d+)/i);
+    const version = match ? match[1] : String(this.chromeMajor);
+
+    return [
+      { brand: 'Not_A Brand', version: '8' },
+      { brand: 'Chromium', version },
+      { brand: 'Google Chrome', version }
+    ];
+  }
+
+  /**
    * Generate sec-ch-ua header.
    * C2: brand versions are derived from the UA's Chrome major version so
    * sec-ch-ua and the User-Agent header stay consistent.
    * @param {string} [userAgent] — the selected user agent string
    */
   generateSecChUaHeader(userAgent = '') {
-    // Extract Chrome major version from the UA (e.g. "Chrome/151.0.0.0" → "151").
-    // Fall back to the bundled Chromium major if the UA is not a Chrome UA.
-    const match = userAgent.match(/Chrome\/(\d+)/i);
-    const version = match ? match[1] : '151';
-
-    const brands = [
-      { brand: 'Not_A Brand', version: '8' },
-      { brand: 'Chromium', version },
-      { brand: 'Google Chrome', version }
-    ];
-
-    return brands
+    return this.generateUserAgentBrands(userAgent)
       .map(b => `"${b.brand}";v="${b.version}"`)
       .join(', ');
   }
@@ -904,7 +1062,7 @@ export class StealthBrowserManager {
       linux: '"Linux"'
     };
 
-    selectedOS = selectedOS || this.weightedRandom(this.osDistribution);
+    selectedOS = selectedOS || this.hostOS();
     return platforms[selectedOS] || '"Windows"';
   }
 
@@ -1169,7 +1327,7 @@ export class StealthBrowserManager {
    * Generate realistic hardware fingerprint
    */
   generateHardwareFingerprint(selectedOS) {
-    selectedOS = selectedOS || this.weightedRandom(this.osDistribution);
+    selectedOS = selectedOS || this.hostOS();
 
     const processors = [
       { cores: 4, threads: 8, name: 'Intel(R) Core(TM) i5-8250U CPU @ 1.60GHz' },
@@ -1180,18 +1338,58 @@ export class StealthBrowserManager {
       { cores: 8, threads: 16, name: 'AMD Ryzen 7 3700X 8-Core Processor' }
     ];
 
-    const selectedProcessor = processors[Math.floor(Math.random() * processors.length)];
+    // hardwareConcurrency and deviceMemory are observed, not drawn — the same
+    // call taken for the persona OS, and for the same reason.
+    //
+    // Both are readable from a Worker. An init script does not run in one, and
+    // Emulation.setHardwareConcurrencyOverride does not reach one either: a
+    // Worker is a separate target and the Emulation domain is not available on
+    // it. So a drawn value only ever landed in the document, beside the host's
+    // real one in the worker — 16 cores against 32 (2026-09-21 benchmark,
+    // worker-hardware-concurrency). A machine that reports its own cores is not
+    // a signal. A machine that disagrees with itself is.
+    const hardwareConcurrency = this.hostHardwareConcurrency();
+    const matching = processors.filter((p) => p.threads === hardwareConcurrency);
+    const selectedProcessor = matching.length
+      ? matching[Math.floor(Math.random() * matching.length)]
+      // No modelled CPU has this many threads. Name one that could — the
+      // processor string is reported in the fingerprint, never to a page.
+      : {
+          cores: Math.max(1, Math.round(hardwareConcurrency / 2)),
+          threads: hardwareConcurrency,
+          name: `AMD Ryzen ${Math.max(1, Math.round(hardwareConcurrency / 2))}-Core Processor`
+        };
 
     return {
-      hardwareConcurrency: selectedProcessor.threads,
+      hardwareConcurrency,
       processor: selectedProcessor.name,
       architecture: 'x86_64',
       memory: Math.floor(Math.random() * 24) + 8, // 8-32 GB
-      // navigator.deviceMemory is capped at 8 in every Chromium build, so 16
-      // or 32 is a value no real browser reports (sannysoft CHR_MEMORY: FAIL).
-      deviceMemory: Math.random() < 0.7 ? 8 : 4,
+      deviceMemory: this.hostDeviceMemory(),
       platform: this.selectRealisticPlatform(selectedOS)
     };
+  }
+
+  /**
+   * The core count navigator.hardwareConcurrency will report: the host's own
+   * logical CPU count, which is what Chromium answers with
+   * (base::SysInfo::NumberOfProcessors) in the document and in every worker.
+   */
+  hostHardwareConcurrency() {
+    const count = os.cpus()?.length || 0;
+    return count > 0 ? count : 4;
+  }
+
+  /**
+   * navigator.deviceMemory as Chromium computes it: physical RAM rounded to the
+   * nearest power of two, in GiB, then clamped to [0.25, 8]. The clamp is why
+   * 16 or 32 is a value no real browser reports (sannysoft CHR_MEMORY: FAIL),
+   * and why almost every desktop answers 8.
+   */
+  hostDeviceMemory() {
+    const gib = os.totalmem() / (1024 ** 3);
+    if (!(gib > 0)) return 8;
+    return Math.min(8, Math.max(0.25, 2 ** Math.round(Math.log2(gib))));
   }
 
   /**
@@ -1327,7 +1525,7 @@ export class StealthBrowserManager {
   async applyAdvancedStealthConfigurations(context, config, fingerprint) {
     // Nothing is injected into camoufox.
     //
-    // Every script below is Chromium-shaped — it deletes navigator.webdriver,
+    // Every script below is Chromium-shaped — it patches navigator.webdriver,
     // installs a window.chrome, and patches getContext, AudioContext and font
     // metrics from the main world. camoufox does all of that in its own
     // C++/Juggler layer, where there is no JS seam to find, and a page that
@@ -1344,16 +1542,48 @@ export class StealthBrowserManager {
     }
 
     // Enhanced initialization script with comprehensive stealth measures
-    await context.addInitScript((locale) => {
-      // Remove webdriver property completely
-      Object.defineProperty(navigator, 'webdriver', {
-        get: () => undefined,
-        configurable: true
-      });
+    await context.addInitScript(() => {
+      // Everything this script changes about navigator goes on
+      // Navigator.prototype, never on the navigator instance.
+      //
+      // A real Chrome answers Object.getOwnPropertyNames(navigator) with an
+      // empty array: every property it has is inherited. So one
+      // defineProperty(navigator, …) puts the spoof's own name in a list any
+      // page can print in a line — rebrowser's bot detector prints exactly that
+      // list, and it read ["connection","plugins","mimeTypes","getBattery"]
+      // (2026-09-21 bench). It is the same class of tell as the deleted
+      // webdriver property, one level up.
+      //
+      // A property that is not on the prototype is left alone rather than
+      // invented: a shape that no Chromium has is worse than the real value.
+      const defineOnPrototype = (key, descriptor) => {
+        if (!(key in Navigator.prototype)) return false;
+        try {
+          // WebIDL attributes and operations are both enumerable and
+          // configurable on the prototype; matching that keeps the descriptor
+          // indistinguishable from the one it replaces.
+          Object.defineProperty(Navigator.prototype, key, Object.assign(
+            { configurable: true, enumerable: true }, descriptor
+          ));
+          return true;
+        } catch (e) {
+          return false;
+        }
+      };
+
+      // navigator.webdriver reports false; the property stays. Deleting it was
+      // its own tell — rebrowser's bot detector marks a missing webdriver red,
+      // because every real Chrome has the property and answers false
+      // (2026-09-21 benchmark, navigator-webdriver). The launch flags do this
+      // already (--disable-blink-features=AutomationControlled, and
+      // --enable-automation taken off the default args), so on a normal launch
+      // this is a no-op and the native prototype getter is left untouched; the
+      // redefinition is only for a binary where the flag did not take.
+      if (navigator.webdriver !== false) {
+        defineOnPrototype('webdriver', { get: () => false });
+      }
 
       // Hide automation indicators
-      delete window.navigator.__proto__.webdriver;
-      delete window.navigator.webdriver;
       delete window.webdriver;
       delete window._phantom;
       delete window.__nightmare;
@@ -1378,18 +1608,15 @@ export class StealthBrowserManager {
           originalQuery(parameters)
       );
 
-      // Hide headless indicators. configurable: true because the hardware
-      // spoofing script below redefines this with the fingerprint's own core
-      // count — without it that redefinition throws "Cannot redefine property"
-      // and takes navigator.platform and deviceMemory down with it, so the
-      // page saw a Win32 platform on every persona.
-      Object.defineProperty(navigator, 'hardwareConcurrency', {
-        get: () => 4,
-        configurable: true
-      });
+      // No hardwareConcurrency here, and none anywhere else either: the
+      // fingerprint now carries the host's own core count
+      // (generateHardwareFingerprint), so there is nothing to override. A
+      // defineProperty here only ever reached the document, and the worker
+      // answering with the real count beside it was the mismatch
+      // bot.incolumitas.com scores.
 
       // Spoof connection
-      Object.defineProperty(navigator, 'connection', {
+      defineOnPrototype('connection', {
         get: () => ({
           effectiveType: '4g',
           rtt: 50 + Math.random() * 50,
@@ -1454,7 +1681,7 @@ export class StealthBrowserManager {
           Object.defineProperty(pluginArray, index, { value: plugin, enumerable: true });
           Object.defineProperty(pluginArray, plugin.name, { value: plugin });
         });
-        Object.defineProperty(navigator, 'plugins', { get: () => pluginArray });
+        defineOnPrototype('plugins', { get: () => pluginArray });
 
         // Real Chrome pairs those plugins with two navigator.mimeTypes entries
         // (application/pdf, text/pdf). Five plugins beside an empty mimeTypes
@@ -1473,31 +1700,29 @@ export class StealthBrowserManager {
             Object.defineProperty(mimeTypeArray, index, { value: mimeType, enumerable: true });
             Object.defineProperty(mimeTypeArray, mimeType.type, { value: mimeType });
           });
-          Object.defineProperty(navigator, 'mimeTypes', { get: () => mimeTypeArray });
+          defineOnPrototype('mimeTypes', { get: () => mimeTypeArray });
         }
       }
 
-      // Override languages with the fingerprint's own locale — a hardcoded
-      // en-US here contradicts navigator.language and Accept-Language whenever
-      // the persona is not American.
-      Object.defineProperty(navigator, 'languages', {
-        get: function() {
-          const primary = locale.split('-')[0];
-          return primary === locale ? [locale] : [locale, primary];
-        }
-      });
+      // No languages here either. The persona's language list is handed to
+      // Chromium as the accept-language override in _applyEmulatedIdentity, so
+      // the document and every worker parse the same list; this defineProperty
+      // reached only the document, and the worker's ["en-US"] against the
+      // document's ["en-US", "en"] was the difference the benchmark measured
+      // (2026-09-21, worker-languages).
 
-      // Mock battery API with realistic values
-      Object.defineProperty(navigator, 'getBattery', {
-        get: function() {
-          return function() {
-            return Promise.resolve({
-              charging: true,
-              chargingTime: 0,
-              dischargingTime: Infinity,
-              level: 0.8 + Math.random() * 0.19 // 80-99%
-            });
-          };
+      // Mock battery API with realistic values. A data property, not an
+      // accessor: getBattery is a WebIDL operation, so on a real Navigator
+      // prototype it is a writable function value and not a getter.
+      defineOnPrototype('getBattery', {
+        writable: true,
+        value: function getBattery() {
+          return Promise.resolve({
+            charging: true,
+            chargingTime: 0,
+            dischargingTime: Infinity,
+            level: 0.8 + Math.random() * 0.19 // 80-99%
+          });
         }
       });
 
@@ -1529,7 +1754,7 @@ export class StealthBrowserManager {
           return originalPrepareStackTrace.call(this, error, filteredStack);
         };
       }
-    }, fingerprint.locale || config.locale || 'en-US');
+    });
 
     // WebRTC leak prevention with advanced spoofing
     if (config.blockWebRTC) {
@@ -1703,73 +1928,56 @@ export class StealthBrowserManager {
       }, fingerprint.mediaDevices);
     }
 
-    // Hardware spoofing
-    if (config.fingerprinting?.hardwareSpoofing) {
+    // Hardware. Nothing is defined onto the document's navigator any more.
+    // hardwareConcurrency and deviceMemory are the host's own values
+    // (generateHardwareFingerprint), so there is nothing left to override — a
+    // defineProperty that sets a property to the value it already has is a JS
+    // seam bought for nothing. platform is set through CDP
+    // (_applyEmulatedIdentity), and with the persona OS taken from the host it
+    // is usually the truth as well.
+    //
+    // Init scripts never run inside a dedicated Worker, so a detector that
+    // compares navigator in a worker with the main thread saw the real
+    // platform, deviceMemory and hardwareConcurrency beside the spoofed
+    // ones (bot.incolumitas.com "inconsistentWebWorkerNavigatorPropery",
+    // R17 2026-09-04). At the advanced level, classic workers start from a
+    // blob that patches WorkerNavigator and then importScripts() the real
+    // script; relative importScripts/fetch inside such a worker resolve
+    // against the original script URL. Module workers, data:/blob: worker
+    // URLs and a CSP that refuses blob workers fall through to the native
+    // constructor untouched. (camoufox never reaches here — this whole method
+    // returns early for it.)
+    //
+    // MEASURED COVERAGE, 2026-09-16, chromium, comparing a worker's navigator
+    // with the main thread's:
+    //
+    //   level      new Worker('/w.js')   new Worker(blob:)
+    //   medium     leaks all four        leaks all four
+    //   advanced   matches               leaks all four
+    //
+    // The four are platform, hardwareConcurrency, deviceMemory and languages.
+    // So a detector that builds its worker from a Blob — which needs no second
+    // request and is the usual shape — read straight past this at every level.
+    //
+    // THE CALL, taken 2026-09-21: stop drawing what a worker can contradict.
+    // hardwareConcurrency and deviceMemory are the host's own values now, and
+    // languages comes from the context locale, which Playwright applies to the
+    // worker as well as the document — all three agree without a wrapper.
+    // That leaves platform, and only for a caller who pins a customUserAgent
+    // from another OS: the persona's OS is otherwise the host's, so the spoofed
+    // platform IS the real one and the wrapper would rewrite every worker
+    // source on the page to change nothing. Hence the guard — the surface is
+    // paid for only when it buys something. WebGL's unmasked vendor/renderer is
+    // still window-only and still leaks in a worker.
+    const hostPlatform = this.selectRealisticPlatform(this.hostOS());
+    if (config.fingerprinting?.hardwareSpoofing
+        && config.level === 'advanced'
+        && fingerprint.hardware.platform !== hostPlatform) {
       await context.addInitScript((hardware) => {
-        Object.defineProperty(navigator, 'hardwareConcurrency', {
-          get: () => hardware.hardwareConcurrency
-        });
-        
-        Object.defineProperty(navigator, 'platform', {
-          get: () => hardware.platform
-        });
-        
-        if (navigator.deviceMemory !== undefined) {
-          Object.defineProperty(navigator, 'deviceMemory', {
-            get: () => hardware.deviceMemory
-          });
-        }
-      }, fingerprint.hardware);
-
-      // Init scripts never run inside a dedicated Worker, so a detector that
-      // compares navigator in a worker with the main thread saw the real
-      // platform, deviceMemory and hardwareConcurrency beside the spoofed
-      // ones (bot.incolumitas.com "inconsistentWebWorkerNavigatorPropery",
-      // R17 2026-09-04). At the advanced level, classic workers start from a
-      // blob that patches WorkerNavigator and then importScripts() the real
-      // script; relative importScripts/fetch inside such a worker resolve
-      // against the original script URL. Module workers, data:/blob: worker
-      // URLs and a CSP that refuses blob workers fall through to the native
-      // constructor untouched. (camoufox never reaches here — this whole method
-      // returns early for it.)
-      //
-      // MEASURED COVERAGE, 2026-09-16, chromium, comparing a worker's navigator
-      // with the main thread's:
-      //
-      //   level      new Worker('/w.js')   new Worker(blob:)
-      //   medium     leaks all four        leaks all four
-      //   advanced   matches               leaks all four
-      //
-      // The four are platform, hardwareConcurrency, deviceMemory and languages;
-      // WebGL's unmasked vendor/renderer leaks the same way, because the
-      // prototype patch above lives in the window, not in a worker scope. So a
-      // detector that builds its worker from a Blob — which needs no second
-      // request and is the usual shape — reads straight past this at every
-      // level, and deviceandbrowserinfo.com's hasInconsistentWorkerValues
-      // stays set. Every one of those mismatches is ours: a worker reports the
-      // truth, and only the main thread was spoofed.
-      //
-      // Closing it properly means one of two things, and both are trades:
-      // rewrite blob/data worker sources so the patch reaches them (more
-      // surface, and it still misses module workers and SharedWorker), or stop
-      // spoofing in the window what cannot be spoofed in a worker (consistent,
-      // but then the real values show — 32 cores and a SwiftShader GPU, which
-      // is its own datacenter tell). Left as it is pending that call; do not
-      // read the `advanced` gate as coverage.
-      if (config.level === 'advanced') {
-        await context.addInitScript(({ hardware, locale }) => {
-          const NativeWorker = window.Worker;
-          if (typeof NativeWorker !== 'function') return;
-          const primary = locale.split('-')[0];
-          const languages = primary === locale ? [locale] : [locale, primary];
-          const spoof = JSON.stringify({
-            hardwareConcurrency: hardware.hardwareConcurrency,
-            platform: hardware.platform,
-            deviceMemory: hardware.deviceMemory,
-            languages,
-            language: locale
-          });
-          const prelude = (scriptUrl) =>
+        const NativeWorker = window.Worker;
+        if (typeof NativeWorker !== 'function') return;
+        const spoof = JSON.stringify({ platform: hardware.platform });
+        const prelude = (scriptUrl) =>
             `(() => {
               const spoof = ${spoof};
               const proto = self.WorkerNavigator && self.WorkerNavigator.prototype;
@@ -1777,11 +1985,7 @@ export class StealthBrowserManager {
                 try { Object.defineProperty(proto, key, { get: () => value, configurable: true }); } catch (e) {}
               };
               if (proto) {
-                define('hardwareConcurrency', spoof.hardwareConcurrency);
                 define('platform', spoof.platform);
-                if ('deviceMemory' in self.navigator) define('deviceMemory', spoof.deviceMemory);
-                define('languages', spoof.languages);
-                define('language', spoof.language);
               }
               const base = ${JSON.stringify(scriptUrl)};
               const resolve = (u) => { try { return new URL(String(u), base).href; } catch (e) { return u; } };
@@ -1799,25 +2003,24 @@ export class StealthBrowserManager {
               }
             })();
             importScripts(${JSON.stringify(scriptUrl)});`;
-          const Wrapped = function Worker(scriptURL, options) {
-            try {
-              const isModule = options && options.type === 'module';
-              const absolute = new URL(String(scriptURL), location.href).href;
-              if (!isModule && /^https?:/.test(absolute)) {
-                const blob = new Blob([prelude(absolute)], { type: 'text/javascript' });
-                return new NativeWorker(URL.createObjectURL(blob), options);
-              }
-            } catch (e) {
-              // CSP refused the blob URL or the URL failed to parse: native worker.
+        const Wrapped = function Worker(scriptURL, options) {
+          try {
+            const isModule = options && options.type === 'module';
+            const absolute = new URL(String(scriptURL), location.href).href;
+            if (!isModule && /^https?:/.test(absolute)) {
+              const blob = new Blob([prelude(absolute)], { type: 'text/javascript' });
+              return new NativeWorker(URL.createObjectURL(blob), options);
             }
-            return new NativeWorker(scriptURL, options);
-          };
-          Wrapped.prototype = NativeWorker.prototype;
-          Object.defineProperty(Wrapped, 'name', { value: 'Worker' });
-          Wrapped.toString = () => 'function Worker() { [native code] }';
-          window.Worker = Wrapped;
-        }, { hardware: fingerprint.hardware, locale: config.locale });
-      }
+          } catch (e) {
+            // CSP refused the blob URL or the URL failed to parse: native worker.
+          }
+          return new NativeWorker(scriptURL, options);
+        };
+        Wrapped.prototype = NativeWorker.prototype;
+        Object.defineProperty(Wrapped, 'name', { value: 'Worker' });
+        Wrapped.toString = () => 'function Worker() { [native code] }';
+        window.Worker = Wrapped;
+      }, fingerprint.hardware);
     }
 
     // Font spoofing
@@ -1899,11 +2102,22 @@ export class StealthBrowserManager {
     // Battery API spoofing
     if (config.antiDetection?.spoofBatteryAPI) {
       await context.addInitScript((battery) => {
-        if (navigator.getBattery) {
-          navigator.getBattery = function() {
-            return Promise.resolve(battery);
-          };
-        }
+        // On the prototype, where getBattery natively lives. A plain
+        // `navigator.getBattery = …` assignment makes it an OWN property of the
+        // navigator instance, which is the list rebrowser prints (2026-09-21
+        // bench) — a real Chrome's Object.getOwnPropertyNames(navigator) is
+        // empty.
+        if (!('getBattery' in Navigator.prototype)) return;
+        try {
+          Object.defineProperty(Navigator.prototype, 'getBattery', {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: function getBattery() {
+              return Promise.resolve(battery);
+            }
+          });
+        } catch (e) { /* a build that refuses the redefinition keeps the real one */ }
       }, fingerprint.battery);
     }
   }
@@ -2208,11 +2422,18 @@ export class StealthBrowserManager {
    * @returns {Promise<{success:boolean, url:string, title:string, text:string, html:string, screenshot:?string}>}
    */
   /**
-   * If the document is a self-solving bot-wall interstitial (its title is a
-   * known challenge title), wait up to timeoutMs for the title to change —
-   * the challenge script navigates to the real page when it passes — and for
-   * that navigation to reach domcontentloaded. A challenge that never passes
-   * is left to challengeDetection to report as blocked.
+   * If the document is a self-solving bot-wall interstitial, wait up to
+   * timeoutMs for the title to change — the challenge script navigates to the
+   * real page when it passes — and for that navigation to reach
+   * domcontentloaded. A challenge that never passes is left to
+   * challengeDetection to report as blocked.
+   *
+   * The trigger is looksLikeInterstitial, not a known title: nowsecure.nl's
+   * interstitial is titled "nowsecure.nl", so a title-only test skipped the
+   * wait entirely and the block verdict fired on a challenge that had not been
+   * given its chance to solve itself (2026-09-21 benchmark, section 2.2). That
+   * costs one page.content() per call, which is what reading the challenge
+   * bootstrap out of the document takes.
    */
   /**
    * A document with no title and no text right after domcontentloaded is
@@ -2324,7 +2545,15 @@ export class StealthBrowserManager {
     } catch {
       return;
     }
-    if (!detectChallengePage({ title })) return;
+    // A page that is navigating — which a challenge that has just solved itself
+    // is — can answer title() and still refuse content(). Falling back to the
+    // title-only decision keeps a known interstitial waited on; only the marker
+    // branch, and with it the custom-titled wall, is lost for that call.
+    let html = '';
+    try {
+      html = await page.content();
+    } catch { /* title-only decision */ }
+    if (!looksLikeInterstitial({ title, html })) return;
     await page
       .waitForFunction((t) => document.title !== t, title, { timeout: timeoutMs })
       .catch(() => {});
@@ -2401,37 +2630,125 @@ export class StealthBrowserManager {
   }
 
   /**
-   * Whether a request is dropped before it leaves the browser. Only the
-   * advanced level sheds assets, never by URL and never the document itself.
+   * Whether a request is dropped before it leaves the browser. Nothing is, at
+   * any level, which is why applyPageStealthMeasures routes no page at all —
+   * this is the one place that answers the question, and the answer is the
+   * reason the interception is gone.
    * @param {string} resourceType - Playwright's request.resourceType()
    * @param {string} level - stealth level
    * @returns {boolean}
    */
-  static shouldAbortRequest(resourceType, level) {
-    if (level !== 'advanced') return false;
-    if (!['image', 'font', 'stylesheet'].includes(resourceType)) return false;
-    // Allow some images/fonts to maintain realism
-    return Math.random() >= 0.3;
+  static shouldAbortRequest(_resourceType, _level) {
+    return false;
+  }
+
+  /**
+   * The full user-agent client-hint metadata for a fingerprint: what Playwright
+   * already derives from the user agent, plus the brand lists it leaves to the
+   * binary. Omitting a field means "fill this in with what you would normally
+   * use", and what a headless Chromium normally uses says HeadlessChrome — in
+   * brands, in fullVersionList, and so in every high-entropy hint a detector
+   * asks for.
+   *
+   * The five derived fields are what playwright-core's own
+   * calculateUserAgentMetadata produces for the three desktop personas this
+   * manager draws — so for every user agent it can hand out, this changes the
+   * brands and nothing else. A mobile persona is out of scope here for the same
+   * reason isMobile is pinned false in generateAdvancedFingerprint: the pool has
+   * no mobile user agent to be coherent with.
+   *
+   * @param {Object} fingerprint
+   * @returns {Object} a CDP Emulation.UserAgentMetadata
+   */
+  generateUserAgentMetadata(fingerprint) {
+    const userAgent = String(fingerprint.userAgent || '');
+    const brands = this.generateUserAgentBrands(userAgent);
+    const brandVersion = brands[brands.length - 1].version;
+    // The four-part build number, but only when it is the binary the brand
+    // version names; a custom UA on another major gets the reduced form rather
+    // than this machine's build under someone else's version.
+    const fullVersion = brandVersion === String(this.chromeMajor)
+      ? this.chromeVersion
+      : `${brandVersion}.0.0.0`;
+    const platformVersions = { windows: '10.0', macos: '10_15_7', linux: '' };
+    const platforms = { windows: 'Windows', macos: 'macOS', linux: 'Linux' };
+    const os = this.inferOSFromUserAgent(userAgent);
+
+    return {
+      brands,
+      fullVersionList: brands.map((brand) => ({ brand: brand.brand, version: fullVersion })),
+      fullVersion,
+      platform: platforms[os],
+      platformVersion: platformVersions[os],
+      architecture: 'x86',
+      model: '',
+      mobile: false
+    };
+  }
+
+  /**
+   * Tell the renderer who it is, instead of patching it from script.
+   *
+   * navigator.userAgent, .platform and .userAgentData were being defined on the
+   * document's navigator by init scripts. An init script does not run in a
+   * Worker, so every one of those values was spoofed in the document and
+   * truthful in the worker beside it — a MacIntel under a Windows persona,
+   * which is what bot.incolumitas.com and CreepJS score (2026-09-21 benchmark,
+   * worker-*). Emulation.setUserAgentOverride is applied by the renderer, and
+   * the brands it carries are the ones the binary would otherwise fill in as
+   * HeadlessChrome.
+   *
+   * `acceptLanguage` is the plain locale tag, the same single value Playwright
+   * gives the context. It is deliberately NOT the two-entry "en-US,en" list:
+   * this override reaches the document only, while a worker's
+   * navigator.languages comes from the context locale, so a second entry here
+   * showed up in the document and nowhere else — the very mismatch the init
+   * script used to create (2026-09-21 benchmark, worker-languages). The
+   * Accept-Language *header* still carries the `en;q=0.9` fallback, from
+   * generateAdvancedHeaders, which is what a real Chrome sends for a
+   * single-locale preference. The field cannot simply be omitted: that clears
+   * the override Playwright installed and a de-DE persona would fall back to
+   * the binary's default.
+   *
+   * Chromium only: CDP does not exist on camoufox's Firefox, which spoofs all
+   * of this in its own engine anyway. A failure here is not fatal — Playwright
+   * has already set the user agent through the context, so the persona survives
+   * without the brands.
+   */
+  async _applyEmulatedIdentity(page, config, fingerprint) {
+    if (!isChromium(page) || !fingerprint.userAgent) return;
+    try {
+      const client = await page.context().newCDPSession(page);
+      await client.send('Emulation.setUserAgentOverride', {
+        userAgent: fingerprint.userAgent,
+        acceptLanguage: fingerprint.locale || config.locale || 'en-US',
+        platform: fingerprint.hardware.platform,
+        userAgentMetadata: this.generateUserAgentMetadata(fingerprint)
+      });
+    } catch (error) {
+      console.warn(`Identity emulation skipped: ${error.message}`);
+    }
   }
 
   /**
    * Apply page-level stealth measures
    */
   async applyPageStealthMeasures(page, config, fingerprint) {
-    // Resource routing. Nothing is aborted by URL any more: the old list
-    // blocked challenges.cloudflare.com and every URL containing "selenium",
-    // "webdriver" or "puppeteer" — the first meant a Cloudflare challenge
-    // could never complete (the interstitial named the blocked host), the
-    // second killed the top-level navigation to www.selenium.dev on every
-    // stealth path (R15, 2026-09-04). A vendor script that never loads is a
-    // louder tell than one that runs.
-    await page.route('**/*', route => {
-      if (StealthBrowserManager.shouldAbortRequest(route.request().resourceType(), config.level)) {
-        route.abort();
-      } else {
-        route.continue();
-      }
-    });
+    // No request routing at all. R15 had already stopped aborting by URL (the
+    // old list blocked challenges.cloudflare.com, so a Cloudflare challenge
+    // could never complete, and killed the navigation to www.selenium.dev);
+    // what was left was the advanced level dropping about a third of images,
+    // fonts and stylesheets at random. Both halves of that are timeable: a page
+    // that renders without the fonts and images it asked for does not look like
+    // a browser reading it, and route('**/*') itself puts every request through
+    // a node round trip, which shows up as latency no network explains
+    // (2026-09-21 review, finding 10). With nothing left to abort there is
+    // nothing for the interception to decide, so the handler is gone rather
+    // than made conditional.
+
+    // Every identity the renderer can be told about directly, rather than
+    // patched into from script.
+    await this._applyEmulatedIdentity(page, config, fingerprint);
 
     // Add request headers — Chromium only. These carry sec-ch-ua,
     // sec-ch-ua-mobile and sec-ch-ua-platform, client hints Gecko does not
@@ -2847,6 +3164,15 @@ export class CamoufoxAdapter extends BrowserEngine {
     };
     // A bare `{ server }` is fine here; camoufox normalises both shapes.
     if (config.proxy) options.proxy = config.proxy;
+    // "windows" | "macos" | "linux", as a plain string — a one-element ARRAY is
+    // ignored and falls back to the random draw. Left unset, camoufox picks one
+    // of the three at random, which is how a Mac ended up claiming Windows.
+    if (config.os) options.os = config.os;
+    // The first listed locale is the one used for the Intl API. camoufox
+    // applies it in its own engine, so navigator.language, Accept-Language and
+    // Intl agree in the document and in every worker. Left unset with geoip on,
+    // camoufox derives it from the proxy's exit IP instead.
+    if (config.locale) options.locale = config.locale;
     // geoip derives longitude, latitude, timezone, country and locale from the
     // proxy's exit IP, which is the one thing that makes a proxied browser
     // coherent. It costs a request through the proxy, and the first ever call

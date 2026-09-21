@@ -5,7 +5,9 @@
 ## playwright (default)
 
 - Chromium-based with stealth patches applied.
-- Masks `webdriver`, User-Agent, and navigator properties.
+- Reports `navigator.webdriver` as `false` (not deleted — a missing property is
+  itself a marker), and sets the User-Agent, platform, languages and core count
+  through CDP, so a Web Worker answers the same as the page.
 - Lower resource usage, faster startup.
 - Good for most sites with basic bot detection.
 
@@ -48,6 +50,15 @@
 - `fingerprinting { canvasNoise, webglSpoofing, audioContextSpoofing,
   fontSpoofing, hardwareSpoofing }`.
 
+On `camoufox`, `customUserAgent` and `customViewport` are not applied: that engine
+brings its own Firefox identity, and overriding it from here put a Chrome identity
+on a Gecko engine. `locale` is applied, but at browser launch rather than per
+call — Camoufox sets language, Accept-Language and `Intl` below the JS layer,
+where a Worker matches the document — so the first locale a Camoufox browser is
+launched with holds until the browser is cleaned up, and behind a proxy the exit
+IP decides it instead. The persona's OS is the host's and is not configurable
+(on Camoufox that is a request its current client does not honour).
+
 ## Global override
 
 ```bash
@@ -58,6 +69,7 @@ Forces the engine for all stealth calls regardless of the `engine` parameter.
 
 ## Sandboxing note
 
-Stealth Chromium runs with `--no-sandbox` + `--disable-web-security` (a
-deliberate fingerprint-spoofing trade-off). Camoufox (Firefox) is the
-alternative when that trade-off is unacceptable.
+Stealth Chromium runs with `--no-sandbox` (a deliberate fingerprint-spoofing
+trade-off). It no longer runs with `--disable-web-security`, which a page could
+read in one line; the non-stealth render browser still does. Camoufox (Firefox)
+is the alternative when the `--no-sandbox` trade-off is unacceptable.

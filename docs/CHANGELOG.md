@@ -5,6 +5,122 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+Phase 1 of the 2026-09 stealth review: the leaks and false verdicts the Phase 0
+benchmark measured, closed and re-measured. Every claim below was produced by
+`npm run bench:stealth` on a residential connection, and the "before" numbers
+come from running the same harness against a clean HEAD worktree the same
+afternoon — not from the review's hand run.
+
+### Fixed
+
+- **A page that merely embeds a Turnstile widget is no longer reported as
+  blocked.** quora.com rendered its real login page on both engines and the
+  verdict layer called it a Cloudflare block for three benchmark runs. The cause
+  was narrower than the review guessed: the page carries exactly one `cf-chl-`
+  token and it is `cf-chl-widget-<id>_response`, the hidden input **Turnstile
+  names itself**, so a bare `cf-chl-` marker test matches every widget embed
+  there is. `src/utils/challengeDetection.js` now separates the widget's own
+  markers from the interstitial bootstrap (`_cf_chl_opt`, `window._cf_chl`,
+  `cf_chl_rc_`) and clears a document that has a real title, a real body and only
+  the widget; `src/utils/stealthVerdict.js` re-runs the upstream verdict with
+  those markers neutralised, so an HTTP error page or an empty shell that happens
+  to embed a widget is still named by upstream and still decides. `scrape` was
+  importing the verdict straight from `crawlforge-extractors`, bypassing the
+  refinement, and now goes through the same wrapper. quora.com is a **Pass** on
+  both engines; nowsecure.nl is still Blocked, which is the honest answer for an
+  interactive Turnstile.
+- **A custom-titled interstitial gets its wait.** `_waitOutChallenge` triggered
+  only on a known challenge title, so nowsecure.nl — whose interstitial is titled
+  `nowsecure.nl` — was never given the seconds a self-solving challenge needs
+  before the verdict fired. It now triggers on the bootstrap marker as well, and
+  a page whose content cannot be read degrades to the title-only decision instead
+  of skipping the wait.
+- **`navigator.webdriver` reports `false` instead of being deleted**, and nothing
+  is an own property of the `navigator` instance any more. `connection`,
+  `plugins`, `mimeTypes` and `getBattery` moved to `Navigator.prototype`, where a
+  real Chrome has them (`getBattery` as a writable data property, since it is an
+  operation and not an accessor). rebrowser read the old shape out in one line:
+  `Object.getOwnPropertyNames(navigator)` returned four names. It returns `[]`.
+- **`navigator.userAgentData` no longer carries a `HeadlessChrome` brand** and
+  does carry "Google Chrome". The brand list feeding `sec-ch-ua` and the one the
+  binary filled in for the JS API were two different lists; they are now one,
+  applied through `Emulation.setUserAgentOverride`.
+- **The Chrome major in the user agent is read from the installed binary**
+  (playwright-core's `browsers.json`, re-derived from the browser once it is
+  running) instead of drawn from a pool of four majors, three of which
+  mis-stated the version `userAgentData` reported.
+- **A Web Worker answers what the document answers.** User agent, platform,
+  accept-language and core count are set through CDP emulation rather than
+  patched into the document from init scripts, so the renderer applies them to
+  the workers a frame starts — no `Worker`/`importScripts` wrapper to bypass, and
+  no blob or module worker to miss. incolumitas'
+  `inconsistentWebWorkerNavigatorPropery` is OK; CreepJS's worker comparison went
+  from three mismatched fields to one.
+
+### Changed
+
+- **The persona's OS is the host's**, on both engines, instead of a draw from
+  market share. A Mac claiming Windows beside an Apple GPU, a Mac font list and a
+  Darwin TCP/IP fingerprint is a cleaner signal than no spoofing at all.
+- **`hardwareConcurrency` and `deviceMemory` are observed, not invented.** No CDP
+  override reaches a worker, so a spoofed document beside a truthful worker was
+  the contradiction being scored; the host's real values are now reported in
+  both, and the processor persona is picked to match the core count.
+- **Chromium launch flags.** `--disable-web-security` and
+  `--disable-site-isolation-trials` are gone — a page reads the first in one line
+  with a cross-origin fetch that should throw, and it contradicted this file's own
+  decision to leave `bypassCSP` unset. The four flags patchright calls a stealth
+  driver's signature (`--disable-component-update`, `--disable-default-apps`,
+  `--disable-extensions`, `--disable-popup-blocking`) are both dropped from our
+  args and named in `ignoreDefaultArgs`, because Playwright passes all four by
+  default. The five `--disable-webrtc-*` flags, which disabled hardware codecs
+  and not IP exposure, are replaced by
+  `--webrtc-ip-handling-policy=disable_non_proxied_udp`. A `--blink-settings`
+  hover/pointer pair stops a headless browser answering media queries like a
+  touchscreen kiosk. **The non-stealth render browser (`BrowserProcessor`) still
+  launches with `--no-sandbox` and `--disable-web-security`** — only the stealth
+  browser changed.
+- **Stealth pages no longer intercept requests.** `page.route('**/*')` is gone,
+  and with it the advanced level's habit of aborting about a third of images,
+  fonts and stylesheets at random. A page that renders without the assets it
+  asked for does not look like a browser reading it, and routing every request
+  through Node adds latency no network explains.
+- **On Camoufox the caller's `locale` is applied at browser launch**, not per
+  context. Playwright's Firefox locale override reaches the document and not the
+  worker beside it; Camoufox sets language, Accept-Language and `Intl` together
+  in its own engine. Like the proxy, this fixes the locale for that browser's
+  lifetime — a later call asking for another locale inherits the launched one
+  until `cleanup()` — and behind a proxy `geoip` decides it from the exit IP.
+
+### Notes
+
+Detector self-probes, both engines: **19 pass, 0 fail, 1 skip** (the skip is
+`userAgentData` on Firefox, which does not expose it). Seven of the eight ids
+seeded into `scripts/lib/stealth-bench/ci-baseline.json` are deleted in this
+commit, as that file's own rule requires. The eighth, `persona-os-vs-host`,
+stays for one engine and one reason: **camoufox npm 0.1.19 does not honour its
+documented `os` option** — ten launches asking for `macos` on a Mac produced a
+Mac persona about one time in three, the market-share draw, because the client
+forwards the option to `fingerprint-generator`, whose key is `operatingSystems`.
+We pass it anyway; Phase 2 owns the Camoufox client.
+
+What is *not* closed, stated rather than glossed: CreepJS still reads a worker
+user agent of `HeadlessChrome/151`. That scope is a SharedWorker — a separate
+CDP target that playwright-core attaches nothing to, and `Emulation` is not
+available on a worker session — so closing it means blocking SharedWorker (a tell
+of its own) or attaching to those targets ourselves. Neither is contained.
+incolumitas trades one FAIL for another on purpose: `WEBDRIVER` is an
+fpscanner-era test that flags any browser where `navigator.webdriver` is not
+`undefined`, which is every real Chrome since 89, and satisfying it again means
+re-introducing exactly what rebrowser marks red. sannysoft's two red rows
+(`Permissions (New)`, `navigator.javaEnabled`) fail identically on HEAD and are
+untouched by this phase.
+
+No tool, schema or credit changes. 2372 unit tests / 0 failed (178 files); MCP
+compliance 100.0% / 0 errors.
+
+---
+
 Phase 0 of the 2026-09 stealth review: the benchmark in that document was run by
 hand, and everything the review recommends is supposed to be measured against
 it. This makes it a command.

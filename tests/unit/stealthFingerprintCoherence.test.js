@@ -12,9 +12,15 @@
  * (timezone/geolocation/Accept-Language) and the sec-ch-ua version pairing. This
  * file covers what that one does not: the OS agreement measured at the sample
  * size the fix was signed off on, and — the part a coherence fix can silently
- * break — that fingerprints still VARY. Collapsing every fingerprint onto one OS
- * would satisfy every coherence assertion and be a worse signal than the
- * mismatch it replaced.
+ * break — that fingerprints still VARY.
+ *
+ * Phase 1 (2026-09-21) deliberately took four of those axes away: the persona OS
+ * is the host's, the Chrome version is the launched binary's, and the core count
+ * and device memory are the machine's own. A drawn OS contradicted the GPU, the
+ * CSS platform hints and the TCP/IP fingerprint; a drawn version contradicted
+ * navigator.userAgentData; a drawn core count contradicted the same page's own
+ * Web Worker. So the variation test below pins those and holds the rest to the
+ * same bar.
  *
  * The device/font tables below are copied deliberately rather than imported, so
  * a wrong entry in StealthBrowserManager fails here instead of being restated.
@@ -145,23 +151,41 @@ describe('stealth fingerprint OS coherence and WebRTC IP', () => {
     assert.deepEqual(failures, [], `${failures.length} implausible WebRTC addresses over ${SAMPLES} fingerprints`);
   });
 
-  test('coherence does not collapse the fingerprint into one identity', () => {
-    const seen = { os: new Set(), userAgent: new Set(), publicIP: new Set(), viewport: new Set() };
+  test('what a worker can read is pinned; what it cannot still varies', () => {
+    const seen = {
+      os: new Set(), userAgent: new Set(), publicIP: new Set(),
+      viewport: new Set(), cores: new Set(), memory: new Set(), renderer: new Set()
+    };
     for (let i = 0; i < VARIATION_SAMPLES; i++) {
       const fp = manager.generateAdvancedFingerprint({ locale: 'en-US', useRandomUserAgent: true });
       seen.os.add(osFromUserAgent(fp.userAgent));
       seen.userAgent.add(fp.userAgent);
       seen.publicIP.add(fp.webRTC.publicIP);
       seen.viewport.add(`${fp.viewport.width}x${fp.viewport.height}`);
+      seen.cores.add(fp.hardware.hardwareConcurrency);
+      seen.memory.add(fp.hardware.deviceMemory);
+      seen.renderer.add(fp.webGL.renderer);
     }
 
-    assert.deepEqual(
-      [...seen.os].sort(),
-      ['linux', 'macos', 'windows'],
-      'all three operating systems should still be drawn'
-    );
-    assert.ok(seen.userAgent.size >= 8, `only ${seen.userAgent.size} distinct user agents`);
+    // Four of these used to be drawn and are now observed, and the dividing
+    // line is the Worker: an init script does not run in one, so anything a
+    // worker can read was spoofed in the document and truthful beside it. The
+    // OS is the host's (the TCP/IP fingerprint, the GPU strings and the CSS
+    // platform hints are the host's anyway), the Chrome version is the launched
+    // binary's — which leaves one correct UA string per host, because Chrome
+    // froze every other token of it — and the core count and device memory are
+    // the machine's own.
+    assert.deepEqual([...seen.os], [manager.hostOS()], 'the persona OS is the host OS, every time');
+    assert.equal(seen.userAgent.size, 1, `${seen.userAgent.size} user agents for one binary on one host`);
+    assert.match([...seen.userAgent][0], new RegExp(`Chrome/${manager.chromeMajor}\\.0\\.0\\.0`));
+    assert.deepEqual([...seen.cores], [manager.hostHardwareConcurrency()]);
+    assert.deepEqual([...seen.memory], [manager.hostDeviceMemory()]);
+
+    // The entropy that is supposed to remain: a page-only signal is still free
+    // to vary, and pinning the identity is not the same as collapsing every
+    // fingerprint onto one.
     assert.ok(seen.viewport.size >= 3, `only ${seen.viewport.size} distinct viewports`);
+    assert.ok(seen.renderer.size >= 2, `only ${seen.renderer.size} distinct GPUs`);
     assert.ok(
       seen.publicIP.size >= VARIATION_SAMPLES * 0.9,
       `only ${seen.publicIP.size} distinct public IPs over ${VARIATION_SAMPLES} fingerprints`
