@@ -74,11 +74,15 @@ Playwright Chromium in the standard pool runs with the default OS sandbox intact
 
 ### Stealth browser pool
 
-Source: `src/core/StealthBrowserManager.js`, line ~246
+Source: `src/core/StealthBrowserManager.js`, `_doLaunchStealthBrowser()`
 
-The stealth pool launches Chromium with `--no-sandbox` and `--disable-web-security`.
+The stealth pool launches Chromium with `--no-sandbox`.
 
 **Why**: fingerprint evasion requires controlling canvas rendering, WebGL, and font enumeration at a low level. The Playwright Chromium distribution does not expose these hooks under the OS sandbox in most container environments. Disabling the sandbox is a deliberate trade-off to enable anti-detection.
+
+**`--disable-web-security` is gone from this browser** (2026-09-21). It used to stand beside `--no-sandbox` here and bought the stealth layer nothing: every script it applies goes through `addInitScript`/`evaluate`, which need no same-origin bypass. What it did buy was a tell — a page reads it in one line, with a cross-origin `fetch()` that should throw and does not — and it contradicted this pool's own decision to leave `bypassCSP` unset. It left together with four flags Playwright passes by default (`--disable-component-update`, `--disable-default-apps`, `--disable-extensions`, `--disable-popup-blocking`), which are now named in `ignoreDefaultArgs` so they are off the command line rather than merely absent from our own args.
+
+Only the stealth Chromium lost the flag. The non-stealth render browser behind `extract_content`, `process_document` and `scrape_with_actions` (`src/core/processing/BrowserProcessor.js`) still launches with `--no-sandbox` and `--disable-web-security`.
 
 **Mitigation**: stealth scraping is an explicit operator choice (`stealth_mode` tool); it does not activate for standard scrapes. Camoufox (Firefox-based, added in v4.0.0, `engine: "camoufox"`) is available as an alternative that achieves fingerprint evasion without disabling the OS sandbox. See `docs/stealth-engines.md`.
 
@@ -180,7 +184,7 @@ The credit check is fail-closed since v3.0.18: insufficient credits stop the too
 The following are documented limitations, not planned fixes:
 
 - **SSRF is blocklist-based**: there is no per-deployment outbound allowlist for scraped targets. A previously unknown private range or a DNS rebinding attack after the 5-minute cache window could bypass the check.
-- **Stealth Chromium uses `--no-sandbox`**: this is a real sandbox reduction. Use Camoufox or OS-level container isolation if scraping untrusted content at scale.
+- **Stealth Chromium uses `--no-sandbox`**: this is a real sandbox reduction. Use Camoufox or OS-level container isolation if scraping untrusted content at scale. The non-stealth render browser (`BrowserProcessor`) runs with `--no-sandbox` and `--disable-web-security`; only the stealth browser dropped the second flag.
 - **robots.txt is fail-open**: a missing or unreachable `robots.txt` is treated as "allow all". This is a deliberate resilience choice, not a compliance guarantee.
 - **No per-action elicitation in `scrape_with_actions`**: the tool accepts entire action chains without mid-chain confirmation. The action allowlist and JS env-var gate are the only per-action controls.
 - **Elicitation capability not advertised**: the server wires elicitation but does not declare it in the MCP capabilities block. Clients that gate on capability discovery will not trigger the elicitation flow.

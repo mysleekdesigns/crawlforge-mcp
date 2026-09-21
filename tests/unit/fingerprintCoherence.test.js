@@ -251,7 +251,14 @@ describe('R14: the Chromium engine never presents another browser\'s identity', 
       const fp = manager.generateAdvancedFingerprint({ locale: 'en-US', useRandomUserAgent: true, engine: 'chromium' });
       assert.match(fp.userAgent, /Chrome\/\d+/, `Chromium presented a non-Chrome UA: ${fp.userAgent}`);
       assert.ok(!/Firefox|Version\/\d+.*Safari/.test(fp.userAgent), `foreign browser UA on Chromium: ${fp.userAgent}`);
-      assert.ok([4, 8].includes(fp.hardware.deviceMemory), `deviceMemory ${fp.hardware.deviceMemory} is not a Chrome value`);
+      // One of the six values Chromium's clamp can produce, and specifically
+      // the one THIS host's RAM produces — it is observed now, not drawn, so a
+      // worker reading it cannot contradict the document (Phase 1, 2026-09-21).
+      assert.ok(
+        [0.25, 0.5, 1, 2, 4, 8].includes(fp.hardware.deviceMemory),
+        `deviceMemory ${fp.hardware.deviceMemory} is not a Chrome value`
+      );
+      assert.equal(fp.hardware.deviceMemory, manager.hostDeviceMemory());
     }
   });
 

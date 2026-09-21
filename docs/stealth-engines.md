@@ -35,7 +35,7 @@ Without the binary, `deep_research` silently falls back to Chromium stealth, the
 ### `playwright` (default)
 
 - **Browser:** Chromium
-- **Anti-detection approach:** JavaScript-level fingerprint spoofing (canvas noise, WebGL, WebRTC, user-agent rotation, human behavior simulation)
+- **Anti-detection approach:** identity (user agent, platform, language list, core count) set through CDP where a Worker sees it too; canvas, WebGL, audio and font metrics spoofed from init scripts; WebRTC, pointer/hover and automation flags set at launch; human behaviour simulation
 - **When to use:** The default choice for the vast majority of sites. Fast, well-tested, and excellent Playwright ecosystem support.
 - **Limitations:** Advanced bot-detection services that inspect Chrome DevTools Protocol artifacts can sometimes identify automation markers even with stealth patches applied.
 
@@ -99,7 +99,12 @@ was launched with for its lifetime. A rotation reaches it after `cleanup()`.
 Rotating underneath it would leave the first proxy's city behind the second
 proxy's address, which is a worse signal than not rotating at all.
 
-`blockWebRTC` defaults to true. Behind a proxy with geoip, `blockWebRTC: false`
+`blockWebRTC` defaults to true. On Chromium it now sets
+`--webrtc-ip-handling-policy=disable_non_proxied_udp`, the switch that decides
+which local addresses WebRTC may offer, so only the address the proxy already
+exposes is on the table; the five `--disable-webrtc-*` flags it replaces only
+turned off hardware codecs and never stopped an ICE candidate carrying the
+host's real address. Behind a proxy with geoip, `blockWebRTC: false`
 is the stealthier setting on Camoufox: it then reports the proxy's exit IP
 through WebRTC, which agrees with the address the site already sees, whereas a
 browser with WebRTC switched off is itself unusual.
@@ -109,18 +114,63 @@ browser with WebRTC switched off is itself unusual.
 The two engines are not the same tool with different binaries, and they are
 configured differently on purpose.
 
-`playwright` spoofs from JavaScript: init scripts run before page scripts and
-redefine `navigator`, canvas, WebGL, audio and font metrics. This is visible to
-anything that compares property descriptors or `Function.prototype.toString`,
-and it does not reach a Web Worker — a worker reports the machine's real
-platform, core count and GPU. See the measured coverage table in
-`StealthBrowserManager.applyAdvancedStealthConfigurations`.
+`playwright` splits the work in two. Everything a Web Worker can also be asked —
+user agent, platform, `navigator.languages`/`Accept-Language` and
+`hardwareConcurrency` — is set through CDP (`Emulation.setUserAgentOverride`,
+`Emulation.setHardwareConcurrencyOverride`), which the renderer applies to every
+execution context it creates, so a worker answers what the document answers and
+there is no wrapper for a detector to bypass. Canvas, WebGL, audio and font
+metrics are still init scripts running in the main world: that is visible to
+anything comparing property descriptors or `Function.prototype.toString`, and
+WebGL's unmasked vendor and renderer still leak in a worker. See the measured
+coverage table in `StealthBrowserManager.applyAdvancedStealthConfigurations`.
+
+Two details of that identity are worth naming, because the obvious version of
+each is the tell. `navigator.webdriver` reports `false` rather than being
+deleted — every real Chrome has the property and answers false, so a missing one
+is itself a marker — and `navigator.userAgentData` is given the real Chrome
+brand list, with no `HeadlessChrome` brand in it.
+
+Stealth pages do not intercept requests. The `page.route('**/*')` handler is
+gone, and with it the advanced level's habit of dropping about a third of
+images, fonts and stylesheets at random: a page that renders without the
+resources it asked for does not look like a browser reading it, and routing
+every request through a Node round trip adds latency no network explains.
 
 `camoufox` spoofs inside the browser, below the JavaScript layer, so there is no
 seam to find. CrawlForge therefore injects **nothing** into a Camoufox context
 and overrides neither its User-Agent nor its headers: doing so put a Chrome
 User-Agent and Chromium's `sec-ch-ua` client hints on a Gecko engine, which a
-detector can act on from the request headers alone.
+detector can act on from the request headers alone. The locale moves for the same
+reason, but it is not discarded: Playwright's Firefox locale override reaches the
+main thread only, so a Camoufox page reported `navigator.languages` of
+`["en-US"]` while its own Worker reported `["en-US", "en"]`. Camoufox sets
+language, Accept-Language and `Intl` together in its own engine, where a worker
+reads the same answer as the document — so `stealthConfig.locale` is handed to
+the **launcher** instead of to the context. Like the proxy, that fixes it for the
+life of the browser: a later call asking for a different locale gets the launched
+one until `cleanup()`. With a proxy, `geoip` decides it from the exit IP and the
+caller's locale is not sent at all, because a persona naming a country the
+address contradicts is worse than no persona.
+
+**The persona's OS is the host's**, on both engines, and is the one field in the
+fingerprint that is observed rather than drawn. The GPU strings, the font list,
+the CSS platform hints and the TCP/IP fingerprint all belong to the machine
+whatever the User-Agent claims, so a Mac announcing Windows beside an Apple GPU
+hands a detector a cleaner signal than not spoofing at all. Camoufox is passed
+that `os` explicitly, because left to itself it picks one of Windows/macOS/Linux
+at random — **but camoufox npm 0.1.19 does not honour it**: measured on
+2026-09-21, ten launches asking for `macos` on a Mac produced a Mac persona
+about one time in three, the market-share draw. The client forwards the option
+to `fingerprint-generator`, whose key is `operatingSystems`, so it is dropped.
+The call is kept because it is the documented API and costs nothing; until the
+client is updated (Phase 2 of the stealth review), a Camoufox persona's OS is
+still a lottery and `persona-os-vs-host` stays in the benchmark's known-failing
+list for that engine. On Chromium it is deterministic.
+The Chrome major in the Chromium User-Agent is read from the installed
+binary — playwright-core's `browsers.json`, corrected from the browser once it
+is running — rather than drawn from a list, so the version
+`navigator.userAgentData` reports is the version that is actually running.
 
 ## Engine Selection Criteria
 

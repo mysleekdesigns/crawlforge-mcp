@@ -15,7 +15,8 @@
 
 import { z } from 'zod';
 import { load } from 'cheerio';
-import { documentVerdict, segmentUnits, rankUnits } from 'crawlforge-extractors';
+import { segmentUnits, rankUnits } from 'crawlforge-extractors';
+import { stealthDocumentVerdict as documentVerdict } from '../../utils/stealthVerdict.js';
 import {
   SCRAPE_STRING_FORMATS, JsonFormatSchema, HighlightsFormatSchema, QuestionFormatSchema, FormatSchema,
   scrapeFormatSurcharge

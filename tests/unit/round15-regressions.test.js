@@ -71,8 +71,10 @@ describe('R15.2 stealth request routing', () => {
     assert.doesNotMatch(src, /url\.includes\('selenium'\)/);
     assert.doesNotMatch(src, /'challenges\.cloudflare\.com',/);
     assert.doesNotMatch(src, /bypassCSP:\s*true/);
-    // The plugin fallback pairs its plugins with navigator.mimeTypes now.
-    assert.match(src, /defineProperty\(navigator, 'mimeTypes'/);
+    // The plugin fallback pairs its plugins with navigator.mimeTypes now —
+    // on Navigator.prototype since Phase 1, because an own property of the
+    // navigator instance is a tell of its own (rebrowser prints the list).
+    assert.match(src, /defineOnPrototype\('mimeTypes'/);
   });
 
   test('the user-agent pools track the bundled engines, not Chrome 119–121', () => {

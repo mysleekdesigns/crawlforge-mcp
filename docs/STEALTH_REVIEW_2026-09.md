@@ -1,6 +1,8 @@
 # CrawlForge stealth, agent browsing and blocked-site extraction: review and plan
 
-Date: 2026-09-21. Reviewed at v6.7.0 (commit `4f8b3ea`). Findings and a phased plan only. Nothing in this document has been implemented or greenlit.
+Date: 2026-09-21. Reviewed at v6.7.0 (commit `4f8b3ea`). Findings and a phased plan.
+
+**Status:** Phase 0 (benchmark harness) and Phase 1 (contained correctness fixes) shipped on 2026-09-21; each phase records its own completion and measurements in section 6. Everything from Phase 2 on is unimplemented, and Phases 2, 3, 6 and 7 still need the decisions in section 7. The findings in section 3 describe v6.7.0 as reviewed — where Phase 1 changed one, its checklist says so.
 
 ## 1. Summary
 
@@ -144,20 +146,34 @@ Also new, and not in section 2.3: Camoufox's user agent contradicts itself, adve
 
 ### Phase 1: Contained correctness fixes surfaced by the benchmark
 
+**Completed:** 2026-09-21 — every checklist item shipped; three of the four verification clauses met, the fourth measured and reduced rather than closed (below).
+
 Goal: close the leaks and false verdicts that need no architectural change.
 
-- [ ] Verdict: do not report a block when the document has a real title, real body text and only a widget marker. Distinguish "page embeds Turnstile" from "page is an interstitial". Re-test on quora.com.
-- [ ] Challenge wait-out: trigger `_waitOutChallenge` on the script marker as well as the known titles, so custom-titled interstitials (nowsecure.nl) get their wait before the verdict.
-- [ ] Chromium UA pool: derive the Chrome version from the installed binary (Scrapling reads Playwright's `browsers.json`) so the UA never mis-states the version that `userAgentData` reports.
-- [ ] Persona OS: pick the persona from the host OS for both engines (pass `os` to Camoufox; add macOS and Linux personas to the Chromium pool), so GPU strings, CSS platform hints and the TCP/IP fingerprint stop contradicting the UA.
-- [ ] `navigator.webdriver`: report `false`, do not delete the property.
-- [ ] `userAgentData`: remove the `HeadlessChrome` brand and add the "Google Chrome" brand, or pin `executablePath` to a stable Chrome channel and re-measure on rebrowser.
-- [ ] WebRTC: replace the five `--disable-webrtc-*` flags with `--webrtc-ip-handling-policy=disable_non_proxied_udp` (verified present in Chromium 151) and re-check CreepJS for the real IPv6.
-- [ ] Apply the four agreed Tier 1 flag changes from the earlier Scrapling review (drop the stealth-driver flags from args and `ignoreDefaultArgs`, remove `--disable-web-security`, add hover and pointer blink settings).
-- [ ] Workers: move UA, platform and hardware identity from init scripts to context-level options (Playwright applies `userAgent` and locale through CDP emulation to workers) and re-check CreepJS and incolumitas worker consistency. If that is not enough, this becomes the Tier 2 `--lang` and `--user-agent` launch-flag work.
-- [ ] Reconsider `page.route('**/*')`: limit interception to levels that need it and stop the random image and font aborts.
+- [x] Verdict: do not report a block when the document has a real title, real body text and only a widget marker. Distinguish "page embeds Turnstile" from "page is an interstitial". Re-test on quora.com.
+- [x] Challenge wait-out: trigger `_waitOutChallenge` on the script marker as well as the known titles, so custom-titled interstitials (nowsecure.nl) get their wait before the verdict.
+- [x] Chromium UA pool: derive the Chrome version from the installed binary (Scrapling reads Playwright's `browsers.json`) so the UA never mis-states the version that `userAgentData` reports.
+- [x] Persona OS: pick the persona from the host OS for both engines (pass `os` to Camoufox; add macOS and Linux personas to the Chromium pool), so GPU strings, CSS platform hints and the TCP/IP fingerprint stop contradicting the UA.
+- [x] `navigator.webdriver`: report `false`, do not delete the property.
+- [x] `userAgentData`: remove the `HeadlessChrome` brand and add the "Google Chrome" brand, or pin `executablePath` to a stable Chrome channel and re-measure on rebrowser.
+- [x] WebRTC: replace the five `--disable-webrtc-*` flags with `--webrtc-ip-handling-policy=disable_non_proxied_udp` (verified present in Chromium 151) and re-check CreepJS for the real IPv6.
+- [x] Apply the four agreed Tier 1 flag changes from the earlier Scrapling review (drop the stealth-driver flags from args and `ignoreDefaultArgs`, remove `--disable-web-security`, add hover and pointer blink settings).
+- [x] Workers: move UA, platform and hardware identity from init scripts to context-level options (Playwright applies `userAgent` and locale through CDP emulation to workers) and re-check CreepJS and incolumitas worker consistency. If that is not enough, this becomes the Tier 2 `--lang` and `--user-agent` launch-flag work.
+- [x] Reconsider `page.route('**/*')`: limit interception to levels that need it and stop the random image and font aborts.
 
 Verify: Phase 0 harness shows rebrowser all green on Chromium, CreepJS worker identity matching the main thread, no WebRTC candidate with a real address, and quora.com reported as a pass.
+
+- [x] **rebrowser all green on Chromium.** Every row it reports now passes — `navigatorWebdriver` green ("No webdriver presented"), `useragent` no longer reports a detection, plus `runtimeEnableLeak`, `viewport`, `pwInitScripts` and `bypassCsp`. Five rows read `skip`: they are the probes that only fire when a client calls into them, which the harness does not. Before the phase, measured on a clean HEAD worktree the same afternoon, `navigatorWebdriver` was red ("This property shouldn't be undefined. You might have it deleted manually") and `useragent` was red ("Google Chrome is not presented in navigator.userAgentData … Chrome for Testing"). The last red needed one fix the review had not predicted: `Object.getOwnPropertyNames(navigator)` returned `["connection","plugins","mimeTypes","getBattery"]`, because the spoofs were defined on the navigator instance rather than on `Navigator.prototype` where a real Chrome has them. It now returns `[]`.
+- [x] **No WebRTC candidate with a real address.** Chromium gathers mDNS `.local` host candidates only; Camoufox has no `RTCPeerConnection` at all. The five `--disable-webrtc-*` flags that never governed IP exposure are gone. The finding-9 IPv6 leak was seen through a STUN server, which the harness deliberately does not use, so it remains neither confirmed nor refuted — unchanged from Phase 0 and still worth a STUN-backed check.
+- [x] **quora.com is a pass**, on both engines, with the real title and its 397 characters of body text. The cause was not what the plan assumed: the page carries exactly one `cf-chl-` token and it is `cf-chl-widget-gaztz_response`, the hidden input **Turnstile names itself**, so a bare `cf-chl-` test — ours and upstream's — matches every widget embed there is. The refinement now clears the widget's own markers and keeps the bootstrap (`_cf_chl_opt`, `window._cf_chl`, `cf_chl_rc_`), and `looksLikeInterstitial` gives a custom-titled wall its wait before any verdict. nowsecure.nl is still Blocked on both engines, which is the honest answer for an interactive Turnstile: Phase 5's work, not this one's.
+- [ ] **CreepJS worker identity: reduced from three mismatched fields to one, not closed.** Platform and core count now match the main thread (they were `MacIntel`/32 against `Win32`/4 before). The worker's own `userAgent` still reads `HeadlessChrome/151.0.7922.34`. The identity is applied with `Emulation.setUserAgentOverride` + `setHardwareConcurrencyOverride`, which the renderer passes to the dedicated workers a frame starts — the harness's own worker probes all pass — but CreepJS reads a scope nothing applies an override to: playwright-core attaches only `Runtime.*`/`Inspector.*` to `worker` targets and detaches from every other target type, which includes `shared_worker`, and `Emulation` is not available on a worker session. Closing it means blocking SharedWorker (a tell of its own) or attaching to those targets ourselves; neither is a contained fix, so it is named here and left for a later phase.
+
+Also measured, and worth carrying forward rather than rediscovering:
+
+- **`hardwareConcurrency` and `deviceMemory` are now observed, not drawn.** There is no CDP override that reaches a worker, so a spoofed document beside a truthful worker was the contradiction being scored. The host's real values are reported in both, and the processor persona is chosen to match. On a machine with an unusual core count that is itself a signal — but a consistent one, which is the trade this review argues for throughout.
+- **incolumitas swapped one FAIL for another, deliberately.** `inconsistentWebWorkerNavigatorPropery` is now OK. `WEBDRIVER` now FAILs — it is an fpscanner-era test that flags any browser where `navigator.webdriver` is not `undefined`, which is every real Chrome since 89; intoli's own `webDriver` and `webDriverAdvanced` rows both read OK. Satisfying it again would mean deleting the property, which is exactly what rebrowser marks red. `overrideTest` and `overflowTest` still FAIL and predate this phase.
+- **sannysoft's two red rows (`Permissions (New)`, `navigator.javaEnabled`) predate this phase** — identical on the clean HEAD worktree. The likely cause of the first is that `navigator.permissions.query` is replaced with a plain function on the `Permissions` instance and resolves a `{ state }` object rather than a `PermissionStatus`; `navigator.mediaDevices.enumerateDevices` has the same shape. Neither is on the Phase 1 checklist; both are one level below the navigator fix that closed rebrowser.
+- **Camoufox does not honour its own `os` option** (npm 0.1.19). Ten launches asking for `macos` on a Mac gave a Mac persona about one time in three — the market-share draw. The client forwards `{ screen, os }` to `fingerprint-generator`, whose key is `operatingSystems`, so it is dropped. We pass it anyway (documented API, inert, correct the moment upstream fixes it) and `persona-os-vs-host` stays in `ci-baseline.json` for Camoufox alone; on Chromium it is deterministic. Phase 2 owns the Camoufox client and should carry this.
 
 ### Phase 2: Engine routing and proxy plumbing
 
@@ -230,7 +246,7 @@ Verify: a TLS-only wall (one that blocks the plain fetch but serves curl-imperso
 
 ## 7. Decisions needed from the owner
 
-1. Greenlight Phase 0 and Phase 1 as a unit (contained, measurable, no product change).
+1. ~~Greenlight Phase 0 and Phase 1 as a unit (contained, measurable, no product change).~~ **Done — both shipped 2026-09-21.** One product-visible change did come out of Phase 1, and it is not a no-op: on Camoufox the caller's `locale` is now applied at browser launch rather than per context, so it is fixed for that browser's lifetime (and a proxy's `geoip` overrides it).
 2. Whether Camoufox becomes the default escalation engine (Phase 2), given its slower startup and larger memory footprint.
 3. Whether to add a server-level proxy setting and document bring-your-own residential proxies (Phase 2).
 4. Whether the agent may spend escalation credits automatically (Phase 3).

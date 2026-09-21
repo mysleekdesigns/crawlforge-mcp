@@ -197,16 +197,39 @@ describe('D3: a Vercel Security Checkpoint is a blocked result', () => {
   test('_waitOutChallenge waits only while the page is the interstitial', async () => {
     const manager = new StealthBrowserManager();
     const calls = [];
-    const page = (title) => ({
+    // The document is read as title AND html now: the trigger is
+    // looksLikeInterstitial, so a custom-titled wall is recognised by its
+    // challenge bootstrap (Phase 1, 2026-09-21).
+    const page = (title, html = '<html><body><p>a page</p></body></html>') => ({
       title: async () => title,
+      content: async () => html,
       waitForFunction: async (...args) => { calls.push(['waitForFunction', args[1]]); },
       waitForLoadState: async (state) => { calls.push(['waitForLoadState', state]); }
     });
+    const waited = (t) => [['waitForFunction', t], ['waitForLoadState', 'domcontentloaded']];
+
     await manager._waitOutChallenge(page('Vercel Security Checkpoint'), { timeoutMs: 10 });
-    assert.deepEqual(calls, [['waitForFunction', 'Vercel Security Checkpoint'], ['waitForLoadState', 'domcontentloaded']]);
+    assert.deepEqual(calls, waited('Vercel Security Checkpoint'));
     calls.length = 0;
     await manager._waitOutChallenge(page('LessWrong'), { timeoutMs: 10 });
     assert.deepEqual(calls, [], 'a real page is not waited on');
+
+    // Phase 1: nowsecure.nl's wall is titled after the host, so the title says
+    // nothing and only the bootstrap in the html does.
+    calls.length = 0;
+    await manager._waitOutChallenge(
+      page('nowsecure.nl', '<html><body><script>window._cf_chl_opt={cvId:"3"};</script></body></html>'),
+      { timeoutMs: 10 }
+    );
+    assert.deepEqual(calls, waited('nowsecure.nl'), 'a custom-titled interstitial gets its wait');
+
+    // A navigating page can answer title() and refuse content(); the decision
+    // degrades to the title rather than skipping the wait on a known wall.
+    calls.length = 0;
+    const unreadable = page('Just a moment...');
+    unreadable.content = async () => { throw new Error('Execution context was destroyed'); };
+    await manager._waitOutChallenge(unreadable, { timeoutMs: 10 });
+    assert.deepEqual(calls, waited('Just a moment...'));
   });
 });
 
@@ -281,20 +304,39 @@ describe('D4: an engine switch parks the running browser instead of closing it',
 });
 
 describe('D7: the worker vantage point is covered', () => {
-  test('chromium contexts block service workers and wrap Worker at the advanced level', async () => {
+  const wrapsWorker = (context) =>
+    context.initScripts.find((s) => typeof s.fn === 'function' && s.fn.toString().includes('NativeWorker'));
+
+  test('chromium contexts block service workers and wrap Worker when the platform is not the host\'s', async () => {
+    // Phase 1 (2026-09-21) narrowed the wrapper to the one field a worker can
+    // still contradict: platform, and only under a customUserAgent from another
+    // OS. hardwareConcurrency, deviceMemory and languages are no longer drawn,
+    // so there is nothing for it to reconcile on a default persona.
+    const manager = stubLaunch(new StealthBrowserManager());
+    const foreign = { windows: 'X11; Linux x86_64', macos: 'X11; Linux x86_64', linux: 'Macintosh; Intel Mac OS X 10_15_7' };
+    const { context } = await manager.createStealthContext({
+      engine: 'chromium',
+      level: 'advanced',
+      customUserAgent: `Mozilla/5.0 (${foreign[manager.hostOS()]}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36`
+    });
+    assert.equal(manager.browser.newContextOptions[0].serviceWorkers, 'block');
+    const wrapper = wrapsWorker(context);
+    assert.ok(wrapper, 'a Worker-wrapping init script is installed');
+    assert.ok(wrapper.arg.platform, 'the wrapper receives the persona platform');
+    await manager.cleanup();
+  });
+
+  test('a persona on the host\'s own OS needs no wrapper at all', async () => {
     const manager = stubLaunch(new StealthBrowserManager());
     const { context } = await manager.createStealthContext({ engine: 'chromium', level: 'advanced' });
-    assert.equal(manager.browser.newContextOptions[0].serviceWorkers, 'block');
-    const wrapper = context.initScripts.find((s) => typeof s.fn === 'function' && s.fn.toString().includes('NativeWorker'));
-    assert.ok(wrapper, 'a Worker-wrapping init script is installed');
-    assert.equal(wrapper.arg.hardware.hardwareConcurrency > 0, true, 'the wrapper receives the spoofed hardware');
+    assert.ok(!wrapsWorker(context), 'rewriting every worker source to change nothing is pure surface');
     await manager.cleanup();
   });
 
   test('the medium level leaves Worker alone', async () => {
     const manager = stubLaunch(new StealthBrowserManager());
     const { context } = await manager.createStealthContext({ engine: 'chromium', level: 'medium' });
-    assert.ok(!context.initScripts.some((s) => s.fn.toString().includes('NativeWorker')));
+    assert.ok(!wrapsWorker(context));
     await manager.cleanup();
   });
 
@@ -302,7 +344,7 @@ describe('D7: the worker vantage point is covered', () => {
     const manager = stubLaunch(new StealthBrowserManager());
     const { context } = await manager.createStealthContext({ engine: 'camoufox', level: 'advanced' });
     assert.ok(!('serviceWorkers' in manager.browser.newContextOptions[0]));
-    assert.ok(!context.initScripts.some((s) => s.fn.toString().includes('NativeWorker')));
+    assert.ok(!wrapsWorker(context));
     await manager.cleanup();
   });
 });

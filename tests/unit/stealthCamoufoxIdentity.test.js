@@ -55,16 +55,22 @@ const fakeBrowser = (engine) => {
   return browser;
 };
 
-/** Leave _doLaunchStealthBrowser's real camoufox branch in play; replace only the launcher. */
+/**
+ * Leave _doLaunchStealthBrowser's real camoufox branch in play; replace only
+ * the launcher. Returns the configs it was launched with — camoufox fixes its
+ * identity at launch, so that is where several of these settings now land.
+ */
 const stubCamoufox = (t) => {
   const realLaunch = CamoufoxAdapter.prototype.launch;
   const realAvailable = CamoufoxAdapter.prototype.isAvailable;
+  const launches = [];
   CamoufoxAdapter.prototype.isAvailable = async () => true;
-  CamoufoxAdapter.prototype.launch = async () => fakeBrowser('camoufox');
+  CamoufoxAdapter.prototype.launch = async (config) => { launches.push(config); return fakeBrowser('camoufox'); };
   t.after(() => {
     CamoufoxAdapter.prototype.launch = realLaunch;
     CamoufoxAdapter.prototype.isAvailable = realAvailable;
   });
+  return launches;
 };
 
 const stubChromium = (manager) => {
@@ -113,14 +119,33 @@ describe('camoufox keeps its own browser identity', () => {
     await manager.cleanup();
   });
 
-  test('with no proxy there is nothing to derive from, so the caller\'s locale stands', async (t) => {
-    stubCamoufox(t);
+  test('with no proxy the caller\'s locale reaches the launcher, not the context', async (t) => {
+    const launches = stubCamoufox(t);
     const manager = new StealthBrowserManager();
     await manager.createStealthContext({ engine: 'camoufox', locale: 'de-DE' });
 
+    // The caller still gets de-DE — but from camoufox itself, which sets
+    // language, Accept-Language and Intl in its own engine. Playwright's
+    // Firefox context override reaches the document and not the worker started
+    // from it, so setting it there read ["de-DE"] in the page beside camoufox's
+    // own list in the worker (2026-09-21 benchmark, worker-languages).
+    assert.equal(launches[0].locale, 'de-DE', 'the caller\'s locale must not be dropped');
     const options = manager.browser.newContextOptions[0];
-    assert.equal(options.locale, 'de-DE');
-    assert.ok(options.timezoneId, 'and its timezone with it');
+    assert.ok(!('locale' in options), 'and must not be set a second time on the context');
+    assert.ok(options.timezoneId, 'with no exit IP to derive one from, the persona timezone stands');
+    await manager.cleanup();
+  });
+
+  test('behind a proxy the locale is geoip\'s, so the caller\'s is not passed either', async (t) => {
+    const launches = stubCamoufox(t);
+    const manager = new StealthBrowserManager();
+    await manager.createStealthContext({ engine: 'camoufox', locale: 'de-DE', ...PROXIED });
+
+    // A de-DE persona behind a US exit IP is the contradiction geoip exists to
+    // avoid, so the exit IP wins — the same precedence the timezone and
+    // geolocation already follow.
+    assert.equal(launches[0].locale, null);
+    assert.equal(launches[0].geoip, true);
     await manager.cleanup();
   });
 });
@@ -149,6 +174,7 @@ describe('the fingerprint we report matches what is applied', () => {
 
     const summary = manager.summarizeFingerprint(fingerprint);
     assert.equal(summary.userAgent, null);
+    // Reported because it was applied — at launch, where camoufox owns it.
     assert.equal(summary.locale, 'de-DE');
     assert.ok(summary.timezone, 'and the timezone that goes with it');
     await manager.cleanup();

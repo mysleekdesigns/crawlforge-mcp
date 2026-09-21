@@ -119,12 +119,17 @@ limits apply, and a build that fails because someone else redesigned a page
 teaches the team to ignore the build.
 
 The exit code is gated against `scripts/lib/stealth-bench/ci-baseline.json`. Its
-`knownFailing` list holds the leaks the review documented at v6.7.0 and assigned
-to Phase 1 — a failing id on that list does not fail the build. That is what
-makes CI green today on a codebase with known leaks, while still turning red on
+`knownFailing` list was seeded with the leaks the review documented at v6.7.0 and
+assigned to Phase 1 — a failing id on that list does not fail the build. That is
+what keeps CI green on a codebase with known leaks, while still turning red on
 a **regression**: a Playwright or Camoufox bump that reopens the `Runtime.enable`
 leak, or that breaks a worker property currently reported consistently, fails a
 check that is not on the list.
+
+Phase 1 has begun closing those leaks, and the list is shortened as each one
+lands. So it is not a description of what still leaks — it is the set of checks
+not yet gated, and it only ever gets smaller. For the current state of a check,
+read a measured `--ci` run, not this file.
 
 **Whoever fixes a Phase 1 item must delete its id from `knownFailing` in the
 same commit.** That is the entire point of the allow-list. A fix that leaves its
