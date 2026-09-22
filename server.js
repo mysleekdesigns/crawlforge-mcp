@@ -243,32 +243,35 @@ const deepResearchTool = new DeepResearchTool();
 const trackChangesTool = new TrackChangesTool();
 const generateLLMsTxtTool = new GenerateLLMsTxtTool();
 const scrapeTemplateTool = new ScrapeTemplateTool(); // D3.3
+// Phase 3: the escalation stage for `scrape`'s escalate:true and the agent's
+// automatic stealth retry (stealth review Phase 3) — one function, so both
+// go through the same gate, engine resolver and server-level proxy list.
+// Injected so the tool modules never import StealthBrowserManager (that would pull a
+// browser dependency into every unit test that loads `scrape`). Same gate
+// and same browser the stealth_mode tool drives — no new evasion, and the
+// engine name is resolved here, beside its sibling, by the one resolver
+// every stealth entry point shares.
+const stealthEscalation = async ({ url, engine, respectRobots }) => {
+  const warnings = await stealthComplianceGate(url, respectRobots);
+  // "auto" prefers camoufox and falls back to chromium when its binary is
+  // missing. Mapping here instead ("camoufox" or else chromium) collapsed
+  // auto to chromium and hid the fallback; the resolver says which engine it
+  // landed on and why, and the caller is told.
+  const resolved = await resolveStealthEngine(engine);
+  if (resolved.fallbackWarning) warnings.push(resolved.fallbackWarning);
+  const scraped = await stealthBrowserManager.scrapeWithStealth({
+    url,
+    engine: resolved.engine
+  });
+  // The RESOLVED engine: `scrape` reports it as stealth.engine, where the
+  // requested "auto" would tell the caller nothing about what ran.
+  return { ...scraped, engine: resolved.engine, warnings };
+};
 const unifiedScrapeTool = new UnifiedScrapeTool({
   actionExecutor: scrapeWithActionsTool.actionExecutor, // D4 D1 (+v4.8 screenshot reuses the shared browser pool)
-  // Phase 3: the escalation stage for `scrape`'s escalate:true, injected so
-  // the tool module never imports StealthBrowserManager (that would pull a
-  // browser dependency into every unit test that loads `scrape`). Same gate
-  // and same browser the stealth_mode tool drives — no new evasion, and the
-  // engine name is resolved here, beside its sibling, by the one resolver
-  // every stealth entry point shares.
-  escalateScrape: async ({ url, engine, respectRobots }) => {
-    const warnings = await stealthComplianceGate(url, respectRobots);
-    // "auto" prefers camoufox and falls back to chromium when its binary is
-    // missing. Mapping here instead ("camoufox" or else chromium) collapsed
-    // auto to chromium and hid the fallback; the resolver says which engine it
-    // landed on and why, and the caller is told.
-    const resolved = await resolveStealthEngine(engine);
-    if (resolved.fallbackWarning) warnings.push(resolved.fallbackWarning);
-    const scraped = await stealthBrowserManager.scrapeWithStealth({
-      url,
-      engine: resolved.engine
-    });
-    // The RESOLVED engine: `scrape` reports it as stealth.engine, where the
-    // requested "auto" would tell the caller nothing about what ran.
-    return { ...scraped, engine: resolved.engine, warnings };
-  }
+  escalateScrape: stealthEscalation
 });
-const agentTool = new AgentTool(); // D4 D2
+const agentTool = new AgentTool({ escalateFetch: stealthEscalation }); // D4 D2 + stealth review Phase 3
 const stealthBrowserManager = new StealthBrowserManager();
 const localizationManager = new LocalizationManager();
 
@@ -1212,7 +1215,7 @@ registerToolIfEnabled("scrape", {
 
 // Tool: agent (D4 D2 — autonomous NL prompt → search/navigate/extract)
 registerToolIfEnabled("agent", {
-  description: "Use this when you need an autonomous agent to research, navigate, and synthesise an answer from the web - no URLs required. The agent plans search queries, fetches and filters relevant pages, and returns a prose or structured answer. model:\"pro\" uses deep multi-source research. Hard limits: maxSteps<=10, maxUrls<=20, 120s wall-clock. Confirms before pro runs. Degraded-but-useful output if no LLM keys/Ollama. Not for a URL you already have (scrape) or a question one search answers (search_web). Cost: 8 credits, scales with maxUrls. Example: agent({prompt:\"What are the top 5 MCP servers in 2025?\", maxUrls:10})",
+  description: "Use this when you need an autonomous agent to research, navigate, and synthesise an answer from the web - no URLs required. The agent plans search queries, fetches and filters relevant pages, and returns a prose or structured answer. model:\"pro\" uses deep multi-source research. Hard limits: maxSteps<=10, maxUrls<=20, 120s wall-clock. Confirms before pro runs. Degraded-but-useful output if no LLM keys/Ollama. Not for a URL you already have (scrape) or a question one search answers (search_web). Pages that block a plain fetch are retried in the stealth browser automatically (at most 2 a run, URLs you name first; evidence marked via:\"stealth\"). Cost: 18 credits at most - 8, plus 5 per stealth retry that actually runs; a run with no retry is charged 8. Example: agent({prompt:\"What are the top 5 MCP servers in 2025?\", maxUrls:10})",
   annotations: { title: "Agent (Autonomous)", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     prompt: z.string().min(1).max(2000).describe("Natural-language task or question"),

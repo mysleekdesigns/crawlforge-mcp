@@ -4,7 +4,8 @@
  * Design: hardcoded 3-action state machine.
  *   PLAN   — one SamplingClient call to decompose prompt into search queries
  *   GATHER — search_web (≤maxUrls results total)
- *   ACT    — fetchAndParse + relevance gate per URL
+ *   ACT    — fetchAndParse + relevance gate per URL; a walled page is retried
+ *            once in the stealth browser (capped, see tools/agent/escalation.js)
  *   DECIDE — loop or answer (step/URL/time hard stops; never LLM-trusted)
  *   SHAPE  — schema→ExtractWithLlm prose→synthesis via SamplingClient
  *
@@ -20,10 +21,21 @@
 import { fetchAndParse } from '../tools/extract/_fetchAndParse.js';
 import { SamplingClient } from './SamplingClient.js';
 import { fenceUntrusted } from '../utils/untrustedContent.js';
+import { stealthDocumentVerdict as documentVerdict } from '../utils/stealthVerdict.js';
+import { aBrowserMightPass } from '../tools/scrape/escalation.js';
+import { AGENT_MAX_ESCALATIONS } from '../tools/agent/escalation.js';
 
 const DEFAULT_WALL_CLOCK_MS = 120_000;
 const DEFAULT_MAX_STEPS = 5;
 const DEFAULT_MAX_URLS = 10;
+// A stealth retry launches a browser and waits out a challenge; one started
+// with less than this left on the wall clock would overrun the hard stop.
+const ESCALATION_MIN_REMAINING_MS = 20_000;
+
+/** A refusal (robots.txt, blocklist) is a decision, not a wall — a browser must not retry it. */
+function isRefusal(err) {
+  return err?.code === 'ROBOTS_DISALLOWED' || err?.code === 'HOST_BLOCKED';
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -168,6 +180,11 @@ export class AgentOrchestrator {
    * @param {object|null} options.mcpServer  - McpServer instance (for SamplingClient)
    * @param {object}      options.searchConfig - passed to SearchWebTool constructor
    * @param {object}      options.llmConfig    - passed to ExtractWithLlm constructor
+   * @param {Function}    [options.escalateFetch] - the stealth stage, injected from
+   *   server.js (same function `scrape`'s escalate:true uses):
+   *   ({ url, engine, respectRobots }) => { html, url, title, text, status, engine, warnings? }
+   *   Absent in unit tests and builds without a browser: ACT then keeps the
+   *   plain-fetch-or-snippet behaviour.
    */
   constructor(options = {}) {
     this._mcpServer = options.mcpServer || null;
@@ -177,6 +194,7 @@ export class AgentOrchestrator {
     this._searchTool = null;
     this._extractWithLlm = null;
     this._researchOrchestrator = null;
+    this._escalateFetch = options.escalateFetch || null;
   }
 
   /** Set MCP server (called by agent.js after construction). */
@@ -237,6 +255,8 @@ export class AgentOrchestrator {
    * @param {number}    [params.maxSteps]  - Max ACT iterations (≤10)
    * @param {number}    [params.maxUrls]   - Max URLs to fetch (≤20)
    * @param {number}    [params.wallClockMs] - Wall-clock budget in ms
+   * @param {object}    [params.usage]     - out-param: `usage.escalations` counts
+   *   stealth retries that ran, so the tool can bill them even if run() throws
    * @returns {Promise<object>}
    */
   async run(params) {
@@ -247,8 +267,10 @@ export class AgentOrchestrator {
       model = 'default',
       maxSteps = DEFAULT_MAX_STEPS,
       maxUrls = DEFAULT_MAX_URLS,
-      wallClockMs = DEFAULT_WALL_CLOCK_MS
+      wallClockMs = DEFAULT_WALL_CLOCK_MS,
+      usage = {}
     } = params;
+    usage.escalations = 0;
 
     const startTime = Date.now();
     const deadline = () => (Date.now() - startTime) >= wallClockMs;
@@ -365,6 +387,10 @@ export class AgentOrchestrator {
       if (!urlQueue.includes(url)) urlQueue.push(url);
       if (!priorityUrls.includes(url)) priorityUrls.push(url);
     }
+    // The URLs the caller named — seeds and sites written into the prompt.
+    // Snapshotted before GATHER adds a voted live root to priorityUrls: that
+    // root is the agent's own discovery, not the caller's.
+    const namedUrls = new Set(priorityUrls);
     const searchResults = [];
     /** url -> { title, text }: the engine's excerpt, evidence of last resort for a page that cannot be fetched. */
     const excerpts = new Map();
@@ -441,32 +467,90 @@ export class AgentOrchestrator {
     const evidence = [];
     let urlsFetched = 0;
     let step = 0;
+    const warnings = [];
 
     for (const url of urlQueue) {
       if (urlsFetched >= capUrls || step >= capSteps || deadline()) break;
       urlsFetched++;
 
+      // The plain fetch reads an error document instead of throwing on it, so
+      // a wall served as a 403 can be told apart from a 404 (the same
+      // arrangement `scrape` has).
+      let plain = null;
+      let plainError = null;
+      let verdict = null;
       try {
-        const { textContent, finalUrl } = await fetchAndParse(url, { timeoutMs: 10000 });
-        if (!isRelevant(textContent, prompt)) continue;
-        step++;
-        const sr = searchResults.find(s => s.url === url);
-        evidence.push({
-          url: finalUrl,
-          title: sr ? sr.title : '',
-          text: truncate(textContent),
-          step
-        });
-      } catch {
-        // The page is out of reach (challenge page, 403, timeout) but the
-        // search engine's excerpt of it is not: npmjs.com's "Latest version:
-        // 15.0.0" sat in the snippet while every fetch of the package page was
-        // challenged, and the run ended with no evidence at all (R17,
-        // 2026-09-04). Keep a relevant snippet as evidence, labelled as one.
-        const excerpt = excerpts.get(url);
-        if (excerpt && isRelevant(excerpt.text, prompt)) {
-          evidence.push({ url, title: excerpt.title, text: excerpt.text, snippet: true, step });
+        plain = await fetchAndParse(url, { timeoutMs: 10000, errorDocuments: true });
+        verdict = documentVerdict(
+          { url: plain.finalUrl, title: plain.$('title').first().text().trim(), text: plain.textContent, html: plain.html, status: plain.status },
+          { fetcher: 'a plain fetch', rendered: false, contentReturned: false }
+        );
+      } catch (err) {
+        plainError = err;
+      }
+
+      const ok2xx = plain && plain.status >= 200 && plain.status < 300;
+      if (ok2xx && !verdict.blocked) {
+        if (isRelevant(plain.textContent, prompt)) {
+          step++;
+          const sr = searchResults.find(s => s.url === url);
+          evidence.push({
+            url: plain.finalUrl,
+            title: sr ? sr.title : '',
+            text: truncate(plain.textContent),
+            step
+          });
+          continue;
         }
+        // A real page that is simply off-topic: nothing to retry.
+        if (verdict.success) continue;
+      }
+
+      // The page is out of reach: a wall, a 403/429, an empty shell, a
+      // timeout. A search excerpt may still carry the fact (npmjs.com's
+      // "Latest version: 15.0.0" sat in the snippet while every fetch of the
+      // package page was challenged, R17 2026-09-04).
+      const excerpt = excerpts.get(url);
+      const relevantExcerpt = excerpt && isRelevant(excerpt.text, prompt) ? excerpt : null;
+
+      // Stealth retry (review Phase 3). A URL the caller named always gets it
+      // first; a discovered one only when there is no relevant excerpt to fall
+      // back on. Never for a refusal, a 404 or a 5xx; bounded by its own cap
+      // and by the time left before the wall-clock stop.
+      const mightPass = plainError ? !isRefusal(plainError) : aBrowserMightPass(verdict, plain.status);
+      const canEscalate = this._escalateFetch &&
+        usage.escalations < Math.min(AGENT_MAX_ESCALATIONS, capUrls) &&
+        (wallClockMs - (Date.now() - startTime)) >= ESCALATION_MIN_REMAINING_MS;
+      if (mightPass && canEscalate && (namedUrls.has(url) || !relevantExcerpt)) {
+        usage.escalations++;
+        try {
+          const stealth = await this._escalateFetch({ url: plain?.finalUrl || url, engine: 'auto' });
+          if (Array.isArray(stealth.warnings)) warnings.push(...stealth.warnings);
+          const text = (stealth.text || '').trim();
+          const rendered = documentVerdict(
+            { url: stealth.url || url, title: stealth.title || '', text, html: stealth.html || '', status: stealth.status ?? null },
+            { waitedMs: stealth.gracedMs || 0, fetcher: 'the stealth browser', rendered: true, contentReturned: false }
+          );
+          if (rendered.success && isRelevant(text, prompt)) {
+            step++;
+            const sr = searchResults.find(s => s.url === url);
+            evidence.push({
+              url: stealth.url || url,
+              title: stealth.title || (sr ? sr.title : ''),
+              text: truncate(text),
+              via: 'stealth',
+              step
+            });
+            continue;
+          }
+          warnings.push(`stealth retry of ${url} ${rendered.success ? 'returned a page unrelated to the task' : `did not get the page either${rendered.blocked?.vendor ? ` (${rendered.blocked.vendor})` : ''}`}`);
+        } catch (err) {
+          warnings.push(`stealth retry of ${url} failed: ${err.message}`);
+        }
+      }
+
+      if (relevantExcerpt) {
+        evidence.push({ url, title: relevantExcerpt.title, text: relevantExcerpt.text, snippet: true, step });
       }
     }
 
@@ -501,7 +585,9 @@ export class AgentOrchestrator {
         evidence: [],
         answer: null,
         steps: step,
-        urls_fetched: urlsFetched
+        urls_fetched: urlsFetched,
+        stealth_retries: usage.escalations,
+        ...(warnings.length ? { warnings } : {})
       };
     }
 
@@ -520,11 +606,13 @@ export class AgentOrchestrator {
           answer: result.success ? result.data : null,
           structured: true,
           search_results: searchResults,
-          evidence: evidence.map(e => ({ url: e.url })),
+          evidence: evidence.map(e => (e.via ? { url: e.url, via: e.via } : { url: e.url })),
           degraded: !result.success,
           reason: result.success ? undefined : result.error,
           steps: step,
-          urls_fetched: urlsFetched
+          urls_fetched: urlsFetched,
+          stealth_retries: usage.escalations,
+          ...(warnings.length ? { warnings } : {})
         };
       } catch (err) {
         // Fall through to prose synthesis
@@ -648,11 +736,13 @@ export class AgentOrchestrator {
       success: true,
       answer,
       search_results: searchResults,
-      evidence: degraded ? evidence : evidence.map(e => (e.snippet ? { url: e.url, snippet: true } : { url: e.url })),
+      evidence: degraded ? evidence : evidence.map(e => (e.snippet ? { url: e.url, snippet: true } : e.via ? { url: e.url, via: e.via } : { url: e.url })),
       degraded,
       reason: degradedReason,
       steps: step,
       urls_fetched: urlsFetched,
+      stealth_retries: usage.escalations,
+      ...(warnings.length ? { warnings } : {}),
       provenance: {
         checked: !synthesisFailed,
         unverified,

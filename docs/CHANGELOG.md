@@ -3,7 +3,47 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
-## [6.8.0] - 2026-09-22
+## [Unreleased]
+
+Phase 3 of the 2026-09 stealth review: the `agent` tool browses. Before this,
+its ACT stage ran only the plain fetch. A challenged seed page was dropped and
+the answer was built from search snippets. In the review's Indeed test that
+produced "3.3 stars, based on 3.3 reviews".
+
+### Added
+
+- **`agent` retries a walled page in the stealth browser automatically.** When
+  the plain fetch hits a challenge page, a 403/429, an empty shell or a timeout,
+  the URL is retried through the same stage `scrape`'s `escalate: true` uses:
+  one `stealthEscalation` function in `server.js`, injected into both tools,
+  with the same compliance gate, the same `resolveStealthEngine()`, and the same
+  `CRAWLFORGE_STEALTH_PROXIES` and `CRAWLFORGE_STEALTH_ENGINE`. URLs the caller
+  named (seeds and sites in the prompt) are retried first. A discovered URL is
+  retried only when it has no relevant search snippet. Refusals, 404s and 5xx
+  errors are never retried. There are at most 2 retries a run, none starts with
+  less than 20 s of wall clock left, and maxSteps, maxUrls and the wall-clock
+  stop still apply. Evidence from a retry is marked `via: "stealth"`. The result
+  gains `stealth_retries` and `warnings`.
+
+### Changed
+
+- **`agent` pricing: 8, plus 5 per stealth retry that runs.** The projection
+  (`getToolCost`) is the ceiling: 18 by default, 13 at `maxUrls: 1`, 8 for
+  `model: "pro"`. The charge reported through `setActualCost` is what ran, so a
+  run with no retry still costs 8. The tool description now says
+  "Cost: 18 credits at most". crawlforge-website's `TOOL_CREDIT_COSTS` still
+  has a flat `agent: 8`; that parity is the owner's task.
+
+### Verified
+
+- Live Indeed check (section 2.4 prompt, seed `indeed.com/cmp/Burger-King/reviews`,
+  exit IP 64.71.236.132). **Passed** with `CRAWLFORGE_STEALTH_ENGINE=chromium`:
+  the seed was read `via: "stealth"`, not as a snippet, and the answer was
+  3.3 stars from 58,942 reviews. The live page had gained a review since the
+  review's 58,941. **Failed** on the default `'auto'`/Camoufox engine, where
+  Cloudflare blocked the retry. The unchanged `scrape` escalation fails the same
+  way on that IP.
+
 
 Phase 1 of the 2026-09 stealth review: the leaks and false verdicts the Phase 0
 benchmark measured, closed and re-measured. Every claim below was produced by

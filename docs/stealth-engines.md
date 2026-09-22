@@ -240,9 +240,8 @@ spreading load across a pool.
 
 The stealth variable answers a different question: what exit IP a **blocked**
 page is retried from. It is one list, applied at the browser context, and it
-exists because the escalation stage and `deep_research` have no caller to ask.
-(The `agent` tool has no browsing path of its own yet — that is Phase 3 — so it
-is not among the readers today.) Setting one does nothing for the other; they are read by
+exists because the escalation stage, `deep_research` and the `agent` tool's
+automatic stealth retry have no caller to ask. Setting one does nothing for the other; they are read by
 different code paths and can point at different providers.
 
 **Camoufox and geoip.** Given a proxy — from either source — Camoufox is

@@ -14,6 +14,7 @@ import { logger } from '../utils/Logger.js';
 import { maskSecrets } from '../utils/secretMask.js';
 import { scrapeFormatSurcharge } from '../tools/scrape/formats.js';
 import { scrapeEscalationSurcharge } from '../tools/scrape/escalation.js';
+import { agentEscalationSurcharge } from '../tools/agent/escalation.js';
 import { searchQueryCount } from '../tools/search/batchSearch.js';
 import { redactionSurcharge, REDACT_PII_MODEL_CREDITS } from '../server/redaction.js';
 // Stamped on every usage report so support can tell which client version
@@ -686,6 +687,14 @@ class AuthManager {
       return costs.search_web * searchQueryCount(params?.queries) + redaction;
     }
 
+    // agent retries a walled page in the stealth browser automatically, at
+    // most AGENT_MAX_ESCALATIONS times a run, 5 each. The projection is that
+    // ceiling; the tool reports what actually ran (setActualCost), so a run
+    // with no retry still costs 8. The rule lives in tools/agent/escalation.js.
+    if (tool === 'agent') {
+      return costs.agent + agentEscalationSurcharge(params) + redaction;
+    }
+
     return (costs[tool] ?? 1) + redaction;
   }
 
@@ -761,7 +770,7 @@ class AuthManager {
         const agentUrls = params?.maxUrls || 10;
         const isPro = params?.model === 'pro';
         projected = Math.max(base, base + Math.ceil(agentUrls / 5) + (isPro ? 5 : 0));
-        note = `Lower-bound estimate. Scales with maxUrls (${agentUrls}).${isPro ? ' pro model adds deep-research cost.' : ''} External LLM billed separately.`;
+        note = `Lower-bound estimate. Scales with maxUrls (${agentUrls}).${isPro ? ' pro model adds deep-research cost.' : ' Includes the ceiling for automatic stealth retries of walled pages (5 each, at most 2 a run); the actual charge drops by 5 for each retry that did not run.'} External LLM billed separately.`;
         break;
       }
       default:

@@ -21,6 +21,18 @@
 
 ---
 
+## Stealth Review Phase 3 — Agent browsing (Complete; gate passed on the Chromium pin, failed on the default engine)
+
+**Completed:** 2026-09-22 | **Version:** 6.8.0 tree, unreleased (credit and behaviour change for `agent`; version bump deferred to the release) | **Plan:** [`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md) §6 Phase 3
+
+**What it does:** the `agent` retries a walled page (challenge, 403/429, empty shell, timeout) through the stealth stage `scrape` uses. That stage is now one `stealthEscalation` function in `server.js` injected into both tools, so the gate, engine resolver, server proxy list and per-deployment engine pin apply. The retry is automatic and capped at 2 a run. URLs the caller named go first, and a discovered URL with a relevant snippet keeps the snippet. Evidence from a retry is marked `via: "stealth"`. **Pricing:** 8, plus 5 per retry that runs; the projection is the 18-credit ceiling and `setActualCost` bills what ran. The fifth checklist item (the agent driving `browser_session`) was left out by the owner.
+
+**Gate:** `npm run test:unit` **2437 tests / 0 failed (182 files)**; `npm test` **100.0% COMPLIANT / 0 errors**. Live Indeed check from exit IP 64.71.236.132: **passed with `CRAWLFORGE_STEALTH_ENGINE=chromium`** (seed read `via: "stealth"`, answer 3.3 stars / 58,942 reviews; the live page moved on from the review's 58,941). It **failed on the default `'auto'`/Camoufox** engine, where Cloudflare blocked the retry; the unchanged `scrape` escalation fails the same way on that IP. The owner accepted the pinned pass.
+
+**Open:** crawlforge-website `TOOL_CREDIT_COSTS` still has a flat `agent: 8`, so hosted REST users are not charged the retry surcharge until the website matches. This is the owner's task.
+
+---
+
 ## Stealth Review Phase 2 — Engine routing and proxy plumbing (Complete locally; hosted gate outstanding, one item deliberately not shipped)
 
 **Completed:** 2026-09-21 | **Version:** 6.7.0 tree (no version bump — no credit change, and no existing call changes behaviour) | **Plan:** [`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md) §6 Phase 2
