@@ -190,9 +190,13 @@ Goal: make the engine that actually passes Cloudflare the one that runs, and giv
 
 Verify: with a residential proxy configured, the Phase 0 harness on the hosted instance matches the residential baseline on Indeed and Harrods; without one it reports the datacenter result honestly.
 
-- [ ] **Hosted verification outstanding.** Phase 2 is implemented and locally verified, *not* hosted-verified. The gate above needs the Phase 0 baseline from the hosted instance, which cannot be produced from a dev machine. Run there, then compare:
+- [ ] **Hosted verification outstanding.** Phase 2 is implemented and locally verified, *not* hosted-verified. The gate above needs the Phase 0 baseline from the hosted instance, which cannot be produced from a dev machine.
 
-      npm run bench:stealth -- --out docs/stealth-bench-baseline-2026-09-21-hosted.md
+      **Blocked on a deploy, not on effort.** Attempted 2026-09-22 in the Render shell and it failed with `MODULE_NOT_FOUND`: the production image copies only `node_modules`, `package*.json`, `server.js` and `src/`, so `scripts/` — the harness itself — was never in it. A `COPY` for `scripts/` is now in the Dockerfile, but the running container still predates it. The sequence is: merge to `main` → Render auto-deploys → *then* run, in the service shell:
+
+      cd /app && node scripts/stealth-bench.mjs
+
+      The report goes to stdout whether or not `--out` is passed. Note that this deploy also ships Phase 2's `'auto'` default to production, so it is a release decision, not a formality.
 
 #### The UA mismatch, measured
 

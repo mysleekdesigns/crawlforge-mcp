@@ -201,6 +201,14 @@ COPY --from=builder --chown=mcp:mcp /app/node_modules ./node_modules
 COPY --from=builder --chown=mcp:mcp /app/package*.json ./
 COPY --from=builder --chown=mcp:mcp /app/server.js ./
 COPY --from=builder --chown=mcp:mcp /app/src ./src
+# The stealth benchmark harness (188 KB, including its ci-baseline.json under
+# scripts/lib/stealth-bench/). It is here because the ONLY place its headline
+# measurement can be taken is a box with the production exit IP: the whole
+# question is whether a datacenter address passes walls a residential one does,
+# and that cannot be inferred from a dev machine. Without this line the review's
+# own instruction — `node scripts/stealth-bench.mjs` in the Render shell — fails
+# with MODULE_NOT_FOUND, which is exactly what happened on 2026-09-22.
+COPY --from=builder --chown=mcp:mcp /app/scripts ./scripts
 
 # ─── Camoufox browser ────────────────────────────────────────────────────────
 # Adds roughly 1.3 GB to the image (the Linux release zip alone is ~625 MiB,
