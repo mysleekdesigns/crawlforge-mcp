@@ -183,10 +183,11 @@
         "type": "boolean"
       },
       "escalate_engine": {
-        "default": "playwright",
-        "description": "Stealth engine for the escalated retry (default: \"playwright\")",
+        "default": "auto",
+        "description": "Stealth engine for the escalated retry: \"auto\" (default — Camoufox when it is installed, Chromium otherwise, reported in warnings), \"playwright\" (Chromium) or \"camoufox\"",
         "type": "string",
         "enum": [
+          "auto",
           "playwright",
           "camoufox"
         ]

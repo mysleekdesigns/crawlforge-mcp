@@ -78,7 +78,10 @@ test('stealth: browserOptions.stealth=true becomes stealthMode.enabled', async (
     browserOptions: { stealth: true }
   });
 
-  assert.deepEqual(capture.browserOptions.stealthMode, { enabled: true });
+  assert.equal(capture.browserOptions.stealthMode.enabled, true);
+  // Phase 2 resolves the engine here too; which one it lands on is
+  // tests/unit/stealthEngineRouting.test.js' business, not this file's.
+  assert.ok(['chromium', 'camoufox'].includes(capture.browserOptions.stealthMode.engine));
 });
 
 test('stealth: off by default — no stealthMode is sent', async () => {

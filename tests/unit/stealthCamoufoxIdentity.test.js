@@ -23,6 +23,9 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { StealthBrowserManager, CamoufoxAdapter } from '../../src/core/StealthBrowserManager.js';
 
@@ -229,5 +232,65 @@ describe('nothing is injected into camoufox', () => {
 
     await manager.applyPageStealthMeasures(page('chromium'), { level: 'medium' }, fingerprint);
     assert.deepEqual(headerCalls, [fingerprint.headers], 'Chromium still gets them');
+  });
+});
+
+/**
+ * Regression lock: the UA's two version tokens agree.
+ *
+ * camoufox@0.1.19 rewrites persona version tokens with a non-global regex, so
+ * its rewrite reaches `rv:` and stops. `Firefox/` keeps whatever browserforge
+ * drew, and on the installed 135 binary 4 of 8 launches announced a Firefox
+ * that was not the one running. Phase 2 made camoufox the DEFAULT engine, so
+ * that coin flip moved onto the default path — hence the pin, and hence this.
+ */
+describe('camoufox persona is pinned to the installed binary version', () => {
+  const adapter = new CamoufoxAdapter();
+
+  const withVersionDir = (version, fn) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'camoufox-ver-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'version.json'), JSON.stringify({ version }));
+      return fn({ INSTALL_DIR: dir });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  test('returns null rather than guessing when version.json is unreadable', () => {
+    assert.equal(adapter._pinnedFingerprint({ INSTALL_DIR: '/nonexistent-camoufox-dir' }), null);
+    assert.equal(adapter._pinnedFingerprint({}), null);
+  });
+
+  test('returns null for a version browserforge has no data for', () => {
+    // 152 is outside browserforge's set. Handing back a persona on some other
+    // version would reintroduce the exact mismatch the pin exists to close.
+    assert.equal(withVersionDir('152.0.4', (c) => adapter._pinnedFingerprint(c)), null);
+  });
+
+  test('a returned persona always has rv: and Firefox/ agreeing on that version', () => {
+    const fingerprint = withVersionDir('135.0.1', (c) => adapter._pinnedFingerprint(c));
+    if (fingerprint === null) {
+      // No browserforge data for 135 in this install — the contract is "null
+      // or a matching persona", and null is the honest half of it.
+      return;
+    }
+    const ua = fingerprint.navigator.userAgent;
+    assert.match(ua, /Firefox/, 'camoufox only accepts Firefox personas');
+    assert.equal(ua.match(/rv:(\d+)/)?.[1], '135', `rv: token in ${ua}`);
+    assert.equal(ua.match(/Firefox\/(\d+)/)?.[1], '135', `Firefox/ token in ${ua}`);
+  });
+
+  test('repeated draws never disagree', () => {
+    for (let i = 0; i < 12; i++) {
+      const fingerprint = withVersionDir('135.0.1', (c) => adapter._pinnedFingerprint(c));
+      if (fingerprint === null) return;
+      const ua = fingerprint.navigator.userAgent;
+      assert.equal(
+        ua.match(/rv:(\d+)/)?.[1],
+        ua.match(/Firefox\/(\d+)/)?.[1],
+        `draw ${i} self-contradicts: ${ua}`
+      );
+    }
   });
 });

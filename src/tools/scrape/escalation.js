@@ -21,7 +21,12 @@ export const SCRAPE_ESCALATION_CREDITS = 5;
 /** The two public fields, in tools/list order, with the text the client sees. */
 export const SCRAPE_ESCALATION_SHAPE = {
   escalate: z.boolean().optional().default(false).describe('When the plain fetch comes back blocked (403/429/challenge page/empty shell), retry once in the stealth browser and return its content instead of the block. Projected at 2+5; the actual charge stays at the base price when the plain fetch succeeded. Default: false'),
-  escalate_engine: z.enum(['playwright', 'camoufox']).optional().default('playwright').describe('Stealth engine for the escalated retry (default: "playwright")')
+  // "auto" is the default because the engine that gets past the walls this
+  // stage exists for is camoufox, and asking for it by name used to be the
+  // caller's problem. It resolves to camoufox when the package is installed
+  // and to playwright (Chromium) when it is not, saying so in `warnings`.
+  // Naming an engine still pins it exactly.
+  escalate_engine: z.enum(['auto', 'playwright', 'camoufox']).optional().default('auto').describe('Stealth engine for the escalated retry: "auto" (default — Camoufox when it is installed, Chromium otherwise, reported in warnings), "playwright" (Chromium) or "camoufox"')
 };
 
 /**

@@ -22,11 +22,20 @@ services:
       - cache_dev:/app/cache
       - logs_dev:/app/logs
       - /app/node_modules/.bin
+      # The Camoufox browser is not baked into the development image (~1.3 GB).
+      # Fetch it once into this volume and it survives container recreation:
+      #   docker compose exec -u mcp -e PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD= \
+      #     crawlforge-dev npx camoufox fetch
+      - camoufox_dev:/home/mcp/.cache/camoufox
     ports:
       - "3000:3000"
     working_dir: /app
     command: ["npm", "run", "dev"]
     restart: unless-stopped
+    # Chromium puts its renderer shared memory in /dev/shm; Docker's 64 MB
+    # default makes tabs crash under load. Firefox/Camoufox is less sensitive
+    # but shares the same default.
+    shm_size: 1gb
     healthcheck:
       test: ["CMD", "node", "-e", "console.log('Health check passed')"]
       interval: 30s
@@ -58,6 +67,7 @@ services:
       # Image runs `node server.js --http` on $PORT (default 10000)
       - "3001:10000"
     restart: unless-stopped
+    shm_size: 1gb
     healthcheck:
       test: ["CMD", "node", "-e", "console.log('Health check passed')"]
       interval: 30s
@@ -67,10 +77,18 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
-          cpus: '1.0'
+          # Raised from 1G. StealthBrowserManager now defaults to engine 'auto',
+          # which prefers Camoufox, and a Camoufox browser costs roughly 2.6x a
+          # Chromium one: 667 MB vs 253 MB RSS, 946 ms vs 148 ms to launch and
+          # open a first page (measured 2026-09-21). One stealth browser plus
+          # the 512 MB Node heap (NODE_OPTIONS in the Dockerfile) leaves
+          # essentially nothing under a 1G cap, and the cap is what the kernel
+          # OOM-kills against. Budget ~700 MB per concurrent stealth browser on
+          # top of the heap and raise this with MAX_BROWSER_CONTEXTS.
+          memory: 3G
+          cpus: '2.0'
         reservations:
-          memory: 512M
+          memory: 1G
           cpus: '0.5'
 
   # Testing environment
@@ -225,6 +243,8 @@ volumes:
   cache_dev:
     driver: local
   logs_dev:
+    driver: local
+  camoufox_dev:
     driver: local
 
   # Production volumes

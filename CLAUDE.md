@@ -141,7 +141,7 @@ npm run docker:prod         # Run production container
 - **ActionExecutor**: Browser automation engine (Playwright-based)
 - **ResearchOrchestrator**: Multi-stage research with query expansion and synthesis
 - **AgentOrchestrator**: Powers the `agent` tool — NL prompt → autonomous PLAN→GATHER→ACT→DECIDE→SHAPE loop with three orchestrator-enforced hard stops (maxSteps≤10, maxUrls≤20, wall-clock) never delegated to the LLM; degraded no-LLM-key path (D2, v4.6.0)
-- **StealthBrowserManager**: Stealth mode scraping with anti-detection; Camoufox (Firefox) engine added in v4.0.0
+- **StealthBrowserManager**: Stealth mode scraping with anti-detection; Camoufox (Firefox) engine added in v4.0.0. Engine selection goes through the one resolver `resolveStealthEngine(requested)` → `{engine, fallbackWarning}`; `'auto'` (the default for `scrape.escalate_engine` and `stealth_mode.engine` since the 2026-09 stealth review Phase 2) prefers Camoufox and falls back to Chromium with a caller-visible warning when its binary is absent. `'playwright'` is the tool layer's public name for Chromium. Camoufox personas are pinned to the installed binary's Firefox major so the UA's `rv:` and `Firefox/` tokens agree — see `docs/STEALTH_REVIEW_2026-09.md`
 - **LocalizationManager**: Multi-language content and localization
 - **ChangeTracker**: Content change tracking over time
 - **SnapshotManager**: Website snapshots and version history
@@ -221,7 +221,16 @@ MAX_PAGES_PER_CRAWL=100
 RESPECT_ROBOTS_TXT=true
 ROBOTS_CACHE_TTL_MS=3600000          # how long a parsed robots.txt stays good for
 CRAWLFORGE_BLOCKED_HOSTS=            # comma-separated; extends the permanent opt-out blocklist
+CRAWLFORGE_STEALTH_PROXIES=          # comma-separated proxy URLs used by the escalation stage,
+                                     # stealth_mode, browser_session, scrape_with_actions and the
+                                     # deep_research fallback when the caller passes none (a proxy
+                                     # passed on the call wins). CrawlForge supplies no proxies, and
+                                     # a datacenter one does not defeat these detectors. Distinct
+                                     # from the PROXY_ROTATION_* family, which belongs to
+                                     # localization. The agent tool does not browse yet (Phase 3).
 ```
+
+Camoufox is an **optional** dependency and its transitive `language-tags@2.1.0` requires Node ≥22. npm silently drops an optional subtree that fails an engine check, so on Node 20 it is simply absent — `'auto'` then resolves to Chromium and says so in `fallbackWarning`. `engines.node` stays at `>=20.16.0` deliberately; bumping it is breaking and is a release decision.
 
 Web Bot Auth (optional, off by default — requests go out unsigned when unset):
 

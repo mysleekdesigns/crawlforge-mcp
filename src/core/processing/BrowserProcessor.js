@@ -47,7 +47,11 @@ const BrowserProcessorSchema = z.object({
       simulateHumanBehavior: z.boolean().default(true),
       customUserAgent: z.string().optional(),
       hideWebDriver: z.boolean().default(true),
-      blockWebRTC: z.boolean().default(true)
+      blockWebRTC: z.boolean().default(true),
+      // Already resolved to a concrete engine by the caller (Phase 2): the
+      // tools call resolveStealthEngine() so they can report a camoufox→
+      // chromium fallback in their own result. Nothing 'auto' reaches here.
+      engine: z.enum(['chromium', 'camoufox']).optional()
     }).optional(),
     
     // Human behavior simulation options
@@ -307,7 +311,12 @@ export class BrowserProcessor {
     } else {
       // Standard browser initialization
       await this.initBrowser();
-      return await this.createPage(processedOptions);
+      const page = await this.createPage(processedOptions);
+      // Stamped for the same reason __crawlforgeGateWarnings is: the caller's
+      // result is assembled a layer up, and only this layer knows which engine
+      // actually ran. The standard pool is Chromium; camoufox is stealth-only.
+      page.__crawlforgeEngine = 'chromium';
+      return page;
     }
   }
 
@@ -356,8 +365,15 @@ export class BrowserProcessor {
       });
     }
 
+    // The engine the caller resolved (Phase 2). It has to reach BOTH calls:
+    // launchStealthBrowser parks the running browser on a mismatch, and
+    // createStealthContext re-validates the config it is given — so a context
+    // asked for without it would relaunch on the default engine underneath.
+    const engine = options.stealthMode.engine || 'chromium';
+
     // Launch stealth browser
     await this.stealthManager.launchStealthBrowser({
+      engine,
       level: options.stealthMode.level,
       randomizeFingerprint: options.stealthMode.randomizeFingerprint,
       hideWebDriver: options.stealthMode.hideWebDriver,
@@ -367,6 +383,7 @@ export class BrowserProcessor {
 
     // Create stealth context
     const { context, contextId } = await this.stealthManager.createStealthContext({
+      engine,
       level: options.stealthMode.level,
       customViewport: {
         width: options.viewportWidth || 1280,
@@ -376,7 +393,8 @@ export class BrowserProcessor {
 
     // Create stealth page
     const page = await this.stealthManager.createStealthPage(contextId);
-    
+    page.__crawlforgeEngine = engine;
+
     // Store context for cleanup
     this.activeContexts.set(contextId, { context, page });
 
@@ -458,7 +476,15 @@ export class BrowserProcessor {
       });
     }
 
-    // Add extra stealth protections
+    // Add extra stealth protections.
+    //
+    // Chromium only. This script hands the page a `window.chrome` object and a
+    // Chrome-shaped navigator; on camoufox's Firefox that is a tell no real
+    // Firefox has, and camoufox already spoofs all of it below the JS layer
+    // where a page cannot see the seam — the same reason StealthBrowserManager
+    // injects nothing into camoufox.
+    if (page.__crawlforgeEngine === 'camoufox') return;
+
     await page.addInitScript(() => {
       // Additional webdriver detection removal
       delete window.navigator.__proto__.webdriver;

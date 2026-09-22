@@ -102,13 +102,20 @@ describe('R11.1 engine mismatch guard in launchStealthBrowser', () => {
 });
 
 describe('R11.2 create_context forwards the tool-level engine', () => {
-  test('server.js maps engine for create_context the way scrape does', () => {
+  // Phase 2 (2026-09-21) replaced the `engine === 'camoufox' ? ... : 'chromium'`
+  // mapping this used to pin with resolveStealthEngine, which is the only thing
+  // that can turn the new 'auto' default into a real engine. The regression is
+  // the same one either way: a create_context that hard-codes an engine runs on
+  // a browser the caller did not ask for.
+  test('server.js resolves engine for create_context the way scrape does', () => {
     const src = read('server.js');
     const createContextCall = src.match(
-      /createStealthContext\(\{\s*\.\.\.\(stealthConfig \|\| \{\}\),\s*engine:\s*engine === 'camoufox' \? 'camoufox' : 'chromium'\s*\}\)/
+      /const contextEngine = await resolveStealthEngine\(engine\);\s*const contextData = await stealthBrowserManager\.createStealthContext\(\{\s*\.\.\.\(stealthConfig \|\| \{\}\),\s*engine: contextEngine\.engine\s*\}\)/
     );
     assert.ok(createContextCall,
-      'create_context must pass the mapped engine into createStealthContext');
+      'create_context must pass the RESOLVED engine into createStealthContext');
+    assert.doesNotMatch(src, /engine === 'camoufox' \? 'camoufox' : 'chromium'/,
+      'no stealth entry point may collapse the engine by hand — that maps "auto" to chromium');
   });
 });
 

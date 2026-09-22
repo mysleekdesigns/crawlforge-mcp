@@ -41,6 +41,7 @@ import { internalOwnerToken, isInternalRequest } from '../../server/requestConte
 import { isRemoteTransport } from '../../utils/remoteMode.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 import { stealthDocumentVerdict } from '../../utils/stealthVerdict.js';
+import { resolveStealthEngine } from '../../core/StealthBrowserManager.js';
 
 const SECOND = 1000;
 
@@ -95,6 +96,11 @@ const BrowserSessionSchema = z.object({
   // from their docs reads the same numbers; the store works in milliseconds.
   url: z.string().url().optional(),
   stealth: z.boolean().default(false),
+  // Which stealth engine the session runs on. Only meaningful with stealth:true
+  // — the standard pool is Chromium and camoufox exists only on the stealth
+  // path — so "camoufox" without stealth is refused rather than quietly
+  // downgraded (see openSession).
+  engine: z.enum(['auto', 'chromium', 'camoufox', 'playwright']).default('auto'),
   ttl: z.number().min(TTL_MIN_MS / SECOND).max(TTL_MAX_MS / SECOND).optional(),
   activity_ttl: z.number().min(ACTIVITY_TTL_MIN_MS / SECOND).max(ACTIVITY_TTL_MAX_MS / SECOND).optional(),
   viewport: z.object({
@@ -143,6 +149,11 @@ function sessionInfo(session) {
     sessionId: session.id,
     url: session.url,
     stealth: session.stealth,
+    // Which engine actually ran, read off the page BrowserProcessor stamped —
+    // not the engine that was asked for. With engine:"auto" those differ
+    // whenever camoufox is not installed, and the whole point of a resolved
+    // engine is that the caller can see which one it got.
+    ...(session.page?.__crawlforgeEngine ? { engine: session.page.__crawlforgeEngine } : {}),
     expiresAt: session.createdAt + session.ttlMs,
     idleExpiresAt: session.lastUsedAt + session.activityTtlMs
   };
@@ -181,7 +192,11 @@ function withJsResult(result) {
  * warnings describe the hop the caller just made, not every hop of the session.
  */
 function gateWarningFields(page) {
-  const warnings = page?.__crawlforgeGateWarnings;
+  return warningFields(page?.__crawlforgeGateWarnings);
+}
+
+/** The same `warnings` field, for a list that is not only the gate's. */
+function warningFields(warnings) {
   return warnings?.length ? { warnings } : {};
 }
 
@@ -288,6 +303,19 @@ export class BrowserSessionTool {
       throw new Error('operation "open" requires a url to load the session on.');
     }
 
+    // camoufox is the stealth browser's Firefox engine; the plain session runs
+    // on the shared Chromium pool, where there is nothing to switch. Refusing
+    // beats opening a session on the engine the caller did not ask for and
+    // saying so in a warning nobody reads. "auto"/"chromium"/"playwright" need
+    // no refusal: Chromium is what they would have got.
+    if (!params.stealth && params.engine === 'camoufox') {
+      throw refuse(
+        'ENGINE_NEEDS_STEALTH',
+        'engine:"camoufox" requires stealth:true — the Firefox anti-detect engine exists only on ' +
+        'the stealth path. Open with stealth:true, or drop engine to use the standard Chromium browser.'
+      );
+    }
+
     const browserOptions = {
       headless: true,
       viewportWidth: params.viewport?.width,
@@ -296,8 +324,13 @@ export class BrowserSessionTool {
       respectRobots: params.respect_robots,
       tool: 'browser_session'
     };
+    // Resolved here rather than downstream so an "auto" that lands on Chromium
+    // because camoufox is absent can be said out loud in this call's result.
+    let engineWarning = null;
     if (params.stealth) {
-      browserOptions.stealthMode = { enabled: true };
+      const resolved = await resolveStealthEngine(params.engine);
+      engineWarning = resolved.fallbackWarning;
+      browserOptions.stealthMode = { enabled: true, engine: resolved.engine };
     }
 
     // initializePage runs the SSRF guard, then the blocklist/robots gate, and
@@ -341,7 +374,9 @@ export class BrowserSessionTool {
       operation: 'open',
       ...sessionInfo(session),
       ...verdictFields(verdict),
-      ...gateWarningFields(page),
+      // One warnings array: the engine fallback rides with the gate's, or it
+      // would overwrite them (both spread a `warnings` key).
+      ...warningFields([...(engineWarning ? [engineWarning] : []), ...(page?.__crawlforgeGateWarnings || [])]),
       // The page is a wall, but the session behind it is real and holds a
       // browser context — say so, or a caller reading only `success` abandons
       // it to its TTL instead of closing it or acting through the challenge.

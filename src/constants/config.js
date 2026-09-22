@@ -454,6 +454,28 @@ export function isStealthConfigured() {
   );
 }
 
+// The server operator's own exit IPs for every stealth path, from
+// CRAWLFORGE_STEALTH_PROXIES — a comma-separated list in proxyRotation's URL
+// format (http/https/socks4/socks5, credentials percent-encoded in the URL).
+//
+// Deliberately a function reading process.env rather than a field on `config`
+// above: a value frozen at import time cannot be changed for a single run, and
+// every consumer (the escalation stage, the deep_research fallback, the agent,
+// browser_session) resolves its proxy mid-process.
+//
+// Separate from the PROXY_ROTATION_* family under localization.proxy on
+// purpose. Those answer "which country should this page be fetched from", which
+// is the localization tool's whole job; this one answers "which address does
+// this server go out from", which is about not being the same datacentre IP a
+// wall has already seen. Overloading one on the other would make either
+// setting silently change the other's behaviour.
+export function serverStealthProxies() {
+  return (process.env.CRAWLFORGE_STEALTH_PROXIES || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 // Get localization configuration
 export function getLocalizationConfig() {
   return config.localization;

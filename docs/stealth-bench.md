@@ -34,6 +34,12 @@ run to the engines and targets you name, which is how you re-test a single
 fix without paying for the whole matrix. `--out` writes the Markdown report and
 `--json` the machine-readable form; `--timeout` overrides the per-target budget.
 
+`--engines` takes the manager's names, `chromium` and `camoufox`, and there is
+no `auto`: the harness always names one engine per column, because a column that
+could be either engine measures nothing. The tools default to `auto` (see
+[stealth-engines.md](./stealth-engines.md)); this is the layer underneath that
+choice, which is the point of driving the manager directly.
+
 A full run launches real browsers and navigates to third-party sites —
 Cloudflare, Akamai and DataDome properties, plus five public detector pages. It
 takes minutes, not seconds, it is visible to everyone it touches, and it is
@@ -168,6 +174,15 @@ Phase 2's verification gate is stated in terms of both files — with a resident
 proxy configured, the hosted run should match the residential baseline on Indeed
 and Harrods, and without one it should report the datacenter result honestly.
 That gate cannot be checked until the second baseline exists.
+
+**Check that a proxied run was actually proxied.** The harness drives
+`StealthBrowserManager` directly and hands it an engine and nothing else, so it
+does not inherit a proxy that the tool layer applies on its behalf —
+`CRAWLFORGE_STEALTH_PROXIES` is read where the tools call the browser, not here.
+The header's exit IP and its type are the only proof that a run went out where
+you think it did. Read that line before filing a report as the proxied
+measurement; a matrix labelled "residential" from a datacenter address is worse
+than no baseline, because the next person believes it.
 
 ## Known limits
 

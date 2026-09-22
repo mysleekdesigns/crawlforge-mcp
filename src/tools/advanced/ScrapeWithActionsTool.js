@@ -14,6 +14,7 @@ import { stealthDocumentVerdict } from '../../utils/stealthVerdict.js';
 import { elementText } from '../../utils/elementText.js';
 import { pageTitle } from '../../utils/pageTitle.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
+import { resolveStealthEngine } from '../../core/StealthBrowserManager.js';
 
 // Recording / replay helpers
 import {
@@ -192,7 +193,12 @@ const ScrapeWithActionsSchema = z.object({
     // Run the chain in the stealth browser (StealthBrowserManager) instead of
     // the standard pool. executeSession turns this into the stealthMode object
     // ActionExecutor/BrowserProcessor read.
-    stealth: z.boolean().default(false)
+    stealth: z.boolean().default(false),
+    // Which stealth engine the chain runs on. Only meaningful with stealth:true
+    // — the standard pool is Chromium and camoufox exists only on the stealth
+    // path — so "camoufox" without stealth is refused rather than quietly
+    // downgraded (see executeSession).
+    engine: z.enum(['auto', 'chromium', 'camoufox', 'playwright']).default('auto')
   }).optional(),
 
   // Content extraction options
@@ -394,8 +400,26 @@ export class ScrapeWithActionsTool extends EventEmitter {
 
     // `stealth: true` is the caller-facing switch; everything downstream reads
     // browserOptions.stealthMode.
+    //
+    // The engine is resolved here, not downstream, so an "auto" that lands on
+    // Chromium because camoufox is absent can be reported in this call's
+    // result instead of disappearing.
+    const warnings = [];
     if (browserOptions.stealth) {
-      browserOptions.stealthMode = { enabled: true };
+      const resolved = await resolveStealthEngine(browserOptions.engine);
+      browserOptions.stealthMode = { enabled: true, engine: resolved.engine };
+      if (resolved.fallbackWarning) warnings.push(resolved.fallbackWarning);
+    } else if (browserOptions.engine === 'camoufox') {
+      // camoufox is the stealth browser's Firefox engine; a non-stealth chain
+      // runs on the shared Chromium pool, where there is nothing to switch.
+      // Refusing beats running the chain on the engine the caller did not ask
+      // for. "auto"/"chromium"/"playwright" need no refusal: Chromium is what
+      // they would have got.
+      throw new Error(
+        'browserOptions.engine:"camoufox" requires browserOptions.stealth:true — the Firefox ' +
+        'anti-detect engine exists only on the stealth path. Set stealth:true, or drop engine ' +
+        'to use the standard Chromium browser.'
+      );
     }
 
     // The robots override rides with the browser options so ActionExecutor's
@@ -497,6 +521,10 @@ export class ScrapeWithActionsTool extends EventEmitter {
       error: chainResult.error || verdict.error || undefined,
       ...(verdict.blocked ? { blocked: verdict.blocked } : {}),
       ...(verdict.status !== null ? { httpStatus: verdict.status } : {}),
+      // The engine the chain actually ran on, and anything to say about how it
+      // was chosen (an "auto" that fell back to Chromium says so here).
+      engine: browserOptions.stealthMode?.engine || 'chromium',
+      ...(warnings.length ? { warnings } : {}),
 
       actionResults,
       totalActions: params.actions.length,

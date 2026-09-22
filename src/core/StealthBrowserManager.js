@@ -20,6 +20,7 @@ import { BrowserContextPool } from './BrowserContextPool.js';
 import { safeGoto } from '../utils/ssrfGuard.js';
 import { looksLikeInterstitial } from '../utils/challengeDetection.js';
 import { guardFirefoxPageErrors } from '../utils/firefoxPageErrorGuard.js';
+import { serverStealthProxies } from '../constants/config.js';
 
 // Grace given to a document that rendered no title and no text (see _waitOutEmptyDocument).
 export const EMPTY_DOCUMENT_GRACE_MS = 8000;
@@ -80,8 +81,11 @@ const StealthConfigSchema = z.object({
     hardwareSpoofing: z.boolean().default(true)
   }).optional(),
 
-  // C2: browser engine selection — 'chromium' (default) or 'camoufox' (Firefox-based)
-  engine: z.enum(['chromium', 'camoufox']).optional().default('chromium')
+  // C2: browser engine selection — 'auto' (default), 'chromium' or 'camoufox'
+  // (Firefox-based). 'auto' is resolved to one of the concrete two by
+  // resolveStealthEngine before anything reads this field; see it for why the
+  // default moved off chromium.
+  engine: z.enum(['chromium', 'camoufox', 'auto']).optional().default('auto')
 });
 
 /**
@@ -103,9 +107,60 @@ function isChromium(page) {
   }
 }
 
+/**
+ * Resolve a requested engine to the one that will actually launch.
+ *
+ * Camoufox is the engine that gets past the walls a stealth call is made for —
+ * it spoofs at the C++/Juggler level, where a page cannot see the seam — so
+ * 'auto', now the default everywhere, asks for it and drops to Chromium only
+ * when the package is not there. That is the semantic ResearchOrchestrator has
+ * run with since v4.6.6 (RESEARCH_STEALTH_ENGINE='auto'); it is lifted here so
+ * every stealth path shares one definition of it.
+ *
+ * A caller who NAMED an engine gets that engine and nothing else: 'camoufox'
+ * is never downgraded, so a missing install still fails at launch with the
+ * install instructions rather than quietly running a browser the caller
+ * rejected — the failure mode this whole review exists to remove.
+ *
+ * @param {'auto'|'chromium'|'camoufox'|'playwright'|null|undefined} requested
+ *   'playwright' is the tool layer's public name for chromium; null/undefined
+ *   mean 'auto'.
+ * @returns {Promise<{engine: 'chromium'|'camoufox', fallbackWarning: string|null}>}
+ *   fallbackWarning is set only when 'auto' wanted camoufox and could not have
+ *   it, and is the one thing that stops that downgrade from being silent.
+ */
+export async function resolveStealthEngine(requested) {
+  if (requested === 'camoufox') return { engine: 'camoufox', fallbackWarning: null };
+  if (requested && requested !== 'auto') return { engine: 'chromium', fallbackWarning: null };
+
+  let reason = 'camoufox is not installed (npm install camoufox)';
+  try {
+    if (await new CamoufoxAdapter().isAvailable()) {
+      return { engine: 'camoufox', fallbackWarning: null };
+    }
+  } catch (error) {
+    // Installed-but-broken arrives as a throw, and it is a different problem
+    // from not installed — a fetched binary that will not load is worth
+    // naming. Either way it is a reason to run Chromium, not to fail a scrape
+    // the caller never asked to pin to one engine.
+    reason = error.message;
+  }
+  return {
+    engine: 'chromium',
+    fallbackWarning:
+      `Stealth engine fell back to chromium: ${reason}. ` +
+      'Camoufox passes bot walls this Chromium does not; install it to use it.'
+  };
+}
+
 export class StealthBrowserManager {
   constructor(options = {}) {
     this.browser = null;
+    // Why the running browser is not the engine 'auto' asked for, or null when
+    // nothing was downgraded. Kept on the instance beside _launchedEngine so a
+    // tool layer can tell the caller which browser actually ran — a drop to
+    // Chromium that nobody reports reads as a camoufox result that failed.
+    this._engineFallbackWarning = null;
     this._maxContexts = parseInt(process.env.MAX_BROWSER_CONTEXTS || '10', 10);
     this.contexts = this._createContextPool();
     // D2.2: fingerprints Map is capped at _maxContexts to prevent unbounded growth.
@@ -296,6 +351,12 @@ export class StealthBrowserManager {
    */
   async launchStealthBrowser(config = {}) {
     const validatedConfig = StealthConfigSchema.parse({ ...this.defaultConfig, ...config });
+    // 'auto' has to become a concrete engine before the comparison below: an
+    // unresolved 'auto' never equals _launchedEngine, so every call would park
+    // a perfectly good browser and launch a second one beside it. This is the
+    // call that decides the engine — every other path reaches a browser
+    // through it — so it is the one that records the outcome.
+    await this._resolveConfigEngine(validatedConfig, true);
 
     // A Chromium that was OOM-killed or crashed doesn't error on reuse — its
     // protocol calls hang. Detect the corpse and relaunch instead.
@@ -338,10 +399,48 @@ export class StealthBrowserManager {
   }
 
   /**
+   * Rewrite config.engine in place to the engine that will actually launch,
+   * recording any downgrade on the instance.
+   *
+   * In place, because `engine` is read again further down — the park/reuse
+   * comparison, the fingerprint's browser pool, the camoufox context surgery —
+   * and every one of them has to see the same answer. Idempotent and cheap (a
+   * concrete engine resolves to itself; isAvailable()'s require is cached by
+   * the module loader), so the context path and the launch path can each call
+   * it without arranging who goes first.
+   *
+   * @param {{engine: string}} validatedConfig — mutated
+   * @param {boolean} [ownsTheDecision] — true for the call this launch's engine
+   *   is decided by (launchStealthBrowser). _doLaunchStealthBrowser re-checks
+   *   the very config that call already resolved, and recording "nothing was
+   *   downgraded" there would erase the downgrade the first pass had just
+   *   found — which is how the fallback would go silent again.
+   * @returns {Promise<string|null>} this call's fallback warning, if any
+   */
+  async _resolveConfigEngine(validatedConfig, ownsTheDecision = false) {
+    // A concrete engine is already the answer and cannot have fallen back.
+    if (validatedConfig.engine && validatedConfig.engine !== 'auto') {
+      if (ownsTheDecision) this._engineFallbackWarning = null;
+      return null;
+    }
+
+    const { engine, fallbackWarning } = await resolveStealthEngine(validatedConfig.engine);
+    validatedConfig.engine = engine;
+    this._engineFallbackWarning = fallbackWarning;
+    return fallbackWarning;
+  }
+
+  /**
    * Actual browser launch, guarded by launchStealthBrowser's in-flight
    * promise so only one launch can be in progress at a time.
    */
   async _doLaunchStealthBrowser(validatedConfig) {
+    // Resolved again here rather than trusted: this method is reachable on its
+    // own, and an 'auto' that got this far unresolved would fall through to the
+    // chromium branch below — the exact silent downgrade 'auto' is meant to
+    // report.
+    await this._resolveConfigEngine(validatedConfig);
+
     // C2: delegate to CamoufoxAdapter when engine === 'camoufox'
     if (validatedConfig.engine === 'camoufox') {
       const adapter = new CamoufoxAdapter();
@@ -371,7 +470,14 @@ export class StealthBrowserManager {
       // would name a country the address contradicts.
       const locale = proxy ? null : validatedConfig.locale;
       const browser = await adapter.launch({
-        headless: true,
+        // 'virtual' runs a real, windowed Firefox inside Xvfb instead of the
+        // headless build. Headless Firefox is its own tell — no window manager,
+        // no compositor, and a set of media/GL answers that differ from the
+        // browser everyone else runs — and camoufox ships this mode precisely
+        // to avoid it. Only on Linux: that is where a hosted image has no
+        // display and where the Dockerfile provides Xvfb; a Mac or Windows
+        // developer machine has neither, so plain headless stays there.
+        headless: process.platform === 'linux' ? 'virtual' : true,
         proxy,
         locale,
         // camoufox draws its persona from ["windows","macos","linux"] when it
@@ -538,12 +644,18 @@ export class StealthBrowserManager {
    */
   async createStealthContext(config = {}) {
     const validatedConfig = StealthConfigSchema.parse({ ...this.defaultConfig, ...config });
-    
+
     // Always go through launchStealthBrowser: it returns the running browser
     // when the engine matches, and closes + relaunches on an engine mismatch.
     // Guarding on `!this.browser` here skipped that mismatch check, so a
     // camoufox request silently reused an already-running chromium browser.
     await this.launchStealthBrowser(validatedConfig);
+    // The browser that came back is the authority on which engine this context
+    // is created over, and everything below reads it: the fingerprint's browser
+    // pool branches on it, and an 'auto' left unresolved here would draw a
+    // Chrome persona for a Firefox browser.
+    validatedConfig.engine = this._launchedEngine ?? validatedConfig.engine;
+    const engineFallbackWarning = this._engineFallbackWarning;
 
     // Generate fingerprint for this context
     const fingerprint = this.generateAdvancedFingerprint(validatedConfig);
@@ -670,7 +782,11 @@ export class StealthBrowserManager {
     // D2.2: enforce LRU cap on fingerprints Map
     this._setFingerprint(contextId, fingerprint);
 
-    return { context, contextId, fingerprint };
+    // The engine and its warning ride back with the context, not only on the
+    // instance: the instance fields follow the browser, which the next call
+    // may switch, and the caller of THIS context still has to be able to say
+    // which browser it got.
+    return { context, contextId, fingerprint, engine: validatedConfig.engine, engineFallbackWarning };
   }
 
   /**
@@ -2356,10 +2472,21 @@ export class StealthBrowserManager {
    * proxy in a list was never reached.
    */
   resolveProxy(config) {
-    const proxies = config.proxyRotation?.enabled ? (config.proxyRotation.proxies || []) : [];
+    // The caller's list always wins: a per-call proxyRotation is a deliberate
+    // choice of exit address, and the server-level CRAWLFORGE_STEALTH_PROXIES
+    // is only what this server goes out from when nobody chose one — the
+    // escalation stage, the agent and browser_session have no caller to ask.
+    // Read through the helper on every call, so an operator's list can be set
+    // for a run without restarting the process.
+    const requested = config.proxyRotation?.enabled ? (config.proxyRotation.proxies || []) : [];
+    const proxies = requested.length ? requested : serverStealthProxies();
     if (!proxies.length) {
       return null;
     }
+    // The server-level list arrives as a bare list with no rotation block of
+    // its own, so it gets the schema's own default interval rather than
+    // comparing against undefined — which is never greater, i.e. never rotates.
+    const rotationInterval = config.proxyRotation?.rotationInterval ?? 300000;
 
     const now = Date.now();
     if (this.proxyManager.currentProxy === null) {
@@ -2368,7 +2495,7 @@ export class StealthBrowserManager {
       // longer list silently started at the second entry.
       this.proxyManager.proxyIndex = 0;
       this.proxyManager.lastRotation = now;
-    } else if (now - this.proxyManager.lastRotation > config.proxyRotation.rotationInterval) {
+    } else if (now - this.proxyManager.lastRotation > rotationInterval) {
       this.proxyManager.proxyIndex = (this.proxyManager.proxyIndex + 1) % proxies.length;
       this.proxyManager.lastRotation = now;
     }
@@ -2415,11 +2542,13 @@ export class StealthBrowserManager {
    *
    * @param {Object} params
    * @param {string} params.url                 — URL to scrape
-   * @param {string} [params.engine]            — browser engine (forwarded to config; playwright by default)
+   * @param {string} [params.engine]            — browser engine (forwarded to config; 'auto' by default, i.e. camoufox when installed)
    * @param {number} [params.wait_for]          — extra wait after load, in ms
    * @param {boolean} [params.screenshot]       — capture a base64 PNG screenshot
    * @param {Object} [params.stealthConfig]     — stealth configuration overrides
-   * @returns {Promise<{success:boolean, url:string, title:string, text:string, html:string, screenshot:?string}>}
+   * @returns {Promise<{success:boolean, url:string, title:string, text:string, html:string, screenshot:?string, engine:?string, warnings:string[]}>}
+   *   `engine` is the one that actually ran and `warnings` carries the
+   *   'auto'→chromium downgrade, so the caller can report it.
    */
   /**
    * If the document is a self-solving bot-wall interstitial, wait up to
@@ -2563,7 +2692,12 @@ export class StealthBrowserManager {
   async scrapeWithStealth({ url, engine, wait_for = 0, screenshot = false, stealthConfig = {} } = {}) {
     if (!url) throw new Error('scrapeWithStealth requires a url');
 
-    const { contextId } = await this.createStealthContext({ ...stealthConfig, engine });
+    const { contextId, engineFallbackWarning = null } = await this.createStealthContext({ ...stealthConfig, engine });
+    // What ran, not what was asked for: 'auto' becomes chromium when camoufox
+    // is absent, and a result that says the stealth browser did not get the
+    // page has to name the browser that tried.
+    const engineUsed = this._launchedEngine ?? null;
+    const warnings = engineFallbackWarning ? [engineFallbackWarning] : [];
     try {
       const page = await this.createStealthPage(contextId);
       let crashed = false;
@@ -2623,7 +2757,7 @@ export class StealthBrowserManager {
         ? await page.screenshot({ encoding: 'base64', fullPage: false }).catch(() => null)
         : null;
 
-      return { success: true, url, title, text, html, screenshot: shot, status, gracedMs };
+      return { success: true, url, title, text, html, screenshot: shot, status, gracedMs, engine: engineUsed, warnings };
     } finally {
       await this.closeContext(contextId).catch(() => {});
     }
@@ -2958,6 +3092,7 @@ export class StealthBrowserManager {
       this._parkedBrowsers.clear();
     }
     this._launchedEngine = null;
+    this._engineFallbackWarning = null;
     for (const browser of browsers) {
       const closed = await withDeadline(browser.close(), 5000);
       if (!closed) {
@@ -3130,6 +3265,72 @@ export class CamoufoxAdapter extends BrowserEngine {
     }
   }
 
+  /**
+   * A browserforge fingerprint pinned to the installed binary's Firefox major.
+   *
+   * camoufox@0.1.19 rewrites the persona's version tokens with
+   *
+   *   data.replace(/(?<!\d)(1[0-9]{2})(\.0)(?!\d)/, `${ffVersion}$2`)
+   *
+   * and there is no /g, so only the FIRST match in each string changes. In a
+   * Firefox UA that match is `rv:`, and `Firefox/` keeps whatever version
+   * browserforge drew — the two then agree only by coincidence. Measured on
+   * the installed 135 binary: 4 of 8 launches produced a self-contradicting UA
+   * (`rv:135.0 ... Firefox/150.0`), which is a one-line detection. Generating
+   * the persona ourselves at the binary's own version makes that replace a
+   * no-op and both tokens agree (8/8 measured, end to end through
+   * launchOptions).
+   *
+   * Nothing else is constrained here because camoufox constrains nothing else:
+   * its getScreenCons() returns null on both branches, and its `os` option is
+   * dropped before it reaches the generator (the client sends `os`, the
+   * generator's key is `operatingSystems`). Pinning the OS too would fix that
+   * second bug, but it is Phase 1's documented `persona-os-vs-host` finding and
+   * changing it here would move a baseline this change has no business moving.
+   *
+   * @returns {object|null} null when the version cannot be read, or when
+   *   browserforge has no data for it — 152 is outside its set, and silently
+   *   drawing some other version would put us back where we started. The
+   *   caller then lets camoufox generate as it did before.
+   */
+  _pinnedFingerprint(camoufox) {
+    try {
+      const raw = fs.readFileSync(path.join(camoufox.INSTALL_DIR, 'version.json'), 'utf8');
+      const major = parseInt(String(JSON.parse(raw).version).split('.')[0], 10);
+      if (!Number.isInteger(major)) return null;
+
+      // Resolved through camoufox's own module path first: fingerprint-generator
+      // is its dependency, not ours, and this guarantees the same copy it feeds
+      // its data to rather than a second one hoisted elsewhere.
+      const here = createRequire(import.meta.url);
+      let load;
+      try {
+        load = createRequire(here.resolve('camoufox'));
+      } catch {
+        load = here;
+      }
+      const { FingerprintGenerator } = load('fingerprint-generator');
+
+      const { fingerprint } = new FingerprintGenerator({
+        browsers: [{ name: 'firefox', minVersion: major, maxVersion: major }]
+      }).getFingerprint();
+
+      // Verify rather than assume: a generator with no data for this version
+      // can still hand back a persona on a different one, and an unchecked
+      // fingerprint would reintroduce exactly the mismatch this exists to close.
+      const ua = fingerprint?.navigator?.userAgent ?? '';
+      const rv = ua.match(/rv:(\d+)/)?.[1];
+      const ff = ua.match(/Firefox\/(\d+)/)?.[1];
+      if (rv !== String(major) || ff !== String(major)) return null;
+
+      return fingerprint;
+    } catch {
+      // Best effort: a missing version.json or an absent generator is a reason
+      // to fall back to camoufox's own persona, not to fail a launch.
+      return null;
+    }
+  }
+
   async launch(config = {}) {
     let camoufox;
     try {
@@ -3159,7 +3360,11 @@ export class CamoufoxAdapter extends BrowserEngine {
     // level, where a page cannot see the seam, and every one of these was
     // simply not being passed — camoufox ran with its own features off.
     const options = {
-      headless: config.headless !== false,
+      // A string mode ('virtual' — Xvfb) has to reach camoufox as that string.
+      // `config.headless !== false` collapsed it to `true`, which is plain
+      // headless: the one mode 'virtual' exists to avoid. Booleans keep their
+      // old meaning, so an unset headless is still headless.
+      headless: typeof config.headless === 'string' ? config.headless : config.headless !== false,
       ...config.launchOptions
     };
     // A bare `{ server }` is fine here; camoufox normalises both shapes.
@@ -3185,6 +3390,21 @@ export class CamoufoxAdapter extends BrowserEngine {
     // Native cursor humanization: camoufox moves the pointer along a plausible
     // path rather than teleporting it.
     if (config.humanize) options.humanize = true;
+    // Pin the persona to the installed binary's Firefox major so the UA's two
+    // version tokens agree. Left unpinned, camoufox's own version rewrite
+    // reaches only `rv:` and about half of all launches announce a Firefox
+    // that is not the one running — see _pinnedFingerprint.
+    const fingerprint = this._pinnedFingerprint(camoufox);
+    if (fingerprint) {
+      options.fingerprint = fingerprint;
+      // Switches off exactly two things: camoufox's "you passed your own
+      // fingerprint" advisory, and its non-Firefox fingerprint check, which is
+      // satisfied by construction — the generator above is Firefox-only. The
+      // other options this flag gates (ff_version, block_images, disable_coop,
+      // block_webgl) are ones this adapter never sets, so nothing else is
+      // silenced.
+      options.i_know_what_im_doing = true;
+    }
 
     try {
       return await camoufox.Camoufox(options);

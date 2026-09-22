@@ -74,8 +74,7 @@ shell). The escalated page goes through the same formats, so `markdown`,
   "params": {
     "url": "https://www.producthunt.com/",
     "formats": ["markdown"],
-    "escalate": true,
-    "escalate_engine": "playwright"
+    "escalate": true
   }
 }
 ```
@@ -83,10 +82,17 @@ shell). The escalated page goes through the same formats, so `markdown`,
 The result adds `escalated: true|false`, and `stealth: { engine,
 vendor_detected }` when the browser ran. The projection is `2 + 5`; the charge
 falls back to the base when the plain fetch succeeded and nothing escalated.
-`escalate_engine` is `"playwright"` (default) or `"camoufox"`. robots.txt is
-respected on the escalated path too, and a second call to a host that blocked
-within the last 24 hours skips the doomed plain fetch and says so in
-`warnings[]`.
+robots.txt is respected on the escalated path too, and a second call to a host
+that blocked within the last 24 hours skips the doomed plain fetch and says so
+in `warnings[]`.
+
+`escalate_engine` defaults to `"auto"`: Camoufox (Firefox, the engine that gets
+through Cloudflare Turnstile and Akamai) when its binary is installed, Chromium
+with a warning when it is not. Pin `"playwright"` (the only spelling for
+Chromium here — `"chromium"` is rejected) when the page just needs rendering and
+you want the faster, lighter browser; pin `"camoufox"` to require the stronger
+engine — it errors rather than falling back. `stealth.engine` in the result says
+which one ran, and a fallback is reported in `warnings[]`.
 
 Query-scoped formats return only the parts of the page that match, verbatim,
 with offsets into the `markdown` of the same call:
