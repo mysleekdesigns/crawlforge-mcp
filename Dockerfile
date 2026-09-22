@@ -264,6 +264,15 @@ COPY --from=builder --chown=mcp:mcp /app/scripts ./scripts
 #
 # extractAllTo(installDir, true) is what the client itself does, so a plain
 # `unzip -d` into the same directory produces the same layout.
+#
+# curl AND unzip are both installed here. curl appears earlier in this file, but
+# only in the `development` stage — browser-base, which production builds on,
+# has neither. A build died on `curl: not found` for exactly that reason.
+# ca-certificates is named explicitly even though browser-base already installs
+# it: it is a Recommends of curl, not a Depends, so --no-install-recommends
+# leaves it out, and without it curl fails with exit 77 (error setting
+# certificate file). Naming it makes this step work on any base, and costs
+# nothing where it is already present.
 ARG INSTALL_CAMOUFOX=true
 ARG CAMOUFOX_TAG=v135.0.1-beta.24
 ARG CAMOUFOX_ASSET=camoufox-135.0.1-beta.24-lin.x86_64.zip
@@ -271,7 +280,7 @@ ARG CAMOUFOX_VERSION=135.0.1
 ARG CAMOUFOX_RELEASE=beta.24
 RUN if [ "$INSTALL_CAMOUFOX" = "true" ]; then \
         set -eux; \
-        apt-get update && apt-get install -y --no-install-recommends unzip && \
+        apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && \
         rm -rf /var/lib/apt/lists/*; \
         mkdir -p /home/mcp/.cache/camoufox; \
         curl -fsSL -o /tmp/camoufox.zip \
