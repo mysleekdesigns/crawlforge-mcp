@@ -273,6 +273,18 @@ COPY --from=builder --chown=mcp:mcp /app/scripts ./scripts
 # leaves it out, and without it curl fails with exit 77 (error setting
 # certificate file). Naming it makes this step work on any base, and costs
 # nothing where it is already present.
+#
+# `|| [ $? -le 1 ]` on the unzip: this archive ships macOS font files whose
+# local and central headers disagree on the non-ASCII filename (ヒラギノ角ゴシック
+# and friends). unzip extracts them correctly from the central name and then
+# exits 1 for "warnings", which under `set -e` is a failed build. Exit 2 and
+# above — a genuinely corrupt archive — still fails. The client itself never
+# sees this because AdmZip does not check that header pair.
+#
+# The `test -f camoufox-bin` immediately after is what makes tolerating exit 1
+# safe: LAUNCH_FILE.lin is `camoufox-bin`, so if the extraction were actually
+# truncated the build fails there rather than shipping a browser that cannot
+# start.
 ARG INSTALL_CAMOUFOX=true
 ARG CAMOUFOX_TAG=v135.0.1-beta.24
 ARG CAMOUFOX_ASSET=camoufox-135.0.1-beta.24-lin.x86_64.zip
@@ -285,8 +297,9 @@ RUN if [ "$INSTALL_CAMOUFOX" = "true" ]; then \
         mkdir -p /home/mcp/.cache/camoufox; \
         curl -fsSL -o /tmp/camoufox.zip \
           "https://github.com/daijro/camoufox/releases/download/${CAMOUFOX_TAG}/${CAMOUFOX_ASSET}"; \
-        unzip -q /tmp/camoufox.zip -d /home/mcp/.cache/camoufox; \
+        unzip -q /tmp/camoufox.zip -d /home/mcp/.cache/camoufox || [ $? -le 1 ]; \
         rm /tmp/camoufox.zip; \
+        test -f /home/mcp/.cache/camoufox/camoufox-bin; \
         printf '{"version":"%s","release":"%s"}\n' "$CAMOUFOX_VERSION" "$CAMOUFOX_RELEASE" \
           > /home/mcp/.cache/camoufox/version.json; \
         env -u PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD HOME=/home/mcp node -e \
