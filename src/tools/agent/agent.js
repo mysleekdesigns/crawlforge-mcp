@@ -67,9 +67,10 @@ export class AgentTool {
     }
 
     // Priced like `scrape`'s escalation: getToolCost projects the ceiling
-    // (base + every retry the cap allows), and the charge is lowered to what
-    // ran — including when run() throws, since a retry that ran was spent.
-    const usage = { escalations: 0 };
+    // (base + every retry the cap allows), and the charge is lowered to the
+    // retries that got the page — including when run() throws. A retry that
+    // met the wall again is free.
+    const usage = { escalations: 0, charged: 0 };
     try {
       return await this._orchestrator.run({
         prompt: validated.prompt,
@@ -82,7 +83,7 @@ export class AgentTool {
       });
     } finally {
       if (validated.model !== 'pro') {
-        setActualCost(AGENT_BASE_CREDITS + AGENT_ESCALATION_CREDITS * usage.escalations);
+        setActualCost(AGENT_BASE_CREDITS + AGENT_ESCALATION_CREDITS * usage.charged);
       }
     }
   }

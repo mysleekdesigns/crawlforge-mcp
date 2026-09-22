@@ -29,7 +29,7 @@
 
 **Gate:** `npm run test:unit` **2437 tests / 0 failed (182 files)**; `npm test` **100.0% COMPLIANT / 0 errors**. Live Indeed check from exit IP 64.71.236.132: **passed with `CRAWLFORGE_STEALTH_ENGINE=chromium`** (seed read `via: "stealth"`, answer 3.3 stars / 58,942 reviews; the live page moved on from the review's 58,941). It **failed on the default `'auto'`/Camoufox** engine, where Cloudflare blocked the retry; the unchanged `scrape` escalation fails the same way on that IP. The owner accepted the pinned pass.
 
-**Website parity: done** (crawlforge-website `d8741be`). `TOOL_CREDIT_COSTS.agent` is the 18 ceiling, and the REST route charges 8 + 5 × `stealth_retries`. `verify-cost-parity.mjs`: 31 tools, 0 mismatches.
+**Website parity: done** (crawlforge-website `d8741be`). `TOOL_CREDIT_COSTS.agent` is the 18 ceiling, and the REST route charges 8 + 5 × `stealth_retries_charged` (retries that got the page; a retry blocked again is free). `verify-cost-parity.mjs`: 31 tools, 0 mismatches.
 
 ---
 

@@ -256,7 +256,8 @@ export class AgentOrchestrator {
    * @param {number}    [params.maxUrls]   - Max URLs to fetch (≤20)
    * @param {number}    [params.wallClockMs] - Wall-clock budget in ms
    * @param {object}    [params.usage]     - out-param: `usage.escalations` counts
-   *   stealth retries that ran, so the tool can bill them even if run() throws
+   *   stealth retries that ran (the cap), `usage.charged` those that got the
+   *   page (the bill), so the tool can bill them even if run() throws
    * @returns {Promise<object>}
    */
   async run(params) {
@@ -271,6 +272,7 @@ export class AgentOrchestrator {
       usage = {}
     } = params;
     usage.escalations = 0;
+    usage.charged = 0;
 
     const startTime = Date.now();
     const deadline = () => (Date.now() - startTime) >= wallClockMs;
@@ -531,6 +533,9 @@ export class AgentOrchestrator {
             { url: stealth.url || url, title: stealth.title || '', text, html: stealth.html || '', status: stealth.status ?? null },
             { waitedMs: stealth.gracedMs || 0, fetcher: 'the stealth browser', rendered: true, contentReturned: false }
           );
+          // Billed only when the browser got past the wall: a retry that met
+          // the wall again, or threw, costs nothing (owner decision).
+          if (rendered.success) usage.charged++;
           if (rendered.success && isRelevant(text, prompt)) {
             step++;
             const sr = searchResults.find(s => s.url === url);
@@ -587,6 +592,7 @@ export class AgentOrchestrator {
         steps: step,
         urls_fetched: urlsFetched,
         stealth_retries: usage.escalations,
+        stealth_retries_charged: usage.charged,
         ...(warnings.length ? { warnings } : {})
       };
     }
@@ -612,6 +618,7 @@ export class AgentOrchestrator {
           steps: step,
           urls_fetched: urlsFetched,
           stealth_retries: usage.escalations,
+        stealth_retries_charged: usage.charged,
           ...(warnings.length ? { warnings } : {})
         };
       } catch (err) {
@@ -742,6 +749,7 @@ export class AgentOrchestrator {
       steps: step,
       urls_fetched: urlsFetched,
       stealth_retries: usage.escalations,
+        stealth_retries_charged: usage.charged,
       ...(warnings.length ? { warnings } : {}),
       provenance: {
         checked: !synthesisFailed,

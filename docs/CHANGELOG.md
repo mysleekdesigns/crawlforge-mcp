@@ -27,13 +27,15 @@ produced "3.3 stars, based on 3.3 reviews".
 
 ### Changed
 
-- **`agent` pricing: 8, plus 5 per stealth retry that runs.** The projection
+- **`agent` pricing: 8, plus 5 per stealth retry that gets the page.** A retry
+  that meets the wall again, or throws, is free; the result reports
+  `stealth_retries` (attempts) and `stealth_retries_charged` (billed). The projection
   (`getToolCost`) is the ceiling: 18 by default, 13 at `maxUrls: 1`, 8 for
-  `model: "pro"`. The charge reported through `setActualCost` is what ran, so a
+  `model: "pro"`. The charge reported through `setActualCost` is what got through, so a
   run with no retry still costs 8. The tool description now says
   "Cost: 18 credits at most". crawlforge-website matches (commit `d8741be`):
   `TOOL_CREDIT_COSTS.agent` is the 18 ceiling and the REST route charges
-  8 + 5 × `stealth_retries`. Cost parity: 31 tools, 0 mismatches.
+  8 + 5 × `stealth_retries_charged`. Cost parity: 31 tools, 0 mismatches.
 
 ### Verified
 

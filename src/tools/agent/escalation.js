@@ -5,7 +5,8 @@
  * When ACT's plain fetch comes back walled (challenge page, 403/429, empty
  * shell, timeout), the agent retries the URL once through the same stealth
  * stage `scrape`'s escalate:true uses. It is not opt-in, so it is capped per
- * run and priced per retry that actually runs.
+ * run and priced per retry that gets the page; one that meets the wall again
+ * is free.
  *
  * The cap and the price live here so the orchestrator, the tool wrapper and
  * `AuthManager.getToolCost` read one declaration — the arrangement

@@ -122,7 +122,7 @@ table is a dead fallback. Adopt one table in **both** `crawlforge-mcp-server/src
 | `batch_scrape` | 5 | 5 | 5 | scales with URLs (per ~10) |
 | `scrape_with_actions` | 5 | 5 | 5 | browser farm |
 | `localization` | 5 | 5 | 2 | geo-proxy |
-| `agent` | 8 | 8 | — | +5 per automatic stealth retry that runs (max 2 a run; not on pro) + pro tier |
+| `agent` | 8 | 8 | — | +5 per automatic stealth retry that gets the page (blocked-again retries free; max 2 a run; not on pro) + pro tier |
 | `deep_research` | 10 | 10 | 10 | scales with sources |
 | `stealth_mode` | 10 | 10 | 5 | **raise to 10** — highest COGS |
 | `get_batch_results` | 0 | 1 | — | retrieval of an already-paid job |
