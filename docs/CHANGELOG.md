@@ -31,8 +31,9 @@ produced "3.3 stars, based on 3.3 reviews".
   (`getToolCost`) is the ceiling: 18 by default, 13 at `maxUrls: 1`, 8 for
   `model: "pro"`. The charge reported through `setActualCost` is what ran, so a
   run with no retry still costs 8. The tool description now says
-  "Cost: 18 credits at most". crawlforge-website's `TOOL_CREDIT_COSTS` still
-  has a flat `agent: 8`; that parity is the owner's task.
+  "Cost: 18 credits at most". crawlforge-website matches (commit `d8741be`):
+  `TOOL_CREDIT_COSTS.agent` is the 18 ceiling and the REST route charges
+  8 + 5 × `stealth_retries`. Cost parity: 31 tools, 0 mismatches.
 
 ### Verified
 

@@ -327,7 +327,7 @@ Verify: the Indeed prompt from section 2.4 returns the review count from the ren
 1. **Automatic retries, capped at 2 per run** (decision 4 in section 7: automatic, capped). Retries are not opt-in, so the credit check needs a finite worst case. Without a cap it would be 8 + 5 × 20. With the cap, the worst case is **18 credits**, and a run that needs no retry is still charged 8. Each retry is also a browser launch that takes seconds and hundreds of MB, so the cap bounds that cost as well.
 2. **A named URL whose retry fails keeps its snippet as a last resort**, still labelled `snippet: true` and still marked as a search-result snippet in the synthesis input. The checklist item reads "snippet fallback only for discovered URLs", but dropping the only evidence for the page the caller pointed at would make the answer worse and no more honest.
 
-**User's task (crawlforge-website):** `TOOL_CREDIT_COSTS` still has `agent: 8`, a flat price. Hosted REST calls arrive as internal requests, which the MCP server does not bill. The website charges its own table before forwarding, so hosted users are not charged the +5 per retry until the website has the same rule (8, plus 5 per retry actually run, at most 2). This is billing parity on the website side and is left to the owner, as with `serp_rank`.
+**crawlforge-website parity: done** (`d8741be`, 2026-09-22). Hosted REST calls arrive as internal requests, which the MCP server does not bill; the website charges its own table. `TOOL_CREDIT_COSTS.agent` is now the 18 ceiling, reserved up front as `browser_session`'s is. `getAgentCreditCost()` charges 8 + 5 × the backend's `stealth_retries`, clamped to 2. `verify-cost-parity.mjs`: 31 tools, 0 mismatches.
 
 ### Phase 4: Session persistence
 
