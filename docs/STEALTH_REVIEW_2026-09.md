@@ -198,6 +198,50 @@ Verify: with a residential proxy configured, the Phase 0 harness on the hosted i
 
       The report goes to stdout whether or not `--out` is passed. Note that this deploy also ships Phase 2's `'auto'` default to production, so it is a release decision, not a formality.
 
+      **RUN 2026-09-22 — `docs/stealth-bench-baseline-2026-09-22-hosted.md`.** Exit IP AS14618 (Amazon, Ashburn VA), no proxy configured. The gate's second clause — "without one it reports the datacenter result honestly" — is **met**. Its first clause, the residential-proxy comparison, has **not** been run, because no proxy is configured.
+
+#### The hosted run inverts this phase's premise
+
+Phase 2 defaults to `'auto'`, which prefers Camoufox, on the strength of one residential finding: Camoufox was the only engine to clear Indeed and Harrods. **On the production exit IP the opposite is true.**
+
+| Wall | Chromium | Camoufox |
+| --- | --- | --- |
+| indeed.com (Turnstile) | **Pass** | Blocked |
+| quora.com | **Pass** | Blocked |
+| harrods.com (Akamai) | Pass | Pass |
+| stackoverflow.com | Pass | Pass |
+
+So on this box `'auto'` picks the engine that loses Indeed and Quora, and pays +0.8 s and +400 MB to do it. Chromium now clears three walls the residential review recorded it failing — Phase 1's fingerprint work, which the review predates.
+
+**The most likely cause is the Camoufox binary, and it is the failure mode this document already predicted.** `camoufox fetch` takes the newest release, so the image built 152.0.4-beta.30 — outside browserforge's data, which knows Firefox up to 151. `_pinnedFingerprint()` therefore stood down correctly, and Camoufox generated its own persona:
+
+    Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/147.0
+
+`rv:152.0` against `Firefox/147.0`, plus a macOS persona on a Linux host. Two fingerprint contradictions on the default engine, on every launch. The prediction that a current binary makes things *measurably worse* now has live pass/fail evidence behind it, not just a UA sample.
+
+**The harness cannot see this, and that is a defect in the harness.** `ua-version-vs-binary` **passed** on that user agent, because it compares `rv:` against the installed binary and never compares `rv:` against `Firefox/`. It is blind to precisely the fault it looks adjacent to. Fixing it is a prerequisite for trusting any later Camoufox row.
+
+**Other findings from the same run:**
+
+- **`worker-languages` fails on Chromium** — worker reports `en-US, en`, main thread `en-US`. Corroborated independently by incolumitas' `inconsistentWebWorkerNavigatorPropery`, which is new since the review. Linux-only; it passes on macOS. A real inconsistency, not a parser artifact.
+- **The environment block over-reports resources.** It printed 8 cores / 31 GB — that is the EC2 host, because `os.totalmem()` does not read cgroup limits. The container is a 2 GB Render standard instance with `MAX_BROWSER_CONTEXTS=6`. Any capacity reasoning from this header is wrong by an order of magnitude.
+- Plain fetch lost producthunt and carvana, which passed residentially — the ordinary datacenter-IP penalty, and a clean demonstration of what the exit IP alone is worth.
+- `commit: unknown` in the report header: `.git/` is excluded from the build context, so the image cannot read its own SHA. Worth passing the commit in as a build arg if these reports are to be comparable over time.
+
+#### The binary is now pinned, and the next run is an experiment
+
+The image no longer calls `camoufox fetch`; it downloads **135.0.1-beta.24** by URL. Two reasons, and the second is the point:
+
+1. The obvious alternative, 150.0.2, **cannot be used**. Its Linux x86_64 asset is named `alpha.26`, and `Version.buildSortedRel()` maps the release word through `charCodeAt(0) - 1024`, so `alpha` (−927) sorts below the `beta.19` (−926) floor and `isSupported()` returns false. The tag says `beta.25`; the asset does not. Of everything browserforge knows, only 135.0.1-beta.24 is also a release this client accepts.
+2. 135 is the binary the **residential** baseline ran. Pinning it means the next hosted run differs from the residential one in exactly one variable — the exit IP. That converts the next run from another data point into an actual experiment:
+
+   - **Camoufox's Indeed and Quora rows flip back to Pass** → the 152 binary's incoherent UA was the cause, `'auto'` is sound, and item 184's "a newer binary is worse" becomes settled rather than inferred.
+   - **They stay Blocked** → Camoufox is simply the weaker engine from a datacenter IP regardless of persona coherence, and `'auto'` is wrong for this deployment and should prefer Chromium. The +0.8 s and +400 MB would be buying nothing.
+
+   Either way the default stops being a guess. Until it resolves, `'auto'` is left as-is deliberately — changing it now would destroy the comparison.
+
+Pinning also skips two things `camoufox fetch` does. The GeoLite2 database is restored explicitly, because `geoip: !!proxy` depends on it. Default addons are not, and do not need to be: `addDefaultAddons()` is an empty function in 0.1.19, and `confirmPaths()` only runs for caller-supplied addons. This does **not** close item 184 — it is the opposite, and deliberately so.
+
 #### The UA mismatch, measured
 
 `camoufox@0.1.19` pins `rv:` to the installed binary and lets browserforge pick `Firefox/` independently. They agree only by coincidence:
