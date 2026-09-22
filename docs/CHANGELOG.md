@@ -251,6 +251,56 @@ produced from a dev machine.
   `'auto'` now pays on the common path. It is also the only engine that cleared
   Indeed and Harrods in the Phase 0 baseline.
 
+---
+
+Phase 2 follow-up, from the first two benchmark runs on the hosted instance.
+
+### Added
+
+- **`CRAWLFORGE_STEALTH_ENGINE`** — pins which engine `'auto'` resolves to on a
+  given deployment. `chromium`/`playwright` pin to Chromium; unset or
+  unrecognised keeps the Camoufox preference; a caller naming an engine still
+  overrides it. Read inside `resolveStealthEngine()`, so every stealth entry
+  point inherits it from one place. `render.yaml` sets it to `chromium`.
+
+  There is no correct global value. The residential run had Camoufox clearing
+  indeed.com where Chromium failed; two runs from the hosted datacenter address
+  found the exact reverse, with Camoufox winning no wall that Chromium lost.
+  Which engine passes depends on the exit IP, so **the npm default is
+  unchanged** and still prefers Camoufox.
+
+### Fixed
+
+- **The Camoufox persona now claims the host's OS** where browserforge can
+  supply one. `camoufox@0.1.19` accepts its documented `os` option and then
+  drops it — it forwards `os` to a generator whose key is `operatingSystems` —
+  so a Linux host shipped a macOS persona. `_pinnedFingerprint()` generates the
+  persona itself and can use the right key. On macOS the self-probes are now
+  **19 pass / 0 fail / 1 skip**, with `persona-os-vs-host` passing on both
+  engines for the first time.
+
+  It stays open on Linux: browserforge has no Firefox 135 + Linux persona and
+  *throws* when asked for one, so the hosted box still claims Windows on Linux.
+  `persona-os-vs-host` remains in `ci-baseline.json` for that reason. Closing it
+  needs a Camoufox build on a Firefox version browserforge knows for Linux, or
+  the `camoufox-js` client — both of which are item 184.
+
+- **An impossible OS/version pair no longer costs the version pin.** That throw
+  sat inside the outer `try`, so it would have escaped, returned `null`, and put
+  the user agent back to the incoherent state this phase exists to fix — on
+  Linux, the only platform the hosted instance runs. Now caught locally, falling
+  through to a version-only pin: verified at 8/8 version-coherent with the host
+  forced to `linux`.
+
+### Notes
+
+- Pinning the Camoufox binary to 135.0.1-beta.24 changed the fingerprint —
+  coherent UA, CreepJS headless score 6% → 0%, worker-vs-main passing — and
+  changed **no wall outcome**. The 152 binary was not what was costing Camoufox
+  indeed.com and quora.com from a datacenter IP.
+- Camoufox's detector profile is now cleaner than Chromium's, which still leaks
+  `HeadlessChrome/153` from a SharedWorker and fails two incolumitas tests.
+
 ## [6.7.0] - 2026-09-16
 
 A bot-detection bench run against 6.6.2 recommended routing through residential proxies to get

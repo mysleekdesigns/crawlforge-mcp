@@ -40,6 +40,21 @@ Five parallel sub-agents (stealth core, tool surface, research paths, deploy/Doc
 - Camoufox costs ~**+0.8 s and +400 MB RSS** per call (148 ms / 253 MB vs 946 ms / 667 MB), which `'auto'` now pays on the common path. It is also the only engine that cleared Indeed and Harrods in the Phase 0 baseline.
 - Phase 1's `persona-os-vs-host` remains baselined for Camoufox. Pinning the persona OS would close it, but that is Phase 1's finding and this change deliberately did not move that baseline.
 
+**Follow-up, 2026-09-22 — the hosted gate ran twice and changed two conclusions.**
+
+The first hosted run (`docs/stealth-bench-baseline-2026-09-22-hosted.md`, exit IP AS14618 Ashburn, no proxy) **inverted the premise this phase was built on**: Chromium passed indeed.com and quora.com where Camoufox was blocked, the reverse of the residential finding. `camoufox fetch` had installed 152.0.4-beta.30, whose persona self-contradicts, so the binary was pinned to 135.0.1-beta.24 and it was run again.
+
+The second run (`...-hosted-pinned.md`) settled it. The pin worked at the fingerprint layer — coherent UA, CreepJS headless score 6% → 0%, worker-vs-main passing, a detector profile now **cleaner than Chromium's** — and changed **no wall outcome at all**. Across both hosted runs Camoufox won no wall that Chromium lost. The engine ranking is **exit-IP dependent**, not fingerprint-dependent, so there is no correct global default.
+
+Shipped in response:
+
+- **`CRAWLFORGE_STEALTH_ENGINE`** pins what `'auto'` resolves to per deployment, read inside `resolveStealthEngine()` so every entry point inherits it. `render.yaml` sets the hosted instance to `chromium`, which stops it paying +0.8 s and +400 MB for an engine that wins nothing there. **The npm default is untouched** and still prefers Camoufox — the right answer on the residential connections most users have.
+- **The Camoufox persona now claims the host OS** where browserforge has data, via the `operatingSystems` key the client gets wrong. macOS self-probes are now **19 pass / 0 fail / 1 skip**, with `persona-os-vs-host` green on both engines for the first time.
+
+Still open, and measured rather than assumed: **`persona-os-vs-host` cannot be closed on Linux** with the 135 binary. browserforge has no Firefox 135 + Linux persona and *throws* when asked, so the hosted box still claims Windows on Linux and the check stays baselined. That throw was nearly a regression on that exact platform — it sat inside the outer `try`, so it would have escaped and returned `null`, losing the version pin too; it is now caught locally, verified at 8/8 version-coherent with the host forced to `linux`. Closing it needs a Camoufox build on a Firefox version browserforge knows for Linux, or the `camoufox-js` client — both of which are item 184.
+
+The gate's residential-proxy clause is still unrun: no proxy is configured.
+
 ---
 
 ## Stealth Review Phase 1 — Contained correctness fixes (Complete, one gate clause reduced not closed)

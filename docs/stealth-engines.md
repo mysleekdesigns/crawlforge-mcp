@@ -65,6 +65,29 @@ So `auto` costs roughly **+0.8 s and +400 MB per stealth call** against Chromium
 benchmark: treat it as the order of magnitude, and pin `engine: "playwright"`
 when a target is known not to need Camoufox and the throughput matters.
 
+### Pinning `auto` for a whole deployment
+
+`CRAWLFORGE_STEALTH_ENGINE=chromium` (or `playwright`) makes `auto` resolve to
+Chromium everywhere on that server. Unset, or set to anything unrecognised, it
+keeps preferring Camoufox. A caller naming an engine on the call always wins.
+
+Set it when you know which side of this your egress sits on, because **which
+engine wins depends on the exit IP**:
+
+| Exit IP | indeed.com | quora.com | harrods.com |
+| --- | --- | --- | --- |
+| Residential (2026-09-21) | Camoufox only | — | Camoufox only |
+| Datacenter, AS14618 (2026-09-22, twice) | **Chromium only** | **Chromium only** | both |
+
+From that datacenter address Camoufox won no wall Chromium lost, so it was
+paying the latency and memory above for nothing — which is why the hosted
+CrawlForge instance sets this to `chromium`. On a residential connection the
+opposite holds, which is why the shipped default still prefers Camoufox.
+
+Pinning the Camoufox binary to a version with a coherent persona did **not**
+change any of those wall outcomes, so this is about the engine and the IP, not
+about the fingerprint.
+
 On Linux, Camoufox runs **virtual-headless** (Xvfb) rather than true headless,
 because a true-headless Firefox is itself a signal. That needs an X virtual
 framebuffer present in the image; macOS and Windows hosts are unaffected.
@@ -120,6 +143,7 @@ Without the binary, `deep_research` silently falls back to Chromium stealth, the
 - **Installation:** `npm install camoufox` (optional peer dependency)
 - **Limitations:** ~6x Chromium's startup and ~2.6x its memory. It does not defeat DataDome (blocked on g2.com, and blocked on leboncoin.fr where Chromium passed) or an interactive Turnstile. Fewer Playwright plugins support Firefox.
 - **Persona version is pinned to the installed binary.** `camoufox@0.1.19` rewrites persona version tokens with a non-global regex, so the rewrite reaches `rv:` and stops while `Firefox/` keeps whatever browserforge drew — on the installed 135 binary, 4 of 8 launches announced a Firefox that was not the one running, which is a one-line detection. CrawlForge generates the persona at the binary's own major instead, making that rewrite a no-op (8/8). If the installed binary is a version browserforge has no data for, the pin stands down and Camoufox generates as before rather than guessing. **This is also why the binary is not simply upgraded:** upstream is on 152, outside that data, where *every* UA self-contradicts. See [STEALTH_REVIEW_2026-09.md](STEALTH_REVIEW_2026-09.md).
+- **Persona OS follows the host where the data exists.** The same generation step passes `operatingSystems`, the key `camoufox@0.1.19` gets wrong (it sends `os`, which the generator ignores), so a host no longer ships a persona from a different operating system. On macOS this closes it completely. **On Linux it does not:** browserforge has no Firefox 135 + Linux persona and throws when asked, so the adapter falls back to a version-only pin and the persona claims Windows. A coherent version on an incoherent OS is the honest state there, and it is why `persona-os-vs-host` is still baselined for CI.
 
 ```json
 { "operation": "create_context", "engine": "camoufox", "stealthConfig": { "level": "advanced" } }

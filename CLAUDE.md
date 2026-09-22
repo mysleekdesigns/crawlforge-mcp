@@ -221,6 +221,13 @@ MAX_PAGES_PER_CRAWL=100
 RESPECT_ROBOTS_TXT=true
 ROBOTS_CACHE_TTL_MS=3600000          # how long a parsed robots.txt stays good for
 CRAWLFORGE_BLOCKED_HOSTS=            # comma-separated; extends the permanent opt-out blocklist
+CRAWLFORGE_STEALTH_ENGINE=           # which engine `auto` resolves to on THIS deployment:
+                                     # chromium|playwright pins it to Chromium; unset or anything
+                                     # else keeps the default preference for Camoufox. A caller
+                                     # naming an engine always wins. There is no correct global
+                                     # value — which engine clears a wall depends on the exit IP
+                                     # (residential favours Camoufox, the hosted datacenter IP
+                                     # favours Chromium, measured twice).
 CRAWLFORGE_STEALTH_PROXIES=          # comma-separated proxy URLs used by the escalation stage,
                                      # stealth_mode, browser_session, scrape_with_actions and the
                                      # deep_research fallback when the caller passes none (a proxy

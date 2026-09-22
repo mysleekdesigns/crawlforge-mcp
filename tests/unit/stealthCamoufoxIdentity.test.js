@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { StealthBrowserManager, CamoufoxAdapter } from '../../src/core/StealthBrowserManager.js';
+import { StealthBrowserManager, CamoufoxAdapter, resolveStealthEngine } from '../../src/core/StealthBrowserManager.js';
 
 const PROXIED = {
   proxyRotation: { enabled: true, proxies: ['http://alice:s3cret@proxy.example.com:8080'], rotationInterval: 300000 }
@@ -292,5 +292,110 @@ describe('camoufox persona is pinned to the installed binary version', () => {
         `draw ${i} self-contradicts: ${ua}`
       );
     }
+  });
+});
+
+/**
+ * Regression lock: the persona's OS follows the host where browserforge can
+ * supply one, and an impossible OS+version pair never costs us the version pin.
+ *
+ * camoufox@0.1.19 drops its own `os` option (it sends `os`, the generator wants
+ * `operatingSystems`), so a Linux host shipped a macOS persona. Phase 2
+ * generates the persona itself and can use the right key. The catch: browserforge
+ * has NO Firefox 135 on Linux and THROWS rather than returning a mismatch, and an
+ * unguarded throw would lose the version pin too — putting the UA back exactly
+ * where it started, on the one platform the hosted instance runs.
+ */
+describe('camoufox persona OS follows the host, without risking the version pin', () => {
+  const adapter = new CamoufoxAdapter();
+  const realHostOs = CamoufoxAdapter._hostOperatingSystem;
+
+  const withVersionDir = (version, fn) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'camoufox-os-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'version.json'), JSON.stringify({ version }));
+      return fn({ INSTALL_DIR: dir });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  test('host OS mapping uses the generator\'s vocabulary', () => {
+    assert.equal(typeof CamoufoxAdapter._hostOperatingSystem(), 'string');
+    assert.equal(CamoufoxAdapter._osFromUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:135.0) Gecko/20100101 Firefox/135.0'), 'macos');
+    assert.equal(CamoufoxAdapter._osFromUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0'), 'windows');
+    assert.equal(CamoufoxAdapter._osFromUserAgent('Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0'), 'linux');
+    // Android is Linux-derived but is not the host OS this compares against.
+    assert.equal(CamoufoxAdapter._osFromUserAgent('Mozilla/5.0 (Android 14; Mobile; rv:135.0) Gecko/20100101 Firefox/135.0'), null);
+  });
+
+  test('a host with no data for the pinned version still gets a version-coherent persona', () => {
+    // linux + Firefox 135 is exactly that pair: the generator throws.
+    CamoufoxAdapter._hostOperatingSystem = () => 'linux';
+    try {
+      for (let i = 0; i < 6; i++) {
+        const fingerprint = withVersionDir('135.0.1', (c) => adapter._pinnedFingerprint(c));
+        assert.notEqual(fingerprint, null, 'the throw must not cost us the version pin');
+        const ua = fingerprint.navigator.userAgent;
+        assert.equal(
+          ua.match(/rv:(\d+)/)?.[1],
+          ua.match(/Firefox\/(\d+)/)?.[1],
+          `draw ${i} lost version coherence: ${ua}`
+        );
+      }
+    } finally {
+      CamoufoxAdapter._hostOperatingSystem = realHostOs;
+    }
+  });
+
+  test('where the pair IS available the persona claims the host OS', () => {
+    CamoufoxAdapter._hostOperatingSystem = () => 'windows';
+    try {
+      const fingerprint = withVersionDir('135.0.1', (c) => adapter._pinnedFingerprint(c));
+      if (fingerprint === null) return;
+      assert.equal(CamoufoxAdapter._osFromUserAgent(fingerprint.navigator.userAgent), 'windows');
+    } finally {
+      CamoufoxAdapter._hostOperatingSystem = realHostOs;
+    }
+  });
+});
+
+/**
+ * Regression lock: an operator can pin which engine `auto` resolves to, because
+ * which engine wins depends on the exit IP and no single global default is right.
+ */
+describe('CRAWLFORGE_STEALTH_ENGINE pins auto per deployment', () => {
+  const withEngineEnv = async (value, fn) => {
+    const had = Object.prototype.hasOwnProperty.call(process.env, 'CRAWLFORGE_STEALTH_ENGINE');
+    const before = process.env.CRAWLFORGE_STEALTH_ENGINE;
+    if (value === undefined) delete process.env.CRAWLFORGE_STEALTH_ENGINE;
+    else process.env.CRAWLFORGE_STEALTH_ENGINE = value;
+    try { return await fn(); }
+    finally {
+      if (had) process.env.CRAWLFORGE_STEALTH_ENGINE = before;
+      else delete process.env.CRAWLFORGE_STEALTH_ENGINE;
+    }
+  };
+
+  test('chromium and playwright both pin auto to chromium, with no warning', async () => {
+    for (const value of ['chromium', 'playwright', 'CHROMIUM', '  chromium  ']) {
+      await withEngineEnv(value, async () => {
+        assert.deepEqual(await resolveStealthEngine('auto'), { engine: 'chromium', fallbackWarning: null });
+        assert.deepEqual(await resolveStealthEngine(undefined), { engine: 'chromium', fallbackWarning: null });
+      });
+    }
+  });
+
+  test('an unrecognised value is ignored rather than fatal', async () => {
+    await withEngineEnv('nonsense', async () => {
+      const resolved = await resolveStealthEngine('auto');
+      assert.ok(['camoufox', 'chromium'].includes(resolved.engine));
+    });
+  });
+
+  test('a caller naming an engine still overrides the deployment pin', async () => {
+    await withEngineEnv('chromium', async () => {
+      assert.deepEqual(await resolveStealthEngine('camoufox'), { engine: 'camoufox', fallbackWarning: null });
+    });
   });
 });

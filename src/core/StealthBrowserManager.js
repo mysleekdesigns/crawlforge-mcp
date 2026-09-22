@@ -133,6 +133,19 @@ export async function resolveStealthEngine(requested) {
   if (requested === 'camoufox') return { engine: 'camoufox', fallbackWarning: null };
   if (requested && requested !== 'auto') return { engine: 'chromium', fallbackWarning: null };
 
+  // Deployment-level answer for 'auto', because there is no correct global one.
+  // Which engine clears a wall depends on the exit IP: the 2026-09-21
+  // residential run had Camoufox clearing indeed.com where Chromium failed, and
+  // two hosted runs from a datacenter address found the exact reverse, with
+  // Camoufox winning no wall Chromium lost. An operator who knows which side of
+  // that their egress sits on can say so here; a caller naming an engine still
+  // overrides it. Anything unrecognised is ignored rather than fatal — a typo in
+  // an env var should not take stealth down.
+  const configured = String(process.env.CRAWLFORGE_STEALTH_ENGINE || '').trim().toLowerCase();
+  if (configured === 'chromium' || configured === 'playwright') {
+    return { engine: 'chromium', fallbackWarning: null };
+  }
+
   let reason = 'camoufox is not installed (npm install camoufox)';
   try {
     if (await new CamoufoxAdapter().isAvailable()) {
@@ -3293,6 +3306,23 @@ export class CamoufoxAdapter extends BrowserEngine {
    *   drawing some other version would put us back where we started. The
    *   caller then lets camoufox generate as it did before.
    */
+  /** process.platform in the vocabulary fingerprint-generator uses, or null. */
+  static _hostOperatingSystem() {
+    if (process.platform === 'darwin') return 'macos';
+    if (process.platform === 'win32') return 'windows';
+    if (process.platform === 'linux') return 'linux';
+    return null;
+  }
+
+  /** The OS a Firefox UA claims, in the same vocabulary, or null. */
+  static _osFromUserAgent(ua) {
+    if (/Macintosh|Mac OS X/.test(ua)) return 'macos';
+    if (/Windows/.test(ua)) return 'windows';
+    if (/Android/.test(ua)) return null;      // Linux-derived, but not the host OS we mean
+    if (/X11|Linux/.test(ua)) return 'linux';
+    return null;
+  }
+
   _pinnedFingerprint(camoufox) {
     try {
       const raw = fs.readFileSync(path.join(camoufox.INSTALL_DIR, 'version.json'), 'utf8');
@@ -3311,19 +3341,45 @@ export class CamoufoxAdapter extends BrowserEngine {
       }
       const { FingerprintGenerator } = load('fingerprint-generator');
 
-      const { fingerprint } = new FingerprintGenerator({
-        browsers: [{ name: 'firefox', minVersion: major, maxVersion: major }]
-      }).getFingerprint();
+      // Verify rather than assume: a generator with no data for a constraint can
+      // still hand back a persona that ignores it, and an unchecked fingerprint
+      // would reintroduce exactly the mismatch this exists to close.
+      const attempt = (operatingSystems) => {
+        const { fingerprint } = new FingerprintGenerator({
+          browsers: [{ name: 'firefox', minVersion: major, maxVersion: major }],
+          ...(operatingSystems ? { operatingSystems } : {})
+        }).getFingerprint();
+        const ua = fingerprint?.navigator?.userAgent ?? '';
+        if (ua.match(/rv:(\d+)/)?.[1] !== String(major)) return null;
+        if (ua.match(/Firefox\/(\d+)/)?.[1] !== String(major)) return null;
+        if (operatingSystems && CamoufoxAdapter._osFromUserAgent(ua) !== operatingSystems[0]) return null;
+        return fingerprint;
+      };
 
-      // Verify rather than assume: a generator with no data for this version
-      // can still hand back a persona on a different one, and an unchecked
-      // fingerprint would reintroduce exactly the mismatch this exists to close.
-      const ua = fingerprint?.navigator?.userAgent ?? '';
-      const rv = ua.match(/rv:(\d+)/)?.[1];
-      const ff = ua.match(/Firefox\/(\d+)/)?.[1];
-      if (rv !== String(major) || ff !== String(major)) return null;
+      // `operatingSystems` is the key the client gets wrong — it sends `os`, so
+      // the OS is drawn from market share and a Linux host ships a macOS
+      // persona. Generating here means we can use the right key. Measured on the
+      // hosted box 2026-09-22: persona-os-vs-host failed with a coherent UA
+      // version, which is a contradiction a detector scores on its own.
+      const hostOs = CamoufoxAdapter._hostOperatingSystem();
+      if (hostOs) {
+        try {
+          const matched = attempt([hostOs]);
+          if (matched) return matched;
+        } catch {
+          // An impossible constraint THROWS here rather than returning a
+          // mismatched persona ("No headers based on this input can be
+          // generated"), and browserforge has no Firefox 135 on Linux at all —
+          // measured, and it is the combination the hosted box runs. Letting
+          // that escape would lose the version pin too and put the UA back
+          // where it started, so it falls through to the version-only attempt.
+        }
+      }
 
-      return fingerprint;
+      // Fall back to a version-only pin. browserforge may have no data for this
+      // Firefox version on this OS, and a persona that is coherent about its
+      // version still beats one that is coherent about neither.
+      return attempt(null);
     } catch {
       // Best effort: a missing version.json or an absent generator is a reason
       // to fall back to camoufox's own persona, not to fail a launch.
