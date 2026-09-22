@@ -29,7 +29,7 @@ for (const [key, value] of Object.entries(cwdEnv)) {
 // SECURITY: Clear any externally-set creator mode env var to prevent bypass
 delete process.env.CRAWLFORGE_CREATOR_MODE;
 
-const CREATOR_SECRET_HASH = 'cfef62e5068d48e7dd6a39c9e16f0be2615510c6b68274fc8abe3156feb5050b';
+const CREATOR_SECRET_HASH = '52645de07b540d6a42e21fffe20dc77961d144d8dc388d82aa22d20ac4ba31a9';
 
 // Module-scoped flag — cannot be set externally
 let _creatorModeVerified = false;

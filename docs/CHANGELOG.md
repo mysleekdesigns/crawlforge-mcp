@@ -3,7 +3,7 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
-## [Unreleased]
+## [6.8.0] - 2026-09-22
 
 Phase 1 of the 2026-09 stealth review: the leaks and false verdicts the Phase 0
 benchmark measured, closed and re-measured. Every claim below was produced by
@@ -300,6 +300,18 @@ Phase 2 follow-up, from the first two benchmark runs on the hosted instance.
   indeed.com and quora.com from a datacenter IP.
 - Camoufox's detector profile is now cleaner than Chromium's, which still leaks
   `HeadlessChrome/153` from a SharedWorker and fails two incolumitas tests.
+
+---
+
+### Security
+
+- **The creator-mode secret was rotated.** `CREATOR_SECRET_HASH` in
+  `src/core/creatorMode.js` now holds the SHA-256 of a freshly generated
+  maintainer secret. The constant is a one-way hash and stays safe to commit;
+  the secret itself has never been in the repository. Users are unaffected —
+  creator mode is maintainer-only and has no effect without the matching
+  secret. Note that packages published before this release still validate the
+  previous secret, which no publish can retract.
 
 ## [6.7.0] - 2026-09-16
 
