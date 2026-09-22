@@ -60,6 +60,25 @@ services:
       # time. Move this with the region.
       - key: TZ
         value: America/Los_Angeles
+      # Which stealth engine `auto` resolves to on THIS deployment. There is no
+      # correct global default: which engine clears a wall depends on the exit
+      # IP. The 2026-09-21 residential run had Camoufox clearing indeed.com
+      # where Chromium failed; two runs from this box's datacenter address
+      # (AS14618, Ashburn) found the exact reverse — Chromium passed indeed and
+      # quora, Camoufox was blocked on both, and across both runs Camoufox won
+      # no wall that Chromium lost. Pinning the binary to 135 changed the
+      # fingerprint (coherent UA, CreepJS 6% -> 0%) and changed no wall, so the
+      # engine, not the persona, is what this IP is being judged on.
+      #
+      # So this box pays +0.8s and +400MB per stealth call for nothing, and is
+      # set to chromium. A caller naming an engine still overrides this; the
+      # npm/local default is untouched and still prefers Camoufox, which is the
+      # right answer on a residential connection.
+      #
+      # Revisit when a residential proxy is configured (CRAWLFORGE_STEALTH_PROXIES)
+      # — that changes the exit IP, which is the variable this is keyed to.
+      - key: CRAWLFORGE_STEALTH_ENGINE
+        value: chromium
       # CRAWLFORGE_API_KEY must be set in the dashboard (it's a secret).
       # Add it manually under "Environment" → "Add Environment Variable".
       - key: CRAWLFORGE_API_KEY

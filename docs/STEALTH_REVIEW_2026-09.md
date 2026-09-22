@@ -259,6 +259,18 @@ That is now fixable with machinery this phase already built. `_pinnedFingerprint
 - The residential review found Camoufox clearing Indeed where Chromium failed. Two hosted runs find the reverse. The engine ranking is **exit-IP dependent**, so there is no single correct global default — and a hard flip would hurt the npm users the residential result describes.
 - The honest fix is therefore per-deployment, not per-package: let the hosted instance pin the engine while the shipped default stays as it is.
 
+#### Both halves shipped
+
+**The persona now follows the host OS — where that is possible.** `_pinnedFingerprint()` passes `operatingSystems: [host]`, the key `camoufox@0.1.19` gets wrong, so the generator is finally told the right thing. On macOS the whole self-probe set is clean: **19 pass, 0 fail, 1 skip**, and `persona-os-vs-host` passes on both engines for the first time.
+
+**It cannot be closed on Linux with the 135 binary, and that is measured, not assumed.** browserforge has no Firefox 135 + Linux persona at all — asked for one it *throws* (`No headers based on this input can be generated`) rather than returning a mismatch. So on the hosted box the persona still claims Windows on a Linux host. `persona-os-vs-host` therefore stays in `ci-baseline.json`, because CI and the hosted instance both run Linux.
+
+That throw was nearly a regression on the one platform this was for: the OS attempt sat inside the outer `try`, so the exception would have escaped and returned `null`, losing the *version* pin as well and putting the UA back where it started. It is now caught locally and falls through to a version-only pin — verified by forcing the host to `linux`: 8/8 version-coherent, 0 nulls.
+
+Closing it properly needs either a Camoufox build on a Firefox version browserforge knows for Linux, or the maintained `camoufox-js` client. Both roads lead back to item 184.
+
+**`CRAWLFORGE_STEALTH_ENGINE` pins what `'auto'` resolves to, per deployment.** Read inside `resolveStealthEngine()`, so every stealth entry point inherits it from one place. `chromium`/`playwright` pin to Chromium; unset or unrecognised keeps the Camoufox preference (a typo in an env var should not take stealth down); a caller naming an engine still overrides it. `render.yaml` sets it to `chromium` for the hosted instance, with the evidence in a comment beside it. **The npm default is deliberately untouched** and still prefers Camoufox, which is the right answer on the residential connections most users have.
+
 Pinning also skips two things `camoufox fetch` does. The GeoLite2 database is restored explicitly, because `geoip: !!proxy` depends on it. Default addons are not, and do not need to be: `addDefaultAddons()` is an empty function in 0.1.19, and `confirmPaths()` only runs for caller-supplied addons. This does **not** close item 184 — it is the opposite, and deliberately so.
 
 #### The UA mismatch, measured
