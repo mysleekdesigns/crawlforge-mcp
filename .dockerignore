@@ -32,6 +32,12 @@ USAGE_EXAMPLES.md
 .idea/
 tasks/
 scripts/
+# ...except the stealth benchmark harness. Its headline measurement can only be
+# taken on a box with the production exit IP, so it has to be inside the image;
+# see the COPY in the Dockerfile's production stage. Everything else under
+# scripts/ stays out — these two entries are the whole harness.
+!scripts/stealth-bench.mjs
+!scripts/lib/stealth-bench/
 tools/
 
 # Environment files
