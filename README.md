@@ -206,7 +206,7 @@ CrawlForge requires a CrawlForge API key — **every tool is metered and consume
 | `scrape_with_actions` | 5 | Browser automation chains |
 | `generate_llms_txt` | 5 | Generate AI interaction guidelines |
 | `stealth_mode` | 5 | Anti-detection browser management |
-| `agent` | 8 | **Autonomous research/extraction from a natural-language prompt — no URLs required.** Plans, gathers, and shapes an answer under hard safety stops (max steps/URLs/wall-clock enforced by the orchestrator, never the LLM) |
+| `agent` | 8 (+5 per stealth retry, max 2) | **Autonomous research/extraction from a natural-language prompt — no URLs required.** Plans, gathers, and shapes an answer under hard safety stops (max steps/URLs/wall-clock enforced by the orchestrator, never the LLM). A page that walls the plain fetch is retried in the stealth browser automatically — URLs you name first — and that evidence is marked `via: "stealth"`; each retry that runs adds 5 |
 | `deep_research` | 10 | Multi-stage research with source verification |
 
 Ten tools (`scrape`, `fetch_url`, `extract_content`, `crawl_deep`, `batch_scrape`, `stealth_mode`, `scrape_with_actions`, `process_document`, `deep_research`, `extract_embedded_state`) accept `max_inline_chars` (default 40,000; env `CRAWLFORGE_MAX_INLINE_CHARS`): a result over it comes back as a `preview` plus a `result_handle` for `read_result`, with the full result kept for 1 hour under `~/.crawlforge/results/` on your own machine — nothing is uploaded.
@@ -311,7 +311,7 @@ On `browser_session` and `scrape_with_actions` the engine applies only with `ste
 
 `auto` is not free. Measured once each on an Apple Silicon Mac on 2026-09-21 (launch plus a context and a blank page): Chromium 148 ms and 253 MB, Camoufox 946 ms and 667 MB — roughly **+0.8 s and +400 MB per stealth call**. Pin `engine: "playwright"` for high-volume work on sites that do not block.
 
-**CrawlForge supplies no proxies**, and a datacenter proxy does not fix a block: Cloudflare scores the IP's ASN and the TLS/HTTP2 handshake before any JavaScript runs, so no browser-side patch compensates for a datacenter address. Bring your own residential exit with `CRAWLFORGE_STEALTH_PROXIES` (comma-separated URLs), which the escalation stage, `stealth_mode`, `browser_session`, `scrape_with_actions` and the `deep_research` retry use when the caller passes none; a proxy passed on the call always wins. (The `agent` tool does not browse yet, so it is not in that list — it joins when Phase 3 gives it an escalation path.) With a proxy, Camoufox derives its timezone, locale and geolocation from the exit IP.
+**CrawlForge supplies no proxies**, and a datacenter proxy does not fix a block: Cloudflare scores the IP's ASN and the TLS/HTTP2 handshake before any JavaScript runs, so no browser-side patch compensates for a datacenter address. Bring your own residential exit with `CRAWLFORGE_STEALTH_PROXIES` (comma-separated URLs), which the escalation stage, `stealth_mode`, `browser_session`, `scrape_with_actions`, the `deep_research` retry and the `agent` tool's automatic stealth retry use when the caller passes none; a proxy passed on the call always wins. With a proxy, Camoufox derives its timezone, locale and geolocation from the exit IP.
 
 Full detail, measurements and sources: [docs/stealth-engines.md](docs/stealth-engines.md).
 

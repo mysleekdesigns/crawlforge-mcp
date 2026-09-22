@@ -69,8 +69,8 @@ them default to `auto`.
 - `proxyRotation { enabled, proxies[], rotationInterval }` — your own proxies,
   per call. Server-wide, `CRAWLFORGE_STEALTH_PROXIES` (comma-separated URLs of
   the same form) covers the paths with no caller to ask: the `scrape` escalation
-  stage, `stealth_mode`, `browser_session`, `scrape_with_actions` and the
-  `deep_research` retry — not `agent`, which has no browsing path yet. A call's
+  stage, `stealth_mode`, `browser_session`, `scrape_with_actions`, the
+  `deep_research` retry and the `agent` tool's automatic stealth retry. A call's
   own `proxyRotation` always wins. CrawlForge supplies no proxies, and a datacenter
   proxy does not help — Cloudflare scores the ASN before it serves a challenge.
   Unrelated to the `PROXY_ROTATION_*` variables, which belong to `localization`.

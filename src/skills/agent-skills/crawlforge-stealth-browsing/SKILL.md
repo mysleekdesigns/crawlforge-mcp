@@ -93,8 +93,8 @@ scored. Route through your own residential proxy — CrawlForge supplies none.
 
 Server-wide, set `CRAWLFORGE_STEALTH_PROXIES` (comma-separated proxy URLs): the
 `scrape` escalation stage, `stealth_mode`, `browser_session`,
-`scrape_with_actions` and the `deep_research` retry use it when no proxy is
-passed on the call. (`agent` does not browse yet, so it is not a reader.) Per call, pass
+`scrape_with_actions`, the `deep_research` retry and the `agent` tool's automatic
+stealth retry use it when no proxy is passed on the call. Per call, pass
 `stealthConfig.proxyRotation`, which always wins:
 
 ```json

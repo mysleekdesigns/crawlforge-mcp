@@ -485,7 +485,7 @@ skill (`scrape` / `extract_content`) instead.
 |------|------|------|
 | A ranked list of result URLs + snippets | `search_web` | 5 |
 | Reddit posts, comments, or a full thread | `reddit_search` | 5 |
-| A direct answer, agent decides what to read | `agent` | 8 (scales) |
+| A direct answer, agent decides what to read | `agent` | 8 (+5 per automatic stealth retry, max 2) |
 | A synthesized, multi-source, cited report | `deep_research` | 10+ (scales) |
 
 A common pipeline: `search_web` to find sources → `batch_scrape` (see

@@ -9,6 +9,11 @@ import { z } from 'zod';
 import { AgentOrchestrator } from '../../core/AgentOrchestrator.js';
 import { ElicitationHelper } from '../../core/ElicitationHelper.js';
 import { getToolConfig } from '../../constants/config.js';
+import { setActualCost } from '../../server/requestContext.js';
+import { AGENT_ESCALATION_CREDITS } from './escalation.js';
+
+/** The agent's published price before any stealth retry. */
+export const AGENT_BASE_CREDITS = 8;
 
 export const AgentInputSchema = z.object({
   prompt: z.string().min(1).max(2000).describe('Natural-language task or question'),
@@ -24,7 +29,10 @@ export class AgentTool {
     this._orchestrator = new AgentOrchestrator({
       mcpServer: null,
       searchConfig: getToolConfig('search_web') || {},
-      llmConfig: options.llmConfig || {}
+      llmConfig: options.llmConfig || {},
+      // The stealth stage, injected from server.js so this module never
+      // imports a browser (see AgentOrchestrator's constructor).
+      escalateFetch: options.escalateFetch || null
     });
     this._elicitation = new ElicitationHelper({});
   }
@@ -58,14 +66,25 @@ export class AgentTool {
       }
     }
 
-    return this._orchestrator.run({
-      prompt: validated.prompt,
-      urls: validated.urls,
-      schema: validated.schema,
-      model: validated.model,
-      maxSteps: validated.maxSteps,
-      maxUrls: validated.maxUrls
-    });
+    // Priced like `scrape`'s escalation: getToolCost projects the ceiling
+    // (base + every retry the cap allows), and the charge is lowered to what
+    // ran — including when run() throws, since a retry that ran was spent.
+    const usage = { escalations: 0 };
+    try {
+      return await this._orchestrator.run({
+        prompt: validated.prompt,
+        urls: validated.urls,
+        schema: validated.schema,
+        model: validated.model,
+        maxSteps: validated.maxSteps,
+        maxUrls: validated.maxUrls,
+        usage
+      });
+    } finally {
+      if (validated.model !== 'pro') {
+        setActualCost(AGENT_BASE_CREDITS + AGENT_ESCALATION_CREDITS * usage.escalations);
+      }
+    }
   }
 
   async destroy() {

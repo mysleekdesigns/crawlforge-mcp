@@ -2,7 +2,7 @@
 
 Date: 2026-09-21. Reviewed at v6.7.0 (commit `4f8b3ea`). Findings and a phased plan.
 
-**Status:** Phase 0 (benchmark harness) and Phase 1 (contained correctness fixes) shipped on 2026-09-21; each phase records its own completion and measurements in section 6. Everything from Phase 2 on is unimplemented, and Phases 2, 3, 6 and 7 still need the decisions in section 7. The findings in section 3 describe v6.7.0 as reviewed — where Phase 1 changed one, its checklist says so.
+**Status:** Phases 0 and 1 shipped on 2026-09-21, Phase 2 on 2026-09-21/22 and Phase 3 (agent browsing) on 2026-09-22; each phase records its own completion and measurements in section 6. Phases 4 to 7 are unimplemented, and Phases 6 and 7 still need the decisions in section 7. The findings in section 3 describe v6.7.0 as reviewed — where Phase 1 changed one, its checklist says so.
 
 ## 1. Summary
 
@@ -126,7 +126,7 @@ Goal: turn section 2 into a script that runs in minutes, so every later phase is
   - Ten self-probes (`scripts/lib/stealth-bench/detectors.js`) run our own in-page checks on a neutral origin and are what CI gates on; five third-party page parsers (`detector-pages.js`) read the detector sites themselves. All five read. The rebrowser and CreepJS parsers both skipped on the first run and were fixed against the live pages: rebrowser states each verdict as an emoji at the head of the row's *name* cell rather than as a class or a background colour, and CreepJS puts every value on the line *after* its label, so a same-line `label: value` regex read nothing from it. rebrowser's four call-me probes (`dummyFn`, `sourceUrlLeak`, `mainWorldExecution`, `exposeFunctionLeak`) only fire when the client calls into them, so they are reported as `skip — not triggered` rather than counted as passes.
 - [x] Record host OS, IP type (via bot.incolumitas.com's IP API), engine, browser version and Playwright version in the output header.
 - [x] Run it on a residential connection and keep the output in `docs/` as the baseline. → [`stealth-bench-baseline-2026-09-21-residential.md`](./stealth-bench-baseline-2026-09-21-residential.md) (Comcast AS7922, Miami).
-- [ ] Run it on the hosted instance and keep that output in `docs/` as the second baseline. **Unmeasured, and deliberately not inferred.** The whole point of the second run is the exit IP, so it has to be produced on the hosted instance itself: `npm run bench:stealth -- --out docs/stealth-bench-baseline-<date>-hosted.md`. Until it exists, every datacenter claim in this document is prediction, not measurement — and Phase 2's verification gate depends on it.
+- [x] Run it on the hosted instance and keep that output in `docs/` as the second baseline. → Run twice on 2026-09-22 from the Render instance (exit IP AS14618, Amazon, Ashburn VA, no proxy): [`stealth-bench-baseline-2026-09-22-hosted.md`](./stealth-bench-baseline-2026-09-22-hosted.md) with the 152 Camoufox binary `camoufox fetch` installed, and [`stealth-bench-baseline-2026-09-22-hosted-pinned.md`](./stealth-bench-baseline-2026-09-22-hosted-pinned.md) with the binary pinned to 135.0.1-beta.24. What the two runs showed is written up under Phase 2.
 - [x] Wire a reduced version (detector pages only, no third-party bot walls) into CI so a Playwright or Camoufox bump that reopens `Runtime.enable` or a worker leak fails the build.
 
 Verify: the script reproduces the section 2 matrix within one run's noise, and CI fails when `navigator.webdriver` is forced to `true`.
@@ -306,15 +306,28 @@ Item 184's escape hatch is now the live path. What a maintained client would hav
 
 ### Phase 3: Agent browsing
 
+**Completed:** 2026-09-22. Every checklist item except the one marked "Later" shipped. The gate passed with the per-deployment Chromium pin and **failed on the default engine**. Both runs are recorded below.
+
 Goal: the `agent` tool reaches pages that block the plain fetch instead of substituting snippets.
 
-- [ ] In ACT, on a challenge, 403 or empty-shell verdict, retry the URL through the same escalation stage `scrape` uses, capped by the existing step, URL and wall-clock limits.
-- [ ] Prefer escalation for seed URLs the user named explicitly; keep snippet fallback only for discovered URLs.
-- [ ] Charge the escalation surcharge only when it runs, mirroring `scrape`.
-- [ ] Mark evidence with `via: "stealth"` so provenance shows which fetch path produced it.
-- [ ] Later: let the agent drive `browser_session` for flows that need a click or a scroll, reusing the snapshot-and-act refs from 6.6.
+- [x] In ACT, on a challenge, 403 or empty-shell verdict, retry the URL through the same escalation stage `scrape` uses, capped by the existing step, URL and wall-clock limits. — `server.js` now defines the stage once as `stealthEscalation` and injects it into both `scrape` and `agent`, so the agent goes through the same compliance gate and `resolveStealthEngine()`, and reads `CRAWLFORGE_STEALTH_PROXIES` and `CRAWLFORGE_STEALTH_ENGINE`. The plain fetch now reads error documents (`errorDocuments: true`) and runs the same `stealthDocumentVerdict` `scrape` does. A wall, a 403/429, an empty shell, a timeout or a network error is retried. A robots.txt or blocklist refusal, a 404 and a 5xx are not. No retry starts with less than 20 s left on the wall clock. On top of maxSteps, maxUrls and the wall clock there is a fourth limit: at most 2 retries a run (see decisions below).
+- [x] Prefer escalation for seed URLs the user named explicitly; keep snippet fallback only for discovered URLs. — URLs the caller named (seeds and sites written into the prompt, but not a live root the agent voted for itself) always get the retry first. A discovered URL is retried only when it has no relevant search snippet; otherwise it keeps the snippet fallback. **Deviation, adopted as a decision:** a named URL whose retry also fails still falls back to its snippet, labelled `snippet: true`.
+- [x] Charge the escalation surcharge only when it runs, mirroring `scrape`. — `getToolCost('agent')` projects the ceiling of 8 + 5 × min(2, maxUrls), which is 18 by default, 13 at `maxUrls: 1`, and 8 for `model: "pro"`, which never runs this stage. `AgentTool` reports 8 + 5 × the retries that ran through `setActualCost`, in a `finally` block, so a run that throws is still billed for a browser it launched. A run with no retry costs 8, as before. Rules in `src/tools/agent/escalation.js`.
+- [x] Mark evidence with `via: "stealth"` so provenance shows which fetch path produced it. — The result also gains `stealth_retries` and, when there are any, `warnings` (engine fallback, "did not get the page either (cloudflare)").
+- [ ] Later: let the agent drive `browser_session` for flows that need a click or a scroll, reusing the snapshot-and-act refs from 6.6. — Left out of scope by the owner.
 
 Verify: the Indeed prompt from section 2.4 returns the review count from the rendered page, with `snippet: false` for the seed.
+
+- [x] **Passed with `CRAWLFORGE_STEALTH_ENGINE=chromium`; failed on the default `'auto'` engine.** Both runs went through a freshly spawned local `server.js` over stdio on 2026-09-22, with the section 2.4 prompt, seed `https://www.indeed.com/cmp/Burger-King/reviews` and `maxUrls: 3`. The exit IP was **64.71.236.132**, which is not necessarily the residential connection the section 2 baseline used.
+  - **Default (`'auto'` → Camoufox): failed.** `stealth_retries: 1`, `steps: 0`, and the seed page never became evidence. Both evidence items were `snippet: true` search results, the warning read `stealth retry of https://www.indeed.com/cmp/Burger-King/reviews did not get the page either (cloudflare)`, and the answer said the sources did not contain the rating. This is not the agent's code: `scrape` with `escalate: true`, which Phase 3 did not touch, failed in the same way on the same IP (403 "Just a moment...", `stealth.engine: "camoufox"`). This is the exit-IP dependence Phase 2's hosted runs found, now seen from a second network.
+  - **`CRAWLFORGE_STEALTH_ENGINE=chromium`: passed.** The seed came back as `{ url: "https://www.indeed.com/cmp/Burger-King/reviews", via: "stealth" }` with no snippet flag, with `steps: 1` and `stealth_retries: 1`. The answer was "The overall Indeed star rating for Burger King is 3.3 out of 5 stars. It is based on 58,942 reviews." and the provenance check found no unverified values, so 58,942 is in the rendered page text. The review recorded **58,941**. The difference is the live page moving on, not a misread: the stealth `scrape` of the same page showed a review dated 2026-09-21, posted after the section 2.4 run.
+
+**Decisions made in this phase (approved by the owner, 2026-09-22):**
+
+1. **Automatic retries, capped at 2 per run** (decision 4 in section 7: automatic, capped). Retries are not opt-in, so the credit check needs a finite worst case. Without a cap it would be 8 + 5 × 20. With the cap, the worst case is **18 credits**, and a run that needs no retry is still charged 8. Each retry is also a browser launch that takes seconds and hundreds of MB, so the cap bounds that cost as well.
+2. **A named URL whose retry fails keeps its snippet as a last resort**, still labelled `snippet: true` and still marked as a search-result snippet in the synthesis input. The checklist item reads "snippet fallback only for discovered URLs", but dropping the only evidence for the page the caller pointed at would make the answer worse and no more honest.
+
+**crawlforge-website parity: done** (`d8741be`, 2026-09-22). Hosted REST calls arrive as internal requests, which the MCP server does not bill; the website charges its own table. `TOOL_CREDIT_COSTS.agent` is now the 18 ceiling, reserved up front as `browser_session`'s is. `getAgentCreditCost()` charges 8 + 5 × the backend's `stealth_retries`, clamped to 2. `verify-cost-parity.mjs`: 31 tools, 0 mismatches.
 
 ### Phase 4: Session persistence
 
@@ -364,7 +377,7 @@ Verify: a TLS-only wall (one that blocks the plain fetch but serves curl-imperso
 1. ~~Greenlight Phase 0 and Phase 1 as a unit (contained, measurable, no product change).~~ **Done — both shipped 2026-09-21.** One product-visible change did come out of Phase 1, and it is not a no-op: on Camoufox the caller's `locale` is now applied at browser launch rather than per context, so it is fixed for that browser's lifetime (and a proxy's `geoip` overrides it).
 2. Whether Camoufox becomes the default escalation engine (Phase 2), given its slower startup and larger memory footprint.
 3. Whether to add a server-level proxy setting and document bring-your-own residential proxies (Phase 2).
-4. Whether the agent may spend escalation credits automatically (Phase 3).
+4. ~~Whether the agent may spend escalation credits automatically (Phase 3).~~ **Decided 2026-09-22: yes, automatically, capped at 2 retries a run (18 credits worst case), shipped in Phase 3.**
 5. Whether to apply to Cloudflare's signed-agents directory (Phase 6). This publicly identifies CrawlForge traffic.
 6. The `impit` policy question (Phase 7).
 

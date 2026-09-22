@@ -258,7 +258,9 @@ test('getToolCost: fully-paid Scheme B table (no free tier, key required for all
     track_changes: 3, analyze_content: 3, extract_structured: 3, extract_with_llm: 3,
     summarize_content: 4, crawl_deep: 4,
     stealth_mode: 5, scrape_with_actions: 5, batch_scrape: 5, search_web: 5, generate_llms_txt: 5,
-    agent: 8,
+    // agent's base is 8; the projection adds the ceiling for its automatic
+    // stealth retries (2 × 5, stealth review Phase 3) — see the agent test below.
+    agent: 18,
     deep_research: 10
   };
   for (const [tool, cost] of Object.entries(expected)) {

@@ -234,7 +234,8 @@ CRAWLFORGE_STEALTH_PROXIES=          # comma-separated proxy URLs used by the es
                                      # passed on the call wins). CrawlForge supplies no proxies, and
                                      # a datacenter one does not defeat these detectors. Distinct
                                      # from the PROXY_ROTATION_* family, which belongs to
-                                     # localization. The agent tool does not browse yet (Phase 3).
+                                     # localization. The agent's automatic stealth retry
+                                     # (stealth review Phase 3) reads it too.
 ```
 
 Camoufox is an **optional** dependency and its transitive `language-tags@2.1.0` requires Node ≥22. npm silently drops an optional subtree that fails an engine check, so on Node 20 it is simply absent — `'auto'` then resolves to Chromium and says so in `fallbackWarning`. `engines.node` stays at `>=20.16.0` deliberately; bumping it is breaking and is a release decision.
