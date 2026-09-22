@@ -29,7 +29,7 @@ import { GenerateLLMsTxtTool } from "./src/tools/llmstxt/generateLLMsTxt.js";
 import { ScrapeTemplateTool } from "./src/tools/templates/ScrapeTemplateTool.js"; // D3.3
 import { UnifiedScrapeTool, SCRAPE_INPUT_SHAPE } from "./src/tools/scrape/unifiedScrape.js"; // D4 D1
 import { AgentTool } from "./src/tools/agent/agent.js"; // D4 D2
-import { StealthBrowserManager } from "./src/core/StealthBrowserManager.js";
+import { StealthBrowserManager, resolveStealthEngine } from "./src/core/StealthBrowserManager.js";
 import { LocalizationManager } from "./src/core/LocalizationManager.js";
 // Stealth scrape: format conversion + the pre-fetch compliance gate (G5/G6/G7)
 import * as cheerio from "cheerio";
@@ -249,14 +249,23 @@ const unifiedScrapeTool = new UnifiedScrapeTool({
   // the tool module never imports StealthBrowserManager (that would pull a
   // browser dependency into every unit test that loads `scrape`). Same gate
   // and same browser the stealth_mode tool drives — no new evasion, and the
-  // "playwright" → chromium engine mapping stays here with its sibling.
+  // engine name is resolved here, beside its sibling, by the one resolver
+  // every stealth entry point shares.
   escalateScrape: async ({ url, engine, respectRobots }) => {
     const warnings = await stealthComplianceGate(url, respectRobots);
+    // "auto" prefers camoufox and falls back to chromium when its binary is
+    // missing. Mapping here instead ("camoufox" or else chromium) collapsed
+    // auto to chromium and hid the fallback; the resolver says which engine it
+    // landed on and why, and the caller is told.
+    const resolved = await resolveStealthEngine(engine);
+    if (resolved.fallbackWarning) warnings.push(resolved.fallbackWarning);
     const scraped = await stealthBrowserManager.scrapeWithStealth({
       url,
-      engine: engine === 'camoufox' ? 'camoufox' : 'chromium'
+      engine: resolved.engine
     });
-    return { ...scraped, engine, warnings };
+    // The RESOLVED engine: `scrape` reports it as stealth.engine, where the
+    // requested "auto" would tell the caller nothing about what ran.
+    return { ...scraped, engine: resolved.engine, warnings };
   }
 });
 const agentTool = new AgentTool(); // D4 D2
@@ -913,7 +922,7 @@ registerToolIfEnabled("read_result", {
 
 // Tool: scrape_with_actions
 registerToolIfEnabled("scrape_with_actions", {
-  description: "Use this when you must interact with a page before scraping - login, click buttons, fill forms, scroll, or wait for dynamic content to load - for SPAs, login-gated content, or multi-step flows. Actions: snapshot, wait, click, type, press, scroll, screenshot, executeJavaScript, select (dropdowns), hover, navigate. Start a chain with {type:\"snapshot\"} to list the page's interactive elements with stable refs (@e1, @e2 ...), then target those refs in later actions instead of guessing CSS selectors; navigation invalidates refs, so snapshot again after one. Set browserOptions.stealth:true to run the chain in the stealth browser. robots.txt is respected on every navigation. Screenshots from this tool are stored as crawlforge://screenshot/{actionId} resources. Not for pages that render without interaction (scrape) and not as the first attempt on a blocked site (stealth_mode operation:\"scrape\"). Cost: 5 credits. Example: scrape_with_actions({url: \"https://app.com/dashboard\", actions: [{type:\"snapshot\"},{type:\"type\",selector:\"@e2\",text:\"user@a.com\"},{type:\"click\",selector:\"@e4\"}]})",
+  description: "Use this when you must interact with a page before scraping - login, click buttons, fill forms, scroll, or wait for dynamic content to load - for SPAs, login-gated content, or multi-step flows. Actions: snapshot, wait, click, type, press, scroll, screenshot, executeJavaScript, select (dropdowns), hover, navigate. Start a chain with {type:\"snapshot\"} to list the page's interactive elements with stable refs (@e1, @e2 ...), then target those refs in later actions instead of guessing CSS selectors; navigation invalidates refs, so snapshot again after one. Set browserOptions.stealth:true to run the chain in the stealth browser, and browserOptions.engine to pick its engine (\"auto\" by default - camoufox when it is installed, Chromium otherwise, and the result says which ran). robots.txt is respected on every navigation. Screenshots from this tool are stored as crawlforge://screenshot/{actionId} resources. Not for pages that render without interaction (scrape) and not as the first attempt on a blocked site (stealth_mode operation:\"scrape\"). Cost: 5 credits. Example: scrape_with_actions({url: \"https://app.com/dashboard\", actions: [{type:\"snapshot\"},{type:\"type\",selector:\"@e2\",text:\"user@a.com\"},{type:\"click\",selector:\"@e4\"}]})",
   annotations: { title: "Scrape with Browser Actions", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to scrape"),
@@ -985,7 +994,8 @@ registerToolIfEnabled("scrape_with_actions", {
       viewportWidth: z.number().min(800).max(1920).default(1280),
       viewportHeight: z.number().min(600).max(1080).default(720),
       timeout: z.number().min(10000).max(120000).default(30000),
-      stealth: z.boolean().default(false).describe("Run the action chain in the stealth browser (randomized fingerprint, WebRTC/canvas spoofing) instead of the standard browser pool. Renders JavaScript; it does not solve challenges.")
+      stealth: z.boolean().default(false).describe("Run the action chain in the stealth browser (randomized fingerprint, WebRTC/canvas spoofing) instead of the standard browser pool. Renders JavaScript; it does not solve challenges."),
+      engine: z.enum(["auto", "chromium", "camoufox", "playwright"]).default("auto").describe("Stealth engine for the chain, with stealth:true. \"auto\" (default) runs camoufox when it is installed and Chromium otherwise; the result's `engine` says which ran. \"camoufox\" is Firefox-based with a higher anti-detect score; \"chromium\" (= \"playwright\") forces Chromium. Refused without stealth:true, where the browser is always Chromium.")
     }).optional().describe("Browser configuration options"),
     extractionOptions: z.object({
       selectors: z.record(z.string()).optional(),
@@ -1028,13 +1038,14 @@ registerToolIfEnabled("scrape_with_actions", {
 
 // Tool: browser_session
 registerToolIfEnabled("browser_session", {
-  description: "Use this to drive a browser across several calls, keeping the page, its cookies and its login in between. The loop is: open a session on a URL, snapshot it to list the interactive elements with stable refs (@e1, @e2 ...), act on those refs, read the content, close. Because the page stays open you can look before each step instead of committing to a whole chain up front, so a wrong selector costs one call rather than all of them. Operations: open (url, stealth, ttl, activity_ttl, viewport), snapshot, act (the same action array as scrape_with_actions), read (formats), screenshot, close, list. Navigation invalidates refs, so snapshot again after one. robots.txt is respected on every navigation, and screenshots are stored as crawlforge://screenshot/{actionId} resources. A session expires 600s after it opens or 300s after its last use, whichever comes first, so close it when you are done. Not for a page that renders without interaction (scrape), and not for an interaction you can write out in advance - that is one scrape_with_actions call for 5. Cost: 3 credits to open; read 2; snapshot, act, screenshot, close and list 1 each. Example: browser_session({operation:\"open\", url:\"https://app.com/login\"}), then browser_session({operation:\"snapshot\", session_id:\"...\"})",
+  description: "Use this to drive a browser across several calls, keeping the page, its cookies and its login in between. The loop is: open a session on a URL, snapshot it to list the interactive elements with stable refs (@e1, @e2 ...), act on those refs, read the content, close. Because the page stays open you can look before each step instead of committing to a whole chain up front, so a wrong selector costs one call rather than all of them. Operations: open (url, stealth, engine, ttl, activity_ttl, viewport), snapshot, act (the same action array as scrape_with_actions), read (formats), screenshot, close, list. Navigation invalidates refs, so snapshot again after one. robots.txt is respected on every navigation, and screenshots are stored as crawlforge://screenshot/{actionId} resources. A session expires 600s after it opens or 300s after its last use, whichever comes first, so close it when you are done. Not for a page that renders without interaction (scrape), and not for an interaction you can write out in advance - that is one scrape_with_actions call for 5. Cost: 3 credits to open; read 2; snapshot, act, screenshot, close and list 1 each. Example: browser_session({operation:\"open\", url:\"https://app.com/login\"}), then browser_session({operation:\"snapshot\", session_id:\"...\"})",
   annotations: { title: "Browser Session", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     operation: z.enum(["open", "snapshot", "act", "read", "screenshot", "close", "list"]).describe("open a session, observe it, act on it, read it, or close it"),
     session_id: z.string().optional().describe("The id returned by operation:\"open\". Required by every operation except open and list"),
     url: z.string().url().optional().describe("open: the URL to load the session on"),
     stealth: z.boolean().default(false).describe("open: run the session in the stealth browser"),
+    engine: z.enum(["auto", "chromium", "camoufox", "playwright"]).default("auto").describe("open: stealth engine for the session, with stealth:true. \"auto\" (default) runs camoufox when it is installed and Chromium otherwise; every operation echoes the `engine` that actually ran. \"camoufox\" is Firefox-based with a higher anti-detect score; \"chromium\" (= \"playwright\") forces Chromium. Refused without stealth:true, where the browser is always Chromium."),
     ttl: z.number().min(30).max(3600).optional().describe("open: seconds the session may live at most (default 600)"),
     activity_ttl: z.number().min(10).max(3600).optional().describe("open: seconds the session may sit idle (default 300)"),
     viewport: z.object({
@@ -1337,7 +1348,7 @@ function stealthScrapeFormats(formats, scraped) {
 
 // Tool: stealth_mode
 registerToolIfEnabled("stealth_mode", {
-  description: "Use this when a site blocks normal scraping - Cloudflare, Datadome, or other bot-detection systems. Renders in a Playwright browser with randomized fingerprints, human behavior simulation, WebRTC/canvas spoofing. operation:\"scrape\" is the one-shot path: it creates a context, navigates, returns the requested formats and tears down. The create_context -> create_page -> cleanup operations remain for multi-step work. robots.txt is respected on every navigation. Not a first choice: try scrape first and switch here after a 403/429/CAPTCHA/challenge page or an empty shell. Cost: 5 credits per browser operation; configure, enable, disable, get_stats and cleanup cost 1. Example: stealth_mode({operation:\"scrape\", url:\"https://example.com\", formats:[\"markdown\",\"links\"]})",
+  description: "Use this when a site blocks normal scraping - Cloudflare, Datadome, or other bot-detection systems. Renders in a real browser with randomized fingerprints, human behavior simulation, WebRTC/canvas spoofing - Camoufox (Firefox) when it is installed, Chromium otherwise, and the result names the one that ran. operation:\"scrape\" is the one-shot path: it creates a context, navigates, returns the requested formats and tears down. The create_context -> create_page -> cleanup operations remain for multi-step work. robots.txt is respected on every navigation. Not a first choice: try scrape first and switch here after a 403/429/CAPTCHA/challenge page or an empty shell. Cost: 5 credits per browser operation; configure, enable, disable, get_stats and cleanup cost 1. Example: stealth_mode({operation:\"scrape\", url:\"https://example.com\", formats:[\"markdown\",\"links\"]})",
   annotations: { title: "Stealth Mode", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     operation: z.enum(['scrape', 'configure', 'enable', 'disable', 'create_context', 'create_page', 'get_stats', 'cleanup']).default('configure').describe("Stealth operation to perform"),
@@ -1379,7 +1390,7 @@ registerToolIfEnabled("stealth_mode", {
         hardwareSpoofing: z.boolean().default(true)
       }).optional()
     }).optional().describe("Stealth browser configuration with anti-detection settings"),
-    engine: z.enum(["playwright", "camoufox"]).optional().default("playwright").describe("Browser engine: \"playwright\" (Chromium, default) or \"camoufox\" (Firefox-based, higher anti-detect score — install with npm install camoufox)"),
+    engine: z.enum(["auto", "chromium", "camoufox", "playwright"]).optional().default("auto").describe("Browser engine: \"auto\" (default — camoufox when it is installed, Chromium otherwise, and the result says which), \"camoufox\" (Firefox-based, higher anti-detect score; fails if not installed), or \"chromium\" (\"playwright\" is the same engine under its old name)"),
     contextId: z.string().optional().describe("Browser context ID for page operations"),
     urlToTest: z.string().url().optional().describe("URL to navigate to when creating a page"),
     url: z.string().url().optional().describe("URL to scrape — required for operation:\"scrape\""),
@@ -1399,12 +1410,16 @@ registerToolIfEnabled("stealth_mode", {
         // Gate first: a disallowed URL must never launch a browser.
         const warnings = await stealthComplianceGate(url, respect_robots);
 
+        // "auto" prefers camoufox and falls back to chromium when its binary
+        // is missing; "playwright" is this tool's old public name for chromium.
+        // The resolver owns both, and reports a fallback the caller can see.
+        const resolvedEngine = await resolveStealthEngine(engine);
+        if (resolvedEngine.fallbackWarning) warnings.push(resolvedEngine.fallbackWarning);
+
         const wantsScreenshot = formats.includes('screenshot');
         const scraped = await stealthBrowserManager.scrapeWithStealth({
           url,
-          // "playwright" is this tool's public name for the chromium engine
-          // (the manager and the CLI both call it chromium).
-          engine: engine === 'camoufox' ? 'camoufox' : 'chromium',
+          engine: resolvedEngine.engine,
           wait_for: wait_for || 0,
           screenshot: wantsScreenshot,
           stealthConfig
@@ -1421,6 +1436,7 @@ registerToolIfEnabled("stealth_mode", {
           url: scraped.url,
           title: scraped.title,
           status: verdict.status,
+          engine: resolvedEngine.engine,
           content: stealthScrapeFormats(formats, scraped)
         };
         if (verdict.blocked) result.blocked = verdict.blocked;
@@ -1457,10 +1473,11 @@ registerToolIfEnabled("stealth_mode", {
       case 'create_context': {
         // Forward the tool-level engine the same way operation:"scrape" does —
         // without it, create_context always ran on chromium whatever the caller
-        // asked for ("playwright" is this tool's public name for chromium).
+        // asked for. Resolved, so "auto" reaches the manager as a real engine.
+        const contextEngine = await resolveStealthEngine(engine);
         const contextData = await stealthBrowserManager.createStealthContext({
           ...(stealthConfig || {}),
-          engine: engine === 'camoufox' ? 'camoufox' : 'chromium'
+          engine: contextEngine.engine
         });
         // The full fingerprint is ~4 KB of canvas noise arrays and WebGL
         // extension lists no caller acts on. Summarise by default; verbose:true
@@ -1468,6 +1485,10 @@ registerToolIfEnabled("stealth_mode", {
         result = {
           contextId: contextData.contextId,
           created: true,
+          // Which engine the context is on, and why, when "auto" had to fall
+          // back: every page made from it inherits that engine.
+          engine: contextEngine.engine,
+          ...(contextEngine.fallbackWarning ? { warnings: [contextEngine.fallbackWarning] } : {}),
           fingerprint: verbose
             ? contextData.fingerprint
             : stealthBrowserManager.summarizeFingerprint(contextData.fingerprint)

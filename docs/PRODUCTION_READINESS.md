@@ -21,6 +21,27 @@
 
 ---
 
+## Stealth Review Phase 2 — Engine routing and proxy plumbing (Complete locally; hosted gate outstanding, one item deliberately not shipped)
+
+**Completed:** 2026-09-21 | **Version:** 6.7.0 tree (no version bump — no credit change, and no existing call changes behaviour) | **Plan:** [`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md) §6 Phase 2
+
+Five parallel sub-agents (stealth core, tool surface, research paths, deploy/Docker, documentation), integrated in the main session against the **diff** rather than the agents' summaries — which is what caught the two corrections below. **Routing:** `scrape.escalate_engine` and `stealth_mode.engine` default to `'auto'`, reusing the semantic `deep_research` already had under `RESEARCH_STEALTH_ENGINE` so one vocabulary covers every entry point. `resolveStealthEngine(requested)` → `{engine, fallbackWarning}` is the single resolver; every caller pushes that warning into its own result, so a Camoufox→Chromium downgrade is never silent. Naming an engine still pins it exactly. `server.js` had been collapsing anything non-Camoufox to Chromium, which would have defeated `'auto'` outright. **Surface:** `engine` on `browser_session` and `scrape_with_actions`, carried through `BrowserProcessor` to *both* `launchStealthBrowser` and `createStealthContext` — passing it to only one relaunched on the default underneath. **Proxies:** `CRAWLFORGE_STEALTH_PROXIES` consumed in `resolveProxy()`, the one choke point for every path through `StealthBrowserManager`, plus separate wiring for `ResearchOrchestrator`, which launches Camoufox directly and bypasses the manager. Kept distinct from the localization-owned `PROXY_ROTATION_*`. **Fixed:** Camoufox's UA self-contradicted on ~half of all launches (`camoufox@0.1.19` rewrites persona versions with a non-global regex, so it reaches `rv:` and stops while `Firefox/` keeps browserforge's draw) — measured **4/8** on the installed 135 binary, now **8/8** with the persona generated at the binary's own major, confirmed on a real launch through the manager. The Chrome-shaped extra-stealth init script is no longer injected into Firefox, and `headless:'virtual'` no longer collapses to plain headless. **Docker:** the image could never have run Camoufox — musl cannot load a glibc-linked binary, and npm silently drops the optional `camoufox` subtree on Node 20 (its transitive `language-tags@2.1.0` needs ≥22); base moved to `node:22-bookworm-slim`. `npm run test:unit` **2423 tests / 0 failed (181 files)**; `npm test` **100.0% COMPLIANT / 0 errors**.
+
+**Two claims corrected during integration, both found by reading the code rather than the reports:**
+
+- **`geoip` was already shipped in Phase 1** (`StealthBrowserManager.js:508`, `geoip: !!proxy`). Verified rather than rebuilt — the coordinating agent caught this before dispatching and told its child not to reimplement it.
+- **The `agent` tool does not read the server proxy**, contrary to the checklist item and to the wording that had already propagated into README, CHANGELOG, CLAUDE.md, the review doc and both agent skills. `AgentOrchestrator.js` contains no stealth or browser call at all; the agent gains a browsing path in Phase 3. All six files corrected to the five paths that actually read it.
+
+**Open, and deliberately named rather than glossed:**
+
+- **Hosted verification is outstanding.** The phase's own gate requires the Phase 0 harness on the hosted instance against the residential baseline for Indeed and Harrods. That baseline does not exist and cannot be produced from a dev machine. Run `npm run bench:stealth -- --out docs/stealth-bench-baseline-2026-09-21-hosted.md` there, then compare. Phase 2 is **implemented and locally verified, not hosted-verified.**
+- **The Camoufox binary was not upgraded, on purpose.** Upstream is 152.0.4-beta.30; `camoufox@0.1.19`'s bundled data knows Firefox up to 151, so on a current binary *every* generated UA self-contradicts — measurably worse than the installed 135. A newer binary is the wrong fix; a current client is the right one, which makes the `camoufox-js` evaluation the live half of that item. It stays unchecked.
+- **`engines.node` stays `>=20.16.0`.** Node 20 users get no Camoufox at all (silent optional-subtree drop) and therefore Chromium via `'auto'` — now *with* a warning saying why. Bumping to `>=22` is breaking and belongs to a release decision.
+- Camoufox costs ~**+0.8 s and +400 MB RSS** per call (148 ms / 253 MB vs 946 ms / 667 MB), which `'auto'` now pays on the common path. It is also the only engine that cleared Indeed and Harrods in the Phase 0 baseline.
+- Phase 1's `persona-os-vs-host` remains baselined for Camoufox. Pinning the persona OS would close it, but that is Phase 1's finding and this change deliberately did not move that baseline.
+
+---
+
 ## Stealth Review Phase 1 — Contained correctness fixes (Complete, one gate clause reduced not closed)
 
 **Completed:** 2026-09-21 | **Version:** 6.7.0 tree (no version bump — no tool, schema or credit change) | **Plan:** [`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md) §6 Phase 1

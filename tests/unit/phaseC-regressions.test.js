@@ -153,9 +153,12 @@ describe('C1.4 BFSCrawler rate-limiter + logging', () => {
 // ---------------------------------------------------------------------------
 
 describe('C2.1 StealthBrowserManager engine + sec-ch-ua', () => {
-  test('config schema accepts an engine field (chromium | camoufox)', () => {
+  test('config schema accepts an engine field (chromium | camoufox | auto)', () => {
     const src = readSrc('src/core/StealthBrowserManager.js');
-    assert.ok(/engine:\s*z\.enum\(\['chromium',\s*'camoufox'\]\)/.test(src), 'engine enum present in schema');
+    // 'auto' joined the enum in Phase 2 of the 2026-09 stealth review and is
+    // now the default (resolveStealthEngine decides it); the two concrete
+    // engines are what C2.1 pinned here and both are still accepted by name.
+    assert.ok(/engine:\s*z\.enum\(\['chromium',\s*'camoufox',\s*'auto'\]\)/.test(src), 'engine enum present in schema');
   });
 
   test('generateSecChUaHeader derives brand version from the UA Chrome version', async () => {

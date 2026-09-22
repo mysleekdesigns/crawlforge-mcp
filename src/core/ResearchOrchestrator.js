@@ -9,6 +9,7 @@ import { CacheManager } from './cache/CacheManager.js';
 import { Logger } from '../utils/Logger.js';
 import { LLMManager } from './llm/LLMManager.js';
 import { safeFetch, safeGoto } from '../utils/ssrfGuard.js';
+import { serverStealthProxies } from '../constants/config.js';
 import { preflightFetch, browserPreflight } from '../utils/robotsGate.js';
 import { guardFirefoxPageErrors } from '../utils/firefoxPageErrorGuard.js';
 import { noteRetryAfter } from '../utils/hostRateLimiter.js';
@@ -143,6 +144,12 @@ export class ResearchOrchestrator extends EventEmitter {
       stealthEngine = process.env.RESEARCH_STEALTH_ENGINE || 'auto',
       stealthLevel = 'medium',
       stealthTimeoutMs = 20000,
+      // Proxy list for the stealth fallback, in proxyRotation's URL format. The
+      // caller's list always wins; with none, the server-level
+      // CRAWLFORGE_STEALTH_PROXIES applies — this path launches Camoufox itself
+      // rather than through StealthBrowserManager, so it does not inherit that
+      // manager's proxy fallback and has to resolve one here.
+      stealthProxies = serverStealthProxies(),
       searchConfig = {},
       crawlConfig = {},
       extractConfig = {},
@@ -164,6 +171,7 @@ export class ResearchOrchestrator extends EventEmitter {
     this.stealthEngine = stealthEngine;
     this.stealthLevel = stealthLevel;
     this.stealthTimeoutMs = stealthTimeoutMs;
+    this.stealthProxies = Array.isArray(stealthProxies) ? stealthProxies : [];
     this._stealthManager = null;     // Chromium StealthBrowserManager (fallback engine)
     this._stealthBrowser = null;     // Camoufox browser handle (preferred engine)
     this._stealthEngineActive = null;
@@ -952,6 +960,11 @@ export class ResearchOrchestrator extends EventEmitter {
     if (!this._stealthInit) {
       this._stealthInit = (async () => {
         if (this.stealthEngine === 'camoufox' || this.stealthEngine === 'auto') {
+          // Resolved outside the try: a malformed proxy must fail loudly, not be
+          // swallowed by the 'auto' fallback into a proxyless Chromium run —
+          // "the caller believes their traffic is proxied and it is not" is the
+          // failure mode this plumbing exists to prevent.
+          const proxy = this._resolveStealthProxy();
           try {
             const { createRequire } = await import('module');
             const require = createRequire(import.meta.url);
@@ -960,15 +973,35 @@ export class ResearchOrchestrator extends EventEmitter {
             // A page whose own JavaScript throws must not take the process with
             // it — see src/utils/firefoxPageErrorGuard.js.
             guardFirefoxPageErrors();
-            this._stealthBrowser = await camoufox.Camoufox({ headless: true });
+            const launchOptions = { headless: true };
+            if (proxy) {
+              // camoufox takes the URL string and splits the credentials out
+              // itself (getProxyUrl → Playwright's {server,username,password}).
+              launchOptions.proxy = proxy.url;
+              // Same rule as StealthBrowserManager (`geoip: !!proxy`): behind a
+              // proxy, geoip derives timezone, locale and geolocation from the
+              // exit IP, which is the only thing that makes a proxied browser
+              // coherent. Without a proxy it would look up this machine's own
+              // public IP — a network call, and an external service learning
+              // our address, to confirm a location the browser is already in.
+              // No locale is passed either way here, so geoip's derived one
+              // has nothing to contradict.
+              launchOptions.geoip = true;
+            }
+            this._stealthBrowser = await camoufox.Camoufox(launchOptions);
             this._stealthEngineActive = 'camoufox';
-            this.logger.info('Stealth fallback using Camoufox (Firefox) engine');
+            this.logger.info('Stealth fallback using Camoufox (Firefox) engine', {
+              proxy: proxy ? proxy.redacted : null
+            });
             return;
           } catch (e) {
             if (this.stealthEngine === 'camoufox') throw e; // explicit request → surface
             this.logger.warn('Camoufox unavailable, falling back to Chromium stealth', { error: e.message });
           }
         }
+        // No proxy wiring on this branch: StealthBrowserManager resolves its own
+        // (resolveProxy), server-level list included, so passing one here would
+        // be a second path to the same setting.
         const { StealthBrowserManager } = await import('./StealthBrowserManager.js');
         this._stealthManager = new StealthBrowserManager();
         await this._stealthManager.launchStealthBrowser({ level: this.stealthLevel });
@@ -976,6 +1009,43 @@ export class ResearchOrchestrator extends EventEmitter {
       })();
     }
     await this._stealthInit;
+  }
+
+  /**
+   * The proxy this stealth fallback launches behind: the caller's list when they
+   * configured one, otherwise the server-level CRAWLFORGE_STEALTH_PROXIES.
+   * Returns null when neither is set, and `{ url, redacted }` otherwise — only
+   * the redacted form (scheme + host, no credentials) is ever logged.
+   *
+   * Resolved once per browser, taking the first entry: camoufox fixes its
+   * fingerprint — and with geoip its timezone, locale and geolocation — at
+   * launch, so rotating underneath it would leave it reporting the first
+   * proxy's city behind the second proxy's exit IP, which is a worse signal
+   * than not rotating at all (see StealthBrowserManager._doLaunchStealthBrowser).
+   */
+  _resolveStealthProxy() {
+    const raw = (this.stealthProxies[0] || '').trim();
+    if (!raw) return null;
+
+    // `host:port` with no scheme parses as protocol "host:" and an empty host,
+    // so the bare form gets the http:// every proxy list assumes.
+    const url = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`;
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      // Never echo the entry: it carries the password, and camoufox's own
+      // `new URL(proxy)` would quote the whole string in its TypeError.
+      throw new Error('Invalid stealth proxy: expected host:port or scheme://user:pass@host:port');
+    }
+    const scheme = parsed.protocol.replace(':', '').toLowerCase();
+    if (!['http', 'https', 'socks4', 'socks5'].includes(scheme)) {
+      throw new Error(`Invalid stealth proxy scheme "${scheme}": expected http, https, socks4 or socks5`);
+    }
+    if (!parsed.hostname) {
+      throw new Error('Invalid stealth proxy: no host');
+    }
+    return { url, redacted: `${parsed.protocol}//${parsed.host}` };
   }
 
   /**

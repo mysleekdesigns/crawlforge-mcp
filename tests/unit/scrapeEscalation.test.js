@@ -103,7 +103,16 @@ beforeEach(() => {
   _resetHostRateLimiter();
 });
 
-/** A stealth stage that never touches a browser. */
+/**
+ * A stealth stage that never touches a browser.
+ *
+ * It returns the RESOLVED engine, as the real closure in server.js does: that
+ * closure runs resolveStealthEngine() and reports the engine that actually ran,
+ * never the request. Chromium is the resolution used here because this fake
+ * does not call the resolver — the real one answers camoufox on a box that has
+ * it installed and chromium on one that does not, and these assertions have to
+ * hold on both.
+ */
 function fakeEscalator({ html = RENDERED_PAGE, status = 200, throws = null } = {}) {
   const calls = [];
   const fn = async (args) => {
@@ -115,7 +124,7 @@ function fakeEscalator({ html = RENDERED_PAGE, status = 200, throws = null } = {
       title: 'Behind the wall',
       text: 'The content the wall was hiding.',
       status,
-      engine: args.engine,
+      engine: (!args.engine || args.engine === 'auto') ? 'chromium' : args.engine,
       warnings: []
     };
   };
@@ -150,14 +159,15 @@ describe('a blocked page with escalate:true runs the stealth stage and returns i
 
     assert.equal(result.success, true);
     assert.equal(result.escalated, true);
-    assert.deepEqual(result.stealth, { engine: 'playwright', vendor_detected: 'cloudflare' });
+    assert.deepEqual(result.stealth, { engine: 'chromium', vendor_detected: 'cloudflare' });
     assert.match(result.content.markdown, /The content the wall was hiding/);
     assert.equal(result.content.links.total_count, 1, 'every format is built from the escalated document');
     assert.equal(escalator.calls.length, 1);
     assert.equal(escalator.calls[0].url, `${baseUrl}/cloudflare`);
-    assert.equal(escalator.calls[0].engine, 'playwright');
+    // The tool passes the REQUEST through; the stage is what resolves it.
+    assert.equal(escalator.calls[0].engine, 'auto');
     assert.equal(reported, 2 + SCRAPE_ESCALATION_CREDITS, 'the escalation surcharge is charged only because it ran');
-    assert.ok(result.warnings.some((w) => /blocked by cloudflare; the playwright stealth browser returned it/.test(w)));
+    assert.ok(result.warnings.some((w) => /blocked by cloudflare; the chromium stealth browser returned it/.test(w)));
   });
 
   // Escalation must fire on ANY failed verdict, not only a vendor-named
@@ -176,7 +186,7 @@ describe('a blocked page with escalate:true runs the stealth stage and returns i
 
     assert.equal(result.success, true);
     assert.equal(result.escalated, true);
-    assert.deepEqual(result.stealth, { engine: 'playwright', vendor_detected: null });
+    assert.deepEqual(result.stealth, { engine: 'chromium', vendor_detected: null });
     assert.match(result.content.markdown, /The content the wall was hiding/);
     assert.equal(escalator.calls.length, 1, 'a shell with no vendor still reaches the browser');
     assert.ok(result.warnings.some((w) => /the plain fetch did not return the page/.test(w)));
@@ -349,14 +359,14 @@ describe('the stealth render is judged too', () => {
 
     assert.equal(result.success, false);
     assert.equal(result.escalated, true);
-    assert.deepEqual(result.stealth, { engine: 'playwright', vendor_detected: 'cloudflare' });
+    assert.deepEqual(result.stealth, { engine: 'chromium', vendor_detected: 'cloudflare' });
     assert.equal(result.blocked.vendor, 'cloudflare');
     assert.ok(result.blocked.evidence, 'the stealth verdict names its own evidence');
     assert.equal(result.status, 403, 'the status is the stealth navigation\'s, not the plain fetch\'s');
     assert.match(result.error, /the stealth browser did not pass it/);
     assert.doesNotMatch(result.error, /a plain fetch/, 'the plain verdict was replaced, not reported');
     assert.deepEqual(result.content, {}, 'a wall is never returned as content');
-    assert.ok(result.warnings.some((w) => /the playwright stealth browser did not get it either/.test(w)));
+    assert.ok(result.warnings.some((w) => /the chromium stealth browser did not get it either/.test(w)));
     assert.equal(reported, 2 + SCRAPE_ESCALATION_CREDITS, 'the browser ran; withAuth halves it as an error result');
   });
 

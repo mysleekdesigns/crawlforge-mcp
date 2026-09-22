@@ -267,6 +267,12 @@ export CRAWLFORGE_TOOL_GROUPS="basic,search,scrape"   # unset = all tools; unkno
 export RESEARCH_STEALTH_ENGINE="auto"      # auto (default) | camoufox | chromium
 export RESEARCH_STEALTH_FALLBACK="true"    # set to "false" to disable entirely
 export RESEARCH_MAX_STEALTH_RETRIES="8"    # cap on stealth retries per research run
+
+# Optional: your own proxies for the stealth paths that have no caller to ask —
+# the scrape escalation stage, the deep_research retry, the agent, browser_session.
+# Comma-separated; a proxy passed on a call always wins. CrawlForge supplies none.
+export CRAWLFORGE_STEALTH_PROXIES="http://user:pass@gw.provider.net:8080"
+# Unrelated to the PROXY_ROTATION_* variables, which belong to the localization tool.
 ```
 
 ### MCP Spec Features
@@ -297,6 +303,18 @@ ollama pull llama3.2
 #    extract_with_llm({ url: "https://example.com", prompt: "…", model: "llama3.2" })
 ```
 
+### Stealth engines and proxies
+
+Every stealth entry point — `scrape` with `escalate: true`, `stealth_mode`, `browser_session`, `scrape_with_actions` and the `deep_research` retry — now defaults to **`auto`**: use Camoufox (Firefox anti-detect) when its binary is installed, fall back to Chromium when it is not, with the reason in the result's `warnings[]`. Every result names the engine that actually ran. Naming an engine explicitly behaves as it always has — `camoufox` fails rather than falling back, and `chromium` and `playwright` are the same engine (on `scrape`'s `escalate_engine`, spell it `playwright`).
+
+On `browser_session` and `scrape_with_actions` the engine applies only with `stealth: true` — their ordinary path is the standard Chromium pool.
+
+`auto` is not free. Measured once each on an Apple Silicon Mac on 2026-09-21 (launch plus a context and a blank page): Chromium 148 ms and 253 MB, Camoufox 946 ms and 667 MB — roughly **+0.8 s and +400 MB per stealth call**. Pin `engine: "playwright"` for high-volume work on sites that do not block.
+
+**CrawlForge supplies no proxies**, and a datacenter proxy does not fix a block: Cloudflare scores the IP's ASN and the TLS/HTTP2 handshake before any JavaScript runs, so no browser-side patch compensates for a datacenter address. Bring your own residential exit with `CRAWLFORGE_STEALTH_PROXIES` (comma-separated URLs), which the escalation stage, `stealth_mode`, `browser_session`, `scrape_with_actions` and the `deep_research` retry use when the caller passes none; a proxy passed on the call always wins. (The `agent` tool does not browse yet, so it is not in that list — it joins when Phase 3 gives it an escalation path.) With a proxy, Camoufox derives its timezone, locale and geolocation from the exit IP.
+
+Full detail, measurements and sources: [docs/stealth-engines.md](docs/stealth-engines.md).
+
 ### Stealth extraction for `deep_research` (Camoufox)
 
 `deep_research` automatically retries sources that block the normal fetch path (Reddit, Quora, forums, and Cloudflare/DataDome-protected pages return HTTP 403) through a **real fingerprinted browser**, then re-extracts from the rendered HTML. It's bounded (`RESEARCH_MAX_STEALTH_RETRIES`, default 8, plus a per-page timeout) and lazy — the browser stack only loads when a source is actually blocked.
@@ -307,7 +325,7 @@ Engine selection (`RESEARCH_STEALTH_ENGINE`):
 - **`camoufox`** — force Camoufox.
 - **`chromium`** — force the Chromium stealth engine.
 
-Headless Chromium **cannot** clear modern challenges (Cloudflare Turnstile, DataDome) — **Camoufox can**. In testing it recovered Quora and Trustpilot pages that were otherwise fully blocked. To enable it, install the optional dependency and run its one-time binary fetch:
+Camoufox gets through walls that stop headless Chromium: in a benchmark run on 2026-09-21 from a residential IP it was the only engine to clear Cloudflare Turnstile (indeed.com) and Akamai (harrods.com), both of which blocked Chromium stealth. Neither engine cleared DataDome or an interactive Turnstile, so this is a better fetch path, not a bypass. To enable it, install the optional dependency and run its one-time binary fetch:
 
 ```bash
 # Camoufox is declared as an optional dependency, so a normal install already pulls it.
@@ -320,7 +338,7 @@ npx camoufox fetch
 
 Without the Camoufox binary, `deep_research` silently falls back to Chromium stealth and then to plain fetch — no errors, just lower recovery on heavily-protected sites. Disable the whole fallback with `RESEARCH_STEALTH_FALLBACK=false`.
 
-> **Note:** Hard IP-reputation blocks (e.g. Reddit's edge `403`) resist headless stealth from any IP and require residential/mobile proxies, which CrawlForge does not provide. See [docs/stealth-engines.md](docs/stealth-engines.md) for details.
+> **Note:** Hard IP-reputation blocks (e.g. Reddit's edge `403`) resist headless stealth from any IP and require residential/mobile proxies, which CrawlForge does not provide — point the server at your own with `CRAWLFORGE_STEALTH_PROXIES`. See [docs/stealth-engines.md](docs/stealth-engines.md) for details.
 
 ### Manual Configuration
 

@@ -178,6 +178,79 @@ one would defeat the purpose of building the harness.
 No tool, schema, credit or behaviour changes: this ships a script, a CI job and
 two documents.
 
+---
+
+Phase 2 of the 2026-09 stealth review: the engine that actually passes the walls
+is now the one that runs by default, and every stealth path can be given an exit
+IP. Implemented and locally verified; **not** hosted-verified — the phase's own
+gate needs the Phase 0 baseline from the hosted instance, which cannot be
+produced from a dev machine.
+
+### Changed
+
+- **`scrape.escalate_engine` and `stealth_mode.engine` now default to `'auto'`**
+  instead of `'playwright'` / `'chromium'`. `'auto'` prefers Camoufox and falls
+  back to Chromium when its binary is absent, reporting the downgrade in the
+  caller's `warnings` rather than silently running a weaker browser. Naming an
+  engine explicitly still pins it exactly, and `'playwright'` remains the public
+  name for Chromium, so no existing call changes behaviour. One resolver,
+  `resolveStealthEngine(requested)` → `{engine, fallbackWarning}`, backs every
+  stealth entry point; it reuses the semantic `deep_research` already had under
+  `RESEARCH_STEALTH_ENGINE`.
+- **The Docker image moved from `node:20-alpine` to `node:22-bookworm-slim`.**
+  Two independent reasons, both measured: the Camoufox binary is dynamically
+  linked against glibc and musl cannot load it at all, and `camoufox` is an
+  optional dependency whose transitive `language-tags@2.1.0` requires Node ≥22 —
+  npm drops an optional subtree that fails an engine check without warning, so
+  on Node 20 the image built cleanly with no Camoufox inside it and nothing in
+  the log. `engines.node` stays `>=20.16.0`; Node 20 users get Chromium and now
+  see the warning saying why.
+
+### Added
+
+- **`engine` parameter on `browser_session` and `scrape_with_actions`**, routed
+  through `BrowserProcessor` to the Camoufox adapter. The resolved engine now
+  reaches both `launchStealthBrowser` and `createStealthContext` — passing it to
+  only one relaunched on the default engine underneath.
+- **`CRAWLFORGE_STEALTH_PROXIES`**: a comma-separated server-level proxy list
+  used by the escalation stage, `stealth_mode`, `browser_session`,
+  `scrape_with_actions` and the `deep_research` fallback when the caller passes
+  none. A proxy passed on the call always wins. The `agent` tool is named in the
+  review's checklist but has no browsing path yet, so it is not a reader today. Deliberately separate from the `PROXY_ROTATION_*` family, which
+  belongs to localization.
+- **`headless: 'virtual'` on Linux** (Xvfb), with the dependency in the image.
+
+### Fixed
+
+- **A Camoufox UA whose two version tokens disagreed on about half of all
+  launches.** `camoufox@0.1.19` rewrites persona versions with a non-global
+  regex, so the rewrite reaches `rv:` and stops while `Firefox/` keeps whatever
+  browserforge drew — `rv:135.0 … Firefox/150.0`, a one-line detection. Measured
+  4 of 8 launches on the installed 135 binary. Personas are now generated at the
+  binary's own major, which makes that rewrite a no-op: 8 of 8, confirmed on a
+  real launch. The defect predates this phase; making Camoufox the default is
+  what moved it onto the default path.
+- **The extra-stealth init script is no longer injected into Camoufox.** It
+  hands the page a `window.chrome` object and a Chrome-shaped navigator — on
+  Firefox a tell no real Firefox has, and Camoufox already spoofs below the JS
+  layer where a page cannot see the seam.
+- **`headless: 'virtual'` no longer collapses to plain headless.** The adapter's
+  `config.headless !== false` turned the string into `true`: the one mode
+  `'virtual'` exists to avoid.
+
+### Notes
+
+- **The Camoufox binary was deliberately not upgraded.** Upstream is on
+  152.0.4-beta.30; `camoufox@0.1.19`'s bundled data knows Firefox up to 151, so
+  on a current binary *every* generated UA self-contradicts — measurably worse
+  than the version installed. The fix is a current client, not a newer binary,
+  which makes the `camoufox-js` evaluation the live half of that item. It stays
+  open, and unchecked, in the review.
+- Camoufox costs roughly **+0.8 s and +400 MB RSS per call** against Chromium
+  (148 ms / 253 MB vs 946 ms / 667 MB, launch + context + `about:blank`), which
+  `'auto'` now pays on the common path. It is also the only engine that cleared
+  Indeed and Harrods in the Phase 0 baseline.
+
 ## [6.7.0] - 2026-09-16
 
 A bot-detection bench run against 6.6.2 recommended routing through residential proxies to get

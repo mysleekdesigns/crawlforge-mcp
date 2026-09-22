@@ -179,15 +179,51 @@ Also measured, and worth carrying forward rather than rediscovering:
 
 Goal: make the engine that actually passes Cloudflare the one that runs, and give every stealth path an exit IP that can pass.
 
-- [ ] Default `scrape.escalate_engine` and `stealth_mode.engine` to Camoufox when the binary is installed, falling back to Chromium with a warning when it is not.
-- [ ] Add an `engine` parameter to `browser_session` and `scrape_with_actions`, routed through `BrowserProcessor` to the Camoufox adapter.
-- [ ] Update the Camoufox binary to a current Firefox build; evaluate Apify's `camoufox-js` client as the maintained JS path if the current npm package lags.
-- [ ] Use `headless: 'virtual'` on Linux hosts and document the Xvfb dependency in the Docker image (Ubuntu 22.04 base, per the Camoufox Docker notes).
-- [ ] Add a server-level proxy setting (for example `CRAWLFORGE_STEALTH_PROXIES`, same URL format as `proxyRotation`) consumed by the escalation stage, the `deep_research` fallback, the agent, and `browser_session` when the caller passes none.
-- [ ] Enable Camoufox `geoip` whenever a proxy is present so timezone, locale and geolocation follow the exit IP.
-- [ ] Document that CrawlForge supplies no proxies and that a datacenter proxy does not help; link the humanbrowser and Cloudflare sources.
+- [x] Default `scrape.escalate_engine` and `stealth_mode.engine` to Camoufox when the binary is installed, falling back to Chromium with a warning when it is not. — shipped as the engine name `'auto'`, reusing the semantic `deep_research` already had (`RESEARCH_STEALTH_ENGINE`, `ResearchOrchestrator.js:144`) so one vocabulary covers every stealth entry point. `resolveStealthEngine(requested)` in `StealthBrowserManager.js` is the single resolver; it returns `{engine, fallbackWarning}` and every caller pushes that warning into its own result, so a Camoufox→Chromium downgrade is never silent. Naming an engine explicitly still pins it exactly; `'playwright'` remains the tool layer's public name for Chromium.
+- [x] Add an `engine` parameter to `browser_session` and `scrape_with_actions`, routed through `BrowserProcessor` to the Camoufox adapter. — `BrowserProcessor` now carries the resolved engine to both `launchStealthBrowser` and `createStealthContext` (passing it to only one relaunches on the default underneath), and stamps `page.__crawlforgeEngine`. That stamp also gates the extra-stealth init script, which hands the page a `window.chrome` object and a Chrome-shaped navigator — a tell no real Firefox has, so it is now Chromium-only.
+- [ ] Update the Camoufox binary to a current Firefox build; evaluate Apify's `camoufox-js` client as the maintained JS path if the current npm package lags. — **not deliverable as written; deliberately left unchecked.** Upgrading makes things worse, measured: `camoufox@0.1.19` rewrites persona version tokens with `data.replace(/(?<!\d)(1[0-9]{2})(\.0)(?!\d)/, ...)` — no `/g`, so the rewrite reaches `rv:` and stops, and `Firefox/` keeps whatever browserforge drew. Its bundled header-generator data knows Firefox {135, 136, 142, 146, 147, 149, 150, 151}; upstream Camoufox is on 152.0.4-beta.30, which is outside that set, so on a current binary *every* generated UA self-contradicts. The npm package lags exactly as this item anticipated, so the maintained-client evaluation is the live half — see Track: camoufox-js below. Mitigated meanwhile by the version pin (next item but one).
+- [x] Use `headless: 'virtual'` on Linux hosts and document the Xvfb dependency in the Docker image (Ubuntu 22.04 base, per the Camoufox Docker notes). — `StealthBrowserManager.js:480`. This also required fixing the adapter's `config.headless !== false`, which silently collapsed the string `'virtual'` to `true` — plain headless, the one mode `'virtual'` exists to avoid. The image moved to `node:22-bookworm-slim`; see Docker findings below.
+- [x] Add a server-level proxy setting (`CRAWLFORGE_STEALTH_PROXIES`, same URL format as `proxyRotation`) consumed by the escalation stage, the `deep_research` fallback, the agent, and `browser_session` when the caller passes none. — `serverStealthProxies()` in `constants/config.js`, consumed in `resolveProxy()` (the one choke point for every path through `StealthBrowserManager`) and wired separately into `ResearchOrchestrator`, which launches Camoufox directly and bypasses the manager. A proxy passed on the call always wins. Kept deliberately separate from the existing `PROXY_ROTATION_*` family, which belongs to localization. **Partial against the item as written:** the readers today are the escalation stage, `stealth_mode`, `browser_session`, `scrape_with_actions` and the `deep_research` fallback. The `agent` is listed above but has no browsing path of its own — `AgentOrchestrator.js` contains no stealth or browser call at all — so it cannot read a proxy yet. It becomes a reader in Phase 3, which is the phase that gives it an escalation path.
+- [x] Enable Camoufox `geoip` whenever a proxy is present so timezone, locale and geolocation follow the exit IP. — **already shipped in Phase 1**, not rebuilt: `StealthBrowserManager.js:508` does `geoip: !!proxy` and the adapter forwards it. Verified still correct now that a server-level proxy can be the thing supplying that proxy.
+- [x] Document that CrawlForge supplies no proxies and that a datacenter proxy does not help; link the humanbrowser and Cloudflare sources. — `README.md`, `docs/stealth-engines.md`, and both agent skills.
+- [x] **Added in this phase:** pin the Camoufox persona to the installed binary's Firefox major, so the UA's `rv:` and `Firefox/` tokens agree. Not on the original list; it became load-bearing the moment `'auto'` made Camoufox the default, because the defect below was riding on the default path.
 
 Verify: with a residential proxy configured, the Phase 0 harness on the hosted instance matches the residential baseline on Indeed and Harrods; without one it reports the datacenter result honestly.
+
+- [ ] **Hosted verification outstanding.** Phase 2 is implemented and locally verified, *not* hosted-verified. The gate above needs the Phase 0 baseline from the hosted instance, which cannot be produced from a dev machine. Run there, then compare:
+
+      npm run bench:stealth -- --out docs/stealth-bench-baseline-2026-09-21-hosted.md
+
+#### The UA mismatch, measured
+
+`camoufox@0.1.19` pins `rv:` to the installed binary and lets browserforge pick `Firefox/` independently. They agree only by coincidence:
+
+| Binary | Persona source | UA tokens agree |
+|---|---|---|
+| 135 (installed) | camoufox's own generation | **4 / 8** |
+| 135 (installed) | pinned to the binary's major | **8 / 8** |
+| 152 (current upstream) | camoufox's own generation | **0 / 8** — 152 is outside browserforge's data |
+
+Method: `launchOptions({headless:true})` sampled repeatedly, reading the UA out of the returned config; the pinned rows generate the persona with `FingerprintGenerator({browsers:[{name:'firefox',minVersion:M,maxVersion:M}]})` and pass it in. Confirmed on a real launch through `StealthBrowserManager` → `createStealthContext` → `createStealthPage`: `Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0`.
+
+`rv:` disagreeing with `Firefox/` is a one-line detection, and it was live at HEAD before this phase — `'auto'` is what promoted it from an opt-in path to the default one. The pin is in `CamoufoxAdapter._pinnedFingerprint()`; it returns `null` and falls back to camoufox's own persona whenever it cannot produce a matching one, and it verifies the tokens rather than assuming them. Locked by `tests/unit/stealthCamoufoxIdentity.test.js`.
+
+The pin fixes the symptom on the installed binary. It cannot fix 152, whose version has no browserforge data at all — that needs a current client, which is what the `camoufox-js` evaluation is for.
+
+**Why Phase 0 did not catch this.** The harness already had the right probe — `ua-version-vs-binary` — but it samples a single launch, and the defect was a coin flip, so the probe passed roughly half the time and was green on the run that produced the baseline. A check that samples once cannot see a 50% fault; it can only be lucky. It is deterministic now that the persona is pinned, and the lesson generalises to the rest of the self-probes: any of them that draw from a randomised persona are one-sample checks on a distribution, and a single green row from one is weaker evidence than it looks.
+
+#### Docker findings
+
+The published image could never have run Camoufox, for two independent reasons, both measured 2026-09-21:
+
+- **musl vs glibc.** `camoufox-bin` declares `PT_INTERP /lib/ld-linux-aarch64.so.1` (measured on arm64; `/lib64/ld-linux-x86-64.so.2` on x86_64) and needs versioned `GLIBC_2.17`…`GLIBC_2.28` symbols. The `node:20-alpine` base cannot load it at all. Base moved to `node:22-bookworm-slim` (glibc 2.36); upstream's own notes say Ubuntu 22.04 / glibc 2.35.
+- **A silent optional-dependency drop.** `camoufox` is optional, and its transitive `language-tags@2.1.0` declares `engines.node >=22`. npm does not warn when an optional dependency's subtree fails an engine check — it drops the subtree. With this repo's own lockfile: `node:20-bookworm-slim` → 508 packages, **no `node_modules/camoufox`**; `node:22-bookworm-slim` → installed. The image built "successfully" with no Camoufox in it and nothing in the log.
+
+`package.json` still declares `engines.node >=20.16.0` — a deliberate decision, not an oversight. Node 20 users get Chromium through `'auto'` and now see the fallback warning saying why, which is what makes the gap visible rather than silent. Bumping to `>=22` is breaking and belongs to a release decision, not this phase.
+
+#### Track: camoufox-js
+
+Item 184's escape hatch is now the live path. What a maintained client would have to fix, in priority order: the non-global version rewrite above; the dropped `os` option (Phase 1's `persona-os-vs-host`, still open — the client sends `os`, the generator's key is `operatingSystems`); and `CAMOUFOX_INSTALL_DIR`, which only `camoufox-js` supports and which the Dockerfile currently works around by pinning `HOME`. Not started; needs its own decision.
 
 ### Phase 3: Agent browsing
 

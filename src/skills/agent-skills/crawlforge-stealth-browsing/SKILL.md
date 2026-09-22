@@ -1,6 +1,6 @@
 ---
 name: crawlforge-stealth-browsing
-description: "Bypasses bot detection and geo-restrictions with CrawlForge's stealth_mode and localization tools. Use when a site returns 403 or 429, CAPTCHAs, 'please enable JavaScript', or empty content, or is protected by Cloudflare, DataDome, or PerimeterX, or when the user needs region-specific pricing, geo-blocked content, or a specific locale, timezone, or currency. stealth_mode runs a stealth browser (playwright by default, camoufox for advanced fingerprinting) and can screenshot; localization emulates a country and language. Explains when to escalate from a normal scrape to stealth."
+description: "Bypasses bot detection and geo-restrictions with CrawlForge's stealth_mode and localization tools. Use when a site returns 403 or 429, CAPTCHAs, 'please enable JavaScript', or empty content, or is protected by Cloudflare, DataDome, or PerimeterX, or when the user needs region-specific pricing, geo-blocked content, or a specific locale, timezone, or currency. stealth_mode runs a stealth browser (engine auto by default: camoufox/Firefox for advanced fingerprinting, playwright/Chromium when pinned for speed) and can screenshot; localization emulates a country and language. Explains when to escalate from a normal scrape to stealth, and why a hard block needs a residential proxy."
 metadata:
   version: 5.6.6
   source: crawlforge-mcp-server
@@ -39,8 +39,7 @@ page that navigates to the target URL.
   "tool": "stealth_mode",
   "params": {
     "operation": "create_context",
-    "stealthConfig": { "level": "advanced", "simulateHumanBehavior": true },
-    "engine": "playwright"
+    "stealthConfig": { "level": "advanced", "simulateHumanBehavior": true }
   }
 }
 ```
@@ -58,21 +57,45 @@ Operations: `configure`, `enable`, `disable`, `create_context`, `create_page`,
 `get_stats`, `cleanup`. `stealthConfig.level` is `basic` / `medium` (default) /
 `advanced`. Always run `cleanup` when done to release the browser.
 
-### Engine: playwright vs camoufox
+### Engine: auto, playwright, camoufox
 
-- `engine:"playwright"` (default) — Chromium with stealth patches. Fast, good
-  for most basic bot detection.
+- `engine:"auto"` (default) — Camoufox when its binary is installed, Chromium
+  with a warning when it is not. Leave it alone unless you have a reason.
 - `engine:"camoufox"` — Firefox-based with native anti-detection (no patches).
-  Scores higher against DataDome / Cloudflare / PerimeterX and on CreepJS. Use
-  for heavily protected, financial, or e-commerce sites.
+  The only engine that cleared Cloudflare Turnstile (indeed.com) and Akamai
+  (harrods.com) in the 2026-09-21 benchmark. Pin it to require that engine: it
+  errors rather than falling back. Costs roughly +0.8 s and +400 MB per call
+  against Chromium.
+- `engine:"playwright"` — Chromium with stealth patches. Pin it for speed on
+  sites that need rendering rather than evasion.
+
+`stealth_mode` also accepts `"chromium"` as a synonym for `"playwright"`.
+`browser_session` takes the same `engine` on `operation:"open"` and
+`scrape_with_actions` takes it as `browserOptions.engine` — both only with
+`stealth: true`, and both default to `"auto"`. `scrape`'s `escalate_engine` is
+the one parameter that does not accept `"chromium"`; say `"playwright"` there.
+
+The result always names the engine that ran (`stealth.engine` on `scrape`,
+`engine` elsewhere), and an `auto` run that fell back to Chromium says so in
+`warnings[]` — read that rather than assuming you got Camoufox.
+
+Neither engine defeats DataDome or an interactive Turnstile. If both are
+blocked, the address is usually the problem, not the browser.
 
 Full decision table: [engine selection](references/engine-selection.md).
 
 ### Proxies
 
 A block that survives both engines is usually the IP, not the fingerprint:
-Cloudflare scores the address and its ASN before it serves a challenge. Route
-through your own residential proxy — CrawlForge supplies none.
+Cloudflare scores the address and its ASN before it serves a challenge, so a
+datacenter proxy changes the address without changing the class of address being
+scored. Route through your own residential proxy — CrawlForge supplies none.
+
+Server-wide, set `CRAWLFORGE_STEALTH_PROXIES` (comma-separated proxy URLs): the
+`scrape` escalation stage, `stealth_mode`, `browser_session`,
+`scrape_with_actions` and the `deep_research` retry use it when no proxy is
+passed on the call. (`agent` does not browse yet, so it is not a reader.) Per call, pass
+`stealthConfig.proxyRotation`, which always wins:
 
 ```json
 {
@@ -100,7 +123,8 @@ crawlforge stealth https://protected-site.com --engine camoufox --wait 3000 --sc
 ```
 
 The CLI exposes a one-shot form (`--engine`, `--wait <ms>`, `--screenshot`).
-Force the engine globally with `export CRAWLFORGE_STEALTH_ENGINE=camoufox`.
+`--engine` takes `chromium` (the default here — the CLI has no `auto`) or
+`camoufox`, so name `camoufox` on the command line when you want it.
 
 ## localization (cost: 2)
 

@@ -1,6 +1,73 @@
 # Stealth Browser Engines
 
-CrawlForge supports two browser engines for the `stealth_mode` tool.
+CrawlForge drives two browser engines: Chromium with stealth patches, and
+Camoufox (Firefox). Every stealth entry point takes an engine, and every one of
+them now defaults to **`auto`** — prefer Camoufox, fall back to Chromium with a
+visible warning when the Camoufox binary is not installed.
+
+| Entry point | How the engine is chosen | Accepted values |
+|---|---|---|
+| `scrape` with `escalate: true` | `escalate_engine` | `auto` (default) · `playwright` · `camoufox` |
+| `stealth_mode` | `engine` | `auto` (default) · `chromium` · `playwright` · `camoufox` |
+| `browser_session` | `engine`, on `open`, with `stealth: true` | `auto` (default) · `chromium` · `playwright` · `camoufox` |
+| `scrape_with_actions` | `browserOptions.engine`, with `stealth: true` | `auto` (default) · `chromium` · `playwright` · `camoufox` |
+| `deep_research` blocked-source retry | `RESEARCH_STEALTH_ENGINE` | `auto` (default) · `camoufox` · `chromium` |
+
+`browser_session` and `scrape_with_actions` refuse an engine without
+`stealth: true`: their non-stealth path is always the standard Chromium pool,
+and silently accepting `camoufox` there would promise an engine that never ran.
+
+Naming an engine explicitly behaves exactly as it always has: `camoufox` fails
+at launch with its install instruction rather than degrading silently, and
+`playwright` / `chromium` go straight to the Chromium manager.
+
+**Which engine actually ran** is in the result, never inferred from what you
+asked for. `scrape` reports it as `stealth.engine` (resolved — `camoufox` or
+`chromium`, never `auto`); `browser_session` echoes `engine` on every operation;
+`stealth_mode` and `scrape_with_actions` report it on the result too. When
+`auto` falls back, a line lands in `warnings[]` naming the reason (one line,
+wrapped here):
+
+```
+Stealth engine fell back to chromium: camoufox is not installed
+(npm install camoufox). Camoufox passes bot walls this Chromium does not;
+install it to use it.
+```
+
+An installed Camoufox that fails to load reports that load error in place of the
+middle clause.
+
+The default moved because of a measurement, not a preference. On 2026-09-21,
+against real bot walls from a residential IP, Camoufox was the only engine that
+cleared Cloudflare Turnstile on indeed.com and Akamai on harrods.com; Chromium
+stealth was blocked on both. Neither engine cleared DataDome (g2.com)
+or an interactive Turnstile that never self-resolves (nowsecure.nl), and on
+leboncoin.fr the result inverted — Chromium passed where Camoufox did not. One
+run per cell, so read that as vendor-dependent rather than a ranking. The full
+matrix is in section 2.2 of
+[`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md); reproduce it with
+[the harness](./stealth-bench.md).
+
+## What `auto` costs
+
+Camoufox is the slower, heavier engine, and `auto` pays that on every stealth
+call that is not explicitly pinned to Chromium. Measured on this project's
+development machine (Apple Silicon Mac) on 2026-09-21 — launch, then a context
+and a page on `about:blank`, with browser-process RSS:
+
+| Engine | Launch | + context and page | Total | RSS |
+|---|---|---|---|---|
+| Chromium | 95 ms | 53 ms | 148 ms | 253 MB |
+| Camoufox | 513 ms | 433 ms | 946 ms | 667 MB |
+
+So `auto` costs roughly **+0.8 s and +400 MB per stealth call** against Chromium
+— about 2.6x the memory. That is one run of each engine on one machine, not a
+benchmark: treat it as the order of magnitude, and pin `engine: "playwright"`
+when a target is known not to need Camoufox and the throughput matters.
+
+On Linux, Camoufox runs **virtual-headless** (Xvfb) rather than true headless,
+because a true-headless Firefox is itself a signal. That needs an X virtual
+framebuffer present in the image; macOS and Windows hosts are unaffected.
 
 ## `deep_research` stealth extraction fallback (v4.6.6)
 
@@ -12,14 +79,15 @@ Engine selection is via `RESEARCH_STEALTH_ENGINE`:
 - `camoufox` — force Camoufox (surfaces an error if unavailable).
 - `chromium` — force the Chromium stealth manager.
 
-> The Chromium engine has two names, and they are not interchangeable. This
-> environment variable takes `chromium`; the `stealth_mode` and `scrape` tool
-> parameters (`engine`, `escalate_engine`) call the same engine **`playwright`**
-> and reject `chromium`. Anything user-facing uses the tool spelling.
+> The Chromium engine has two names, and one parameter still takes only the
+> older one. This environment variable, `stealth_mode`, `browser_session` and
+> `scrape_with_actions` all accept `chromium` (with `playwright` as a synonym);
+> `scrape`'s `escalate_engine` accepts **`playwright`** alone and rejects
+> `chromium`. Use `auto` and the question does not arise.
 
 Disable entirely with `RESEARCH_STEALTH_FALLBACK=false`.
 
-**One-time setup for Camoufox** (the engine that actually clears Cloudflare/DataDome — headless Chromium cannot): install the optional dependency and fetch its Firefox binary:
+**One-time setup for Camoufox** (the engine that cleared Cloudflare Turnstile and Akamai in the 2026-09-21 run where Chromium stealth did not — neither cleared DataDome): install the optional dependency and fetch its Firefox binary:
 
 ```bash
 npm install camoufox      # optional dependency; already declared in optionalDependencies
@@ -32,12 +100,12 @@ Without the binary, `deep_research` silently falls back to Chromium stealth, the
 
 ## Available Engines
 
-### `playwright` (default)
+### `playwright`
 
 - **Browser:** Chromium
 - **Anti-detection approach:** identity (user agent, platform, language list, core count) set through CDP where a Worker sees it too; canvas, WebGL, audio and font metrics spoofed from init scripts; WebRTC, pointer/hover and automation flags set at launch; human behaviour simulation
-- **When to use:** The default choice for the vast majority of sites. Fast, well-tested, and excellent Playwright ecosystem support.
-- **Limitations:** Advanced bot-detection services that inspect Chrome DevTools Protocol artifacts can sometimes identify automation markers even with stealth patches applied.
+- **When to use:** Pin it when the target does not wall you and the per-call cost matters — a sixth of Camoufox's startup and under 40% of its memory (see [What `auto` costs](#what-auto-costs)). It is also not strictly worse against every vendor: it passed leboncoin.fr where Camoufox did not.
+- **Limitations:** Blocked on Cloudflare Turnstile (indeed.com) and on Akamai (harrods.com) in the 2026-09-21 run. Advanced bot-detection services that inspect Chrome DevTools Protocol artifacts can identify automation markers even with stealth patches applied.
 
 ```json
 { "operation": "create_context", "engine": "playwright", "stealthConfig": { "level": "advanced" } }
@@ -47,10 +115,11 @@ Without the binary, `deep_research` silently falls back to Chromium stealth, the
 
 - **Browser:** Firefox
 - **Anti-detection approach:** Patches browser internals at the C++ / Rust level — automation markers are removed before they reach JavaScript, not masked after the fact.
-- **When to use:** When `playwright` is detected and blocked. Camoufox scores significantly higher on CreepJS and Datadome because it does not expose `navigator.webdriver` or CDP artifacts.
+- **When to use:** Whenever a site walls you — which is why `auto` reaches for it first. It scores higher than patched Chromium on CreepJS and the other detector pages because it exposes neither `navigator.webdriver` nor CDP artifacts, and it was the only engine to clear Cloudflare Turnstile (indeed.com) and Akamai (harrods.com) in the 2026-09-21 run.
 - **License:** MIT (see [github.com/daijro/camoufox](https://github.com/daijro/camoufox))
 - **Installation:** `npm install camoufox` (optional peer dependency)
-- **Limitations:** Slower startup than Chromium; fewer Playwright plugins support Firefox.
+- **Limitations:** ~6x Chromium's startup and ~2.6x its memory. It does not defeat DataDome (blocked on g2.com, and blocked on leboncoin.fr where Chromium passed) or an interactive Turnstile. Fewer Playwright plugins support Firefox.
+- **Persona version is pinned to the installed binary.** `camoufox@0.1.19` rewrites persona version tokens with a non-global regex, so the rewrite reaches `rv:` and stops while `Firefox/` keeps whatever browserforge drew — on the installed 135 binary, 4 of 8 launches announced a Firefox that was not the one running, which is a one-line detection. CrawlForge generates the persona at the binary's own major instead, making that rewrite a no-op (8/8). If the installed binary is a version browserforge has no data for, the pin stands down and Camoufox generates as before rather than guessing. **This is also why the binary is not simply upgraded:** upstream is on 152, outside that data, where *every* UA self-contradicts. See [STEALTH_REVIEW_2026-09.md](STEALTH_REVIEW_2026-09.md).
 
 ```json
 { "operation": "create_context", "engine": "camoufox", "stealthConfig": { "level": "advanced" } }
@@ -58,13 +127,60 @@ Without the binary, `deep_research` silently falls back to Chromium stealth, the
 
 ## Proxies
 
-Cloudflare scores the IP and its ASN **before** it serves a JavaScript challenge,
-so a datacenter address is refused whatever the fingerprint says. No amount of
-stealth substitutes for an exit IP with a residential reputation.
+**CrawlForge supplies no proxies.** There is no proxy pool behind the service and
+no plan to add one. Both settings below are bring-your-own: you point the server
+at a provider you pay for, and the traffic goes out from your account's exit IPs.
 
-Proxies are supplied per call, on `stealthConfig.proxyRotation`, as ordinary
-proxy URLs. Credentials belong in the URL, percent-encoded if the password
-contains `@`, `:` or `/`:
+### A datacenter proxy does not help
+
+Cloudflare scores the IP, its ASN and the TLS/HTTP2 handshake **before** it
+serves a JavaScript challenge, so a datacenter address is refused whatever the
+fingerprint says — and no browser-side patch runs early enough to compensate.
+Renting a VPS or a cheap datacenter proxy changes the address without changing
+the class of address, which is the part being scored.
+
+The indicative numbers come from humanbrowser's 12-method test (May 2026). It is
+vendor-run, so read it as an order of magnitude and not as an independent
+measurement — but the shape matches everything else published in 2026:
+
+| Setup | Cloudflare pass rate |
+|---|---|
+| VPS plus any stealth plugin | 0–10% |
+| Residential IP alone | ~35% |
+| Residential IP plus a patched fingerprint | ~70% on Pro, ~25% on Enterprise |
+
+So the engine work on this page is the second term of a product whose first term
+is the address. A residential or mobile exit IP is what makes the rest of it
+worth anything; without one, `auto` mostly buys you a slower block.
+
+Sources, as listed in section 8 of
+[`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md):
+
+- humanbrowser.cloud — "Playwright Cloudflare bypass 2026" (the 12-method test)
+  and "Cloudflare Turnstile bypass 2026".
+- Cloudflare's own changelog and blog on bot scoring and signed agents:
+  [blog.cloudflare.com/signed-agents](https://blog.cloudflare.com/signed-agents)
+  and [blog.cloudflare.com/kitesurf](https://blog.cloudflare.com/kitesurf).
+
+### Supplying your own
+
+Two places, with the narrower one winning:
+
+1. **Per call**, on `stealthConfig.proxyRotation` — full control, including the
+   rotation interval.
+2. **Server-level**, `CRAWLFORGE_STEALTH_PROXIES`: a comma-separated list of the
+   same proxy URLs. It is used by the escalation stage behind
+   `scrape: { escalate: true }`, the `deep_research` blocked-source retry, the
+   `agent`, and `browser_session` — every path where there is no caller to pass
+   a proxy — and only when the caller passes none. A caller-supplied
+   `proxyRotation` always wins.
+
+```bash
+export CRAWLFORGE_STEALTH_PROXIES="http://user:p%40ssword@gw.provider.net:8080,http://user:p%40ssword@gw2.provider.net:8080"
+```
+
+Per call, the same URLs go on `stealthConfig.proxyRotation`. Credentials belong
+in the URL, percent-encoded if the password contains `@`, `:` or `/`:
 
 ```json
 {
@@ -89,10 +205,26 @@ contains `@`, `:` or `/`:
   next context created after it elapses, starting from the first entry.
 - `get_stats` reports the proxy in use with its credentials stripped.
 
-**Camoufox and geoip.** Given a proxy, Camoufox is launched with `geoip`, so it
-derives its longitude, latitude, timezone, country and locale from the proxy's
-exit IP instead of from a persona picked here — the one thing that makes a
-proxied browser coherent. That lookup runs once, at launch, which has two
+### Not the `PROXY_ROTATION_*` variables
+
+`CRAWLFORGE_STEALTH_PROXIES` is unrelated to the `PROXY_ROTATION_ENABLED` /
+`PROXY_ROTATION_INTERVAL` / `PROXY_ROTATION_STRATEGY` family in
+`src/constants/config.js`. Those live under `localization.proxy` and belong to
+the `localization` tool, whose job is to *be* in a country — the proxy is how a
+German price list is fetched from a German address, and rotation there is about
+spreading load across a pool.
+
+The stealth variable answers a different question: what exit IP a **blocked**
+page is retried from. It is one list, applied at the browser context, and it
+exists because the escalation stage and `deep_research` have no caller to ask.
+(The `agent` tool has no browsing path of its own yet — that is Phase 3 — so it
+is not among the readers today.) Setting one does nothing for the other; they are read by
+different code paths and can point at different providers.
+
+**Camoufox and geoip.** Given a proxy — from either source — Camoufox is
+launched with `geoip`, so it derives its longitude, latitude, timezone, country
+and locale from the proxy's exit IP instead of from a persona picked here — the
+one thing that makes a proxied browser coherent. That lookup runs once, at launch, which has two
 consequences: the first ever call downloads MaxMind's city database (~60 MB)
 into Camoufox's install directory, and a Camoufox browser stays on the proxy it
 was launched with for its lifetime. A rotation reaches it after `cleanup()`.
@@ -174,14 +306,20 @@ is running — rather than drawn from a list, so the version
 
 ## Engine Selection Criteria
 
-| Scenario | Recommended Engine |
-|----------|-------------------|
-| General web scraping | `playwright` |
-| Cloudflare challenge pages | `playwright` (advanced level) |
-| Datadome-protected sites | `camoufox` |
-| CreepJS score > 90% needed | `camoufox` |
-| High-volume batch scraping | `playwright` (lower overhead) |
-| JS-fingerprinted sites (PerimeterX, Kasada) | `camoufox` |
+Leave it on `auto` unless one of these applies.
+
+| Scenario | Engine | Why |
+|----------|--------|-----|
+| You do not know whether the site walls you | `auto` | Camoufox when it is installed, Chromium with a warning when it is not |
+| Cloudflare Turnstile, Akamai | `camoufox` | The only engine that cleared indeed.com and harrods.com on 2026-09-21 |
+| Detector-page scores (CreepJS, incolumitas) | `camoufox` | Worker identity consistent with the main thread; no CDP artifacts |
+| High-volume batch work on sites that do not block | `playwright` | ~6x faster to start and ~2.6x lighter |
+| A DataDome site | either, and expect to fail | Neither engine cleared g2.com; Chromium passed leboncoin.fr where Camoufox did not |
+| A datacenter host with no proxy | either, and expect to fail | The address is scored before the browser runs — see [Proxies](#proxies) |
+
+Every row above that names a result is one run from a residential IP on
+2026-09-21. Re-measure with [the harness](./stealth-bench.md) before treating a
+cell as settled.
 
 ## Benchmark Methodology
 
@@ -203,7 +341,16 @@ All tests must be run on a fresh context with no cached state. Results are netwo
 
 ## Graceful Fallback
 
-If `engine: "camoufox"` is requested but the `camoufox` npm package is not installed, the tool returns a clear error message with installation instructions. CrawlForge does not automatically fall back to `playwright` when `camoufox` is explicitly requested, to avoid silent capability degradation.
+`auto` falls back. If the `camoufox` package or its Firefox binary is missing,
+the call runs on Chromium, puts the reason in the result's `warnings[]` and
+reports `chromium` as the engine that ran — so a host that never ran
+`npx camoufox fetch` degrades to the old behaviour rather than failing, but
+never silently.
+
+Naming `camoufox` explicitly does not fall back. The tool returns a clear error
+with installation instructions instead, because a caller who asked for that
+engine asked for its capability, and quietly substituting a weaker one turns a
+fixable setup problem into an unexplained block.
 
 ## Licensing
 
