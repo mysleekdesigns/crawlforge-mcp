@@ -3,7 +3,7 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
-## [Unreleased]
+## [6.9.0] - 2026-09-22
 
 Phase 3 of the 2026-09 stealth review: the `agent` tool browses. Before this,
 its ACT stage ran only the plain fetch. A challenged seed page was dropped and
@@ -47,6 +47,19 @@ produced "3.3 stars, based on 3.3 reviews".
   Cloudflare blocked the retry. The unchanged `scrape` escalation fails the same
   way on that IP.
 
+### Fixed
+
+- **CI was red on `main` since v6.8.0; it is green again.** The Unit Tests job
+  never installed a browser, so `stealthProxyPlumbing` and `stealthSettle`
+  (which launch a real Chromium) failed with "Executable doesn't exist"; the
+  job now runs `npx playwright install --with-deps chromium`. `npm audit`
+  failed the Lint job on `adm-zip` <=0.6.0 (GHSA-vwc7-r8mq-g2x9,
+  GHSA-7q85-xj36-vmfc), which the optional `camoufox` pulls in; the existing
+  override now pins `^0.6.1`, outside both ranges.
+- Restored the `[6.8.0]` heading below, which the Phase 3 commit had
+  overwritten with `[Unreleased]`.
+
+## [6.8.0] - 2026-09-22
 
 Phase 1 of the 2026-09 stealth review: the leaks and false verdicts the Phase 0
 benchmark measured, closed and re-measured. Every claim below was produced by
