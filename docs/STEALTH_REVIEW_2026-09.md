@@ -240,6 +240,25 @@ The image no longer calls `camoufox fetch`; it downloads **135.0.1-beta.24** by 
 
    Either way the default stops being a guess. Until it resolves, `'auto'` is left as-is deliberately — changing it now would destroy the comparison.
 
+#### The experiment ran. The binary was not the cause.
+
+`docs/stealth-bench-baseline-2026-09-22-hosted-pinned.md`, same exit IP, same host, same Chromium, Camoufox pinned to 135.0.1-beta.24.
+
+The pin worked at the fingerprint layer. The UA is coherent — `rv:135.0` with `Firefox/135.0` — so `_pinnedFingerprint()` engaged instead of standing down, and CreepJS's headless score went **6% → 0%** with worker-vs-main now passing. Camoufox's detector profile is, on this evidence, **cleaner than Chromium's**: Chromium still reports `HeadlessChrome/153` from its SharedWorker and fails incolumitas on two tests.
+
+**And not one wall outcome changed.** Indeed and Quora are still Blocked on Camoufox and still Pass on Chromium. Across both hosted runs, Camoufox has not won a single wall that Chromium lost — on this box it contributes no unique coverage at all, for +0.8 s and +400 MB.
+
+So the 152 binary was not what was costing those two walls, and `'auto'` preferring Camoufox is not justified **on a datacenter exit IP**.
+
+**One incoherence remains, and it matters for how far this conclusion reaches.** `persona-os-vs-host` still fails: the UA claims macOS on a Linux host. That is Phase 1's finding that `camoufox@0.1.19` drops its documented `os` option (it sends `os`, the generator wants `operatingSystems`). A macOS persona on a Linux host is exactly the kind of contradiction Cloudflare scores, so the honest statement is that this run **narrows** the cause rather than closing it: the version incoherence is gone, the OS one is not.
+
+That is now fixable with machinery this phase already built. `_pinnedFingerprint()` generates the persona itself, so it can pass `operatingSystems: [host]` — the correct key — and close the gap the client cannot. It was deliberately left alone as out of scope; this result is what makes it worth doing.
+
+**What the evidence supports today:**
+
+- The residential review found Camoufox clearing Indeed where Chromium failed. Two hosted runs find the reverse. The engine ranking is **exit-IP dependent**, so there is no single correct global default — and a hard flip would hurt the npm users the residential result describes.
+- The honest fix is therefore per-deployment, not per-package: let the hosted instance pin the engine while the shipped default stays as it is.
+
 Pinning also skips two things `camoufox fetch` does. The GeoLite2 database is restored explicitly, because `geoip: !!proxy` depends on it. Default addons are not, and do not need to be: `addDefaultAddons()` is an empty function in 0.1.19, and `confirmPaths()` only runs for caller-supplied addons. This does **not** close item 184 — it is the opposite, and deliberately so.
 
 #### The UA mismatch, measured
