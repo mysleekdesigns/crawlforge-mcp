@@ -223,23 +223,69 @@ COPY --from=builder --chown=mcp:mcp /app/scripts ./scripts
 #  2. The extracted files do not carry the execute bit, so the launcher has to
 #     be chmod'ed or Firefox never starts.
 #
-# NOT REPRODUCIBLE, and a known fingerprint cost. `camoufox fetch` always takes
-# the newest GitHub release the client supports (its range is release >= beta.19
-# and < "1"), so two builds of the same commit can ship different browsers; it
-# currently lands 152.0.4-beta.30. camoufox@0.1.19 then sets the UA's rv: token
-# from the installed binary but leaves the Firefox/NN token as browserforge
-# generated it, and its bundled browserforge data only knows up to ~150 — so on
-# a 152 binary EVERY generated UA self-contradicts, e.g.
-#   Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/135.0
-# (measured in this image, 5/5 launches; on the older 135 binary the two tokens
-# agreed 3/5). rv: disagreeing with Firefox/ is a one-line detection. The fix is
-# a current CLIENT, not a pinned binary — see the Phase 2 report on camoufox-js.
+# PINNED, deliberately — `camoufox fetch` is NOT used, because it takes the
+# newest release the client supports and that is actively harmful here.
+#
+# camoufox@0.1.19 sets the UA's rv: token from the installed binary but leaves
+# the Firefox/NN token as browserforge generated it (a non-global regex: the
+# rewrite matches rv: and stops). Its bundled header-generator data knows
+# Firefox {135,136,142,146,147,149,150,151}. `fetch` lands 152.0.4-beta.30,
+# which is outside that set, so EVERY generated UA self-contradicts. The hosted
+# run of 2026-09-22 shipped exactly that:
+#   Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/147.0
+# and Camoufox was blocked on indeed.com and quora.com where Chromium passed.
+#
+# 135.0.1-beta.24 is chosen over the newer 150.0.2 for two reasons:
+#  1. The 150 release's Linux x86_64 asset is named alpha.26, and the client
+#     rejects it. Version.buildSortedRel() maps the release word through
+#     charCodeAt(0) - 1024, so "alpha" (-927) sorts BELOW the "beta.19" (-926)
+#     minimum and isSupported() returns false. The tag says beta.25; the asset
+#     does not. Only 135.0.1-beta.24 is both browserforge-known and accepted.
+#  2. It is the binary the 2026-09-21 residential baseline ran, so re-running
+#     the harness here changes only the exit IP. That is what makes the next
+#     run an experiment rather than another data point.
+#
+# This does NOT close review item 184 (binary currency) — it is the opposite of
+# closing it, and deliberately so: currency is blocked on the client, not on
+# the binary. See docs/STEALTH_REVIEW_2026-09.md, "Track: camoufox-js".
+#
+# Three traps below, all of which fail SILENTLY:
+#  1. The extracted files carry no execute bit — the launcher must be chmod'ed
+#     or Firefox never starts.
+#  2. The client resolves its browser from os.homedir() + /.cache/camoufox with
+#     no env override, so HOME must be right for the runtime user.
+#  3. `camoufox fetch` does THREE things, and pinning the browser skips the other
+#     two. The GeoLite2 database is downloaded explicitly below, because
+#     geoip: !!proxy needs it and a missing one would otherwise pull ~60 MB at
+#     first proxied launch. Default addons are NOT restored and do not need to
+#     be: addDefaultAddons() is an empty function in 0.1.19, and confirmPaths()
+#     only runs when a caller passes addons of its own, which this adapter does
+#     not.
+#
+# extractAllTo(installDir, true) is what the client itself does, so a plain
+# `unzip -d` into the same directory produces the same layout.
 ARG INSTALL_CAMOUFOX=true
+ARG CAMOUFOX_TAG=v135.0.1-beta.24
+ARG CAMOUFOX_ASSET=camoufox-135.0.1-beta.24-lin.x86_64.zip
+ARG CAMOUFOX_VERSION=135.0.1
+ARG CAMOUFOX_RELEASE=beta.24
 RUN if [ "$INSTALL_CAMOUFOX" = "true" ]; then \
-        env -u PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD HOME=/home/mcp \
-            ./node_modules/.bin/camoufox fetch && \
-        chmod -R 755 /home/mcp/.cache/camoufox && \
+        set -eux; \
+        apt-get update && apt-get install -y --no-install-recommends unzip && \
+        rm -rf /var/lib/apt/lists/*; \
+        mkdir -p /home/mcp/.cache/camoufox; \
+        curl -fsSL -o /tmp/camoufox.zip \
+          "https://github.com/daijro/camoufox/releases/download/${CAMOUFOX_TAG}/${CAMOUFOX_ASSET}"; \
+        unzip -q /tmp/camoufox.zip -d /home/mcp/.cache/camoufox; \
+        rm /tmp/camoufox.zip; \
+        printf '{"version":"%s","release":"%s"}\n' "$CAMOUFOX_VERSION" "$CAMOUFOX_RELEASE" \
+          > /home/mcp/.cache/camoufox/version.json; \
+        env -u PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD HOME=/home/mcp node -e \
+          "require('camoufox').downloadMMDB().then(()=>console.log('mmdb ok')).catch(e=>{console.error('mmdb failed:',e.message);process.exit(1)})"; \
+        test -f /home/mcp/.cache/camoufox/GeoLite2-City.mmdb; \
+        chmod -R 755 /home/mcp/.cache/camoufox; \
         chown -R mcp:mcp /home/mcp/.cache; \
+        ls -la /home/mcp/.cache/camoufox | head -6; \
     else \
         echo "Skipping Camoufox download (INSTALL_CAMOUFOX=$INSTALL_CAMOUFOX)"; \
     fi

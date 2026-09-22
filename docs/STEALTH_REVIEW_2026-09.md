@@ -228,6 +228,20 @@ So on this box `'auto'` picks the engine that loses Indeed and Quora, and pays +
 - Plain fetch lost producthunt and carvana, which passed residentially — the ordinary datacenter-IP penalty, and a clean demonstration of what the exit IP alone is worth.
 - `commit: unknown` in the report header: `.git/` is excluded from the build context, so the image cannot read its own SHA. Worth passing the commit in as a build arg if these reports are to be comparable over time.
 
+#### The binary is now pinned, and the next run is an experiment
+
+The image no longer calls `camoufox fetch`; it downloads **135.0.1-beta.24** by URL. Two reasons, and the second is the point:
+
+1. The obvious alternative, 150.0.2, **cannot be used**. Its Linux x86_64 asset is named `alpha.26`, and `Version.buildSortedRel()` maps the release word through `charCodeAt(0) - 1024`, so `alpha` (−927) sorts below the `beta.19` (−926) floor and `isSupported()` returns false. The tag says `beta.25`; the asset does not. Of everything browserforge knows, only 135.0.1-beta.24 is also a release this client accepts.
+2. 135 is the binary the **residential** baseline ran. Pinning it means the next hosted run differs from the residential one in exactly one variable — the exit IP. That converts the next run from another data point into an actual experiment:
+
+   - **Camoufox's Indeed and Quora rows flip back to Pass** → the 152 binary's incoherent UA was the cause, `'auto'` is sound, and item 184's "a newer binary is worse" becomes settled rather than inferred.
+   - **They stay Blocked** → Camoufox is simply the weaker engine from a datacenter IP regardless of persona coherence, and `'auto'` is wrong for this deployment and should prefer Chromium. The +0.8 s and +400 MB would be buying nothing.
+
+   Either way the default stops being a guess. Until it resolves, `'auto'` is left as-is deliberately — changing it now would destroy the comparison.
+
+Pinning also skips two things `camoufox fetch` does. The GeoLite2 database is restored explicitly, because `geoip: !!proxy` depends on it. Default addons are not, and do not need to be: `addDefaultAddons()` is an empty function in 0.1.19, and `confirmPaths()` only runs for caller-supplied addons. This does **not** close item 184 — it is the opposite, and deliberately so.
+
 #### The UA mismatch, measured
 
 `camoufox@0.1.19` pins `rv:` to the installed binary and lets browserforge pick `Firefox/` independently. They agree only by coincidence:
