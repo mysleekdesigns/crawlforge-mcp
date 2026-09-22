@@ -770,7 +770,7 @@ class AuthManager {
         const agentUrls = params?.maxUrls || 10;
         const isPro = params?.model === 'pro';
         projected = Math.max(base, base + Math.ceil(agentUrls / 5) + (isPro ? 5 : 0));
-        note = `Lower-bound estimate. Scales with maxUrls (${agentUrls}).${isPro ? ' pro model adds deep-research cost.' : ' Includes the ceiling for automatic stealth retries of walled pages (5 each, at most 2 a run); the actual charge drops by 5 for each retry that did not run.'} External LLM billed separately.`;
+        note = `Lower-bound estimate. Scales with maxUrls (${agentUrls}).${isPro ? ' pro model adds deep-research cost.' : ' Includes the ceiling for automatic stealth retries of walled pages (5 each, at most 2 a run); the actual charge drops by 5 for each retry that did not run or did not get the page.'} External LLM billed separately.`;
         break;
       }
       default:

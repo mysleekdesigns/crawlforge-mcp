@@ -206,7 +206,7 @@ CrawlForge requires a CrawlForge API key — **every tool is metered and consume
 | `scrape_with_actions` | 5 | Browser automation chains |
 | `generate_llms_txt` | 5 | Generate AI interaction guidelines |
 | `stealth_mode` | 5 | Anti-detection browser management |
-| `agent` | 8 (+5 per stealth retry, max 2) | **Autonomous research/extraction from a natural-language prompt — no URLs required.** Plans, gathers, and shapes an answer under hard safety stops (max steps/URLs/wall-clock enforced by the orchestrator, never the LLM). A page that walls the plain fetch is retried in the stealth browser automatically — URLs you name first — and that evidence is marked `via: "stealth"`; each retry that runs adds 5 |
+| `agent` | 8 (+5 per stealth retry that gets the page, max 2) | **Autonomous research/extraction from a natural-language prompt — no URLs required.** Plans, gathers, and shapes an answer under hard safety stops (max steps/URLs/wall-clock enforced by the orchestrator, never the LLM). A page that walls the plain fetch is retried in the stealth browser automatically — URLs you name first — and that evidence is marked `via: "stealth"`; each retry that runs adds 5 |
 | `deep_research` | 10 | Multi-stage research with source verification |
 
 Ten tools (`scrape`, `fetch_url`, `extract_content`, `crawl_deep`, `batch_scrape`, `stealth_mode`, `scrape_with_actions`, `process_document`, `deep_research`, `extract_embedded_state`) accept `max_inline_chars` (default 40,000; env `CRAWLFORGE_MAX_INLINE_CHARS`): a result over it comes back as a `preview` plus a `result_handle` for `read_result`, with the full result kept for 1 hour under `~/.crawlforge/results/` on your own machine — nothing is uploaded.

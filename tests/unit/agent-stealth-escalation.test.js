@@ -1,6 +1,6 @@
 /**
  * Stealth review Phase 3 — the agent retries a walled page in the stealth
- * browser automatically, capped, and bills only the retries that ran.
+ * browser automatically, capped, and bills only the retries that got the page.
  *
  * Run: node --test --test-force-exit tests/unit/agent-stealth-escalation.test.js
  */
@@ -60,6 +60,7 @@ test('a walled seed URL is retried in the stealth browser and its evidence is ma
   assert.equal(calls[0].engine, 'auto', 'the resolver, not the agent, picks the engine');
   assert.equal(usage.escalations, 1);
   assert.equal(result.stealth_retries, 1);
+  assert.equal(result.stealth_retries_charged, 1);
   const ev = result.evidence.find(e => e.url === seed);
   assert.ok(ev, 'seed must be in evidence');
   assert.equal(ev.via, 'stealth');
@@ -121,14 +122,30 @@ test('a retry is skipped when less than 20s of wall clock remain', async () => {
   assert.equal(calls.length, 0);
 });
 
-test('a stealth retry that throws is still counted (it ran) and reported in warnings', async () => {
+test('a stealth retry that throws counts toward the cap, is not charged, and is reported in warnings', async () => {
   const seed = 'https://walled.example/x';
   mockFetch({ walled: [seed] });
   const usage = {};
   const result = await orchestrator({ escalateFetch: async () => { throw new Error('browser crashed'); } })
     .run({ prompt: PROMPT, urls: [seed], maxUrls: 1, usage });
   assert.equal(usage.escalations, 1);
+  assert.equal(usage.charged, 0);
+  assert.equal(result.stealth_retries_charged, 0);
   assert.ok(result.warnings.some(w => /browser crashed/.test(w)));
+});
+
+test('a stealth retry that meets the wall again counts toward the cap but is not charged', async () => {
+  const seed = 'https://walled.example/x';
+  mockFetch({ walled: [seed] });
+  const usage = {};
+  const result = await orchestrator({
+    escalateFetch: async ({ url }) => ({ url, title: 'Just a moment...', text: 'Checking your browser', html: WALL, status: 403, warnings: [] })
+  }).run({ prompt: PROMPT, urls: [seed], maxUrls: 1, usage });
+  assert.equal(usage.escalations, 1);
+  assert.equal(usage.charged, 0);
+  assert.equal(result.stealth_retries, 1);
+  assert.equal(result.stealth_retries_charged, 0);
+  assert.ok(result.warnings.some(w => /did not get the page either/.test(w)));
 });
 
 test('without an injected stealth stage the agent keeps its pre-Phase-3 behaviour', async () => {
@@ -140,7 +157,7 @@ test('without an injected stealth stage the agent keeps its pre-Phase-3 behaviou
   assert.equal(result.stealth_retries, 0);
 });
 
-test('pricing: projection is the ceiling, the reported cost is base + 5 per retry that ran', async () => {
+test('pricing: projection is the ceiling, the reported cost is base + 5 per retry that got the page', async () => {
   const am = authManager;
   assert.equal(am.getToolCost('agent', {}), 8 + 5 * AGENT_MAX_ESCALATIONS);
   assert.equal(am.getToolCost('agent', { maxUrls: 1 }), 13);
@@ -164,4 +181,14 @@ test('pricing: projection is the ceiling, the reported cost is base + 5 per retr
     return reportedActualCost();
   });
   assert.equal(cleanCost, 8, 'a run with no retry costs the base price');
+
+  mockFetch({ walled: [seed] });
+  const blockedTool = new AgentTool({ escalateFetch: async ({ url }) => ({ url, title: 'Just a moment...', text: 'Checking your browser', html: WALL, status: 403, warnings: [] }) });
+  blockedTool._orchestrator._samplingClient = { complete: async () => { throw new Error('no llm'); } };
+  blockedTool._orchestrator._searchTool = { execute: async () => ({ results: [] }) };
+  const blockedCost = await requestContext.run({}, async () => {
+    await blockedTool.execute({ prompt: PROMPT, urls: [seed], maxUrls: 1 });
+    return reportedActualCost();
+  });
+  assert.equal(blockedCost, 8, 'a retry blocked again is free');
 });
