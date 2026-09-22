@@ -192,7 +192,7 @@ Verify: with a residential proxy configured, the Phase 0 harness on the hosted i
 
 - [ ] **Hosted verification outstanding.** Phase 2 is implemented and locally verified, *not* hosted-verified. The gate above needs the Phase 0 baseline from the hosted instance, which cannot be produced from a dev machine.
 
-      **Blocked on a deploy, not on effort.** Attempted 2026-09-22 in the Render shell and it failed with `MODULE_NOT_FOUND`: the production image copies only `node_modules`, `package*.json`, `server.js` and `src/`, so `scripts/` — the harness itself — was never in it. A `COPY` for `scripts/` is now in the Dockerfile, but the running container still predates it. The sequence is: merge to `main` → Render auto-deploys → *then* run, in the service shell:
+      **Blocked on a deploy, not on effort.** Attempted 2026-09-22 in the Render shell and it failed with `MODULE_NOT_FOUND`: the production image copies only `node_modules`, `package*.json`, `server.js` and `src/`, so `scripts/` — the harness itself — was never in it. Fixing it took two changes, not one: a `COPY` in the production stage, **and** a negation in `.dockerignore`, which excluded `scripts/` from the build context entirely — so the first attempt failed at build time with `"/app/scripts": not found`, because the file was missing from the builder stage too. Only `stealth-bench.mjs` and `lib/stealth-bench/` are un-excluded; the rest of `scripts/` stays out of the image. Verified by building the context and listing it, rather than by another deploy. The sequence is: merge to `main` → Render auto-deploys → *then* run, in the service shell:
 
       cd /app && node scripts/stealth-bench.mjs
 
