@@ -264,6 +264,46 @@ is the stealthier setting on Camoufox: it then reports the proxy's exit IP
 through WebRTC, which agrees with the address the site already sees, whereas a
 browser with WebRTC switched off is itself unusual.
 
+## Clearance reuse
+
+A Cloudflare or DataDome challenge that a stealth render passed is not served
+again on the next call to the same site (stealth review Phase 4). When a stealth
+context closes, the vendor's clearance cookies — exactly `cf_clearance`,
+`__cf_bm` and `datadome` — are kept, and every later stealth context with the
+same identity starts with them. Measured 2026-09-25 on stackoverflow.com from a
+residential IP: the first call went 307 → 403 interstitial → 302 → 200 through
+Cloudflare's `orchestrate/precursor_interstitial` flow in about 4 s; the second
+went straight to 200 with no interstitial, on both engines.
+
+- **Only clearance cookies.** A site's own cookies — a login from
+  `browser_session`, a cart, a preference — are never kept, so one caller's
+  session cannot reach another caller's context.
+- **Keyed on who earned it.** Engine, the exact User-Agent, and the proxy's
+  server and username (never its password). `cf_clearance` is bound to the IP
+  and User-Agent that earned it, so a clearance is never replayed through a
+  different proxy or persona. A rotating proxy behind one fixed username can
+  still change exit underneath a key; the site then challenges again and the
+  clearance is dropped. A Camoufox browser whose persona camoufox drew itself
+  (rather than the version-pinned one) has no known User-Agent and keeps
+  nothing.
+- **Dropped on a block.** A stealth render that still meets the wall discards
+  that host's clearances instead of keeping them.
+- **Bounded.** The cookie's own expiry, capped at 24 hours (30 minutes for a
+  session cookie); 32 identities and 200 cookies each at most.
+- **Persisted** at `~/.crawlforge/stealth-clearance.json`, mode 0600, with the
+  key hashed so the file names no proxy or persona in clear. An MCP client that
+  restarts the server per session keeps its clearances.
+- **Off switch:** `CRAWLFORGE_CLEARANCE_JAR=off`. The benchmark harness always
+  runs with the jar off, so its rows measure the engine and not a replayed
+  clearance.
+
+Contexts are harvested when they are closed through the manager, which covers
+the `scrape` escalation stage, `stealth_mode`, the agent's stealth retry,
+`browser_session` and `scrape_with_actions`. The `deep_research` fallback
+replays clearances on its Chromium path but does not harvest: it never closes
+its stealth contexts through the manager, and its Camoufox path bypasses the
+manager entirely.
+
 ## What each engine spoofs
 
 The two engines are not the same tool with different binaries, and they are

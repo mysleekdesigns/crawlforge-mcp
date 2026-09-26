@@ -273,6 +273,9 @@ export RESEARCH_MAX_STEALTH_RETRIES="8"    # cap on stealth retries per research
 # Comma-separated; a proxy passed on a call always wins. CrawlForge supplies none.
 export CRAWLFORGE_STEALTH_PROXIES="http://user:pass@gw.provider.net:8080"
 # Unrelated to the PROXY_ROTATION_* variables, which belong to the localization tool.
+
+# Optional: turn off the clearance jar (on by default) — see "Stealth engines and proxies"
+export CRAWLFORGE_CLEARANCE_JAR="off"
 ```
 
 ### MCP Spec Features
@@ -312,6 +315,8 @@ On `browser_session` and `scrape_with_actions` the engine applies only with `ste
 `auto` is not free. Measured once each on an Apple Silicon Mac on 2026-09-21 (launch plus a context and a blank page): Chromium 148 ms and 253 MB, Camoufox 946 ms and 667 MB — roughly **+0.8 s and +400 MB per stealth call**. Pin `engine: "playwright"` for high-volume work on sites that do not block.
 
 **CrawlForge supplies no proxies**, and a datacenter proxy does not fix a block: Cloudflare scores the IP's ASN and the TLS/HTTP2 handshake before any JavaScript runs, so no browser-side patch compensates for a datacenter address. Bring your own residential exit with `CRAWLFORGE_STEALTH_PROXIES` (comma-separated URLs), which the escalation stage, `stealth_mode`, `browser_session`, `scrape_with_actions`, the `deep_research` retry and the `agent` tool's automatic stealth retry use when the caller passes none; a proxy passed on the call always wins. With a proxy, Camoufox derives its timezone, locale and geolocation from the exit IP.
+
+**A challenge solved once is not solved again.** When a stealth render gets past a Cloudflare or DataDome wall, the vendor's clearance cookies (`cf_clearance`, `__cf_bm`, `datadome` — nothing else) are kept in `~/.crawlforge/stealth-clearance.json` (mode 0600) and replayed to the next stealth context with the same engine, User-Agent and proxy, for at most the cookie's own lifetime and never more than 24 hours. A render that still meets the wall drops them. Set `CRAWLFORGE_CLEARANCE_JAR=off` to disable.
 
 Full detail, measurements and sources: [docs/stealth-engines.md](docs/stealth-engines.md).
 

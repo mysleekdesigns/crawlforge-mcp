@@ -18,9 +18,10 @@ import { createRequire } from 'module';
 import HumanBehaviorSimulator from '../utils/HumanBehaviorSimulator.js';
 import { BrowserContextPool } from './BrowserContextPool.js';
 import { safeGoto } from '../utils/ssrfGuard.js';
-import { looksLikeInterstitial } from '../utils/challengeDetection.js';
+import { looksLikeInterstitial, detectChallengePage } from '../utils/challengeDetection.js';
 import { guardFirefoxPageErrors } from '../utils/firefoxPageErrorGuard.js';
 import { serverStealthProxies } from '../constants/config.js';
+import { ClearanceJar, sharedClearanceJar } from './ClearanceJar.js';
 
 // Grace given to a document that rendered no title and no text (see _waitOutEmptyDocument).
 export const EMPTY_DOCUMENT_GRACE_MS = 8000;
@@ -38,6 +39,15 @@ const CAMOUFOX_PROXY = Symbol('crawlforge.camoufoxProxy');
 // one from the proxy's exit IP and we therefore do not know it. Kept on the
 // browser for the same reason as the proxy: camoufox fixes it at launch.
 const CAMOUFOX_LOCALE = Symbol('crawlforge.camoufoxLocale');
+
+// The User-Agent that camoufox browser presents — the persona pinned at launch,
+// null when camoufox drew its own and we therefore do not know it. The
+// clearance jar keys on it (see ClearanceJar), and camoufox fixes it at launch.
+const CAMOUFOX_USER_AGENT = Symbol('crawlforge.camoufoxUserAgent');
+
+// How long closeContext waits to read a context's cookies before giving up on
+// keeping its clearances: a wedged browser hangs rather than errors.
+const CLEARANCE_HARVEST_TIMEOUT_MS = 2000;
 
 const StealthConfigSchema = z.object({
   level: z.enum(['basic', 'medium', 'advanced']).default('medium'),
@@ -175,6 +185,12 @@ export class StealthBrowserManager {
     // Chromium that nobody reports reads as a camoufox result that failed.
     this._engineFallbackWarning = null;
     this._maxContexts = parseInt(process.env.MAX_BROWSER_CONTEXTS || '10', 10);
+    // Stealth review Phase 4: clearance cookies a solved challenge earned are
+    // replayed to the next context with the same identity. One process-wide jar
+    // by default (every manager instance shares it); null turns it off — the
+    // benchmark does, since a replayed clearance would measure the jar instead
+    // of the engine.
+    this.clearanceJar = options.clearanceJar !== undefined ? options.clearanceJar : sharedClearanceJar();
     this.contexts = this._createContextPool();
     // D2.2: fingerprints Map is capped at _maxContexts to prevent unbounded growth.
     // Oldest entries are evicted when the cap is exceeded (insertion order via Map).
@@ -525,6 +541,7 @@ export class StealthBrowserManager {
       });
       browser[CAMOUFOX_PROXY] = proxy;
       browser[CAMOUFOX_LOCALE] = locale;
+      browser[CAMOUFOX_USER_AGENT] = adapter.lastUserAgent ?? null;
       this.browser = browser;
       this._launchedEngine = 'camoufox';
       return this.browser;
@@ -727,6 +744,19 @@ export class StealthBrowserManager {
       contextOptions.proxy = proxy;
     }
 
+    // The identity a clearance is bound to: engine, the User-Agent this context
+    // presents, and the exit it goes out through. Read before the camoufox
+    // block below takes the User-Agent off the context options.
+    const jarKey = this.clearanceJar
+      ? ClearanceJar.keyFor({
+          engine: this._launchedEngine,
+          userAgent: this._launchedEngine === 'camoufox'
+            ? this.browser[CAMOUFOX_USER_AGENT]
+            : contextOptions.userAgent,
+          proxy
+        })
+      : null;
+
     if (this._launchedEngine === 'camoufox') {
       // camoufox's Firefox build predates the Browser.setDefaultViewport fields
       // playwright-core 1.62 sends (screenSize, isMobile, ...) and rejects
@@ -787,11 +817,19 @@ export class StealthBrowserManager {
 
     const context = await this.browser.newContext(contextOptions);
     const contextId = this.generateContextId();
-    
+
+    // Replay clearances this identity already earned. addCookies scopes each
+    // to its own domain, so a context bound for another site sends none of
+    // them. Best effort: a context without them just meets the challenge.
+    const clearances = jarKey ? this.clearanceJar.cookiesFor(jarKey) : [];
+    if (clearances.length) {
+      await context.addCookies(clearances).catch(() => {});
+    }
+
     // Apply stealth scripts and configurations
     await this.applyAdvancedStealthConfigurations(context, validatedConfig, fingerprint);
     
-    await this.contexts.set(contextId, { context, fingerprint, config: validatedConfig });
+    await this.contexts.set(contextId, { context, fingerprint, config: validatedConfig, jarKey });
     // D2.2: enforce LRU cap on fingerprints Map
     this._setFingerprint(contextId, fingerprint);
 
@@ -2770,6 +2808,13 @@ export class StealthBrowserManager {
         ? await page.screenshot({ encoding: 'base64', fullPage: false }).catch(() => null)
         : null;
 
+      // Still a wall after everything above: whatever clearance this context
+      // carried for the site did not work, so closeContext drops it instead of
+      // keeping it for the next call.
+      if (detectChallengePage({ title, html, text })) {
+        this._markBlocked(contextId, [url, page.url()]);
+      }
+
       return { success: true, url, title, text, html, screenshot: shot, status, gracedMs, engine: engineUsed, warnings };
     } finally {
       await this.closeContext(contextId).catch(() => {});
@@ -3050,8 +3095,51 @@ export class StealthBrowserManager {
    */
   async closeContext(contextId) {
     if (this.contexts.has(contextId)) {
+      await this._harvestClearances(contextId);
       await this.contexts.dispose(contextId);
       this.fingerprints.delete(contextId);
+    }
+  }
+
+  /**
+   * Record that a context's render still met a bot wall on these URLs' hosts.
+   * @param {string} contextId
+   * @param {string[]} urls
+   */
+  _markBlocked(contextId, urls) {
+    const contextData = this.contexts.get(contextId);
+    if (!contextData) return;
+    contextData.blockedHosts ??= new Set();
+    for (const url of urls) {
+      try {
+        contextData.blockedHosts.add(new URL(url).hostname);
+      } catch { /* about:blank or a malformed URL names no host */ }
+    }
+  }
+
+  /**
+   * Keep the clearance cookies a context earned, and drop the ones for any host
+   * it was still blocked on. Runs before the context is closed, and never
+   * throws or hangs the close it precedes.
+   * @param {string} contextId
+   */
+  async _harvestClearances(contextId) {
+    const contextData = this.contexts.get(contextId);
+    if (!this.clearanceJar || !contextData?.jarKey) return;
+    let timer;
+    try {
+      const cookies = await Promise.race([
+        contextData.context.cookies(),
+        new Promise((resolve) => { timer = setTimeout(() => resolve([]), CLEARANCE_HARVEST_TIMEOUT_MS); })
+      ]);
+      this.clearanceJar.store(contextData.jarKey, cookies);
+      for (const host of contextData.blockedHosts ?? []) {
+        this.clearanceJar.discard(contextData.jarKey, host);
+      }
+    } catch {
+      // A closed or crashed context has nothing to keep.
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -3451,6 +3539,9 @@ export class CamoufoxAdapter extends BrowserEngine {
     // reaches only `rv:` and about half of all launches announce a Firefox
     // that is not the one running — see _pinnedFingerprint.
     const fingerprint = this._pinnedFingerprint(camoufox);
+    // The UA this launch will present, for the clearance jar's key. Only known
+    // when we pinned the persona; camoufox's own draw is not visible here.
+    this.lastUserAgent = fingerprint?.navigator?.userAgent || null;
     if (fingerprint) {
       options.fingerprint = fingerprint;
       // Switches off exactly two things: camoufox's "you passed your own

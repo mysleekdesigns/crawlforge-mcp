@@ -40,6 +40,10 @@ could be either engine measures nothing. The tools default to `auto` (see
 [stealth-engines.md](./stealth-engines.md)); this is the layer underneath that
 choice, which is the point of driving the manager directly.
 
+The harness runs with the clearance jar off (see "Clearance reuse" in
+[stealth-engines.md](./stealth-engines.md)), so every row starts cold. A
+clearance replayed from an earlier run would measure the jar, not the engine.
+
 A full run launches real browsers and navigates to third-party sites —
 Cloudflare, Akamai and DataDome properties, plus five public detector pages. It
 takes minutes, not seconds, it is visible to everyone it touches, and it is

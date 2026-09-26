@@ -236,6 +236,10 @@ CRAWLFORGE_STEALTH_PROXIES=          # comma-separated proxy URLs used by the es
                                      # from the PROXY_ROTATION_* family, which belongs to
                                      # localization. The agent's automatic stealth retry
                                      # (stealth review Phase 3) reads it too.
+CRAWLFORGE_CLEARANCE_JAR=            # `off` disables the clearance jar (stealth review Phase 4):
+                                     # cf_clearance/__cf_bm/datadome cookies a stealth render earned
+                                     # are replayed to the next stealth context with the same engine,
+                                     # UA and proxy. Persisted at ~/.crawlforge/stealth-clearance.json.
 ```
 
 Camoufox is an **optional** dependency and its transitive `language-tags@2.1.0` requires Node ≥22. npm silently drops an optional subtree that fails an engine check, so on Node 20 it is simply absent — `'auto'` then resolves to Chromium and says so in `fallbackWarning`. `engines.node` stays at `>=20.16.0` deliberately; bumping it is breaking and is a release decision.

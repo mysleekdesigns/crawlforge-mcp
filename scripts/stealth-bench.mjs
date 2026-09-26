@@ -133,7 +133,9 @@ async function resolveEngines(environment) {
 const loadDetectors = () => import('./lib/stealth-bench/detectors.js');
 const loadDetectorPages = () => import('./lib/stealth-bench/detector-pages.js');
 
-const manager = new StealthBrowserManager();
+// No clearance jar: a clearance replayed from an earlier run would measure the
+// jar, not the engine, and every row here is meant to start cold.
+const manager = new StealthBrowserManager({ clearanceJar: null });
 
 /** The launched browser's own version string, recorded once per engine. */
 function noteBrowserVersion(environment, engine, page) {
