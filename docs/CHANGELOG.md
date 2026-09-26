@@ -5,6 +5,8 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.10.0] - 2026-09-25
+
 Phase 4 of the 2026-09 stealth review: a bot-wall challenge solved once is not
 solved again for its lifetime.
 
