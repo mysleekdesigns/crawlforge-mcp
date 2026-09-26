@@ -24,7 +24,8 @@ import { identityHeaders, resolveUserAgent } from './fetchIdentity.js';
 import { throttleHost } from './hostRateLimiter.js';
 import { recordComplianceEvent, apiKeyId } from './complianceAudit.js';
 import { signRequestHeaders } from './webBotAuth.js';
-import { markPreflightRefusal } from '../server/requestContext.js';
+import { markPreflightRefusal, internalOwnerToken } from '../server/requestContext.js';
+import AuthManager from '../core/AuthManager.js';
 import { config } from '../constants/config.js';
 
 export class RobotsDisallowedError extends Error {
@@ -112,11 +113,16 @@ export async function robotsPreflight(url, options = {}) {
         ? 'respect_robots was disabled for this request. robots.txt did not disallow this URL, so the override changed nothing. The request is recorded against your API key.'
         : `respect_robots was disabled for this request and robots.txt on ${new URL(url).host} disallows this path. Fetching anyway is your decision and is recorded against your API key.`
     );
+    // No fetching tool passes its key down to here, so the row falls back to
+    // the key this server runs under, as the stealth_escalation row does.
+    // Without it every live override was logged as "anonymous".
+    const ownerToken = internalOwnerToken();
     recordComplianceEvent({
       event: 'robots_override',
       url,
       tool: options.tool || null,
-      apiKeyId: apiKeyId(options.apiKey),
+      apiKeyId: apiKeyId(options.apiKey ?? AuthManager.getConfig()?.apiKey),
+      ...(ownerToken ? { ownerId: apiKeyId(ownerToken) } : {}),
       userAgent,
       robotsAllowed: allowed
     });

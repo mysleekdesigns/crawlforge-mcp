@@ -138,7 +138,7 @@ const scrapeShape = {
   stealth: z.object({
     engine: z.string().optional(),
     vendor_detected: z.string().nullable().optional()
-  }).passthrough().optional().describe('Present when escalated is true: the stealth engine that ran, and the bot-defence vendor the plain fetch hit (null when the block named none)'),
+  }).passthrough().optional().describe('Present when escalated is true: the stealth engine that ran ("impit" when the Chrome TLS handshake got the page without a browser), and the bot-defence vendor the plain fetch hit (null when the block named none)'),
   content: z.object(scrapeFormatShapes).passthrough().optional().describe('One key per requested format'),
   warnings: z.array(z.string()).optional().describe('Per-format warnings; partial success never fails the whole call'),
   redaction: redactionShape,

@@ -61,6 +61,7 @@ import { REDACT_PII_PARAM } from "./src/server/redaction.js"; // Phase 5 (5.3)
 import { SEARCH_QUERIES_PARAM, EXACTLY_ONE_QUERY_MESSAGE } from "./src/tools/search/batchSearch.js"; // Phase 5 (5.1)
 import { markPreflightRefusal, internalOwnerToken } from "./src/server/requestContext.js";
 import { recordStealthEscalation } from "./src/utils/complianceAudit.js";
+import { loadImpit, impitFetchPage, IMPIT_ENGINE } from "./src/utils/impitRung.js"; // stealth review Phase 7
 // D1.1 Resources + D1.2 Prompts + D1.4 Elicitation
 import { ResourceRegistry, MAX_RESOURCE_BLOB_BYTES } from "./src/resources/ResourceRegistry.js";
 import { PROMPTS, getPromptMessages } from "./src/prompts/PromptRegistry.js";
@@ -249,11 +250,20 @@ const scrapeTemplateTool = new ScrapeTemplateTool(); // D3.3
 // go through the same gate, engine resolver and server-level proxy list.
 // Injected so the tool modules never import StealthBrowserManager (that would pull a
 // browser dependency into every unit test that loads `scrape`). Same gate
-// and same browser the stealth_mode tool drives — no new evasion, and the
+// and same browser the stealth_mode tool drives, plus the impit TLS try, and the
 // engine name is resolved here, beside its sibling, by the one resolver
 // every stealth entry point shares.
 const stealthEscalation = async ({ url, engine, respectRobots, tool }) => {
   const warnings = await stealthComplianceGate(url, respectRobots);
+  const auditIdentity = { apiKey: AuthManager.getConfig()?.apiKey, ownerToken: internalOwnerToken() };
+  // Stealth review Phase 7: under "auto", a Chrome TLS handshake with the
+  // honest User-Agent is tried before any browser launches. A caller who
+  // named an engine asked for that browser, so it is not tried for them.
+  if (engine === 'auto' && await loadImpit()) {
+    recordStealthEscalation({ url, tool, engine: IMPIT_ENGINE, ...auditIdentity });
+    const page = await impitFetchPage(url);
+    if (page) return { ...page, warnings };
+  }
   // "auto" prefers camoufox and falls back to chromium when its binary is
   // missing. Mapping here instead ("camoufox" or else chromium) collapsed
   // auto to chromium and hid the fallback; the resolver says which engine it
@@ -262,10 +272,7 @@ const stealthEscalation = async ({ url, engine, respectRobots, tool }) => {
   if (resolved.fallbackWarning) warnings.push(resolved.fallbackWarning);
   // Audit row: the request is about to go out under a browser identity. After
   // the gate (a refusal presents none) and the resolver (the engine that runs).
-  recordStealthEscalation({
-    url, tool, engine: resolved.engine,
-    apiKey: AuthManager.getConfig()?.apiKey, ownerToken: internalOwnerToken()
-  });
+  recordStealthEscalation({ url, tool, engine: resolved.engine, ...auditIdentity });
   const scraped = await stealthBrowserManager.scrapeWithStealth({
     url,
     engine: resolved.engine

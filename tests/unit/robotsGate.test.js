@@ -263,6 +263,28 @@ describe('robots gate — respect_robots:false is explicit, warned and audited (
     assert.ok(!Number.isNaN(Date.parse(row.timestamp)), 'row carries a parseable timestamp');
   });
 
+  test('with no key passed, the row carries the key this server runs under and the website owner', async () => {
+    // No live call site passes apiKey down, so before this fallback every
+    // real override row read "anonymous" (found in stealth review Phase 7).
+    const { default: AuthManager } = await import('../../src/core/AuthManager.js');
+    const { requestContext } = await import('../../src/server/requestContext.js');
+    const saved = AuthManager.config;
+    AuthManager.config = { apiKey: 'cf_live_server_key' };
+    try {
+      const url = `${baseUrl}/private`;
+      await requestContext.run({ internal: true, ownerToken: 'owner-token-42' }, () =>
+        fetchWithTimeout(url, { tool: 'fetch_url', respectRobots: false }));
+
+      const row = auditRows.find((r) => r.event === 'robots_override' && r.url === url);
+      assert.ok(row, `no audit row written; saw ${JSON.stringify(auditRows)}`);
+      assert.equal(row.apiKeyId, apiKeyId('cf_live_server_key'));
+      assert.equal(row.ownerId, apiKeyId('owner-token-42'));
+      assert.ok(!JSON.stringify(row).includes('cf_live_server_key'), 'the raw API key must never be stored');
+    } finally {
+      AuthManager.config = saved;
+    }
+  });
+
   test('a blocked host is refused, and respect_robots:false cannot override it', async () => {
     _setBlockedHostsForTests(['127.0.0.1']);
     try {

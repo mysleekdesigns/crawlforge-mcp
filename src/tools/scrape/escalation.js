@@ -5,7 +5,9 @@
  * plain fetch comes back walled (Phase 3). The plain fetch always runs first
  * (G1: never start with stealth), so the escalation is a second stage, not a
  * different tool: it reuses the same compliance gate and the same
- * StealthBrowserManager `stealth_mode` uses, and adds no new evasion.
+ * StealthBrowserManager `stealth_mode` uses. Its one addition (stealth review
+ * Phase 7) is a Chrome TLS handshake tried before the browser under "auto";
+ * see src/utils/impitRung.js.
  *
  * The two fields and the price rule live here so `server.js`, the tool
  * module, `AuthManager.getToolCost` and the output schema read one
@@ -20,7 +22,7 @@ export const SCRAPE_ESCALATION_CREDITS = 5;
 
 /** The two public fields, in tools/list order, with the text the client sees. */
 export const SCRAPE_ESCALATION_SHAPE = {
-  escalate: z.boolean().optional().default(false).describe('When the plain fetch comes back blocked (403/429/challenge page/empty shell), retry once in the stealth browser and return its content instead of the block. Projected at 2+5; the actual charge stays at the base price when the plain fetch succeeded. Default: false'),
+  escalate: z.boolean().optional().default(false).describe('When the plain fetch comes back blocked (403/429/challenge page/empty shell), retry once in the stealth browser and return its content instead of the block. Under escalate_engine "auto" a Chrome TLS handshake with the honest CrawlForge User-Agent (impit) is tried first, and the browser runs only when that does not get the page. Projected at 2+5; the actual charge stays at the base price when the plain fetch succeeded. Default: false'),
   // "auto" is the default because the engine that gets past the walls this
   // stage exists for is camoufox, and asking for it by name used to be the
   // caller's problem. It resolves to camoufox when the package is installed

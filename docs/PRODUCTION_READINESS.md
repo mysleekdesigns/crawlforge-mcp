@@ -21,19 +21,33 @@
 
 ---
 
-## Stealth Review Phase 7 — `impit` spike + escalation audit rows (spike complete; building the rung awaits a second owner decision)
+## Stealth Review Phase 7 — `impit` step in escalation + audit rows (complete; hosted measurement pending)
 
-**Completed:** 2026-09-26 | **Version:** 6.10.0 tree, unreleased (no credit, schema or dependency change) | **Plan:** [`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md) §6 Phase 7
+**Completed:** 2026-09-26 | **Version:** 6.10.0 tree, unreleased (new optional dependency `impit`; no credit change) | **Plan:** [`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md) §6 Phase 7
 
-**What it does:** Settles the `impit` identity question. `impit` may only run inside the existing escalation stage, and the plain fetch stays honest. The spike ran `impit` 0.14.5 from outside the repo against the section 2.2 walls from a residential IP. It found a **TLS-only wall** (quora.com: Node TLS 0/4, a Chrome handshake 4/4 with either User-Agent). By the owner's rule, that means the rung is **not built** until a second go-ahead on building and pricing it. Separately, `scrape` escalation, the agent's stealth retry and `stealth_mode` now write a `stealth_escalation` compliance audit row: hashed key, hashed owner on internal-proxy requests, tool, resolved engine and URL, written after the gate and before navigation.
+**What it does:** When `scrape` has `escalate: true`, or the agent retries a walled page, under the default `"auto"` engine, a Chrome TLS handshake (`impit` `chrome151`) is tried before any browser launches.
+- **Identity:** it carries the honest `CrawlForge/<version>` User-Agent. The plain fetch never uses `impit`.
+- **Handover to the browser:** a page `impit` gets is kept only if it passes the document verdict and has at least 200 characters of visible text. Otherwise the browser runs as before.
+- **SSRF:** redirects are followed one hop at a time, and each hop is SSRF-checked with DNS resolution, because `impit` resolves DNS itself.
+- **Price:** unchanged at 2 + 5.
+- **Audit rows:** every escalation path writes a `stealth_escalation` compliance audit row, including one per `impit` try.
+- **Robots overrides:** `robots_override` rows now carry the server's key instead of `"anonymous"`.
 
-**Gate:** `npm run test:unit` **2479 tests / 2478 passed / 0 failed (185 files)**; `npm test` **100.0% COMPLIANT / 0 errors**. The phase's own gate, a TLS-only wall passing with no browser, was **met by the spike, not by the product**, because the rung does not exist yet.
+**Gate:**
+- `npm run test:unit`: **2490 tests / 2489 passed / 0 failed (186 files)**.
+- `npm test`: **100.0% COMPLIANT / 0 errors**.
+- **Live, residential IP, through a stdio server:**
+  - indeed.com: `scrape` `escalate: true` returned the real homepage via `impit` (8,546 characters, 953 ms, no browser).
+  - quora.com fell through to Chromium (424 characters).
+  - stackoverflow.com fell through to Chromium. The audit log shows an `impit` row, then a `chromium` row.
+
+**Correction to the spike:** quora.com's 4/4 `impit` "pass" was a false positive of our verdict. The page was the client app's "Something went wrong" fallback under a normal title. The 200-character floor sends it to the browser.
 
 **Open:**
-- The owner's decision on building and pricing the rung.
 - The hosted-instance measurement, which needs a Render deploy.
-- The hybrid cookie-jar pattern.
-- A known issue found along the way: `robots_override` audit rows read `apiKeyId: "anonymous"` in production, because no call site passes `apiKey`.
+- The hybrid cookie-jar pattern (not approved).
+- Whether `impit` should also run in `stealth_mode`: allowed by the policy decision, not wired, because that tool is a browser by contract.
+- The plain-fetch verdict still passes a short fallback under a normal title (the quora case). Only the `impit` step guards against it.
 
 ---
 

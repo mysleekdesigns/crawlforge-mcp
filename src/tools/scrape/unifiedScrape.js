@@ -380,7 +380,7 @@ export class UnifiedScrapeTool {
     // Opt-in, and second by construction: the plain fetch above has already
     // run and only a blocked verdict gets here (G1 — never start with
     // stealth). The stage reuses the compliance gate and the browser
-    // `stealth_mode` already drives, so it adds no evasion of its own.
+    // `stealth_mode` already drives, plus the impit TLS try (Phase 7) before it.
     // The vendor the plain fetch hit, or the one this host is remembered for
     // when that fetch was skipped.
     const vendorDetected = remembered ? (remembered.vendor ?? null) : (verdict?.blocked?.vendor ?? null);
@@ -428,7 +428,7 @@ export class UnifiedScrapeTool {
           // browser fixes — so the wording must not call every one a block.
           warnings.push(
             `escalate: the plain fetch ${vendorDetected ? `was blocked by ${vendorDetected}` : 'did not return the page'}; ` +
-            `the ${stealthEngine} stealth browser ${verdict.success ? 'returned it' : 'did not get it either'}`
+            `${stealthEngine === 'impit' ? 'a Chrome TLS handshake (impit, honest User-Agent)' : `the ${stealthEngine} stealth browser`} ${verdict.success ? 'returned it' : 'did not get it either'}`
           );
           // The host memory is deliberately left alone here. It records what
           // a PLAIN fetch met, which is what 3.3 reads before deciding to

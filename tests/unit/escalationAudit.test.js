@@ -99,12 +99,18 @@ describe('server.js records the row on exactly the owner-named paths', () => {
     assert.ok(beforeAt > at, `${marker} comes before ${before}`);
   };
 
-  test('stealthEscalation: gate, then resolver, then the row, then the render', () => {
+  test('stealthEscalation: gate, then an impit row before the impit try, then resolver, row, render', () => {
     const start = src.indexOf('const stealthEscalation = async');
     assert.ok(start > 0);
     const stage = src.slice(start, src.indexOf('\n};', start));
-    ordered(stage, 'scrapeWithStealth(', RECORD, ['stealthComplianceGate(', 'resolveStealthEngine(']);
-    assert.match(stage.slice(stage.indexOf(RECORD)), /engine:\s*resolved\.engine/, 'the resolved engine');
+    // Phase 7: the impit try presents a Chrome TLS handshake, so it gets its
+    // own row, after the gate and before the request goes out.
+    ordered(stage, 'impitFetchPage(', RECORD, ['stealthComplianceGate(']);
+    assert.match(stage.slice(stage.indexOf(RECORD)), /^recordStealthEscalation\(\{[^}]*engine:\s*IMPIT_ENGINE/, 'the impit row names impit');
+    // The browser row: after the resolver, before the render.
+    const browser = stage.slice(stage.indexOf('resolveStealthEngine('));
+    ordered(browser, 'scrapeWithStealth(', RECORD, ['resolveStealthEngine(']);
+    assert.match(browser.slice(browser.indexOf(RECORD)), /engine:\s*resolved\.engine/, 'the resolved engine');
   });
 
   test('the injections name the real tool', () => {
@@ -127,6 +133,6 @@ describe('server.js records the row on exactly the owner-named paths', () => {
 
   test('no other path in server.js writes the row', () => {
     const calls = src.split(RECORD).length - 1;
-    assert.equal(calls, 3, 'stealthEscalation, stealth_mode scrape, stealth_mode create_page');
+    assert.equal(calls, 4, 'stealthEscalation (impit try and browser), stealth_mode scrape, stealth_mode create_page');
   });
 });
