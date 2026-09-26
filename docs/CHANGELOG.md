@@ -42,6 +42,38 @@ patchright spike is on hold.
 New `tests/unit/stealthPhase5.test.js` (15 tests, 2 of them live and skipped
 without network or Chromium).
 
+Phase 6 of the same review (legitimacy lane), in the reduced scope the owner
+approved. No code change.
+
+### Documentation
+
+- **Cloudflare verified-bot registration: what it needs**
+  (`docs/policy/CLOUDFLARE_VERIFIED_BOTS.md`). The key directory on
+  crawlforge.dev is live but its response is not signed, and Cloudflare will
+  not register a directory without one signature per key
+  (`tag="http-message-signatures-directory"`, `keyid`, `created`, `expires`,
+  `"@authority";req`). That is a website change, and after it the owner submits
+  the dashboard form. Nothing was submitted. The document also covers the
+  experimental `Forwarded: for="<operator>"` header for intermediaries, and the
+  risk of default blocking by category, which was not checked.
+- **Verified-bots policy review for `crawl_deep` and `map_site`**, in the same
+  document. It does not fit yet. `crawl_deep`'s page fetches are not signed,
+  requests made with `respect_robots: false` are signed, and escalating a signed
+  block to a stealth render may count as evading a site owner's preferences.
+- **`scrape` host memory billing, now documented** in the
+  `crawlforge-web-scraping` skill. With `escalate: true`, a host walled within
+  the last 24 hours skips the plain fetch (this has been the behaviour since
+  5.9.0), so the call is charged the full 2 + 5 once the browser runs.
+- Signing browser navigations (Phase 6 item 2) was declined, with the reasons
+  recorded in `docs/STEALTH_REVIEW_2026-09.md`.
+
+### Tests
+
+- Three new tests in `tests/unit/scrapeEscalation.test.js`:
+  - a walled **signed** fetch is remembered, and the next `escalate` call skips it;
+  - an expired entry skips nothing;
+  - the skip path still runs the real robots gate before any browser.
+
 ## [6.10.0] - 2026-09-25
 
 Phase 4 of the 2026-09 stealth review: a bot-wall challenge solved once is not

@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { generateKeyPairSync } from 'node:crypto';
 
 process.env.ALLOWED_DOMAINS = '127.0.0.1';
 delete process.env.SSRF_PROTECTION_ENABLED;
@@ -35,6 +36,8 @@ const { requestContext, reportedActualCost, markPreflightRefusal, preflightRefus
 const { makeWithAuth } = await import('../../src/server/withAuth.js');
 const { SCRAPE_ESCALATED_HINT } = await import('../../src/server/fallbackHints.js');
 const { default: authManager } = await import('../../src/core/AuthManager.js');
+const { browserPreflight, _resetRobotsGate } = await import('../../src/utils/robotsGate.js');
+const { _resetSigningKey } = await import('../../src/utils/webBotAuth.js');
 
 const FIXTURES = fileURLToPath(new URL('../fixtures/blocked/', import.meta.url));
 
@@ -53,14 +56,23 @@ const RENDERED_PAGE = `<!doctype html><html><head><title>Behind the wall</title>
 let server;
 let baseUrl;
 let requests; // every path the local server was asked for
+let sentHeaders; // path → the request headers the last request for it carried
 
 before(async () => {
   server = http.createServer((req, res) => {
     const path = req.url.split('?')[0];
     requests.push(path);
+    sentHeaders.set(path, req.headers);
+    // Only /gated is disallowed, so the gate's refusal can be told apart
+    // from every other path here, which it allows.
     if (path === '/robots.txt') {
-      res.writeHead(404);
-      res.end();
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('User-agent: *\nDisallow: /gated\n');
+      return;
+    }
+    if (path === '/gated') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(readFileSync(`${FIXTURES}cloudflare.html`, 'utf8'));
       return;
     }
     if (path === '/normal') {
@@ -100,6 +112,7 @@ after(async () => {
 
 beforeEach(() => {
   requests = [];
+  sentHeaders = new Map();
   _resetHostRateLimiter();
 });
 
@@ -338,6 +351,87 @@ describe('the host memory (3.3) skips a doomed plain fetch', () => {
       url: `${baseUrl}/normal`, formats: ['markdown'], resolveHiddenContent: 'off'
     });
     assert.equal(getHostBlock(`${baseUrl}/`), null);
+  });
+
+  // Stealth review Phase 6: the reverse of "skip escalation where the
+  // signature is accepted" — remember where even the signed fetch was walled.
+  test('a SIGNED plain fetch that meets a wall is remembered, and the next escalate call skips it', async () => {
+    const pem = generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' });
+    process.env.CRAWLFORGE_SIGNING_KEY = pem;
+    process.env.WEB_BOT_AUTH_DIRECTORY = 'https://www.crawlforge.dev';
+    _resetSigningKey();
+    try {
+      const escalator = fakeEscalator();
+      const tool = new UnifiedScrapeTool({ escalateScrape: escalator });
+
+      const first = await scrapeWithCost(tool, {
+        url: `${baseUrl}/cloudflare`, formats: ['markdown'], resolveHiddenContent: 'off'
+      });
+      const sent = sentHeaders.get('/cloudflare');
+      assert.match(sent['signature-input'], /tag="web-bot-auth"/, 'the plain fetch was signed');
+      assert.equal(sent['signature-agent'], '"https://www.crawlforge.dev"');
+      assert.equal(first.result.blocked.vendor, 'cloudflare');
+      assert.equal(getHostBlock(`${baseUrl}/`).vendor, 'cloudflare', 'the walled host is remembered');
+
+      requests = [];
+      const second = await scrapeWithCost(tool, {
+        url: `${baseUrl}/cloudflare`, formats: ['markdown'], resolveHiddenContent: 'off', escalate: true
+      });
+      assert.deepEqual(requests, [], 'the doomed signed fetch was not repeated');
+      assert.equal(escalator.calls.length, 1);
+      assert.equal(second.result.success, true);
+      assert.equal(second.reported, 2 + SCRAPE_ESCALATION_CREDITS, 'the browser ran, so the escalated price');
+    } finally {
+      delete process.env.CRAWLFORGE_SIGNING_KEY;
+      delete process.env.WEB_BOT_AUTH_DIRECTORY;
+      _resetSigningKey();
+    }
+  });
+
+  test('an expired entry skips nothing: the plain fetch runs again first', async () => {
+    const escalator = fakeEscalator();
+    const tool = new UnifiedScrapeTool({ escalateScrape: escalator });
+    noteHostBlocked(`${baseUrl}/`, 'cloudflare', { ttlMs: 1000, now: Date.now() - 1001 });
+    assert.equal(getHostBlock(`${baseUrl}/`), null);
+
+    const { result } = await scrapeWithCost(tool, {
+      url: `${baseUrl}/cloudflare`, formats: ['markdown'], resolveHiddenContent: 'off', escalate: true
+    });
+
+    assert.ok(requests.includes('/cloudflare'), 'the plain fetch ran');
+    assert.ok(!result.warnings.some((w) => /walled this host/.test(w)), 'nothing was skipped');
+    assert.equal(escalator.calls.length, 1, 'it escalated only because the fresh fetch was walled');
+    assert.ok(getHostBlock(`${baseUrl}/`).blockedUntil > Date.now(), 'and that fresh block is remembered anew');
+  });
+
+  test('the skip path still runs the real robots gate before any browser', async () => {
+    _resetRobotsGate(); // so the gate has to read robots.txt itself, where we can see it
+    let rendered = 0;
+    // The shape of server.js's stealthEscalation: the gate, then the browser.
+    const gatedEscalator = async ({ url, respectRobots }) => {
+      await browserPreflight(url, { respectRobots, tool: 'stealth_mode' });
+      rendered++;
+      return { html: RENDERED_PAGE, url, title: 'Behind the wall', text: 'x', status: 200, engine: 'chromium', warnings: [] };
+    };
+    const tool = new UnifiedScrapeTool({ escalateScrape: gatedEscalator });
+    noteHostBlocked(`${baseUrl}/`, 'cloudflare');
+
+    const { result, refusal } = await scrapeWithCost(tool, {
+      url: `${baseUrl}/gated`, formats: ['markdown'], resolveHiddenContent: 'off', escalate: true
+    });
+
+    assert.deepEqual(requests, ['/robots.txt'], 'the gate read robots.txt, and nothing reached the page');
+    assert.equal(rendered, 0, 'the browser never ran');
+    assert.equal(result.success, false);
+    assert.equal(result.escalated, false);
+    assert.equal(refusal, 'ROBOTS_DISALLOWED', 'so the whole call bills zero');
+
+    // And the real stage is built that way: the gate first, and the gate is browserPreflight.
+    const src = readFileSync(fileURLToPath(new URL('../../server.js', import.meta.url)), 'utf8');
+    const stage = src.slice(src.indexOf('const stealthEscalation = async'));
+    const gateAt = stage.indexOf('stealthComplianceGate(');
+    assert.ok(gateAt > 0 && gateAt < stage.indexOf('scrapeWithStealth('), 'server.js gates before it renders');
+    assert.match(src, /async function stealthComplianceGate\([^)]*\)\s*\{\s*return browserPreflight\(/);
   });
 });
 

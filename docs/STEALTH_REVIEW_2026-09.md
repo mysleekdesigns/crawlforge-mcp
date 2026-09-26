@@ -2,7 +2,7 @@
 
 Date: 2026-09-21. Reviewed at v6.7.0 (commit `4f8b3ea`). Findings and a phased plan.
 
-**Status:** Phases 0 and 1 shipped on 2026-09-21, Phase 2 on 2026-09-21/22, Phase 3 (agent browsing) on 2026-09-22, Phase 4 (session persistence, without the profile pool) on 2026-09-25 and Phase 5 (challenge interaction, in the scope the owner approved) on 2026-09-25; each phase records its own completion and measurements in section 6. Phases 6 and 7 are unimplemented and still need the decisions in section 7. The findings in section 3 describe v6.7.0 as reviewed — where Phase 1 changed one, its checklist says so.
+**Status:** Phases 0 and 1 shipped on 2026-09-21, Phase 2 on 2026-09-21/22, Phase 3 (agent browsing) on 2026-09-22, Phase 4 (session persistence, without the profile pool) on 2026-09-25, Phase 5 (challenge interaction, in the scope the owner approved) on 2026-09-25 and Phase 6 (legitimacy lane, reduced scope: write-ups, one item declined, one replaced) on 2026-09-26; each phase records its own completion and measurements in section 6. Phase 7 is unimplemented and still needs decision 6 in section 7. The findings in section 3 describe v6.7.0 as reviewed — where Phase 1 changed one, its checklist says so.
 
 ## 1. Summary
 
@@ -373,14 +373,32 @@ Verify: nowsecure.nl passes from a residential IP; the harness reports no regres
 
 ### Phase 6: Legitimacy lane
 
+**Completed:** 2026-09-26, in the reduced scope the owner approved. Items 1 and 4 were written up, not acted on. Item 2 was declined. Item 3 was replaced by its reverse, which turned out to have shipped already in 5.9.0; this phase checked it against the owner's constraints and added tests. The verification gate could not run (below).
+
 Goal: pass without a challenge on sites that accept verified agents, with zero detection risk.
 
-- [ ] Apply for Cloudflare's signed-agents directory through the dashboard Bot Submission Form using the existing Web Bot Auth key and the published key directory on crawlforge.dev.
-- [ ] Extend request signing to browser navigations via context-level extra headers, keeping the identity headers on both fetch paths.
-- [ ] Track which target hosts accept signed agents and skip escalation on them.
-- [ ] Review the verified-bots policy for the crawl side (`crawl_deep`, `map_site`) and apply if it fits.
+- [ ] Apply for Cloudflare's signed-agents directory through the dashboard Bot Submission Form using the existing Web Bot Auth key and the published key directory on crawlforge.dev. — **Blocked on the owner. The requirements are written up in [`policy/CLOUDFLARE_VERIFIED_BOTS.md`](./policy/CLOUDFLARE_VERIFIED_BOTS.md).** The key directory is live (200, the correct media type, `max-age=86400`, one key), but its response is **unsigned**. Cloudflare requires one signature per key in the directory, with `tag="http-message-signatures-directory"`, `keyid`, `created`, `expires` and `"@authority";req`, so an application made today would fail validation. Signing it is a crawlforge-website change, and it collides with the rule that the private key lives only on Render (the write-up lists three ways round it). After that, the owner submits the dashboard form and waits for Cloudflare's review. The write-up also covers the experimental `Forwarded: for="<operator>"` header for intermediaries such as CrawlForge. It also covers the risk that a category preset blocks CrawlForge by default, which was **not checked this session**. Nothing was submitted and nothing outside this repo was touched.
+- [ ] Extend request signing to browser navigations via context-level extra headers, keeping the identity headers on both fetch paths. — **Declined by owner decision, 2026-09-26.** Four reasons:
+  1. **Third-party subresources.** Context-level extra headers go on every request the page makes, including other sites' scripts and images. The stealth manager already records Chromium rejecting subresources when navigation headers were forced that way (`StealthBrowserManager.js`, beside `setExtraHTTPHeaders`).
+  2. **The signatures cover one host and last 300 s.** Each covers the `@authority` of one host and expires after 300 s, so a context-wide header would be wrong on every other host and stale in any context that lives longer than five minutes.
+  3. **Interception would come back.** Signing only the document request needs per-request interception, which Phase 1 removed because detectors can time it.
+  4. **It gives up anonymity.** It would tell every site that the stealth browser is CrawlForge, which is the opposite of what the stealth path is for. `browserPreflight` in `robotsGate.js` leaves the signature off browser paths on purpose.
+- [x] ~~Track which target hosts accept signed agents and skip escalation on them.~~ **Replaced by owner decision (2026-09-26)** with the reverse: remember hosts where even the signed plain fetch was walled, and on the next call to that host with escalation already on, skip the plain fetch and go straight to the escalation stage. As written, the item duplicated what already happens: escalation only runs after the plain fetch is walled, and the plain fetch is already signed when `CRAWLFORGE_SIGNING_KEY` is set. So escalation never runs on a host that honours the signature, and Cloudflare sends no header saying a request was verified. **The reverse had already shipped** as `scrape`'s host memory, in 5.9.0 (`dd7bd67`, 2026-09-05). This phase checked it against each of the owner's constraints and built nothing new:
+  - **Only when the caller turned escalation on.** `unifiedScrape.js` reads the memory only when `escalate: true`, so a call that did not ask is never escalated.
+  - **Bounded.** An entry lasts 24 h from the block. It is in memory only, capped at 1,000 hosts with the least recently touched dropped first, and a `scrape` without `escalate` that gets a clean page clears it sooner. The skip path never refreshes an entry, so it cannot extend itself.
+  - **Billing.** A skipped call is charged the escalated 2 + 5 once the browser runs, because no plain fetch ran that could have lowered it. A gate refusal still bills zero. This is now written in the `crawlforge-web-scraping` skill.
+  - **The gate still runs.** The skip path goes through `server.js`'s `stealthEscalation`, which calls `stealthComplianceGate` → `browserPreflight` before `scrapeWithStealth`.
+  - **The agent does not use it.** The agent neither records nor reads this memory. Its retry is automatic and capped at 2 a run, which the constraint "only where the caller turned escalation on" does not cover.
+
+  Three tests added to `tests/unit/scrapeEscalation.test.js`: a **signed** walled fetch (real Ed25519 key, `Signature-Input` checked at the server) is remembered and the next `escalate` call makes no request; an expired entry skips nothing; the skip path runs the **real** robots gate (only `/robots.txt` is requested, the browser never runs, the call is refused and bills zero), and `server.js` is checked to gate before it renders. The skip itself and "no skip without `escalate`" were already covered by the 5.9.0 tests in the same file, and expiry at the unit level by `hostMemory.test.js`.
+- [x] Review the verified-bots policy for the crawl side (`crawl_deep`, `map_site`) and apply if it fits. — **Reviewed: it does not fit yet, so nothing was applied for.** Written up in [`policy/CLOUDFLARE_VERIFIED_BOTS.md`](./policy/CLOUDFLARE_VERIFIED_BOTS.md). Both tools meet the `robots.txt` and `Crawl-delay` bars, and IP validation is ruled out by the shared AWS exit, which leaves Web Bot Auth as the only method. Three things stand in the way, each an owner decision:
+  1. `crawl_deep`'s page fetches are **not signed**: `BFSCrawler.fetchPage` calls `safeFetch` without `signRequestHeaders`.
+  2. `preflightFetch` signs requests the caller let past `robots.txt` with `respect_robots: false`, which would put a verified identity on traffic that ignored the site's rules.
+  3. Escalating a signed block to an unsigned stealth render may read as "evading website owner preferences". That is our reading of the policy, not Cloudflare's ruling.
 
 Verify: a signed navigation to a Cloudflare zone that has opted in returns the page with no interstitial and a bot score visible as verified in Radar.
+
+- [ ] **Not run, and cannot be yet.** The gate needs a verified registration (item 1, blocked on the owner) and a signed *navigation* (item 2, declined). What stands in for it this phase is the three new unit tests under item 3 and the two gate suites (below).
 
 ### Phase 7 (decision required): browser-impersonated HTTP rung
 
@@ -398,7 +416,7 @@ Verify: a TLS-only wall (one that blocks the plain fetch but serves curl-imperso
 2. Whether Camoufox becomes the default escalation engine (Phase 2), given its slower startup and larger memory footprint.
 3. Whether to add a server-level proxy setting and document bring-your-own residential proxies (Phase 2).
 4. ~~Whether the agent may spend escalation credits automatically (Phase 3).~~ **Decided 2026-09-22: yes, automatically, capped at 2 retries a run (18 credits worst case), shipped in Phase 3.**
-5. Whether to apply to Cloudflare's signed-agents directory (Phase 6). This publicly identifies CrawlForge traffic.
+5. Whether to apply to Cloudflare's signed-agents directory (Phase 6). This publicly identifies CrawlForge traffic. **Still open (2026-09-26), now with its prerequisites written up** in [`policy/CLOUDFLARE_VERIFIED_BOTS.md`](./policy/CLOUDFLARE_VERIFIED_BOTS.md). The directory response must be signed first, which is a website change, and three crawl-side points should be settled before applying. Signing browser navigations (Phase 6 item 2) was declined.
 6. The `impit` policy question (Phase 7).
 7. Whether to build the Phase 4 persistent Chromium profile pool at all, and if so only per caller on self-hosted deployments. A shared profile on the hosted instance would carry one customer's logins into another customer's calls.
 
