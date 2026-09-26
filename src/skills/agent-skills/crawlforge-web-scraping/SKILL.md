@@ -84,7 +84,10 @@ vendor_detected }` when the browser ran. The projection is `2 + 5`; the charge
 falls back to the base when the plain fetch succeeded and nothing escalated.
 robots.txt is respected on the escalated path too, and a second call to a host
 that blocked within the last 24 hours skips the doomed plain fetch and says so
-in `warnings[]`.
+in `warnings[]`. That call is charged the full `2 + 5` once the browser runs,
+because no plain fetch ran that could have lowered it. The memory is kept for 24
+hours from the block, in the running server only, and a `scrape` without
+`escalate` that gets a clean page from that host clears it sooner.
 
 `escalate_engine` defaults to `"auto"`: Camoufox (Firefox, the engine that gets
 through Cloudflare Turnstile and Akamai) when its binary is installed, Chromium

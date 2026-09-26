@@ -1,6 +1,6 @@
 # CrawlForge MCP Server - Production Readiness
 
-**Version:** 6.9.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-09-25
+**Version:** 6.9.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-09-26
 
 ---
 
@@ -18,6 +18,21 @@
 
 **Production Readiness Score:** 98.5/100
 
+
+---
+
+## Stealth Review Phase 6 — Legitimacy lane (reduced scope complete; registration blocked on the owner)
+
+**Completed:** 2026-09-26 | **Version:** 6.10.0 tree, unreleased (no code, credit or schema change) | **Plan:** [`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md) §6 Phase 6
+
+**What it does:** Adds [`policy/CLOUDFLARE_VERIFIED_BOTS.md`](./policy/CLOUDFLARE_VERIFIED_BOTS.md), covering what a Cloudflare verified-bot application needs and a review of the crawl side against Cloudflare's policy. Signing browser navigations was declined. The host memory that sends a repeat `escalate: true` call straight to the stealth stage had already shipped in 5.9.0. This phase verified it against the owner's constraints, documented its billing and added 3 tests.
+
+**Gate:** `npm run test:unit` **2471 tests / 2470 passed / 0 failed (184 files)**; `npm test` **100.0% COMPLIANT / 0 errors**. The phase's own gate (a signed navigation verified in Radar) **could not run**. It needs a registration, which is blocked on the owner, and signed navigations, which were declined.
+
+**Blocked on the owner:** the directory response on crawlforge.dev must be signed (a website change) before Cloudflare will accept an application. Before applying, three crawl-side points need a decision:
+- `crawl_deep`'s page fetches are unsigned.
+- Requests made with `respect_robots: false` are signed.
+- Escalating a signed block to a stealth render may read as evasion.
 
 ---
 
