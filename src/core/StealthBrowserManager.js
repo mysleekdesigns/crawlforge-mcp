@@ -26,6 +26,47 @@ import { ClearanceJar, sharedClearanceJar } from './ClearanceJar.js';
 // Grace given to a document that rendered no title and no text (see _waitOutEmptyDocument).
 export const EMPTY_DOCUMENT_GRACE_MS = 8000;
 
+// Where the Turnstile checkbox sits inside its frame: 28 px in from the left
+// edge (16 px padding + half the 24 px box) of the 300×65 normal-size widget,
+// vertically centred. A fixed offset into the frame's box, because the
+// checkbox itself lives in a closed shadow root inside a cross-origin frame
+// that vanilla Playwright cannot select into — but the frame element's box it
+// can read, from page.frames(), whatever shadow root the frame is mounted in.
+export const TURNSTILE_CHECKBOX_OFFSET_X = 28;
+const TURNSTILE_FRAME_URL = /^https:\/\/challenges\.cloudflare\.com\//;
+
+/**
+ * The first Turnstile frame box whose checkbox point is on screen. A page can
+ * mount a widget off screen (nowsecure.nl mounts one at y=-147), and a click
+ * there lands on nothing.
+ * @param {Array<{x:number,y:number,width:number,height:number}|null>} boxes
+ * @param {{width:number,height:number}|null} viewport
+ * @returns {{x:number,y:number,width:number,height:number}|null}
+ */
+export function pickTurnstileBox(boxes, viewport) {
+  for (const box of boxes) {
+    if (!box || !(box.width > 0) || !(box.height > 0)) continue;
+    const { x, y } = turnstileClickPoint(box);
+    if (x < 0 || y < 0) continue;
+    if (viewport && (x > viewport.width || y > viewport.height)) continue;
+    return box;
+  }
+  return null;
+}
+
+/**
+ * The checkbox point for a frame box, clamped inside the box so a compact
+ * widget narrower than the offset is still clicked inside itself.
+ * @param {{x:number,y:number,width:number,height:number}} box
+ * @returns {{x:number,y:number}}
+ */
+export function turnstileClickPoint(box) {
+  return {
+    x: box.x + Math.min(TURNSTILE_CHECKBOX_OFFSET_X, box.width / 2),
+    y: box.y + box.height / 2
+  };
+}
+
 // The Chrome major claimed when the installed binary cannot be read at all.
 // Only ever a floor: installedChromeVersion() prefers playwright-core's own
 // browsers.json, and a launched browser's real version overrides both.
@@ -2740,6 +2781,69 @@ export class StealthBrowserManager {
     await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
   }
 
+  /**
+   * Click the Turnstile checkbox of a challenge that did not solve itself
+   * (review Phase 5). A fixed offset into the challenges.cloudflare.com
+   * frame's box, through page.mouse — plain Playwright, no shadow-root access.
+   * Then wait for either the widget's token or the title to change, and give a
+   * wall that is now navigating on its usual wait-out.
+   *
+   * Verified against Cloudflare's forced-interactive test sitekey on a local
+   * page, which proves the mechanism only: whether a real site's challenge
+   * accepts the click still depends on the IP and fingerprint it scores.
+   *
+   * @returns {Promise<boolean>} whether a click was made
+   */
+  async _clickTurnstile(page, { timeoutMs = 10000 } = {}) {
+    const frames = page.frames().filter((frame) => TURNSTILE_FRAME_URL.test(frame.url()));
+    if (frames.length === 0) return false;
+    const boxes = [];
+    for (const frame of frames) {
+      const element = await frame.frameElement().catch(() => null);
+      boxes.push(element ? await element.boundingBox().catch(() => null) : null);
+    }
+    const box = pickTurnstileBox(boxes, page.viewportSize());
+    if (!box) return false;
+    const { x, y } = turnstileClickPoint(box);
+    const title = await page.title().catch(() => '');
+    await page.mouse.move(x - 40, y - 12);
+    await page.mouse.move(x, y, { steps: 8 });
+    await page.mouse.click(x, y, { delay: 90 });
+    await page
+      .waitForFunction(
+        (t) => document.title !== t ||
+          [...document.querySelectorAll('input[name="cf-turnstile-response"]')].some((input) => input.value),
+        title,
+        { timeout: timeoutMs }
+      )
+      .catch(() => {});
+    await this._waitOutChallenge(page);
+    return true;
+  }
+
+  /**
+   * The click, only where it belongs: on Chromium, and only on a document the
+   * verdict still calls a Cloudflare wall. A real page that embeds a widget
+   * (quora.com's login, nowsecure.nl at 200) is never clicked.
+   * @returns {Promise<boolean>} whether a click was made
+   */
+  async _clickThroughChallenge(page, { status = null, engine = null } = {}) {
+    if (engine !== 'chromium') return false;
+    if (!page.frames().some((frame) => TURNSTILE_FRAME_URL.test(frame.url()))) return false;
+    let title; let html; let text;
+    try {
+      [title, html, text] = await Promise.all([
+        page.title(),
+        page.content(),
+        page.evaluate(() => (document.body ? document.body.innerText : ''))
+      ]);
+    } catch {
+      return false;
+    }
+    if (detectChallengePage({ title, html, text, status })?.vendor !== 'cloudflare') return false;
+    return this._clickTurnstile(page);
+  }
+
   async scrapeWithStealth({ url, engine, wait_for = 0, screenshot = false, stealthConfig = {} } = {}) {
     if (!url) throw new Error('scrapeWithStealth requires a url');
 
@@ -2775,6 +2879,8 @@ export class StealthBrowserManager {
       // up, so the interstitial came back as success:true (R17, 2026-09-04).
       // An auto-solving challenge gets one bounded wait to finish first.
       await this._waitOutChallenge(page);
+      // A Turnstile challenge still up after that wait needs its checkbox clicked.
+      await this._clickThroughChallenge(page, { status, engine: engineUsed });
       const emptyGraceMs = await this._waitOutEmptyDocument(page);
       // Last: let whatever is still rendering finish. Without this the read
       // below can land between "the page has content" and "the page has the
@@ -2811,7 +2917,7 @@ export class StealthBrowserManager {
       // Still a wall after everything above: whatever clearance this context
       // carried for the site did not work, so closeContext drops it instead of
       // keeping it for the next call.
-      if (detectChallengePage({ title, html, text })) {
+      if (detectChallengePage({ title, html, text, status })) {
         this._markBlocked(contextId, [url, page.url()]);
       }
 

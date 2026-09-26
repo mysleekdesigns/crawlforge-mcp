@@ -22,7 +22,13 @@ export const WALL_TARGETS = [
   {
     id: 'nowsecure',
     url: 'https://nowsecure.nl',
-    vendor: 'Cloudflare, interactive challenge',
+    // Not a wall (measured 2026-09-25): a 200 to the honest CrawlForge UA, 43
+    // visible characters and two Turnstile widgets on Cloudflare's
+    // forced-interactive TEST sitekey. Every Blocked recorded below came from
+    // our own verdict, not from Cloudflare. Kept as the check that a
+    // widget-only 200 page is not flagged: a Pass here means Phase 5's
+    // verdict fix holds.
+    vendor: 'Turnstile widget on a 200 page (test sitekey) — not a wall',
     waitFor: DEFAULT_WAIT_MS,
     retryWaitFor: 15000,
     recorded: { plain: 'Blocked', chromium: 'Blocked', camoufox: 'Blocked' }
