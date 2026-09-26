@@ -2,7 +2,7 @@
 
 Date: 2026-09-21. Reviewed at v6.7.0 (commit `4f8b3ea`). Findings and a phased plan.
 
-**Status:** Phases 0 and 1 shipped on 2026-09-21, Phase 2 on 2026-09-21/22 and Phase 3 (agent browsing) on 2026-09-22; each phase records its own completion and measurements in section 6. Phases 4 to 7 are unimplemented, and Phases 6 and 7 still need the decisions in section 7. The findings in section 3 describe v6.7.0 as reviewed — where Phase 1 changed one, its checklist says so.
+**Status:** Phases 0 and 1 shipped on 2026-09-21, Phase 2 on 2026-09-21/22, Phase 3 (agent browsing) on 2026-09-22 and Phase 4 (session persistence, without the profile pool) on 2026-09-25; each phase records its own completion and measurements in section 6. Phases 5 to 7 are unimplemented, and Phases 6 and 7 still need the decisions in section 7. The findings in section 3 describe v6.7.0 as reviewed — where Phase 1 changed one, its checklist says so.
 
 ## 1. Summary
 
@@ -332,14 +332,24 @@ Verify: the Indeed prompt from section 2.4 returns the review count from the ren
 
 ### Phase 4: Session persistence
 
+**Completed:** 2026-09-25. Three of the four checklist items shipped; the persistent profile pool was deliberately not built (reasons below). The gate passed on both engines.
+
 Goal: a challenge solved once is not solved again for its lifetime.
 
-- [ ] Per-host cookie jar keyed on host, proxy exit and user agent; store `cf_clearance`, `__cf_bm` and DataDome cookies with their expiry.
-- [ ] Reuse the jar on the next stealth context for the same key; discard on a new block verdict.
-- [ ] Persistent profile pool for Chromium (`launchPersistentContext` with a real `userDataDir`), matching Scrapling and the practitioner reports.
-- [ ] Bound disk use and TTL; never persist across different proxy exits.
+- [x] Per-host cookie jar keyed on host, proxy exit and user agent; store `cf_clearance`, `__cf_bm` and DataDome cookies with their expiry. — `src/core/ClearanceJar.js`. The key is the engine, the exact User-Agent and the proxy's server and username (never the password), hashed; the host is the cookie's own domain inside that key. Only the exact names `cf_clearance`, `__cf_bm` and `datadome` are kept. That allow-list is the safety property: a site's login, cart or preference cookies are never stored, so a `browser_session` one hosted customer logged into cannot reach another customer's context. One process-wide jar is shared by every `StealthBrowserManager` instance (`server.js`, `BrowserProcessor` and `ResearchOrchestrator` each build their own).
+- [x] Reuse the jar on the next stealth context for the same key; discard on a new block verdict. — `createStealthContext` replays the key's live clearances with `context.addCookies` (each scoped to its own domain, so a context bound elsewhere sends none of them); `closeContext` harvests the context's cookies into the jar before disposing it, with a 2 s deadline so a wedged browser cannot hang the close. `scrapeWithStealth` runs `detectChallengePage` on what it read, and a render that still met the wall discards that host's clearances rather than keeping them. The Chromium key is deterministic, because Phase 1 made the UA one string per host OS on one binary. The Camoufox key uses the UA `_pinnedFingerprint()` pinned at launch. When camoufox drew its own persona that UA is unknown, and nothing is kept.
+- [ ] Persistent profile pool for Chromium (`launchPersistentContext` with a real `userDataDir`), matching Scrapling and the practitioner reports. — **Not built, deliberately; needs an owner decision.** Three reasons. (1) A profile persists *everything*: logins, localStorage, IndexedDB, every site cookie. On the hosted instance that carries one customer's `browser_session` state into the next customer's call, which is the exact leak the jar's allow-list exists to prevent. (2) `launchPersistentContext` is one browser process per profile, with its proxy fixed at launch. That breaks the shared-browser, per-context-proxy design Phase 2 built, and it does not fit a 2 GB box capped at `MAX_BROWSER_CONTEXTS=6`. (3) The npm Camoufox client has no equivalent. The measured benefit the item was after, not re-solving the challenge, is delivered by the jar (gate below). What a profile would add beyond the jar is history-based trust signals, and those are unmeasured. If wanted, the safe form is a per-caller profile on self-hosted deployments only, never shared on the hosted instance.
+- [x] Bound disk use and TTL; never persist across different proxy exits. — Expiry is the cookie's own, capped at 24 h (30 min for a session cookie). At most 32 identities and 200 cookies each, evicted oldest first. The file is rewritten only when its contents change, at `~/.crawlforge/stealth-clearance.json`, mode 0600, atomically. The proxy is part of the key, so a clearance earned through one exit is never replayed through another, or direct. **Limit:** a rotating residential proxy behind one fixed username can change exit underneath one key. The site then challenges again, the verdict reports a block, and the host is discarded. `CRAWLFORGE_CLEARANCE_JAR=off` disables the jar. The benchmark harness constructs its manager with the jar off, so a replayed clearance never contaminates a benchmark row.
 
 Verify: second stealth call to a Cloudflare site within the clearance TTL returns without the interstitial and with no challenge round-trip in the network log.
+
+- [x] **Passed on both engines**, 2026-09-25, residential IP, through `StealthBrowserManager.scrapeWithStealth` with request logging on every page. Target: `stackoverflow.com/questions`, which serves Cloudflare's challenge to the plain fetch.
+  - **Chromium.** First call: navigations 307 → **403** → 302 → 200, with 7 `/cdn-cgi/challenge-platform/` requests including `orchestrate/precursor_interstitial` and the two `/h/b/fo/` challenge posts, in 4.1 s. The jar then held `cf_clearance@.stackoverflow.com` and `__cf_bm` for the site and two of its CDNs. Second call: **one navigation, 200**, with no interstitial, no `orchestrate` and no `fo` request, in **1.6 s**. The 3 challenge-platform requests left are the page's own passive `precursor` bot-management script, which the first call's final 200 page loaded too.
+  - **Camoufox.** Same shape: 403 → 302 → 200 and 7 requests first; a single 200 with only the 3 passive script requests second.
+  - **Across a process restart** (the MCP stdio case, where a client respawns the server). On `indeed.com/cmp/Burger-King/reviews`, Chromium, one jar file shared by two processes: the first process earned `cf_clearance@.indeed.com` through a background managed challenge (3 challenge-platform requests, no interstitial), and the second process loaded it from disk and made **0** challenge-platform requests.
+  - **Discard on block, observed live.** A later stackoverflow run hit Cloudflare's rate limit after the repeated tests (`Just a moment...`, final 429). The verdict reported the block, and the jar file was left empty rather than keeping the clearance that had not worked.
+
+Not covered, and named rather than left to be rediscovered: the `deep_research` fallback replays clearances on its Chromium path but never harvests. It closes only the page and never closes its stealth context through the manager (the context lives until the pool's idle reaper takes it), and its Camoufox path launches its own browser outside the manager. A context the idle reaper takes is not harvested either.
 
 ### Phase 5: Challenge interaction
 
@@ -381,6 +391,7 @@ Verify: a TLS-only wall (one that blocks the plain fetch but serves curl-imperso
 4. ~~Whether the agent may spend escalation credits automatically (Phase 3).~~ **Decided 2026-09-22: yes, automatically, capped at 2 retries a run (18 credits worst case), shipped in Phase 3.**
 5. Whether to apply to Cloudflare's signed-agents directory (Phase 6). This publicly identifies CrawlForge traffic.
 6. The `impit` policy question (Phase 7).
+7. Whether to build the Phase 4 persistent Chromium profile pool at all, and if so only per caller on self-hosted deployments. A shared profile on the hosted instance would carry one customer's logins into another customer's calls.
 
 ## 8. Sources
 

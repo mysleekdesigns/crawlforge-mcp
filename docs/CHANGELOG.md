@@ -3,6 +3,42 @@
 
 
 All notable changes to CrawlForge MCP Server will be documented in this file.
+## [Unreleased]
+
+Phase 4 of the 2026-09 stealth review: a bot-wall challenge solved once is not
+solved again for its lifetime.
+
+### Added
+
+- **Clearance jar.** When a stealth render gets past a Cloudflare or DataDome
+  wall, the vendor's clearance cookies (exactly `cf_clearance`, `__cf_bm` and
+  `datadome`) are kept and replayed to the next stealth context with the same
+  engine, User-Agent and proxy. That covers the `scrape` escalation stage,
+  `stealth_mode`, the agent's stealth retry, `browser_session` and
+  `scrape_with_actions`. No other cookie is ever kept, so one caller's login
+  cannot reach another caller's context. A render that still meets the wall
+  drops that host's clearances. Expiry is the cookie's own, capped at 24 h, and
+  the jar holds at most 32 identities with 200 cookies each. It persists at
+  `~/.crawlforge/stealth-clearance.json` (mode 0600, keys hashed).
+  `CRAWLFORGE_CLEARANCE_JAR=off` disables it. New `src/core/ClearanceJar.js`
+  and `tests/unit/clearanceJar.test.js` (14 tests). The stealth benchmark runs
+  with the jar off, so its rows still start cold.
+
+### Verified
+
+- On stackoverflow.com from a residential IP, the first stealth call went
+  through Cloudflare's interstitial (307 → 403 → 302 → 200, `orchestrate` and
+  `fo` challenge requests, 4.1 s). The second went straight to 200 with neither
+  (1.6 s on Chromium). Both engines behaved the same. A second process reused a
+  clearance from disk with 0 challenge-platform requests (indeed.com).
+
+### Not done
+
+- The persistent Chromium profile pool (`launchPersistentContext`) from the
+  same phase was not built. A shared profile keeps logins and site storage, and
+  on the hosted instance that would leak between customers. It is left for an
+  owner decision (section 7, decision 7 of the review).
+
 ## [6.9.0] - 2026-09-22
 
 Phase 3 of the 2026-09 stealth review: the `agent` tool browses. Before this,

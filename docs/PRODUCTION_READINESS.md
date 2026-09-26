@@ -1,6 +1,6 @@
 # CrawlForge MCP Server - Production Readiness
 
-**Version:** 6.8.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-09-22
+**Version:** 6.9.0 | **Status:** ✅ PRODUCTION READY | **Updated:** 2026-09-25
 
 ---
 
@@ -18,6 +18,18 @@
 
 **Production Readiness Score:** 98.5/100
 
+
+---
+
+## Stealth Review Phase 4 — Session persistence (Complete; gate passed on both engines, profile pool not built)
+
+**Completed:** 2026-09-25 | **Version:** 6.9.0 tree, unreleased (no credit or schema change) | **Plan:** [`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md) §6 Phase 4
+
+**What it does:** `src/core/ClearanceJar.js` keeps the clearance cookies a stealth render earned (exactly `cf_clearance`, `__cf_bm`, `datadome`) under a hashed key of engine + User-Agent + proxy server/username. `StealthBrowserManager.createStealthContext` replays them, `closeContext` harvests them (with a 2 s deadline), and `scrapeWithStealth` discards a host whose render still met the wall. Expiry is the cookie's own, capped at 24 h; the jar holds 32 identities × 200 cookies and persists at `~/.crawlforge/stealth-clearance.json` (0600). `CRAWLFORGE_CLEARANCE_JAR=off` disables it, and the benchmark harness always runs with it off. **Security property:** the allow-list, so no site cookie (login, cart) ever crosses between callers on the hosted instance.
+
+**Gate:** `npm run test:unit` **2453 tests / 0 failed (183 files)**; `npm test` **100.0% COMPLIANT / 0 errors**. Live, residential IP: stackoverflow.com's second stealth call returned 200 with no interstitial and no `orchestrate`/`fo` challenge requests on **both engines** (Chromium 4.1 s → 1.6 s). A second process reused a clearance from disk on indeed.com with 0 challenge-platform requests. Discard-on-block was also seen live, when a rate-limited run (429) left the jar empty.
+
+**Not built:** the persistent Chromium profile pool. A shared `userDataDir` persists logins between hosted customers, and one process per profile with its proxy fixed at launch breaks the Phase 2 design. It is left for an owner decision. The `deep_research` fallback replays clearances but does not harvest them (it never closes its stealth contexts through the manager).
 
 ---
 
