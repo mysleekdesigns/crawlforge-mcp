@@ -59,7 +59,9 @@ import { READ_RESULT_INPUT_SHAPE, readResultHandler } from "./src/tools/result/r
 import { MAX_INLINE_CHARS_PARAM } from "./src/server/inlineThreshold.js"; // Phase 2
 import { REDACT_PII_PARAM } from "./src/server/redaction.js"; // Phase 5 (5.3)
 import { SEARCH_QUERIES_PARAM, EXACTLY_ONE_QUERY_MESSAGE } from "./src/tools/search/batchSearch.js"; // Phase 5 (5.1)
-import { markPreflightRefusal } from "./src/server/requestContext.js";
+import { markPreflightRefusal, internalOwnerToken } from "./src/server/requestContext.js";
+import { recordStealthEscalation } from "./src/utils/complianceAudit.js";
+import { loadImpit, impitFetchPage, IMPIT_ENGINE } from "./src/utils/impitRung.js"; // stealth review Phase 7
 // D1.1 Resources + D1.2 Prompts + D1.4 Elicitation
 import { ResourceRegistry, MAX_RESOURCE_BLOB_BYTES } from "./src/resources/ResourceRegistry.js";
 import { PROMPTS, getPromptMessages } from "./src/prompts/PromptRegistry.js";
@@ -108,7 +110,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "6.10.0",
+  version: "6.11.0",
   description: "Production-ready MCP server with 31 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, stateful browser sessions with element refs, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -248,17 +250,29 @@ const scrapeTemplateTool = new ScrapeTemplateTool(); // D3.3
 // go through the same gate, engine resolver and server-level proxy list.
 // Injected so the tool modules never import StealthBrowserManager (that would pull a
 // browser dependency into every unit test that loads `scrape`). Same gate
-// and same browser the stealth_mode tool drives — no new evasion, and the
+// and same browser the stealth_mode tool drives, plus the impit TLS try, and the
 // engine name is resolved here, beside its sibling, by the one resolver
 // every stealth entry point shares.
-const stealthEscalation = async ({ url, engine, respectRobots }) => {
+const stealthEscalation = async ({ url, engine, respectRobots, tool }) => {
   const warnings = await stealthComplianceGate(url, respectRobots);
+  const auditIdentity = { apiKey: AuthManager.getConfig()?.apiKey, ownerToken: internalOwnerToken() };
+  // Stealth review Phase 7: under "auto", a Chrome TLS handshake with the
+  // honest User-Agent is tried before any browser launches. A caller who
+  // named an engine asked for that browser, so it is not tried for them.
+  if (engine === 'auto' && await loadImpit()) {
+    recordStealthEscalation({ url, tool, engine: IMPIT_ENGINE, ...auditIdentity });
+    const page = await impitFetchPage(url);
+    if (page) return { ...page, warnings };
+  }
   // "auto" prefers camoufox and falls back to chromium when its binary is
   // missing. Mapping here instead ("camoufox" or else chromium) collapsed
   // auto to chromium and hid the fallback; the resolver says which engine it
   // landed on and why, and the caller is told.
   const resolved = await resolveStealthEngine(engine);
   if (resolved.fallbackWarning) warnings.push(resolved.fallbackWarning);
+  // Audit row: the request is about to go out under a browser identity. After
+  // the gate (a refusal presents none) and the resolver (the engine that runs).
+  recordStealthEscalation({ url, tool, engine: resolved.engine, ...auditIdentity });
   const scraped = await stealthBrowserManager.scrapeWithStealth({
     url,
     engine: resolved.engine
@@ -269,9 +283,9 @@ const stealthEscalation = async ({ url, engine, respectRobots }) => {
 };
 const unifiedScrapeTool = new UnifiedScrapeTool({
   actionExecutor: scrapeWithActionsTool.actionExecutor, // D4 D1 (+v4.8 screenshot reuses the shared browser pool)
-  escalateScrape: stealthEscalation
+  escalateScrape: (args) => stealthEscalation({ ...args, tool: 'scrape' })
 });
-const agentTool = new AgentTool({ escalateFetch: stealthEscalation }); // D4 D2 + stealth review Phase 3
+const agentTool = new AgentTool({ escalateFetch: (args) => stealthEscalation({ ...args, tool: 'agent' }) }); // D4 D2 + stealth review Phase 3
 const stealthBrowserManager = new StealthBrowserManager();
 const localizationManager = new LocalizationManager();
 
@@ -1419,6 +1433,11 @@ registerToolIfEnabled("stealth_mode", {
         const resolvedEngine = await resolveStealthEngine(engine);
         if (resolvedEngine.fallbackWarning) warnings.push(resolvedEngine.fallbackWarning);
 
+        recordStealthEscalation({
+          url, tool: 'stealth_mode', engine: resolvedEngine.engine,
+          apiKey: AuthManager.getConfig()?.apiKey, ownerToken: internalOwnerToken()
+        });
+
         const wantsScreenshot = formats.includes('screenshot');
         const scraped = await stealthBrowserManager.scrapeWithStealth({
           url,
@@ -1507,6 +1526,11 @@ registerToolIfEnabled("stealth_mode", {
         let navigation = null;
         try {
           if (urlToTest) {
+            recordStealthEscalation({
+              url: urlToTest, tool: 'stealth_mode',
+              engine: stealthBrowserManager.contexts.get(contextId)?.config?.engine ?? null,
+              apiKey: AuthManager.getConfig()?.apiKey, ownerToken: internalOwnerToken()
+            });
             // page.goto returns a Playwright Response handle, which is not
             // JSON-serializable — extract just the useful navigation details.
             // Explicit timeout keeps navigation inside every caller's window

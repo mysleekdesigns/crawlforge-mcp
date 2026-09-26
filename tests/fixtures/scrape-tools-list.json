@@ -179,7 +179,7 @@
       },
       "escalate": {
         "default": false,
-        "description": "When the plain fetch comes back blocked (403/429/challenge page/empty shell), retry once in the stealth browser and return its content instead of the block. Projected at 2+5; the actual charge stays at the base price when the plain fetch succeeded. Default: false",
+        "description": "When the plain fetch comes back blocked (403/429/challenge page/empty shell), retry once in the stealth browser and return its content instead of the block. Under escalate_engine \"auto\" a Chrome TLS handshake with the honest CrawlForge User-Agent (impit) is tried first, and the browser runs only when that does not get the page. Projected at 2+5; the actual charge stays at the base price when the plain fetch succeeded. Default: false",
         "type": "boolean"
       },
       "escalate_engine": {
@@ -309,7 +309,7 @@
         "type": "boolean"
       },
       "stealth": {
-        "description": "Present when escalated is true: the stealth engine that ran, and the bot-defence vendor the plain fetch hit (null when the block named none)",
+        "description": "Present when escalated is true: the stealth engine that ran (\"impit\" when the Chrome TLS handshake got the page without a browser), and the bot-defence vendor the plain fetch hit (null when the block named none)",
         "type": "object",
         "properties": {
           "engine": {

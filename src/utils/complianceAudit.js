@@ -5,6 +5,8 @@
  * documented decision*. That means the override has to leave a trace: which key
  * asked, for which URL, from which tool, when. Without the row the override is
  * a silent product default again, which is the thing G5 exists to prevent.
+ * The same trail records each time a request goes out under a browser identity
+ * (a stealth render), so that choice is on record too.
  *
  * Rows go to `logs/compliance-audit.log` as JSONL (one row per line, appended)
  * and to a small in-memory ring the tools and tests can read back. Writing is
@@ -53,6 +55,24 @@ export function recordComplianceEvent(event = {}) {
     .catch(() => { /* an audit sink must never break a fetch */ });
 
   return row;
+}
+
+/**
+ * Record that a request is about to go out under a browser identity (a stealth
+ * render). Neither the raw key nor the raw owner token is stored: both are
+ * reduced to apiKeyId digests. `ownerId` names the website customer behind an
+ * internal-proxy request, where `apiKeyId` is always the service's own key.
+ * Never throws.
+ */
+export function recordStealthEscalation({ url, tool, engine, apiKey, ownerToken } = {}) {
+  return recordComplianceEvent({
+    event: 'stealth_escalation',
+    url,
+    tool,
+    engine: engine ?? null,
+    apiKeyId: apiKeyId(apiKey),
+    ...(ownerToken ? { ownerId: apiKeyId(ownerToken) } : {})
+  });
 }
 
 /** Most recent audit rows, newest last. Test/diagnostic hook. */

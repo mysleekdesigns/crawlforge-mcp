@@ -80,7 +80,10 @@ shell). The escalated page goes through the same formats, so `markdown`,
 ```
 
 The result adds `escalated: true|false`, and `stealth: { engine,
-vendor_detected }` when the browser ran. The projection is `2 + 5`; the charge
+vendor_detected }` when the escalation ran. `engine` is `impit` when a Chrome
+TLS handshake with the honest User-Agent got the page before any browser
+launched (default `escalate_engine: "auto"` only). The projection is `2 + 5`,
+whichever step got the page; the charge
 falls back to the base when the plain fetch succeeded and nothing escalated.
 robots.txt is respected on the escalated path too, and a second call to a host
 that blocked within the last 24 hours skips the doomed plain fetch and says so

@@ -5,6 +5,13 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.11.0] - 2026-09-26
+
+Stealth review Phases 5, 6 and 7. The main user-visible change: `scrape` with
+`escalate: true` (and the agent's stealth retry) now tries a Chrome TLS
+handshake with the honest User-Agent (`impit`, a new optional dependency)
+before launching a browser. The price is unchanged.
+
 Phase 5 of the 2026-09 stealth review (challenge interaction), in the scope
 the owner approved: the Turnstile click and the nowsecure.nl verdict fix. The
 patchright spike is on hold.
@@ -73,6 +80,73 @@ approved. No code change.
   - a walled **signed** fetch is remembered, and the next `escalate` call skips it;
   - an expired entry skips nothing;
   - the skip path still runs the real robots gate before any browser.
+
+Phase 7 of the same review (browser-impersonated HTTP rung). The owner
+decided `impit` may only ever run inside the existing escalation stage, never
+on the plain fetch, and asked for a spike first. After the spike the owner
+approved building the step, with the honest User-Agent and the price unchanged.
+
+### Added
+
+- **A Chrome TLS try inside escalation (`impit`).** When `scrape` has
+  `escalate: true`, or the agent retries a walled page, and the engine is
+  `"auto"` (the default), a Chrome TLS handshake is now tried before any
+  browser launches. It carries the honest `CrawlForge/<version>` User-Agent.
+  If it gets the page, the browser never starts: indeed.com came back in about
+  1 s from a residential IP, where the plain fetch is blocked by Cloudflare.
+  If it does not, the browser runs as before.
+  - **What the caller sees:** a page it got reports `stealth.engine: "impit"`,
+    with a warning naming it.
+  - **Price:** unchanged at 2 + 5, whichever step got the page.
+  - **Not used:** when a caller names `playwright` or `camoufox`, in
+    `stealth_mode`, and on the plain fetch.
+  - **Dependency:** `impit` 0.14.5 is a new `optionalDependency` with prebuilt
+    native binaries. When it is missing, escalation behaves exactly as in
+    6.10.0.
+  - **Safeguards:** every redirect hop is SSRF-checked with DNS resolution,
+    because `impit` resolves DNS itself. A page with under 200 characters of
+    visible text goes to the browser: quora.com's client-app fallback,
+    "Something went wrong", passed our verdict under a normal title.
+  - **Proxy:** it uses the first `CRAWLFORGE_STEALTH_PROXIES` entry when one
+    is set.
+  - New `src/utils/impitRung.js` and `tests/unit/impitRung.test.js` (10 tests).
+
+- **Compliance audit row for escalation.** A `stealth_escalation` row now goes
+  to `logs/compliance-audit.log`, the same log a `respect_robots: false`
+  override goes to. Three paths write it: `scrape` with `escalate: true`, the
+  agent's stealth retry, and `stealth_mode` (`scrape`, and `create_page` with a
+  `urlToTest`). The row carries the URL, the tool, the resolved engine and
+  `apiKeyId`, a truncated SHA-256 of the configured key. On an internal-proxy
+  request it also carries `ownerId`, a truncated hash of the website's
+  per-customer owner token. Neither raw value is stored. A row is written after
+  the compliance gate and before the browser navigates, so a refused request
+  writes none. Responses do not change. The `impit` try writes its own row
+  (`engine: "impit"`), and a second row when it falls through to the browser.
+  New `recordStealthEscalation()` in `src/utils/complianceAudit.js`, and
+  `tests/unit/escalationAudit.test.js` (8 tests).
+
+### Fixed
+
+- **`robots_override` audit rows no longer read `apiKeyId: "anonymous"` on a
+  live server.** No call site passes `apiKey` to `robotsPreflight`, so it now
+  falls back to the key the server runs under. On internal-proxy requests it
+  also adds `ownerId`, the same as the escalation row.
+
+### Documentation
+
+- **`impit` spike, recorded in `docs/STEALTH_REVIEW_2026-09.md` Phase 7.**
+  Measured against the section 2.2 walls from a residential IP: 4 HTTP runs, 1
+  browser run. What it found:
+  - quora.com refuses Node's TLS and lets a Chrome handshake through. The page
+    that came back, though, was the client app's error fallback, so the
+    spike's 4/4 "pass" was a false positive (corrected in the review doc).
+  - indeed.com passed a Chrome handshake carrying the honest CrawlForge UA
+    (3/4), but not one carrying a Chrome UA (0/4).
+  - harrods.com is a header wall, not a TLS wall.
+  - leboncoin passed 2/4 before DataDome learned the IP.
+  - stackoverflow and g2 are unchanged.
+
+  The hosted measurement is still pending.
 
 ## [6.10.0] - 2026-09-25
 

@@ -21,6 +21,36 @@
 
 ---
 
+## Stealth Review Phase 7 — `impit` step in escalation + audit rows (complete; hosted measurement pending)
+
+**Completed:** 2026-09-26 | **Version:** 6.10.0 tree, unreleased (new optional dependency `impit`; no credit change) | **Plan:** [`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md) §6 Phase 7
+
+**What it does:** When `scrape` has `escalate: true`, or the agent retries a walled page, under the default `"auto"` engine, a Chrome TLS handshake (`impit` `chrome151`) is tried before any browser launches.
+- **Identity:** it carries the honest `CrawlForge/<version>` User-Agent. The plain fetch never uses `impit`.
+- **Handover to the browser:** a page `impit` gets is kept only if it passes the document verdict and has at least 200 characters of visible text. Otherwise the browser runs as before.
+- **SSRF:** redirects are followed one hop at a time, and each hop is SSRF-checked with DNS resolution, because `impit` resolves DNS itself.
+- **Price:** unchanged at 2 + 5.
+- **Audit rows:** every escalation path writes a `stealth_escalation` compliance audit row, including one per `impit` try.
+- **Robots overrides:** `robots_override` rows now carry the server's key instead of `"anonymous"`.
+
+**Gate:**
+- `npm run test:unit`: **2490 tests / 2489 passed / 0 failed (186 files)**.
+- `npm test`: **100.0% COMPLIANT / 0 errors**.
+- **Live, residential IP, through a stdio server:**
+  - indeed.com: `scrape` `escalate: true` returned the real homepage via `impit` (8,546 characters, 953 ms, no browser).
+  - quora.com fell through to Chromium (424 characters).
+  - stackoverflow.com fell through to Chromium. The audit log shows an `impit` row, then a `chromium` row.
+
+**Correction to the spike:** quora.com's 4/4 `impit` "pass" was a false positive of our verdict. The page was the client app's "Something went wrong" fallback under a normal title. The 200-character floor sends it to the browser.
+
+**Open:**
+- The hosted-instance measurement, which needs a Render deploy.
+- The hybrid cookie-jar pattern (not approved).
+- Whether `impit` should also run in `stealth_mode`: allowed by the policy decision, not wired, because that tool is a browser by contract.
+- The plain-fetch verdict still passes a short fallback under a normal title (the quora case). Only the `impit` step guards against it.
+
+---
+
 ## Stealth Review Phase 6 — Legitimacy lane (reduced scope complete; registration blocked on the owner)
 
 **Completed:** 2026-09-26 | **Version:** 6.10.0 tree, unreleased (no code, credit or schema change) | **Plan:** [`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md) §6 Phase 6
