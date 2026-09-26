@@ -21,6 +21,18 @@
 
 ---
 
+## Stealth Review Phase 5 — Challenge interaction (approved scope complete; patchright spike on hold)
+
+**Completed:** 2026-09-25 | **Version:** 6.10.0 tree, unreleased (no credit or schema change) | **Plan:** [`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md) §6 Phase 5
+
+**What it does:** On Chromium, `scrapeWithStealth` clicks the Turnstile checkbox of a Cloudflare wall that is still up after the wait-out. It uses a fixed offset into the `challenges.cloudflare.com` frame's box, through `page.mouse`, with plain Playwright. Pages that only embed a widget are never clicked. Separately, the verdict layer no longer reports a block on a 200 page that only embeds a Turnstile widget. That was nowsecure.nl, which turned out not to be a wall at all.
+
+**Gate:** `npm run test:unit` **2468 tests / 0 failed (184 files)**; `npm test` **100.0% COMPLIANT / 0 errors**. The Phase 5 gate was replaced, by owner decision, with a local test-key page. On Cloudflare's forced-interactive sitekey, no click leaves no token and the click earns the dummy token, stable across 4 runs. **This proves the mechanism only, not a real-site bypass.** nowsecure.nl now reads Pass on the plain fetch and on both stealth engines, because of the verdict fix, not the click.
+
+**Not done:** cType detection (out of approved scope). The patchright spike and embedded-widget shadow-root access are on hold.
+
+---
+
 ## Stealth Review Phase 4 — Session persistence (Complete; gate passed on both engines, profile pool not built)
 
 **Completed:** 2026-09-25 | **Version:** 6.9.0 tree, unreleased (no credit or schema change) | **Plan:** [`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md) §6 Phase 4

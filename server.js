@@ -1520,6 +1520,7 @@ registerToolIfEnabled("stealth_mode", {
               title: await page.title().catch(() => null)
             };
             const challenge = detectChallengePage({
+              status: navigation.status,
               title: navigation.title || '',
               html: await page.content().catch(() => ''),
               text: await page.innerText('body').catch(() => '')

@@ -299,6 +299,7 @@ function fakeStealthPage() {
     waitForFunction: async () => {},
     waitForLoadState: async () => {},
     isClosed: () => false,
+    frames: () => [],
     screenshot: async () => 'shot'
   };
 }

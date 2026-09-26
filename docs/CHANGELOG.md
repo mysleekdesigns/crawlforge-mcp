@@ -5,6 +5,43 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+Phase 5 of the 2026-09 stealth review (challenge interaction), in the scope
+the owner approved: the Turnstile click and the nowsecure.nl verdict fix. The
+patchright spike is on hold.
+
+### Added
+
+- **Turnstile checkbox click (Chromium).** When a stealth render on Chromium
+  still carries a Cloudflare wall after the usual wait-out, and the page has a
+  `challenges.cloudflare.com` frame, `scrapeWithStealth` clicks the checkbox at
+  a fixed offset into that frame's box through `page.mouse`. This is plain
+  Playwright, with no patchright and no shadow-root access. It then waits for
+  the widget's token or a title change, and gives a wall that is now navigating
+  its usual wait-out. A page that merely embeds a widget is never clicked.
+  Camoufox is not clicked. Verified against a local page that loads Turnstile
+  with Cloudflare's forced-interactive test sitekey (`3x00000000000000000000FF`):
+  no click, no token; click, the dummy token. **That proves the mechanism
+  only.** It is not evidence that any real site's challenge accepts the click,
+  which still depends on the IP and fingerprint Cloudflare scores.
+
+### Fixed
+
+- **False block on a 200 page that only embeds a Turnstile widget.**
+  nowsecure.nl answers 200 to the honest CrawlForge UA with 43 visible
+  characters and two widgets on Cloudflare's test sitekey. It is not a wall,
+  and every "Blocked" recorded for it came from our own verdict layer. The
+  verdict now clears a 200 document that has a title and text, no challenge
+  bootstrap, no challenge wording and only widget markers. Real walls are 403
+  and stay blocked. An empty 200 shell with only the widget script also stays
+  a wall. `stealth_mode`'s `create_page` and the clearance jar's
+  discard-on-block now pass the HTTP status to the verdict too.
+- The benchmark's nowsecure.nl row is relabelled "Turnstile widget on a 200
+  page (test sitekey), not a wall", and is kept as the check that such a page
+  is not flagged.
+
+New `tests/unit/stealthPhase5.test.js` (15 tests, 2 of them live and skipped
+without network or Chromium).
+
 ## [6.10.0] - 2026-09-25
 
 Phase 4 of the 2026-09 stealth review: a bot-wall challenge solved once is not

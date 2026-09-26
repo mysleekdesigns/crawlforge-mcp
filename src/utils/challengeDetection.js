@@ -76,7 +76,27 @@ function looksLikeRealPage({ title = '', text = '' }) {
 }
 
 /**
- * @param {{ title?: string, html?: string, text?: string }} page
+ * A page the server answered 200 that carries only a Turnstile widget: no
+ * bootstrap (the caller has already ruled that out) and none of the
+ * interstitial's prose. Cloudflare serves its walls as 403; a 200 with a
+ * widget is a page that embeds one. nowsecure.nl is exactly this — 200 to the
+ * honest CrawlForge UA, 43 visible characters and two widgets on Cloudflare's
+ * test sitekey — and every "Blocked" cell recorded for it came from this
+ * module, not from Cloudflare (2026-09-25). The status is what separates it
+ * from a widget-only wall, which the length floor cannot; without a status the
+ * floor still decides. It still has to be a document — a title and some text —
+ * so an empty 200 shell carrying only the widget script stays a wall, as
+ * Phase 1 decided.
+ */
+function looksLikeWidgetOnlyPage({ status, title = '', text = '' }) {
+  if (status !== 200) return false;
+  const visible = String(text).replace(/\s+/g, ' ').trim();
+  if (!String(title).trim() || !visible) return false;
+  return !INTERSTITIAL_PROSE.test(`${title} ${visible}`);
+}
+
+/**
+ * @param {{ title?: string, html?: string, text?: string, status?: number|null }} page
  * @returns {{ vendor: string, evidence: string } | null}
  */
 export function detectChallengePage(page = {}) {
@@ -87,6 +107,7 @@ export function detectChallengePage(page = {}) {
   // response input on a short page.
   if (!hit || hit.vendor !== 'cloudflare') return hit;
   if (looksLikeInterstitial(page)) return hit;
+  if (looksLikeWidgetOnlyPage(page)) return null;
   return looksLikeRealPage(page) ? null : hit;
 }
 
