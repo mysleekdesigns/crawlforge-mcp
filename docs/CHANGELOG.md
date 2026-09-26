@@ -5,6 +5,13 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.11.0] - 2026-09-26
+
+Stealth review Phases 5, 6 and 7. The main user-visible change: `scrape` with
+`escalate: true` (and the agent's stealth retry) now tries a Chrome TLS
+handshake with the honest User-Agent (`impit`, a new optional dependency)
+before launching a browser. The price is unchanged.
+
 Phase 5 of the 2026-09 stealth review (challenge interaction), in the scope
 the owner approved: the Turnstile click and the nowsecure.nl verdict fix. The
 patchright spike is on hold.
