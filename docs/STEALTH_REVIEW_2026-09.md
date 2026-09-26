@@ -2,7 +2,7 @@
 
 Date: 2026-09-21. Reviewed at v6.7.0 (commit `4f8b3ea`). Findings and a phased plan.
 
-**Status:** Phases 0 and 1 shipped on 2026-09-21, Phase 2 on 2026-09-21/22, Phase 3 (agent browsing) on 2026-09-22, Phase 4 (session persistence, without the profile pool) on 2026-09-25, Phase 5 (challenge interaction, in the scope the owner approved) on 2026-09-25 and Phase 6 (legitimacy lane, reduced scope: write-ups, one item declined, one replaced) on 2026-09-26; each phase records its own completion and measurements in section 6. Phase 7 is unimplemented and still needs decision 6 in section 7. The findings in section 3 describe v6.7.0 as reviewed — where Phase 1 changed one, its checklist says so.
+**Status:** Phases 0 and 1 shipped on 2026-09-21, Phase 2 on 2026-09-21/22, Phase 3 (agent browsing) on 2026-09-22, Phase 4 (session persistence, without the profile pool) on 2026-09-25, Phase 5 (challenge interaction, in the scope the owner approved) on 2026-09-25 and Phase 6 (legitimacy lane, reduced scope: write-ups, one item declined, one replaced) on 2026-09-26; each phase records its own completion and measurements in section 6. Phase 7's policy question was decided and its spike run on 2026-09-26. The spike found a TLS-only wall, so building the `impit` rung waits on a second owner decision; escalation audit rows shipped in the same phase. The findings in section 3 describe v6.7.0 as reviewed — where Phase 1 changed one, its checklist says so.
 
 ## 1. Summary
 
@@ -402,13 +402,61 @@ Verify: a signed navigation to a Cloudflare zone that has opted in returns the p
 
 ### Phase 7 (decision required): browser-impersonated HTTP rung
 
+**Spike completed:** 2026-09-26, in the scope the owner approved:
+- Identity option 4 (below).
+- Spike first, with no dependency added.
+- No price change.
+- Escalation audit rows.
+
+**The spike found a TLS-only wall, so the rung was not built.** Building it and pricing it need a second owner go-ahead. The audit rows shipped. Hosted measurement is pending (below).
+
 Goal: pass TLS-and-header-only walls without a browser, at roughly a hundredth of the cost.
 
-- [ ] Evaluate `impit` as an optional client between the plain fetch and the browser.
-- [ ] Resolve the policy conflict first: it only works by presenting a Chrome or Firefox TLS profile and UA, which contradicts the honest `CrawlForge/<version>` identity (ground rule G4). Options are: never, opt-in per call with the override recorded against the API key like `respect_robots: false`, or only behind a signed-agent header.
-- [ ] If adopted, use it for the hybrid pattern: browser acquires cookies, `impit` does bulk requests with the jar from Phase 4.
+- [ ] Evaluate `impit` as an optional client between the plain fetch and the browser. — **Spike done, rung not built.** `impit` 0.14.5 is Apache-2.0, needs Node ≥ 20, and ships prebuilt native binaries for macOS, Linux (gnu and musl) and Windows. It was installed in a scratch directory outside the repo, so `package.json` is unchanged, and measured against the section 2.2 wall list (table below). **It clears one wall that the plain fetch cannot and that no header change on Node's TLS stack clears: quora.com**, 4 runs out of 4. The rung itself is not built. Where it would sit in `scrape`'s escalation stage, and what it would cost, are the owner's call.
+- [x] Resolve the policy conflict first: it only works by presenting a Chrome or Firefox TLS profile and UA, which contradicts the honest `CrawlForge/<version>` identity (ground rule G4). Options are: never, opt-in per call with the override recorded against the API key like `respect_robots: false`, or only behind a signed-agent header. — **Decided 2026-09-26: a fourth option, not one of the three listed.** `impit` may run only inside the escalation stage that already exists: `scrape` with `escalate: true`, `stealth_mode`, and the agent's stealth retry. It would be a cheaper first try before the browser launches. Those paths already present a browser identity through the stealth browser, so G4's posture does not change, and the plain fetch stays honest `CrawlForge/<version>`. As part of the same decision, every one of those paths now writes a compliance audit row (next item but one).
+- [ ] If adopted, use it for the hybrid pattern: browser acquires cookies, `impit` does bulk requests with the jar from Phase 4. — **Not started, because the rung is not adopted.** One fact for whoever picks it up: `impit` ships `chrome151` and `firefox135` profiles. Those match the installed Chromium 151 and the pinned Camoufox 135, and a `cf_clearance` cookie is bound to the User-Agent and the IP it was earned with. Whether Cloudflare also binds it to the TLS fingerprint was not measured.
+- [x] **Added by owner decision (2026-09-26): escalation writes a compliance audit row.** Three paths now write one `stealth_escalation` row through `recordStealthEscalation()` in `src/utils/complianceAudit.js`: `scrape`'s escalation stage (`tool: "scrape"`), the agent's stealth retry (`tool: "agent"`), and `stealth_mode`'s `scrape` and `create_page` navigations (`tool: "stealth_mode"`). Each row goes to the same `logs/compliance-audit.log` a `respect_robots: false` override goes to. The row carries:
+  - the URL, the tool and the resolved engine;
+  - `apiKeyId`, a truncated SHA-256 of the configured API key;
+  - on an internal-proxy request (the hosted REST path, where every request authenticates with the service's own key), `ownerId`, a truncated hash of the website's per-customer owner token.
+
+  A row is written only after the compliance gate has passed and before the browser navigates. A robots or blocklist refusal presents no browser identity, so it writes none. The caller sees no new warning. Tests: `tests/unit/escalationAudit.test.js`.
+
+  **Found along the way, not fixed (outside this scope):** the existing `robots_override` row in `robotsGate.js` is keyed by `options.apiKey`, and no production call site passes one. On a live server every `respect_robots: false` row therefore reads `apiKeyId: "anonymous"`. The new rows read the key from `AuthManager` themselves, so they are not affected.
+
+#### The spike
+
+Residential Comcast IP (AS7922), the same network as the section 2 baseline, on 2026-09-26: four runs of every HTTP column and one run of each browser engine. Browsers ran only where the plain fetch was blocked, as in the harness. Every cell is our own verdict (`stealthDocumentVerdict`), which is the same rule the harness applies. Cells are passes out of runs.
+
+| Target | Vendor | Plain fetch (honest UA, Node TLS) | Node TLS + Chrome 151 headers | `impit` chrome151 | `impit` chrome151 TLS + honest UA | `impit` firefox135 | Chromium stealth | Camoufox |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **quora.com** | Cloudflare | 0/4 | 0/4 | **4/4** | **4/4** | 0/4 | 1/1 | 0/1 |
+| indeed.com (reviews) | Cloudflare | 0/4 | 0/4 | 0/4 | **3/4** | 0/4 | 1/1 | 0/1 |
+| leboncoin.fr | DataDome | 0/4 | 0/4 | 2/4 | 0/4 | 2/4 | 0/1 | 0/1 |
+| harrods.com | Akamai | 0/4 | **4/4** | 0/4 | 0/4 | 4/4 | 1/1 | 1/1 |
+| stackoverflow.com/questions | Cloudflare | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 1/1 | 1/1 |
+| g2.com | DataDome | 0/4 | 0/4 | 0/4 | 0/4 | 0/4 | 0/1 | 0/1 |
+| carvana.com | Cloudflare | 3/3 | **0/3** | 3/3 | 3/3 | 3/3 | not run | not run |
+| nowsecure.nl, producthunt, lesswrong, zalando | — | 1/1 each | 1/1 each | 1/1 each | 1/1 each | 1/1 each | not run | not run |
+| trustpilot.com | DataDome | skipped: robots.txt | skipped | skipped | skipped | skipped | skipped | skipped |
+
+What each row says:
+
+- **quora.com is a TLS-only wall, by the phase's own definition.** Node's TLS stack is refused with either User-Agent, and a Chrome handshake is let through with either. It is the only target where the result does not depend on the headers at all. `impit` returned the real login page: the right title, but 59 characters of text where the browser got 348.
+- **indeed.com is walled by TLS and headers together.** A Chrome handshake carrying the *honest* `CrawlForge/<version>` UA passed 3 runs of 4. The same handshake carrying a Chrome UA failed all 4, and Node's handshake failed with either UA. It is the one result here that a rung keeping the honest UA would get. The TLS layer still claims to be Chrome.
+- **leboncoin.fr passed 2 of 4 and then stopped.** The first two runs passed on both `impit` profiles, and the last two failed on every column, browsers included. That is DataDome learning the IP after repeated hits, the same noise section 2.2 warned about for this row.
+- **harrods.com is a header wall, not a TLS wall.** Node's own TLS with Chrome headers passes 4/4. `impit`'s chrome151 profile fails 4/4 on Akamai, while firefox135 passes.
+- **carvana.com is the inverse.** The honest fetch passes, and Chrome headers on Node's TLS are challenged. That mismatch is exactly what a TLS-aware wall looks for, and it is why a rung built from headers alone would be worse than none.
+- **stackoverflow and g2 are unchanged.** stackoverflow's managed challenge still needs a browser, and DataDome on g2 stops everything.
+- **Engine noise, as before.** Chromium passed indeed.com and quora.com today and Camoufox did not. That is the reverse of section 2.2, and consistent with the Phase 2 finding that the engine ranking depends on the exit IP.
+
+**Hosted measurement: pending.** Running `impit` from the Render instance needs a deploy, which this phase did not do. Every datacenter row in section 2 was worse than its residential one, so these numbers are the best case.
+
+The spike script lived in the session scratchpad, not in the repo, because `impit` is not a dependency. The columns are reproducible: `new Impit({ browser: 'chrome151' | 'firefox135' })`, the same verdict, and the section 2.2 target list from `scripts/lib/stealth-bench/targets.js`.
 
 Verify: a TLS-only wall (one that blocks the plain fetch but serves curl-impersonate) passes without launching a browser.
+
+- [ ] **Met by the spike, not by the product.** quora.com blocks the plain fetch and passes `impit` with no browser, 4/4. There is no rung in CrawlForge yet, so no CrawlForge call does this.
 
 ## 7. Decisions needed from the owner
 
@@ -417,7 +465,7 @@ Verify: a TLS-only wall (one that blocks the plain fetch but serves curl-imperso
 3. Whether to add a server-level proxy setting and document bring-your-own residential proxies (Phase 2).
 4. ~~Whether the agent may spend escalation credits automatically (Phase 3).~~ **Decided 2026-09-22: yes, automatically, capped at 2 retries a run (18 credits worst case), shipped in Phase 3.**
 5. Whether to apply to Cloudflare's signed-agents directory (Phase 6). This publicly identifies CrawlForge traffic. **Still open (2026-09-26), now with its prerequisites written up** in [`policy/CLOUDFLARE_VERIFIED_BOTS.md`](./policy/CLOUDFLARE_VERIFIED_BOTS.md). The directory response must be signed first, which is a website change, and three crawl-side points should be settled before applying. Signing browser navigations (Phase 6 item 2) was declined.
-6. The `impit` policy question (Phase 7).
+6. ~~The `impit` policy question (Phase 7).~~ **Decided 2026-09-26:** `impit` may run only inside the existing escalation stage (`escalate: true`, `stealth_mode`, the agent's stealth retry) as a cheaper try before the browser. The plain fetch stays honest. Escalation now writes a compliance audit row. The spike found a TLS-only wall (quora.com, 4/4), so **a second decision is now open: whether to build the rung, and what to charge for it.** Hosted measurement is still pending.
 7. Whether to build the Phase 4 persistent Chromium profile pool at all, and if so only per caller on self-hosted deployments. A shared profile on the hosted instance would carry one customer's logins into another customer's calls.
 
 ## 8. Sources

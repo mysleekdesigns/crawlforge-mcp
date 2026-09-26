@@ -74,6 +74,48 @@ approved. No code change.
   - an expired entry skips nothing;
   - the skip path still runs the real robots gate before any browser.
 
+Phase 7 of the same review (browser-impersonated HTTP rung). The owner
+decided `impit` may only ever run inside the existing escalation stage, never
+on the plain fetch, and asked for a spike first. The spike found a TLS-only
+wall, so the rung waits on a second decision. Escalation audit rows shipped.
+
+### Added
+
+- **Compliance audit row for escalation.** A `stealth_escalation` row now goes
+  to `logs/compliance-audit.log`, the same log a `respect_robots: false`
+  override goes to. Three paths write it: `scrape` with `escalate: true`, the
+  agent's stealth retry, and `stealth_mode` (`scrape`, and `create_page` with a
+  `urlToTest`). The row carries the URL, the tool, the resolved engine and
+  `apiKeyId`, a truncated SHA-256 of the configured key. On an internal-proxy
+  request it also carries `ownerId`, a truncated hash of the website's
+  per-customer owner token. Neither raw value is stored. A row is written after
+  the compliance gate and before the browser navigates, so a refused request
+  writes none. Responses do not change. New `recordStealthEscalation()` in
+  `src/utils/complianceAudit.js`, and `tests/unit/escalationAudit.test.js`
+  (8 tests).
+
+### Documentation
+
+- **`impit` spike, recorded in `docs/STEALTH_REVIEW_2026-09.md` Phase 7.**
+  Measured against the section 2.2 walls from a residential IP: 4 HTTP runs, 1
+  browser run. No dependency was added. What it found:
+  - **quora.com is a TLS-only wall.** Node's TLS is refused with either
+    User-Agent, and a Chrome handshake passes with either, 4 runs out of 4.
+  - indeed.com passed a Chrome handshake carrying the honest CrawlForge UA
+    (3/4), but not one carrying a Chrome UA (0/4).
+  - harrods.com is a header wall, not a TLS wall.
+  - leboncoin passed 2/4 before DataDome learned the IP.
+  - stackoverflow and g2 are unchanged.
+
+  The rung was not built, and building and pricing it need an owner go-ahead.
+  The hosted measurement is pending.
+
+### Known issue
+
+- `robots_override` audit rows read `apiKeyId: "anonymous"` on a live server,
+  because no call site passes `apiKey` to `robotsPreflight`. The new escalation
+  rows are not affected. Not fixed in this phase.
+
 ## [6.10.0] - 2026-09-25
 
 Phase 4 of the 2026-09 stealth review: a bot-wall challenge solved once is not

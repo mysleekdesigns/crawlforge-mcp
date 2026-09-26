@@ -21,6 +21,22 @@
 
 ---
 
+## Stealth Review Phase 7 — `impit` spike + escalation audit rows (spike complete; building the rung awaits a second owner decision)
+
+**Completed:** 2026-09-26 | **Version:** 6.10.0 tree, unreleased (no credit, schema or dependency change) | **Plan:** [`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md) §6 Phase 7
+
+**What it does:** Settles the `impit` identity question. `impit` may only run inside the existing escalation stage, and the plain fetch stays honest. The spike ran `impit` 0.14.5 from outside the repo against the section 2.2 walls from a residential IP. It found a **TLS-only wall** (quora.com: Node TLS 0/4, a Chrome handshake 4/4 with either User-Agent). By the owner's rule, that means the rung is **not built** until a second go-ahead on building and pricing it. Separately, `scrape` escalation, the agent's stealth retry and `stealth_mode` now write a `stealth_escalation` compliance audit row: hashed key, hashed owner on internal-proxy requests, tool, resolved engine and URL, written after the gate and before navigation.
+
+**Gate:** `npm run test:unit` **2479 tests / 2478 passed / 0 failed (185 files)**; `npm test` **100.0% COMPLIANT / 0 errors**. The phase's own gate, a TLS-only wall passing with no browser, was **met by the spike, not by the product**, because the rung does not exist yet.
+
+**Open:**
+- The owner's decision on building and pricing the rung.
+- The hosted-instance measurement, which needs a Render deploy.
+- The hybrid cookie-jar pattern.
+- A known issue found along the way: `robots_override` audit rows read `apiKeyId: "anonymous"` in production, because no call site passes `apiKey`.
+
+---
+
 ## Stealth Review Phase 6 — Legitimacy lane (reduced scope complete; registration blocked on the owner)
 
 **Completed:** 2026-09-26 | **Version:** 6.10.0 tree, unreleased (no code, credit or schema change) | **Plan:** [`STEALTH_REVIEW_2026-09.md`](./STEALTH_REVIEW_2026-09.md) §6 Phase 6

@@ -59,7 +59,8 @@ import { READ_RESULT_INPUT_SHAPE, readResultHandler } from "./src/tools/result/r
 import { MAX_INLINE_CHARS_PARAM } from "./src/server/inlineThreshold.js"; // Phase 2
 import { REDACT_PII_PARAM } from "./src/server/redaction.js"; // Phase 5 (5.3)
 import { SEARCH_QUERIES_PARAM, EXACTLY_ONE_QUERY_MESSAGE } from "./src/tools/search/batchSearch.js"; // Phase 5 (5.1)
-import { markPreflightRefusal } from "./src/server/requestContext.js";
+import { markPreflightRefusal, internalOwnerToken } from "./src/server/requestContext.js";
+import { recordStealthEscalation } from "./src/utils/complianceAudit.js";
 // D1.1 Resources + D1.2 Prompts + D1.4 Elicitation
 import { ResourceRegistry, MAX_RESOURCE_BLOB_BYTES } from "./src/resources/ResourceRegistry.js";
 import { PROMPTS, getPromptMessages } from "./src/prompts/PromptRegistry.js";
@@ -251,7 +252,7 @@ const scrapeTemplateTool = new ScrapeTemplateTool(); // D3.3
 // and same browser the stealth_mode tool drives — no new evasion, and the
 // engine name is resolved here, beside its sibling, by the one resolver
 // every stealth entry point shares.
-const stealthEscalation = async ({ url, engine, respectRobots }) => {
+const stealthEscalation = async ({ url, engine, respectRobots, tool }) => {
   const warnings = await stealthComplianceGate(url, respectRobots);
   // "auto" prefers camoufox and falls back to chromium when its binary is
   // missing. Mapping here instead ("camoufox" or else chromium) collapsed
@@ -259,6 +260,12 @@ const stealthEscalation = async ({ url, engine, respectRobots }) => {
   // landed on and why, and the caller is told.
   const resolved = await resolveStealthEngine(engine);
   if (resolved.fallbackWarning) warnings.push(resolved.fallbackWarning);
+  // Audit row: the request is about to go out under a browser identity. After
+  // the gate (a refusal presents none) and the resolver (the engine that runs).
+  recordStealthEscalation({
+    url, tool, engine: resolved.engine,
+    apiKey: AuthManager.getConfig()?.apiKey, ownerToken: internalOwnerToken()
+  });
   const scraped = await stealthBrowserManager.scrapeWithStealth({
     url,
     engine: resolved.engine
@@ -269,9 +276,9 @@ const stealthEscalation = async ({ url, engine, respectRobots }) => {
 };
 const unifiedScrapeTool = new UnifiedScrapeTool({
   actionExecutor: scrapeWithActionsTool.actionExecutor, // D4 D1 (+v4.8 screenshot reuses the shared browser pool)
-  escalateScrape: stealthEscalation
+  escalateScrape: (args) => stealthEscalation({ ...args, tool: 'scrape' })
 });
-const agentTool = new AgentTool({ escalateFetch: stealthEscalation }); // D4 D2 + stealth review Phase 3
+const agentTool = new AgentTool({ escalateFetch: (args) => stealthEscalation({ ...args, tool: 'agent' }) }); // D4 D2 + stealth review Phase 3
 const stealthBrowserManager = new StealthBrowserManager();
 const localizationManager = new LocalizationManager();
 
@@ -1419,6 +1426,11 @@ registerToolIfEnabled("stealth_mode", {
         const resolvedEngine = await resolveStealthEngine(engine);
         if (resolvedEngine.fallbackWarning) warnings.push(resolvedEngine.fallbackWarning);
 
+        recordStealthEscalation({
+          url, tool: 'stealth_mode', engine: resolvedEngine.engine,
+          apiKey: AuthManager.getConfig()?.apiKey, ownerToken: internalOwnerToken()
+        });
+
         const wantsScreenshot = formats.includes('screenshot');
         const scraped = await stealthBrowserManager.scrapeWithStealth({
           url,
@@ -1507,6 +1519,11 @@ registerToolIfEnabled("stealth_mode", {
         let navigation = null;
         try {
           if (urlToTest) {
+            recordStealthEscalation({
+              url: urlToTest, tool: 'stealth_mode',
+              engine: stealthBrowserManager.contexts.get(contextId)?.config?.engine ?? null,
+              apiKey: AuthManager.getConfig()?.apiKey, ownerToken: internalOwnerToken()
+            });
             // page.goto returns a Playwright Response handle, which is not
             // JSON-serializable — extract just the useful navigation details.
             // Explicit timeout keeps navigation inside every caller's window
