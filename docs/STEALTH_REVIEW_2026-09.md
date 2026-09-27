@@ -470,6 +470,14 @@ What each row says:
 
 That is also why a hosted measurement through the REST `scrape` would not exercise `impit`. The hosted MCP endpoint accepts only its own service key, OAuth, or the website's internal secret.
 
+**How the hosted measurement will be taken (owner decision, 2026-09-27):** `scripts/impit-probe.mjs`, run in the Render shell after a deploy, with its output pasted here. It calls the shipped `impitFetchPage`, so the verdict, the 200-character floor and the SSRF check are the product's own. It also runs the plain-fetch column, skips robots-disallowed targets, launches no browser and spends no credits. It is in the image through its own `.dockerignore` exception. Its result decides whether the website's REST `scrape` escalation should gain the step (the owner deferred that decision until then).
+
+```
+node scripts/impit-probe.mjs --runs=3
+```
+
+The residential reference, one run on 2026-09-27: indeed.com (reviews page) passed via `impit` with 11,579 characters of text. quora, harrods, g2, stackoverflow and leboncoin gave no page. The targets the plain fetch already passes also passed via `impit`, except nowsecure.nl: its 43 characters of text are under the floor, and it is not a wall.
+
 The spike script lived in the session scratchpad, not in the repo, because `impit` was not a dependency then. The columns are reproducible: `new Impit({ browser: 'chrome151' | 'firefox135' })`, the same verdict, and the section 2.2 target list from `scripts/lib/stealth-bench/targets.js`.
 
 Verify: a TLS-only wall (one that blocks the plain fetch but serves curl-impersonate) passes without launching a browser.

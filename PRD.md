@@ -12,6 +12,7 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 - **Hybrid cookie pattern declined by the owner:** `cf_clearance` is bound to the User-Agent it was earned with, so replaying it through `impit` would need a browser UA.
 - **App-error false pass:** fixed upstream in `crawlforge-extractors` 1.10.0 (`documentVerdict`: a document under 200 characters whose text opens with an app error phrase is a soft block). It is prepared and tagged, and is waiting for the owner's `npm publish`; after that, both consumers bump.
 - **Found:** the website's REST `scrape` escalates through `stealth_mode` with engine `playwright`, so REST callers never reach the `impit` step.
+- **Hosted measurement:** new `scripts/impit-probe.mjs`, included in the image. It will run in the Render shell after the next deploy, and its result decides REST parity.
 
 **Stealth review Phase 7 — `impit` step built (2026-09-26, unreleased).** Second owner decision after the spike: build the step with the honest User-Agent, keep the price at 2 + 5, and fix the anonymous robots-override key.
 - **The step:** new `src/utils/impitRung.js`, called first in `server.js`'s `stealthEscalation`, for `scrape` `escalate: true` and the agent's stealth retry. It runs only under the `"auto"` engine, uses `impit` `chrome151` TLS with the honest `CrawlForge/<version>` User-Agent, and does not run in `stealth_mode`. `impit` 0.14.5 is a new `optionalDependency`; when it is absent, behaviour is unchanged.

@@ -38,6 +38,8 @@ scripts/
 # scripts/ stays out — these two entries are the whole harness.
 !scripts/stealth-bench.mjs
 !scripts/lib/stealth-bench/
+# The impit step's probe (stealth review Phase 7): same reason, the hosted exit IP.
+!scripts/impit-probe.mjs
 tools/
 
 # Environment files

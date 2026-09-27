@@ -5,6 +5,15 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Added
+
+- `scripts/impit-probe.mjs` measures the escalation stage's `impit` step
+  against the stealth benchmark's walls from whatever host runs it, next to
+  the plain fetch. It calls the shipped `impitFetchPage`, honours robots.txt,
+  launches no browser and spends no credits. It is included in the Docker
+  image so it can run in the Render shell: `node scripts/impit-probe.mjs
+  --runs=3`.
+
 ### Documentation
 
 - The hybrid pattern from stealth review Phase 7 (the browser earns the
