@@ -5,6 +5,17 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Documentation
+
+- The hybrid pattern from stealth review Phase 7 (the browser earns the
+  clearance cookie and `impit` replays it) is declined. A `cf_clearance`
+  cookie is bound to the User-Agent it was earned with, so replaying it would
+  mean `impit` sends a browser UA, reversing the honest-User-Agent decision.
+- Recorded in the review doc: the website's REST `scrape` escalates through
+  `stealth_mode` with engine `playwright`, so REST callers never reach the
+  `impit` step. Only the website's `agent` route and direct OAuth MCP clients
+  do.
+
 ## [6.11.0] - 2026-09-26
 
 Stealth review Phases 5, 6 and 7. The main user-visible change: `scrape` with
