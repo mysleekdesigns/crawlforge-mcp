@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 process.env.ALLOWED_DOMAINS = 'example.com,www.example.com';
 delete process.env.SSRF_PROTECTION_ENABLED;
 
-const { impitFetchPage, loadImpit, IMPIT_ENGINE } = await import('../../src/utils/impitRung.js');
+const { impitFetchPage, loadImpit, impitEnabled, IMPIT_ENGINE } = await import('../../src/utils/impitRung.js');
 const { CRAWLFORGE_USER_AGENT } = await import('../../src/utils/fetchIdentity.js');
 
 const PAGE = '<html><head><title>Real page</title></head><body><p>' +
@@ -132,4 +132,31 @@ describe('impitFetchPage', () => {
 test('loadImpit finds the installed optional dependency', async () => {
   const Impit = await loadImpit();
   assert.equal(typeof Impit, 'function');
+});
+
+test('CRAWLFORGE_IMPIT=off turns the step off for a deployment; anything else leaves it on', () => {
+  const saved = process.env.CRAWLFORGE_IMPIT;
+  try {
+    delete process.env.CRAWLFORGE_IMPIT;
+    assert.equal(impitEnabled(), true);
+    for (const value of ['off', 'OFF', ' off ']) {
+      process.env.CRAWLFORGE_IMPIT = value;
+      assert.equal(impitEnabled(), false, value);
+    }
+    for (const value of ['', 'on', 'true', '0']) {
+      process.env.CRAWLFORGE_IMPIT = value;
+      assert.equal(impitEnabled(), true, value);
+    }
+  } finally {
+    if (saved === undefined) delete process.env.CRAWLFORGE_IMPIT;
+    else process.env.CRAWLFORGE_IMPIT = saved;
+  }
+});
+
+test('server.js asks impitEnabled() before the impit try', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../../server.js', import.meta.url), 'utf8');
+  const stage = src.slice(src.indexOf('const stealthEscalation = async'));
+  assert.match(stage, /if \(engine === 'auto' && impitEnabled\(\) && await loadImpit\(\)\)/);
+  assert.ok(stage.indexOf('impitEnabled()') < stage.indexOf('impitFetchPage('), 'the switch is read before the request');
 });

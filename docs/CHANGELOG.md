@@ -7,6 +7,11 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
 
 ### Added
 
+- **`CRAWLFORGE_IMPIT=off`** skips the escalation stage's `impit` step for a
+  whole deployment. Like the stealth engine, whether it helps depends on the
+  exit IP: it cleared indeed.com from a residential IP and nothing from the
+  hosted instance's datacenter IP. So `render.yaml` sets it off on the hosted
+  service, and npm installs keep it on. Read on every call.
 - `scripts/impit-probe.mjs` measures the escalation stage's `impit` step
   against the stealth benchmark's walls from whatever host runs it, next to
   the plain fetch. It calls the shipped `impitFetchPage`, honours robots.txt,
@@ -31,6 +36,9 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
   Phase 7. From the Render instance's AWS Ashburn IP, the `impit` step cleared
   none of the stealth benchmark's walls in 3 runs; it returned pages only where
   the plain fetch already did. From a residential IP it clears indeed.com.
+- The website's REST `scrape` escalation stays browser-only (owner decision
+  after the hosted measurement), and is recorded as a deliberate difference
+  from the MCP server.
 - The hybrid pattern from stealth review Phase 7 (the browser earns the
   clearance cookie and `impit` replays it) is declined. A `cf_clearance`
   cookie is bound to the User-Agent it was earned with, so replaying it would

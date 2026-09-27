@@ -236,6 +236,11 @@ CRAWLFORGE_STEALTH_PROXIES=          # comma-separated proxy URLs used by the es
                                      # from the PROXY_ROTATION_* family, which belongs to
                                      # localization. The agent's automatic stealth retry
                                      # (stealth review Phase 3) reads it too.
+CRAWLFORGE_IMPIT=                    # `off` skips escalation's impit step (a Chrome TLS handshake with
+                                     # the honest UA, tried before the browser; stealth review Phase 7).
+                                     # Exit-IP dependent like the engine: it cleared indeed.com from a
+                                     # residential IP and nothing from the hosted datacenter IP, so
+                                     # render.yaml sets it off there. Measure with scripts/impit-probe.mjs.
 CRAWLFORGE_CLEARANCE_JAR=            # `off` disables the clearance jar (stealth review Phase 4):
                                      # cf_clearance/__cf_bm/datadome cookies a stealth render earned
                                      # are replayed to the next stealth context with the same engine,

@@ -61,7 +61,7 @@ import { REDACT_PII_PARAM } from "./src/server/redaction.js"; // Phase 5 (5.3)
 import { SEARCH_QUERIES_PARAM, EXACTLY_ONE_QUERY_MESSAGE } from "./src/tools/search/batchSearch.js"; // Phase 5 (5.1)
 import { markPreflightRefusal, internalOwnerToken } from "./src/server/requestContext.js";
 import { recordStealthEscalation } from "./src/utils/complianceAudit.js";
-import { loadImpit, impitFetchPage, IMPIT_ENGINE } from "./src/utils/impitRung.js"; // stealth review Phase 7
+import { loadImpit, impitEnabled, impitFetchPage, IMPIT_ENGINE } from "./src/utils/impitRung.js"; // stealth review Phase 7
 // D1.1 Resources + D1.2 Prompts + D1.4 Elicitation
 import { ResourceRegistry, MAX_RESOURCE_BLOB_BYTES } from "./src/resources/ResourceRegistry.js";
 import { PROMPTS, getPromptMessages } from "./src/prompts/PromptRegistry.js";
@@ -259,7 +259,8 @@ const stealthEscalation = async ({ url, engine, respectRobots, tool }) => {
   // Stealth review Phase 7: under "auto", a Chrome TLS handshake with the
   // honest User-Agent is tried before any browser launches. A caller who
   // named an engine asked for that browser, so it is not tried for them.
-  if (engine === 'auto' && await loadImpit()) {
+  // CRAWLFORGE_IMPIT=off skips it for a deployment whose exit IP it cannot help.
+  if (engine === 'auto' && impitEnabled() && await loadImpit()) {
     recordStealthEscalation({ url, tool, engine: IMPIT_ENGINE, ...auditIdentity });
     const page = await impitFetchPage(url);
     if (page) return { ...page, warnings };

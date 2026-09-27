@@ -88,6 +88,26 @@ Pinning the Camoufox binary to a version with a coherent persona did **not**
 change any of those wall outcomes, so this is about the engine and the IP, not
 about the fingerprint.
 
+### The `impit` step before the browser, and turning it off
+
+Since 6.11.0, the escalation stage behind `scrape` `escalate: true` and the
+agent's stealth retry first tries a Chrome TLS handshake that keeps the honest
+CrawlForge User-Agent (`impit`, an optional dependency). It runs only under
+`auto`, and the browser starts only when it does not get the page. It is not
+used by `stealth_mode`, and not when a caller names an engine.
+
+Like the engine choice, whether it helps **depends on the exit IP**:
+
+| Exit IP | Walls it cleared that the plain fetch could not |
+| --- | --- |
+| Residential (2026-09-26/27) | indeed.com |
+| Datacenter, AS14618 (2026-09-27, 3 runs) | **none** |
+
+`CRAWLFORGE_IMPIT=off` skips the step for a whole deployment. The hosted
+instance sets it, because from its address the step was only a failed request
+before every browser escalation. Measure your own egress with
+`node scripts/impit-probe.mjs --runs=3`.
+
 On Linux, Camoufox runs **virtual-headless** (Xvfb) rather than true headless,
 because a true-headless Firefox is itself a signal. That needs an X virtual
 framebuffer present in the image; macOS and Windows hosts are unaffected.

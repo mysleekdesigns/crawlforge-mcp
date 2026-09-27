@@ -79,6 +79,15 @@ services:
       # — that changes the exit IP, which is the variable this is keyed to.
       - key: CRAWLFORGE_STEALTH_ENGINE
         value: chromium
+      # The escalation stage's impit step (a Chrome TLS handshake with the
+      # honest UA, tried before the browser) is keyed to the exit IP the same
+      # way. From a residential IP it cleared indeed.com; from this box's
+      # datacenter address (AS14618, Ashburn) scripts/impit-probe.mjs found it
+      # cleared no wall in 3 runs (2026-09-27), so here it is only a failed
+      # request before every browser escalation. Off. Revisit with the engine
+      # pin above if a residential proxy is configured.
+      - key: CRAWLFORGE_IMPIT
+        value: "off"
       # CRAWLFORGE_API_KEY must be set in the dashboard (it's a secret).
       # Add it manually under "Environment" → "Add Environment Variable".
       - key: CRAWLFORGE_API_KEY

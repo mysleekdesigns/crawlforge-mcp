@@ -504,6 +504,10 @@ What it says:
 - **The browser still has a job on hosted.** Chromium passed indeed, quora, harrods and stackoverflow from this box on 2026-09-22 (`stealth-bench-baseline-2026-09-22-hosted.md`), so on the hosted instance the escalation's real work is still the browser's.
 - **What `impit` costs on hosted:** one failed request before the browser, plus its audit row. That only happens where it runs there: the website's `agent` route and direct OAuth MCP clients.
 
+**Owner decisions on the result (2026-09-27):**
+- **The website's REST `scrape` stays browser-only.** Its escalation runs on the hosted instance, where the step clears nothing. This is a deliberate, measured difference between the surfaces, not an oversight.
+- **Off on the hosted instance.** New `CRAWLFORGE_IMPIT=off` (read on every call by `impitEnabled()` in `src/utils/impitRung.js`) skips the step for a whole deployment, the way `CRAWLFORGE_STEALTH_ENGINE` pins the engine. `render.yaml` sets it on the Render service. npm installs keep the step on, which is where it helps. Revisit both settings together if a residential proxy is configured for the hosted box.
+
 The spike script lived in the session scratchpad, not in the repo, because `impit` was not a dependency then. The columns are reproducible: `new Impit({ browser: 'chrome151' | 'firefox135' })`, the same verdict, and the section 2.2 target list from `scripts/lib/stealth-bench/targets.js`.
 
 Verify: a TLS-only wall (one that blocks the plain fetch but serves curl-impersonate) passes without launching a browser.

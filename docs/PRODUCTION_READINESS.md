@@ -44,7 +44,7 @@
 **Correction to the spike:** quora.com's 4/4 `impit` "pass" was a false positive of our verdict. The page was the client app's "Something went wrong" fallback under a normal title. The 200-character floor sends it to the browser.
 
 **Open:**
-- ~~The hosted-instance measurement.~~ Taken 2026-09-27 with `scripts/impit-probe.mjs` from the Render shell. From the AWS Ashburn exit IP, `impit` cleared **no** wall in 3 runs; it returned pages only where the plain fetch already did. The table is in the review doc.
+- ~~The hosted-instance measurement.~~ Taken 2026-09-27 with `scripts/impit-probe.mjs` from the Render shell. From the AWS Ashburn exit IP, `impit` cleared **no** wall in 3 runs; it returned pages only where the plain fetch already did. The table is in the review doc. Decisions: REST stays browser-only, and `CRAWLFORGE_IMPIT=off` is set on Render via `render.yaml`.
 - The hybrid cookie-jar pattern (not approved).
 - Whether `impit` should also run in `stealth_mode`: allowed by the policy decision, not wired, because that tool is a browser by contract.
 - The plain-fetch verdict still passes a short fallback under a normal title (the quora case). Only the `impit` step guards against it.

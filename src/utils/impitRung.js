@@ -49,6 +49,19 @@ const MIN_UNRENDERED_TEXT_CHARS = 200;
 let impitClass; // undefined: not tried yet; null: unavailable
 
 /**
+ * Whether this deployment runs the step. `CRAWLFORGE_IMPIT=off` turns it off.
+ * Like the stealth engine, what it can clear depends on the exit IP: from a
+ * residential IP it cleared indeed.com, and from the hosted instance's
+ * datacenter IP (AS14618, Ashburn) it cleared nothing in 3 runs (2026-09-27),
+ * so render.yaml sets it off there. Read on every call, like the stealth
+ * proxy list, so an operator can change it without a restart.
+ * @returns {boolean}
+ */
+export function impitEnabled() {
+  return String(process.env.CRAWLFORGE_IMPIT || '').trim().toLowerCase() !== 'off';
+}
+
+/**
  * The Impit class, or null when the optional dependency is absent or its
  * native bindings do not load on this platform. Tried once per process.
  * @returns {Promise<Function|null>}
