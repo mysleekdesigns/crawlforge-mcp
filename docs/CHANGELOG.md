@@ -5,6 +5,14 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.12.0] - 2026-09-27
+
+Follow-ups to 6.11.0's `impit` step. A short app-error page under a normal
+title no longer passes as a page (from `crawlforge-extractors` 1.10.0). A new
+`CRAWLFORGE_IMPIT=off` setting turns the `impit` step off for a deployment
+whose exit IP it cannot help, and the hosted instance uses it. The price is
+unchanged.
+
 ### Added
 
 - **`CRAWLFORGE_IMPIT=off`** skips the escalation stage's `impit` step for a
