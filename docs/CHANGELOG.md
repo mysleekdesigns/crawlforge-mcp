@@ -27,6 +27,10 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
 
 ### Documentation
 
+- **Hosted `impit` measurement recorded** in `docs/STEALTH_REVIEW_2026-09.md`
+  Phase 7. From the Render instance's AWS Ashburn IP, the `impit` step cleared
+  none of the stealth benchmark's walls in 3 runs; it returned pages only where
+  the plain fetch already did. From a residential IP it clears indeed.com.
 - The hybrid pattern from stealth review Phase 7 (the browser earns the
   clearance cookie and `impit` replays it) is declined. A `cf_clearance`
   cookie is bound to the User-Agent it was earned with, so replaying it would

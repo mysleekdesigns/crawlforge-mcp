@@ -462,7 +462,7 @@ What each row says:
 - **stackoverflow and g2 are unchanged.** stackoverflow's managed challenge still needs a browser, and DataDome on g2 stops everything.
 - **Engine noise, as before.** Chromium passed indeed.com and quora.com today and Camoufox did not. That is the reverse of section 2.2, and consistent with the Phase 2 finding that the engine ranking depends on the exit IP.
 
-**Hosted measurement: pending.** Running `impit` from the Render instance needs a deploy, which this phase did not do. Every datacenter row in section 2 was worse than its residential one, so these numbers are the best case.
+**Hosted measurement: taken 2026-09-27 (below, after the residential reference). `impit` gets no wall from the hosted IP.** Every datacenter row in section 2 was worse than its residential one, and this one is too.
 
 **Found 2026-09-27: the website's REST `scrape` never reaches the `impit` step.** Its escalation stage (`crawlforge-website` `src/app/api/v1/tools/scrape/route.ts`, `escalateOrThrow`) runs its own plain fetch. It then calls the hosted server's `stealth_mode` (operation `scrape`), not `scrape`, and its `escalate_engine` enum is `playwright | camoufox` with `playwright` as the default, so there is no `"auto"`. On the hosted instance, `impit` therefore runs only for:
 - the website's `agent` route, which proxies to the MCP `agent`, whose retry uses `"auto"`;
@@ -470,13 +470,39 @@ What each row says:
 
 That is also why a hosted measurement through the REST `scrape` would not exercise `impit`. The hosted MCP endpoint accepts only its own service key, OAuth, or the website's internal secret.
 
-**How the hosted measurement will be taken (owner decision, 2026-09-27):** `scripts/impit-probe.mjs`, run in the Render shell after a deploy, with its output pasted here. It calls the shipped `impitFetchPage`, so the verdict, the 200-character floor and the SSRF check are the product's own. It also runs the plain-fetch column, skips robots-disallowed targets, launches no browser and spends no credits. It is in the image through its own `.dockerignore` exception. Its result decides whether the website's REST `scrape` escalation should gain the step (the owner deferred that decision until then).
+**How the hosted measurement will be taken (owner decision, 2026-09-27):** `scripts/impit-probe.mjs`, run in the Render shell after a deploy, with its output pasted here. It calls the shipped `impitFetchPage`, so the verdict, the 200-character floor and the SSRF check are the product's own. It also runs the plain-fetch column, skips robots-disallowed targets, launches no browser and spends no credits. It is in the image through its own `.dockerignore` exception. Its result decides whether the website's REST `scrape` escalation should gain the step (the owner deferred that decision until then). The result, below, is no gain from the hosted IP.
 
 ```
 node scripts/impit-probe.mjs --runs=3
 ```
 
 The residential reference, one run on 2026-09-27: indeed.com (reviews page) passed via `impit` with 11,579 characters of text. quora, harrods, g2, stackoverflow and leboncoin gave no page. The targets the plain fetch already passes also passed via `impit`, except nowsecure.nl: its 43 characters of text are under the floor, and it is not a wall.
+
+#### Hosted measurement, 2026-09-27
+
+Run by the owner in the Render shell after the `2170cd3` deploy. CrawlForge 6.11.0, linux x64, exit IP AS14618 Amazon.com, Ashburn VA (74.220.49.x), the same box as the 2026-09-22 hosted baseline. Three runs per target.
+
+| Target | Vendor | Plain fetch | `impit` (Chrome TLS, honest UA) | `impit` text chars |
+| --- | --- | --- | --- | --- |
+| nowsecure.nl | Turnstile widget on a 200 page — not a wall | 0/3 | 0/3 | |
+| indeed.com (reviews) | Cloudflare Turnstile | 0/3 | 0/3 | |
+| quora.com | Cloudflare | 0/3 | 0/3 | |
+| harrods.com | Akamai | 0/3 | 0/3 | |
+| g2.com | DataDome | 0/3 | 0/3 | |
+| stackoverflow.com/questions | Cloudflare | 0/3 | 0/3 | |
+| leboncoin.fr | DataDome | 0/3 | 0/3 | |
+| producthunt.com | Cloudflare | 0/3 | 0/3 | |
+| lesswrong.com | Vercel checkpoint | 3/3 | 3/3 | 9182, 9235, 9235 |
+| zalando.co.uk | Akamai | 3/3 | 3/3 | 3048, 3048, 3048 |
+| carvana.com | client-rendered shell | 0/3 | 0/3 | |
+| trustpilot.com | DataDome | skipped (robots) | skipped (robots) | |
+
+What it says:
+
+- **From the hosted IP, `impit` clears no wall.** It returned a page only where the plain fetch already did. indeed.com, its one residential win, gave nothing in 3 of 3 runs. The TLS handshake is not what the walls score on this IP; the IP is.
+- **The hosted IP is walled harder than home.** nowsecure.nl and carvana.com, which the plain fetch passes from a residential IP, are 403s here.
+- **The browser still has a job on hosted.** Chromium passed indeed, quora, harrods and stackoverflow from this box on 2026-09-22 (`stealth-bench-baseline-2026-09-22-hosted.md`), so on the hosted instance the escalation's real work is still the browser's.
+- **What `impit` costs on hosted:** one failed request before the browser, plus its audit row. That only happens where it runs there: the website's `agent` route and direct OAuth MCP clients.
 
 The spike script lived in the session scratchpad, not in the repo, because `impit` was not a dependency then. The columns are reproducible: `new Impit({ browser: 'chrome151' | 'firefox135' })`, the same verdict, and the section 2.2 target list from `scripts/lib/stealth-bench/targets.js`.
 
