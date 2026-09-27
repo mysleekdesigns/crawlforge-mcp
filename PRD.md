@@ -10,7 +10,7 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **Stealth review Phase 7 follow-ups (2026-09-27).**
 - **Hybrid cookie pattern declined by the owner:** `cf_clearance` is bound to the User-Agent it was earned with, so replaying it through `impit` would need a browser UA.
-- **App-error false pass:** fixed upstream in `crawlforge-extractors` 1.10.0 (`documentVerdict`: a document under 200 characters whose text opens with an app error phrase is a soft block). It is prepared and tagged, and is waiting for the owner's `npm publish`; after that, both consumers bump.
+- **App-error false pass:** fixed upstream in `crawlforge-extractors` 1.10.0 (`documentVerdict`: a document under 200 characters whose text opens with an app error phrase is a soft block). The owner published it on 2026-09-27, the tarball was verified identical to the repo file, and the MCP server now requires `^1.10.0`. Unit 2490/2489 passed/0 failed; MCP 100%. The website still needs the same bump.
 - **Found:** the website's REST `scrape` escalates through `stealth_mode` with engine `playwright`, so REST callers never reach the `impit` step.
 - **Hosted measurement:** new `scripts/impit-probe.mjs`, included in the image. It will run in the Render shell after the next deploy, and its result decides REST parity.
 

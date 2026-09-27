@@ -14,6 +14,17 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
   image so it can run in the Render shell: `node scripts/impit-probe.mjs
   --runs=3`.
 
+### Fixed
+
+- **A short app-error fallback under a normal title no longer passes as a
+  page.** This comes from `crawlforge-extractors` 1.10.0, which the server now
+  requires (`^1.10.0`). `documentVerdict` treats a document under 200
+  characters whose text opens with an app error phrase as a soft block, even
+  under a normal title. The phrases are "Something went wrong", "Oops!", "An
+  error occurred" and Next.js's client-side exception. quora.com's "Something
+  went wrong. Wait a moment and try again." had passed on every path, not
+  only through `impit`.
+
 ### Documentation
 
 - The hybrid pattern from stealth review Phase 7 (the browser earns the
