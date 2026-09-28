@@ -731,8 +731,7 @@ page that navigates to the target URL.
   "tool": "stealth_mode",
   "params": {
     "operation": "create_context",
-    "stealthConfig": { "level": "advanced", "simulateHumanBehavior": true },
-    "engine": "playwright"
+    "stealthConfig": { "level": "advanced", "simulateHumanBehavior": true }
   }
 }
 ```
@@ -750,21 +749,51 @@ Operations: `configure`, `enable`, `disable`, `create_context`, `create_page`,
 `get_stats`, `cleanup`. `stealthConfig.level` is `basic` / `medium` (default) /
 `advanced`. Always run `cleanup` when done to release the browser.
 
-### Engine: playwright vs camoufox
+### Engine: auto, playwright, camoufox
 
-- `engine:"playwright"` (default) — Chromium with stealth patches. Fast, good
-  for most basic bot detection.
+- `engine:"auto"` (default) — Camoufox when its binary is installed, Chromium
+  with a warning when it is not. Leave it alone unless you have a reason.
 - `engine:"camoufox"` — Firefox-based with native anti-detection (no patches).
-  Scores higher against DataDome / Cloudflare / PerimeterX and on CreepJS. Use
-  for heavily protected, financial, or e-commerce sites.
+  The only engine that cleared Cloudflare Turnstile (indeed.com) and Akamai
+  (harrods.com) in the 2026-09-21 benchmark. Pin it to require that engine: it
+  errors rather than falling back. Costs roughly +0.8 s and +400 MB per call
+  against Chromium.
+- `engine:"playwright"` — Chromium with stealth patches. Pin it for speed on
+  sites that need rendering rather than evasion.
+
+`stealth_mode` also accepts `"chromium"` as a synonym for `"playwright"`.
+`browser_session` takes the same `engine` on `operation:"open"` and
+`scrape_with_actions` takes it as `browserOptions.engine` — both only with
+`stealth: true`, and both default to `"auto"`. `scrape`'s `escalate_engine` is
+the one parameter that does not accept `"chromium"`; say `"playwright"` there.
+
+The result always names the engine that ran (`stealth.engine` on `scrape`,
+`engine` elsewhere), and an `auto` run that fell back to Chromium says so in
+`warnings[]` — read that rather than assuming you got Camoufox.
+
+Neither engine defeats DataDome or an interactive Turnstile. If both are
+blocked, the address is usually the problem, not the browser.
 
 Full decision table: [engine selection](references/engine-selection.md).
 
 ### Proxies
 
 A block that survives both engines is usually the IP, not the fingerprint:
-Cloudflare scores the address and its ASN before it serves a challenge. Route
-through your own residential proxy — CrawlForge supplies none.
+Cloudflare scores the address and its ASN before it serves a challenge, so a
+datacenter proxy changes the address without changing the class of address being
+scored. Route through your own residential proxy — CrawlForge supplies none.
+
+A self-hosted server can instead hand every stealth session to Browserbase:
+set `CRAWLFORGE_BROWSER_BACKEND=browserbase` and `BROWSERBASE_API_KEY` (see
+`docs/cloud-browser.md`). That account supplies the residential exit and any
+CAPTCHA solving on its own terms; CrawlForge itself never solves a challenge —
+a challenge page is reported as blocked.
+
+Server-wide, set `CRAWLFORGE_STEALTH_PROXIES` (comma-separated proxy URLs): the
+`scrape` escalation stage, `stealth_mode`, `browser_session`,
+`scrape_with_actions`, the `deep_research` retry and the `agent` tool's automatic
+stealth retry use it when no proxy is passed on the call. Per call, pass
+`stealthConfig.proxyRotation`, which always wins:
 
 ```json
 {
@@ -792,7 +821,8 @@ crawlforge stealth https://protected-site.com --engine camoufox --wait 3000 --sc
 ```
 
 The CLI exposes a one-shot form (`--engine`, `--wait <ms>`, `--screenshot`).
-Force the engine globally with `export CRAWLFORGE_STEALTH_ENGINE=camoufox`.
+`--engine` takes `chromium` (the default here — the CLI has no `auto`) or
+`camoufox`, so name `camoufox` on the command line when you want it.
 
 ## localization (cost: 2)
 
@@ -1035,19 +1065,31 @@ shell). The escalated page goes through the same formats, so `markdown`,
   "params": {
     "url": "https://www.producthunt.com/",
     "formats": ["markdown"],
-    "escalate": true,
-    "escalate_engine": "playwright"
+    "escalate": true
   }
 }
 ```
 
 The result adds `escalated: true|false`, and `stealth: { engine,
-vendor_detected }` when the browser ran. The projection is `2 + 5`; the charge
+vendor_detected }` when the escalation ran. `engine` is `impit` when a Chrome
+TLS handshake with the honest User-Agent got the page before any browser
+launched (default `escalate_engine: "auto"` only). The projection is `2 + 5`,
+whichever step got the page; the charge
 falls back to the base when the plain fetch succeeded and nothing escalated.
-`escalate_engine` is `"playwright"` (default) or `"camoufox"`. robots.txt is
-respected on the escalated path too, and a second call to a host that blocked
-within the last 24 hours skips the doomed plain fetch and says so in
-`warnings[]`.
+robots.txt is respected on the escalated path too, and a second call to a host
+that blocked within the last 24 hours skips the doomed plain fetch and says so
+in `warnings[]`. That call is charged the full `2 + 5` once the browser runs,
+because no plain fetch ran that could have lowered it. The memory is kept for 24
+hours from the block, in the running server only, and a `scrape` without
+`escalate` that gets a clean page from that host clears it sooner.
+
+`escalate_engine` defaults to `"auto"`: Camoufox (Firefox, the engine that gets
+through Cloudflare Turnstile and Akamai) when its binary is installed, Chromium
+with a warning when it is not. Pin `"playwright"` (the only spelling for
+Chromium here — `"chromium"` is rejected) when the page just needs rendering and
+you want the faster, lighter browser; pin `"camoufox"` to require the stronger
+engine — it errors rather than falling back. `stealth.engine` in the result says
+which one ran, and a fallback is reported in `warnings[]`.
 
 Query-scoped formats return only the parts of the page that match, verbatim,
 with offsets into the `markdown` of the same call:

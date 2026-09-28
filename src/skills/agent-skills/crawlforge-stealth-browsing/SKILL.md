@@ -91,6 +91,12 @@ Cloudflare scores the address and its ASN before it serves a challenge, so a
 datacenter proxy changes the address without changing the class of address being
 scored. Route through your own residential proxy — CrawlForge supplies none.
 
+A self-hosted server can instead hand every stealth session to Browserbase:
+set `CRAWLFORGE_BROWSER_BACKEND=browserbase` and `BROWSERBASE_API_KEY` (see
+`docs/cloud-browser.md`). That account supplies the residential exit and any
+CAPTCHA solving on its own terms; CrawlForge itself never solves a challenge —
+a challenge page is reported as blocked.
+
 Server-wide, set `CRAWLFORGE_STEALTH_PROXIES` (comma-separated proxy URLs): the
 `scrape` escalation stage, `stealth_mode`, `browser_session`,
 `scrape_with_actions`, the `deep_research` retry and the `agent` tool's automatic
