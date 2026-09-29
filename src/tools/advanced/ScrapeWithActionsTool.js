@@ -15,6 +15,7 @@ import { elementText } from '../../utils/elementText.js';
 import { pageTitle } from '../../utils/pageTitle.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 import { resolveStealthEngine } from '../../core/StealthBrowserManager.js';
+import { actionQueue as sharedActionQueue } from '../../core/browser/actionQueue.js';
 
 // Recording / replay helpers
 import {
@@ -255,7 +256,9 @@ export class ScrapeWithActionsTool extends EventEmitter {
       extractContentTool = null,
       enableLogging = true,
       enableCaching = false,
-      maxConcurrentSessions = 3,
+      // The process-wide browser-slot limiter shared with browser_session open.
+      // Injectable for tests only; CRAWLFORGE_MAX_ACTION_SESSIONS sizes it.
+      actionQueue = sharedActionQueue,
       defaultBrowserOptions = {
         viewportWidth: 1280,
         viewportHeight: 720,
@@ -274,7 +277,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
     this.extractContentTool = extractContentTool || new ExtractContentTool();
     this.enableLogging = enableLogging;
     this.enableCaching = enableCaching;
-    this.maxConcurrentSessions = maxConcurrentSessions;
+    this.actionQueue = actionQueue;
     this.defaultBrowserOptions = defaultBrowserOptions;
 
     // Active sessions tracking
@@ -322,69 +325,80 @@ export class ScrapeWithActionsTool extends EventEmitter {
 
       this.stats.totalSessions++;
       const sessionId = this.generateSessionId();
-      const startTime = Date.now();
+      const enqueuedAt = Date.now();
 
       if (this.enableLogging) {
         console.error(`Starting scrape session ${sessionId} with ${validated.actions.length} actions on ${validated.url}`);
       }
 
-      // Check concurrent sessions limit
-      if (this.activeSessions.size >= this.maxConcurrentSessions) {
-        throw new Error(`Maximum concurrent sessions (${this.maxConcurrentSessions}) reached`);
-      }
-
-      // Create session context
-      const sessionContext = {
-        id: sessionId,
-        url: validated.url,
-        startTime,
-        params: validated,
-        states: [],
-        screenshots: [],
-        actionResults: [],
-        errors: [],
-        status: 'initializing'
-      };
-
-      this.activeSessions.set(sessionId, sessionContext);
-      this.emit('sessionStarted', sessionContext);
-
-      try {
-        const result = await this.executeSession(sessionContext);
-        
-        this.stats.successfulSessions++;
-        this.stats.totalActions += validated.actions.length;
-        this.stats.successfulActions += result.actionResults.filter(r => r.success).length;
-        this.stats.failedActions += result.actionResults.filter(r => !r.success).length;
-        
-        const executionTime = Date.now() - startTime;
-        this.updateAverageSessionTime(executionTime);
-        this.updateAverageActionsPerSession(validated.actions.length);
-        this.updateStats();
-
-        if (this.enableCaching) {
-          this.sessionResults.set(sessionId, {
-            result,
-            timestamp: Date.now(),
-            ttl: 3600000
-          });
-        }
-
-        this.activeSessions.delete(sessionId);
-        this.emit('sessionCompleted', result);
-
-        return result;
-
-      } catch (error) {
-        this.stats.failedSessions++;
-        this.activeSessions.delete(sessionId);
-        this.emit('sessionFailed', { sessionId, url: validated.url, error });
-        throw error;
-      }
+      // The whole chain runs inside a slot of the shared browser budget. Over
+      // the limit a call waits for one rather than being refused, and fails
+      // only after CRAWLFORGE_ACTION_QUEUE_TIMEOUT_MS with the queue depth.
+      return await this.actionQueue.run(
+        () => this.runSession(sessionId, validated, enqueuedAt),
+        { label: 'scrape_with_actions' }
+      );
 
     } catch (error) {
       this.log('error', `Scrape with actions failed: ${error.message}`);
       throw new Error(`Scrape with actions failed: ${error.message}`);
+    }
+  }
+
+  async runSession(sessionId, validated, enqueuedAt) {
+    // The clock starts once the slot is held, so executionTime and the
+    // recording's timings measure the run, not the wait before it.
+    const startTime = Date.now();
+    const queuedMs = startTime - enqueuedAt;
+
+    // Create session context
+    const sessionContext = {
+      id: sessionId,
+      url: validated.url,
+      startTime,
+      params: validated,
+      states: [],
+      screenshots: [],
+      actionResults: [],
+      errors: [],
+      status: 'initializing'
+    };
+
+    this.activeSessions.set(sessionId, sessionContext);
+    this.emit('sessionStarted', sessionContext);
+
+    try {
+      const result = await this.executeSession(sessionContext);
+      result.queued_ms = queuedMs;
+
+      this.stats.successfulSessions++;
+      this.stats.totalActions += validated.actions.length;
+      this.stats.successfulActions += result.actionResults.filter(r => r.success).length;
+      this.stats.failedActions += result.actionResults.filter(r => !r.success).length;
+      
+      const executionTime = Date.now() - startTime;
+      this.updateAverageSessionTime(executionTime);
+      this.updateAverageActionsPerSession(validated.actions.length);
+      this.updateStats();
+
+      if (this.enableCaching) {
+        this.sessionResults.set(sessionId, {
+          result,
+          timestamp: Date.now(),
+          ttl: 3600000
+        });
+      }
+
+      this.activeSessions.delete(sessionId);
+      this.emit('sessionCompleted', result);
+
+      return result;
+
+    } catch (error) {
+      this.stats.failedSessions++;
+      this.activeSessions.delete(sessionId);
+      this.emit('sessionFailed', { sessionId, url: validated.url, error });
+      throw error;
     }
   }
 

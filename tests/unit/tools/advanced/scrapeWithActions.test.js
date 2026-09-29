@@ -29,6 +29,7 @@ delete process.env.SSRF_PROTECTION_ENABLED;
 
 const { ScrapeWithActionsTool } = await import('../../../../src/tools/advanced/ScrapeWithActionsTool.js');
 const { ActionExecutor } = await import('../../../../src/core/ActionExecutor.js');
+const { createActionQueue } = await import('../../../../src/core/browser/actionQueue.js');
 
 function makeFakeChainResult(actions, overrides = {}) {
   const now = Date.now();
@@ -159,7 +160,36 @@ describe('scrapeWithActions tool (real module)', () => {
     await assert.rejects(() => errTool.execute({ url: 'https://example.com', actions: [WAIT_ACTION] }), /Browser crashed/);
   });
 
-  test('concurrent session limit is enforced', async () => {
+  test('a call over the concurrency limit waits for a slot instead of being refused', async () => {
+    let releaseFirst;
+    let calls = 0;
+    const blockingExecutor = makeFakeExecutor({
+      onExecute: async (url, chainConfig) => {
+        if (++calls === 1) await new Promise((resolve) => { releaseFirst = resolve; });
+        return makeFakeChainResult(chainConfig.actions);
+      }
+    });
+    const limitedTool = new ScrapeWithActionsTool({
+      actionExecutor: blockingExecutor,
+      enableLogging: false,
+      actionQueue: createActionQueue({ concurrency: 1, timeoutMs: 5_000 })
+    });
+
+    const firstCall = limitedTool.execute({ url: 'https://example.com', actions: [WAIT_ACTION] });
+    await new Promise((r) => setTimeout(r, 10));
+    const secondCall = limitedTool.execute({ url: 'https://example.com', actions: [WAIT_ACTION] });
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(calls, 1, 'the second chain must not start while the only slot is held');
+
+    releaseFirst();
+    const [first, second] = await Promise.all([firstCall, secondCall]);
+    assert.equal(first.success, true);
+    assert.equal(second.success, true);
+    assert.ok(first.queued_ms < 10, `first call should not have queued (${first.queued_ms} ms)`);
+    assert.ok(second.queued_ms >= 25, `second call should report its wait (${second.queued_ms} ms)`);
+  });
+
+  test('a call that waits past the queue timeout fails naming the queue depth', async () => {
     let releaseFirst;
     const blockingExecutor = makeFakeExecutor({
       onExecute: async (url, chainConfig) => {
@@ -167,15 +197,17 @@ describe('scrapeWithActions tool (real module)', () => {
         return makeFakeChainResult(chainConfig.actions);
       }
     });
-    const limitedTool = new ScrapeWithActionsTool({ actionExecutor: blockingExecutor, enableLogging: false, maxConcurrentSessions: 1 });
+    const limitedTool = new ScrapeWithActionsTool({
+      actionExecutor: blockingExecutor,
+      enableLogging: false,
+      actionQueue: createActionQueue({ concurrency: 1, timeoutMs: 30 })
+    });
 
     const firstCall = limitedTool.execute({ url: 'https://example.com', actions: [WAIT_ACTION] });
-    // Give the first call a chance to register itself as an active session.
-    await new Promise((r) => setTimeout(r, 10));
-
+    await new Promise((r) => setTimeout(r, 5));
     await assert.rejects(
       () => limitedTool.execute({ url: 'https://example.com', actions: [WAIT_ACTION] }),
-      /Maximum concurrent sessions/
+      /waiting for a browser slot: 1 running, 1 queued \(CRAWLFORGE_MAX_ACTION_SESSIONS=1\)/
     );
 
     releaseFirst();
