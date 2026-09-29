@@ -383,13 +383,13 @@ export class HumanBehaviorSimulator {
     } = options;
 
     if (target) {
-      // Scroll to specific element
-      await page.evaluate((sel) => {
-        const element = document.querySelector(sel);
-        if (element) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      }, target);
+      // Scroll to specific element. A locator, not document.querySelector: a
+      // snapshot ref resolves to `aria-ref=…`, which is not CSS, and its element
+      // may sit in a shadow root or an iframe that querySelector cannot reach.
+      const element = page.locator(target).first();
+      if (await element.count()) {
+        await element.evaluate((el) => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+      }
       return;
     }
 
@@ -477,10 +477,9 @@ export class HumanBehaviorSimulator {
     let textLength = 0;
     
     if (selector) {
-      textLength = await page.evaluate((sel) => {
-        const element = document.querySelector(sel);
-        return element ? element.textContent.length : 0;
-      }, selector);
+      // A locator for the same reason as simulateScroll's target.
+      const element = page.locator(selector).first();
+      textLength = (await element.count()) ? await element.evaluate((el) => el.textContent.length) : 0;
     } else {
       textLength = await page.evaluate(() => document.body.textContent.length);
     }

@@ -11,6 +11,7 @@ import { assertUrlAllowed } from '../utils/ssrfGuard.js';
 import { browserPreflight } from '../utils/robotsGate.js';
 import { isRef, resolveRef, captureSnapshot } from './browser/snapshot.js';
 import { settlePage } from './browser/settle.js';
+import { handleConsent } from './browser/consent.js';
 
 // executeJavaScript hardening limits (only relevant when the deploy-time flag
 // ALLOW_JAVASCRIPT_EXECUTION=true is set; JS execution stays off by default).
@@ -304,6 +305,13 @@ export class ActionExecutor extends EventEmitter {
         page = await this.initializePage(url, browserOptions);
         executionContext.page = page;
 
+        // Cookie/consent wall on the landing page (browserOptions.consent,
+        // off unless asked for). A `navigate` action does the same for its
+        // page — see executeNavigateAction.
+        if (browserOptions.consent && browserOptions.consent !== 'off') {
+          executionContext.consent = await handleConsent(page, browserOptions.consent);
+        }
+
         // Execute chain with potential retries
         chainResult = await this.executeChainWithRetries(executionContext);
 
@@ -409,6 +417,7 @@ export class ActionExecutor extends EventEmitter {
         finalUrl: executionContext.finalUrl || url,
         finalHtml: executionContext.finalHtml,
         navigationStatus: executionContext.page?.__crawlforgeNavigation?.status ?? null,
+        consent: executionContext.consent,
         executionTime: Date.now() - startTime,
         results: executionContext.results,
         attempt: executionContext.attempt,
@@ -800,14 +809,15 @@ export class ActionExecutor extends EventEmitter {
    * Resolve a caller-supplied selector.
    *
    * A selector starting with `@` names a ref a prior snapshot action assigned,
-   * and resolves to the attribute selector that snapshot stamped on the
-   * element; anything else is already a CSS selector. Every selector a caller
+   * and resolves to the Playwright selector that snapshot recorded for it
+   * (`aria-ref=…` from the native snapshot, `[data-cf-ref=…]` from the walk
+   * fallback); anything else is already a CSS selector. Every selector a caller
    * writes goes through here, so refs work in every action type without any
-   * schema change — and, because a ref resolves to an ordinary CSS selector,
-   * in the stealth human-behaviour paths too.
+   * schema change — including the stealth human-behaviour paths, which take
+   * Playwright selectors.
    * @param {Page} page - Playwright page
    * @param {string} selector - CSS selector, or an `@e1` snapshot ref
-   * @returns {string} CSS selector
+   * @returns {string} Playwright selector
    */
   resolveSelector(page, selector) {
     return isRef(selector) ? resolveRef(page, selector) : selector;
@@ -1221,6 +1231,7 @@ export class ActionExecutor extends EventEmitter {
    * @returns {Promise<Object>} Navigate result
    */
   async executeNavigateAction(page, action, executionContext) {
+    const startedAt = Date.now();
     const timeout = this.actionTimeout(action);
 
     await assertUrlAllowed(action.url, { resolveDns: true });
@@ -1232,10 +1243,18 @@ export class ActionExecutor extends EventEmitter {
     });
     page.__crawlforgeGateWarnings = gateWarnings;
 
+    // Consent handling gets at most what is left of the action's deadline, so
+    // it cannot push a navigation that succeeded past the backstop.
+    const consentMode = executionContext?.browserOptions?.consent;
+    const consent = consentMode && consentMode !== 'off'
+      ? await handleConsent(page, consentMode, { timeout: Math.min(2000, timeout - (Date.now() - startedAt)) })
+      : undefined;
+
     return {
       url: action.url,
       finalUrl: page.url(),
-      waitUntil: action.waitUntil || 'domcontentloaded'
+      waitUntil: action.waitUntil || 'domcontentloaded',
+      ...(consent ? { consent } : {})
     };
   }
 
@@ -1321,8 +1340,8 @@ export class ActionExecutor extends EventEmitter {
   }
 
   /**
-   * Execute snapshot action - the page's interactive elements, each stamped
-   * with a ref later actions can target instead of a guessed CSS selector.
+   * Execute snapshot action - the page's interactive elements, each carrying
+   * a ref later actions can target instead of a guessed CSS selector.
    * @param {Page} page - Playwright page
    * @param {Object} action - Snapshot action
    * @returns {Promise<Object>} Snapshot tree with refs
