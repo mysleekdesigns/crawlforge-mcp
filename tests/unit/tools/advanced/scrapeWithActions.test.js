@@ -452,3 +452,61 @@ describe('scrapeWithActions — extractionOptions.selectors keep table structure
     assert.equal(x.heading, 'Bitcoin Price History');
   });
 });
+
+// Phase 0 (ACTIONS_EMBEDDED_STATE_FIX_PLAN 0.1 / 0.3): the chain config the
+// tool hands the executor, and the per-attempt report it passes back. The
+// executor is stubbed, so `attempt`/`attempts` come from the stub, not from
+// ActionExecutor.
+describe('Phase 0 — retries off by default, screenshotOnError forwarded, attempts reported', () => {
+  function captureChain(overrides) {
+    let seen;
+    const tool = new ScrapeWithActionsTool({
+      actionExecutor: makeFakeExecutor({
+        onExecute: (url, chain) => { seen = chain; return makeFakeChainResult(chain.actions, overrides); }
+      }),
+      enableLogging: false
+    });
+    return { tool, chain: () => seen };
+  }
+
+  test('maxRetries defaults to 0, so a failed chain is not replayed at double cost', async () => {
+    const { tool, chain } = captureChain();
+    await tool.execute({ url: 'https://example.com', actions: [WAIT_ACTION], captureScreenshots: false });
+    assert.equal(chain().retryChain, 0);
+  });
+
+  test('screenshotOnError:false reaches the chain config', async () => {
+    const { tool, chain } = captureChain();
+    await tool.execute({ url: 'https://example.com', actions: [WAIT_ACTION], captureScreenshots: false, screenshotOnError: false });
+    assert.equal(chain().screenshotOnError, false);
+  });
+
+  test('attempt and attempts pass through, each attempt shaped like actionResults', async () => {
+    const now = Date.now();
+    const first = [{ id: 'a1', type: 'wait', success: false, error: 'timeout', executionTime: 5, timestamp: now, result: { raw: true } }];
+    const second = [{ id: 'a2', type: 'wait', success: true, executionTime: 5, timestamp: now + 1, result: {} }];
+    const { tool } = captureChain({
+      results: second,
+      attempt: 2,
+      attempts: [
+        { attempt: 1, success: false, error: 'timeout', results: first },
+        { attempt: 2, success: true, results: second }
+      ]
+    });
+    const result = await tool.execute({ url: 'https://example.com', actions: [WAIT_ACTION], captureScreenshots: false, maxRetries: 1 });
+    assert.equal(result.attempt, 2);
+    assert.equal(result.attempts.length, 2);
+    assert.equal(result.attempts[0].error, 'timeout');
+    assert.deepEqual(Object.keys(result.attempts[0].results[0]), Object.keys(result.actionResults[0]),
+      'attempt results go through processActionResults');
+    assert.equal(result.attempts[1].results[0].id, 'a2');
+  });
+
+  test('an executor that reports no attempts still yields one entry', async () => {
+    const { tool } = captureChain();
+    const result = await tool.execute({ url: 'https://example.com', actions: [WAIT_ACTION], captureScreenshots: false });
+    assert.equal(result.attempt, 1);
+    assert.equal(result.attempts.length, 1);
+    assert.equal(result.attempts[0].results.length, 1);
+  });
+});

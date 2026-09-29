@@ -28,6 +28,7 @@ process.env.ALLOWED_DOMAINS = '127.0.0.1';
 delete process.env.SSRF_PROTECTION_ENABLED;
 
 const { extractEmbeddedStateHandler } = await import('../../src/tools/extract/extractEmbeddedState.js');
+const { appendFallbackHint } = await import('../../src/server/fallbackHints.js');
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '../fixtures/embedded-state');
 const fixture = (name) => readFileSync(join(FIXTURES, name), 'utf8');
@@ -47,6 +48,11 @@ before(async () => {
     if (req.url === '/robots.txt') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       res.end('User-agent: *\nDisallow: /private\n');
+      return;
+    }
+    if (req.url === '/forbidden') {
+      res.writeHead(403, { 'Content-Type': 'text/html' });
+      res.end('<html><body>Access denied</body></html>');
       return;
     }
     const body = PAGES[req.url];
@@ -183,5 +189,29 @@ describe('a bare path is resolved inside the page\'s only payload', () => {
     const result = await extract('/ticketmaster', 'next_data.props');
     assert.equal(result.path, 'next_data.props');
     assert.ok(!result.warnings.some((w) => /was read as/.test(w)));
+  });
+});
+
+// Phase 0 (ACTIONS_EMBEDDED_STATE_FIX_PLAN 0.6): a block is not a path
+// problem, so the error names stealth_mode instead of the generic
+// "call again without `path`" hint that withAuth would otherwise append.
+describe('a blocked fetch points at stealth_mode, not at a different path', () => {
+  test('HTTP 403 carries its own Next step naming stealth_mode', async () => {
+    const result = await extractEmbeddedStateHandler({ url: `${baseUrl}/forbidden`, path: 'props' });
+    assert.equal(result.isError, true);
+    const text = result.content[0].text;
+    assert.match(text, /HTTP 403/);
+    assert.match(text, /\nNext step: stealth_mode operation:"scrape"/);
+    assert.ok(!/without `path`/.test(text));
+    appendFallbackHint('extract_embedded_state', result);
+    assert.equal(result.content[0].text, text, 'withAuth keeps the hint the error already carries');
+  });
+
+  test('any other error still gets the generic hint from withAuth', async () => {
+    const result = await extractEmbeddedStateHandler({ url: `${baseUrl}/ticketmaster`, path: 'next_data.nope' });
+    assert.equal(result.isError, true);
+    assert.ok(!/Next step:/.test(result.content[0].text));
+    appendFallbackHint('extract_embedded_state', result);
+    assert.match(result.content[0].text, /Next step: Call again without `path`/);
   });
 });

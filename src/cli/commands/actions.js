@@ -12,6 +12,7 @@ export function register(program) {
     .description('Run browser automation actions against a URL')
     .requiredOption('--script <file>', 'JSON file containing action script')
     .option('--screenshot', 'Capture screenshots during action execution')
+    .addHelpText('after', '\nexecuteJavaScript actions need ALLOW_JAVASCRIPT_EXECUTION=true in the server environment; otherwise they are refused.\n')
     .action(async (url, opts, cmd) => {
       const globals = cmd.parent.opts();
       const cliFlags = { json: globals.json, pretty: globals.pretty, quiet: globals.quiet };

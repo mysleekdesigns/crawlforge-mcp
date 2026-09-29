@@ -22,11 +22,12 @@ const JS_EXECUTION_TIMEOUT_MS = parseInt(process.env.JS_EXECUTION_TIMEOUT_MS || 
 // for, the backstop can only say "timed out".
 const ACTION_TIMEOUT_GRACE_MS = 2000;
 
-// Ceiling for a single error-recovery strategy. By the time recovery runs the
-// action has already spent its whole timeout failing, so each strategy gets a
-// bounded slice — granting it another full deadline made a chain that was never
-// going to work cost several times its stated timeout.
-const RECOVERY_TIMEOUT_MS = 5000;
+// Total error-recovery budget per action, shared by every strategy it tries
+// (their delay() pauses included). By the time recovery runs the action has
+// already spent its whole timeout failing, so recovery gets one bounded slice —
+// giving each strategy another full deadline made a chain that was never going
+// to work cost several times its stated timeout.
+const RECOVERY_TIMEOUT_MS = 3000;
 
 // The only states locator.waitFor()/page.waitForSelector() accept. The rest of
 // the wait-action enum (enabled/disabled/stable) are ElementHandle states and
@@ -176,6 +177,8 @@ const ActionChainSchema = z.object({
   continueOnError: z.boolean().default(false),
   timeout: z.number().min(1000).max(300000).default(30000),
   retryChain: z.number().min(0).max(3).default(0),
+  // Per-chain override of the constructor's enableScreenshotOnError.
+  screenshotOnError: z.boolean().optional(),
   metadata: z.record(z.any()).prefault({})
 });
 
@@ -272,6 +275,10 @@ export class ActionExecutor extends EventEmitter {
         browserOptions,
         startTime,
         results: [],
+        // One entry per run of the chain (retryChain replays it); `attempt` is
+        // the 1-based run whose per-action results are in `results`.
+        attempt: 0,
+        attempts: [],
         errors: [],
         screenshots: [],
         metadata: {
@@ -318,7 +325,7 @@ export class ActionExecutor extends EventEmitter {
         executionContext.error = error.message;
 
         // Capture error screenshot if enabled
-        if (this.enableScreenshotOnError && page) {
+        if ((validatedChain.screenshotOnError ?? this.enableScreenshotOnError) && page) {
           try {
             const errorScreenshot = await this.captureScreenshot(page, {
               fullPage: true,
@@ -378,6 +385,7 @@ export class ActionExecutor extends EventEmitter {
           screenshotCount: executionContext.screenshots.length,
           capturedStates: undefined,
           capturedStateCount: (executionContext.capturedStates || []).length,
+          attempts: undefined, // each carries a copy of a results array
           results: executionContext.results.map(r => (
             r?.result?.data !== undefined
               ? { ...r, result: { ...r.result, data: undefined, dataBytes: typeof r.result.data === 'string' ? r.result.data.length : undefined } }
@@ -402,6 +410,8 @@ export class ActionExecutor extends EventEmitter {
         navigationStatus: executionContext.page?.__crawlforgeNavigation?.status ?? null,
         executionTime: Date.now() - startTime,
         results: executionContext.results,
+        attempt: executionContext.attempt,
+        attempts: executionContext.attempts,
         screenshots: executionContext.screenshots,
         capturedStates: executionContext.capturedStates || [],
         metadata: executionContext.metadata,
@@ -424,6 +434,8 @@ export class ActionExecutor extends EventEmitter {
         // results, the error screenshot, and any intermediate-state
         // captures) instead of discarding them.
         results: executionContext?.results || [],
+        attempt: executionContext?.attempt ?? 0,
+        attempts: executionContext?.attempts || [],
         screenshots: executionContext?.screenshots || [],
         capturedStates: executionContext?.capturedStates || []
       };
@@ -440,9 +452,11 @@ export class ActionExecutor extends EventEmitter {
     let lastError;
 
     for (let attempt = 0; attempt <= chain.retryChain; attempt++) {
+      executionContext.attempt = attempt + 1;
       try {
         if (attempt > 0) {
           this.log('info', 'Retrying chain execution, attempt ' + (attempt + 1));
+          // The failed run's results are already recorded in attempts[].
           executionContext.results = []; // Clear previous results on retry
           executionContext.capturedStates = []; // Clear previous captures on retry
           // Replaying the chain against whatever the failed attempt left behind
@@ -454,7 +468,14 @@ export class ActionExecutor extends EventEmitter {
 
         // Execute actions in sequence
         for (let i = 0; i < chain.actions.length; i++) {
-          const action = chain.actions[i];
+          // chain.timeout is the deadline for actions that name none and the
+          // ceiling for those that do — actionTimeout() reads it off the
+          // action, so without this the chain's timeout never reached a
+          // Playwright call (executeActionsOnPage applies the same default).
+          const action = {
+            ...chain.actions[i],
+            timeout: Math.min(chain.actions[i].timeout || chain.timeout, chain.timeout)
+          };
           const actionResult = await this.executeActionInternal(page, action, executionContext);
           
           executionContext.results.push(actionResult);
@@ -509,10 +530,16 @@ export class ActionExecutor extends EventEmitter {
           }
         }
 
+        executionContext.attempts.push({
+          attempt: attempt + 1, success: true, results: [...executionContext.results]
+        });
         return { success: true, attempt: attempt + 1 };
 
       } catch (error) {
         lastError = error;
+        executionContext.attempts.push({
+          attempt: attempt + 1, success: false, error: error.message, results: [...executionContext.results]
+        });
         this.log('warn', 'Chain execution attempt ' + (attempt + 1) + ' failed: ' + error.message);
         
         if (attempt < chain.retryChain) {
@@ -754,12 +781,18 @@ export class ActionExecutor extends EventEmitter {
   }
 
   /**
-   * Deadline for one recovery strategy — bounded, see RECOVERY_TIMEOUT_MS.
+   * Deadline for one Playwright call inside a recovery strategy: what is left
+   * of the shared budget (see RECOVERY_TIMEOUT_MS), never more than the
+   * action's own timeout. Strategies call it after their delay() so the pause
+   * is charged to the same budget. Floored at 1 because Playwright reads a
+   * timeout of 0 as "wait forever".
    * @param {Object} action - Action configuration
+   * @param {number} [deadline] - Epoch ms at which the recovery budget ends
    * @returns {number} Timeout in ms
    */
-  recoveryTimeout(action) {
-    return Math.min(this.actionTimeout(action), RECOVERY_TIMEOUT_MS);
+  recoveryTimeout(action, deadline) {
+    const left = deadline === undefined ? RECOVERY_TIMEOUT_MS : deadline - Date.now();
+    return Math.max(1, Math.min(this.actionTimeout(action), left));
   }
 
   /**
@@ -1500,16 +1533,35 @@ export class ActionExecutor extends EventEmitter {
       return { success: false };
     }
 
+    // An element that is not in the document cannot be force-clicked, scrolled
+    // into view or focused, so every strategy below would only spend the
+    // budget re-waiting for it. count() answers at once without waiting.
+    if (action.selector) {
+      let matches = 1;
+      try {
+        matches = await this.elementLocator(page, action.selector).count();
+      } catch (_) {
+        // A ref that cannot be resolved, or a page stub in tests: let the
+        // strategies decide.
+      }
+      if (matches === 0) return { success: false };
+    }
+
     const strategies = this.errorRecoveryStrategies.get(action.type) || [];
     // `retries` caps how many strategies get a turn. Walking all of them
     // unconditionally would add a second full round of timeouts to every action
     // that was never going to succeed.
     const budget = Math.max(0, action.retries ?? 1);
+    // One deadline shared by every strategy this action tries, so recovery
+    // costs at most RECOVERY_TIMEOUT_MS on top of the action's own timeout
+    // however many strategies are registered.
+    const deadline = Date.now() + RECOVERY_TIMEOUT_MS;
 
     for (const strategy of strategies.slice(0, budget)) {
+      if (Date.now() >= deadline) break;
       try {
         this.log('info', 'Attempting error recovery with strategy: ' + strategy.name);
-        const result = await strategy.recover(page, action, error, executionContext);
+        const result = await strategy.recover(page, action, error, executionContext, deadline);
         
         if (result.success) {
           return {
@@ -1534,21 +1586,20 @@ export class ActionExecutor extends EventEmitter {
     this.errorRecoveryStrategies.set('click', [
       {
         name: 'waitAndRetry',
-        recover: async (page, action) => {
+        recover: async (page, action, _error, _context, deadline) => {
           await this.delay(1000);
           await this.elementLocator(page, action.selector)
-            .click({ force: true, timeout: this.recoveryTimeout(action) });
+            .click({ force: true, timeout: this.recoveryTimeout(action, deadline) });
           return { success: true, data: { recovered: true, strategy: 'waitAndRetry' } };
         }
       },
       {
         name: 'scrollIntoView',
-        recover: async (page, action) => {
-          const timeout = this.recoveryTimeout(action);
+        recover: async (page, action, _error, _context, deadline) => {
           const locator = this.elementLocator(page, action.selector);
-          await locator.scrollIntoViewIfNeeded({ timeout });
+          await locator.scrollIntoViewIfNeeded({ timeout: this.recoveryTimeout(action, deadline) });
           await this.delay(500);
-          await locator.click({ timeout });
+          await locator.click({ timeout: this.recoveryTimeout(action, deadline) });
           return { success: true, data: { recovered: true, strategy: 'scrollIntoView' } };
         }
       }
@@ -1558,33 +1609,20 @@ export class ActionExecutor extends EventEmitter {
     this.errorRecoveryStrategies.set('type', [
       {
         name: 'focusAndRetry',
-        recover: async (page, action) => {
-          const timeout = this.recoveryTimeout(action);
+        recover: async (page, action, _error, _context, deadline) => {
           const locator = this.elementLocator(page, action.selector);
-          await locator.focus({ timeout });
+          await locator.focus({ timeout: this.recoveryTimeout(action, deadline) });
           await this.delay(500);
-          await locator.pressSequentially(action.text, { delay: action.delay, timeout });
+          await locator.pressSequentially(action.text, {
+            delay: action.delay, timeout: this.recoveryTimeout(action, deadline)
+          });
           return { success: true, data: { recovered: true, strategy: 'focusAndRetry' } };
         }
       }
     ]);
 
-    // Wait action recovery strategies
-    this.errorRecoveryStrategies.set('wait', [
-      {
-        name: 'extendTimeout',
-        recover: async (page, action) => {
-          if (!action.selector) return { success: false };
-          // One more bounded window, not a doubled one: the action has already
-          // waited its full timeout, so doubling made a wait that could never
-          // resolve cost 3x what the caller asked for.
-          await this.waitForCondition(
-            page, action.selector, action.condition, this.recoveryTimeout(action)
-          );
-          return { success: true, data: { recovered: true, strategy: 'extendTimeout' } };
-        }
-      }
-    ]);
+    // No strategies for `wait`: the wait already was the retry, so a failed
+    // one has nothing to recover and gets no second window.
   }
 
   /**
