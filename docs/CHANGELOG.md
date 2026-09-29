@@ -5,6 +5,48 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.13.0] - 2026-09-29
+
+Phase 1 of the `scrape_with_actions` reliability plan: readiness and
+concurrency. Snapshots see the rendered page, a burst of calls queues instead
+of failing, and a stealth click no longer stalls. The price is unchanged.
+
+### Changed
+
+- **A snapshot waits for the page to render.** Before walking the page it
+  waits for `load` (cap 5 s), then for a quiet window: no DOM mutation for
+  300 ms and no request in flight for 500 ms (cap 3 s), never past the action's
+  timeout. The Amazon homepage snapshot went from 0 nodes to 236 with the
+  search box; a client-rendered product list appears in the first snapshot
+  without a prior `wait`. Snapshot results carry `waited_ms` and `settled_by`
+  (`quiet`, `cap` — a page that never goes quiet, which is normal — or
+  `closed`). browser_session's `snapshot` op gets the same wait.
+- **click, press and select wait the same way afterwards** (was
+  `domcontentloaded` only, which never fires on an SPA route change), bounded
+  by what is left of the action's timeout. On a static page this adds about
+  0.5 s per interaction — the 500 ms network window.
+- **Calls over the concurrency limit queue instead of failing.**
+  `scrape_with_actions` no longer throws "Maximum concurrent sessions (3)
+  reached": calls wait for one of `CRAWLFORGE_MAX_ACTION_SESSIONS` (default 3)
+  browser slots for up to `CRAWLFORGE_ACTION_QUEUE_TIMEOUT_MS` (default 60 s),
+  then fail with a message naming the queue depth. Results carry `queued_ms`,
+  and `executionTime` now excludes the wait. browser_session `open` shares the
+  same slots only while it creates the page and loads the first URL — an open
+  session holds no slot, so long-lived sessions cannot starve action chains.
+  browser_session's per-key and total session caps are unchanged and still
+  refuse.
+
+### Fixed
+
+- **Stealth clicks on Camoufox stalled for 12–20 s.** Two cursor humanizers
+  were stacked: camoufox's native `humanize` animated every one of the 11–101
+  moves of our own Bézier path, at 0.3–2.2 s each. On Camoufox the simulator
+  now makes one move and lets camoufox draw the path, and camoufox's per-move
+  cap is 0.5 s (was its 1.5 s default). The Ecosia "Accept all" consent click
+  went from 12.5–20 s (sometimes past the backstop) to 1.4 s.
+- `simulateClick` waited Playwright's 30 s default for its element whatever
+  the action's `timeout`; it now honours it.
+
 ## [6.12.1] - 2026-09-29
 
 Phase 0 of the `scrape_with_actions` reliability plan (live review of

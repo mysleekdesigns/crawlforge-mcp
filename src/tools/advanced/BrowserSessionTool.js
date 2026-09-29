@@ -42,6 +42,7 @@ import { isRemoteTransport } from '../../utils/remoteMode.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 import { stealthDocumentVerdict } from '../../utils/stealthVerdict.js';
 import { resolveStealthEngine } from '../../core/StealthBrowserManager.js';
+import { actionQueue as sharedActionQueue } from '../../core/browser/actionQueue.js';
 
 const SECOND = 1000;
 
@@ -207,7 +208,10 @@ export class BrowserSessionTool {
       extractContentTool = null,
       store = null,
       storeOptions = {},
-      enableLogging = true
+      enableLogging = true,
+      // The process-wide browser-slot limiter shared with scrape_with_actions.
+      // Injectable for tests only.
+      actionQueue = sharedActionQueue
     } = options;
 
     // An injected executor belongs to whoever built it (server.js hands us
@@ -218,6 +222,7 @@ export class BrowserSessionTool {
     this.extractContentTool = extractContentTool || new ExtractContentTool();
     this.storeOptions = storeOptions;
     this.store = store || new BrowserSessionStore(storeOptions);
+    this.actionQueue = actionQueue;
   }
 
   async execute(params) {
@@ -337,7 +342,18 @@ export class BrowserSessionTool {
     // only then creates a page and navigates — closing the page itself if any
     // of that fails. That is the whole of 2.5's gating on `open`, which is why
     // this is not page.goto() behind a gate written here.
-    const page = await this.actionExecutor.initializePage(params.url, browserOptions);
+    //
+    // Page creation and the first navigation take a slot from the browser
+    // budget scrape_with_actions draws on, so a burst of opens queues behind
+    // (and alongside) action chains instead of piling onto the box. The slot is
+    // released as soon as the page is up — a live session must NOT hold it for
+    // its TTL, or three open sessions would starve every scrape_with_actions
+    // call for up to an hour. How many sessions may stay open is the store's
+    // per-owner and total caps below, which still refuse rather than queue.
+    const page = await this.actionQueue.run(
+      () => this.actionExecutor.initializePage(params.url, browserOptions),
+      { label: 'browser_session open' }
+    );
     const releasePage = this.releaser(page, params.stealth);
 
     let session;

@@ -27,6 +27,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { settlePage } from './settle.js';
 
 export const REF_ATTRIBUTE = 'data-cf-ref';
 export const DEFAULT_MAX_NODES = 200;
@@ -230,6 +231,7 @@ function stateFor(page) {
  * @param {object} [options]
  * @param {boolean} [options.interactiveOnly=true] — false also emits headings and landmarks, unreffed
  * @param {number} [options.maxNodes=200] — cap on emitted nodes, clamped to [1, MAX_NODES_LIMIT]
+ * @param {number} [options.timeout] — budget for the render wait before the walk (see settle.js)
  */
 export async function captureSnapshot(page, options = {}) {
   const interactiveOnly = options.interactiveOnly !== false;
@@ -241,6 +243,10 @@ export async function captureSnapshot(page, options = {}) {
   // Idempotent, and the guarantee that a later navigation invalidates these
   // refs rather than leaving them to fail as a missing selector.
   attachRefTracking(page);
+
+  // Walking before the page has rendered describes an empty shell. Both the
+  // snapshot action and browser_session's snapshot operation come through here.
+  const settle = await settlePage(page, { timeout: options.timeout });
 
   const state = stateFor(page);
   let title, lines, refs, truncated;
@@ -283,7 +289,9 @@ export async function captureSnapshot(page, options = {}) {
     refCount: refs.length,
     nodeCount: lines.length,
     truncated,
-    interactiveOnly
+    interactiveOnly,
+    waited_ms: settle.waited_ms,
+    settled_by: settle.settled_by
   };
 }
 

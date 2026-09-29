@@ -38,6 +38,7 @@ const { ActionExecutor } = await import('../../../src/core/ActionExecutor.js');
 const { requestContext } = await import('../../../src/server/requestContext.js');
 const { getComplianceAuditRows } = await import('../../../src/utils/complianceAudit.js');
 const ExtractContentTool = (await import('../../../src/tools/extract/extractContent.js')).default;
+const { createActionQueue } = await import('../../../src/core/browser/actionQueue.js');
 
 let browser = null;
 try {
@@ -370,6 +371,57 @@ describe('browser_session over the hosted REST proxy', () => {
 
     const error = await refusal(openOne);
     assert.equal(error.code, 'SESSION_LIMIT');
+    await store.destroy();
+  });
+});
+
+describe('browser_session and the shared browser-slot budget', () => {
+  test('open takes a slot for page creation and gives it back once the page is up', async () => {
+    const store = new BrowserSessionStore();
+    const limiter = createActionQueue({ concurrency: 1, timeoutMs: 5_000 });
+    let runningDuringOpen = null;
+    const tool = new BrowserSessionTool({
+      store,
+      actionExecutor: {
+        initializePage: async (url) => { runningDuringOpen = limiter.running; return stubPage(url); },
+        browserProcessor: { releaseStealthPage: async () => {} }
+      },
+      extractContentTool,
+      enableLogging: false,
+      actionQueue: limiter
+    });
+
+    const opened = await tool.execute({ operation: 'open', url: `${BASE}/click` });
+
+    assert.ok(opened.sessionId);
+    assert.equal(runningDuringOpen, 1, 'page creation must run inside a slot');
+    assert.equal(store.getStats().total, 1, 'the session is still open');
+    assert.equal(limiter.running, 0, 'a live session must not keep holding the slot');
+    // The one slot is free: a scrape_with_actions chain would start at once.
+    assert.equal(await limiter.run(async () => 'ran'), 'ran');
+    await store.destroy();
+  });
+
+  test('an open waits behind a held slot rather than failing', async () => {
+    const store = new BrowserSessionStore();
+    const limiter = createActionQueue({ concurrency: 1, timeoutMs: 5_000 });
+    const tool = new BrowserSessionTool({
+      store,
+      actionExecutor: stubExecutor(),
+      extractContentTool,
+      enableLogging: false,
+      actionQueue: limiter
+    });
+    let release;
+    const held = limiter.run(() => new Promise((resolve) => { release = resolve; }));
+
+    const opening = tool.execute({ operation: 'open', url: `${BASE}/click` });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(store.getStats().total, 0, 'the open must wait for the slot');
+
+    release();
+    await held;
+    assert.ok((await opening).sessionId);
     await store.destroy();
   });
 });

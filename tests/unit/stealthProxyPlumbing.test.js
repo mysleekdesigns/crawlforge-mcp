@@ -312,7 +312,8 @@ describe('camoufox is launched with its own features turned on', () => {
       proxy: PARSED,
       geoip: true,
       block_webrtc: true,
-      humanize: true
+      // A number caps one cursor move in seconds; `true` meant camoufox's 1.5 s.
+      humanize: 0.5
     });
   });
 

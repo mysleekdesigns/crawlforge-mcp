@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import { assertUrlAllowed } from '../utils/ssrfGuard.js';
 import { browserPreflight } from '../utils/robotsGate.js';
 import { isRef, resolveRef, captureSnapshot } from './browser/snapshot.js';
+import { settlePage } from './browser/settle.js';
 
 // executeJavaScript hardening limits (only relevant when the deploy-time flag
 // ALLOW_JAVASCRIPT_EXECUTION=true is set; JS execution stays off by default).
@@ -862,23 +863,25 @@ export class ActionExecutor extends EventEmitter {
   }
 
   /**
-   * Give a navigation started by the action that just ran a chance to commit.
+   * Let the page settle after the action that just ran — a navigation commit
+   * and load, or an SPA re-render that fires no load event at all.
    *
    * Playwright auto-waits on the element it acts on, but nothing waits on the
-   * *document* a click or keypress may have replaced, so the next action could
-   * run against the outgoing page. A page that never navigated is already past
-   * this state and returns immediately; a page that doesn't settle in time is
-   * not itself an action failure, hence the catch.
+   * *document* a click or keypress may have changed, so the next action could
+   * run against the outgoing page. settlePage waits for `load` and then a quiet
+   * window (no DOM mutations, no requests in flight), capped and never longer
+   * than what is left of the action's `timeout`; a page that doesn't settle in
+   * time is not itself an action failure, so it never throws.
    * @param {Page} page - Playwright page
-   * @param {number} timeout - Timeout in ms
-   * @returns {Promise<void>}
+   * @param {number} timeout - The action's timeout in ms
+   * @param {number} startedAt - When the action started (Date.now()); the settle
+   *   gets only the remainder, so a slow element wait plus a busy page cannot
+   *   outrun the backstop and turn a successful action into a timeout
+   * @returns {Promise<{waited_ms: number, settled_by: string}>}
    */
-  async settleAfterInteraction(page, timeout) {
-    try {
-      await page.waitForLoadState('domcontentloaded', { timeout });
-    } catch {
-      // Ignored on purpose — see above.
-    }
+  async settleAfterInteraction(page, timeout, startedAt) {
+    const remaining = Math.max(1, timeout - (Date.now() - startedAt));
+    return await settlePage(page, { timeout: remaining });
   }
 
   /**
@@ -960,6 +963,7 @@ export class ActionExecutor extends EventEmitter {
    * @returns {Promise<Object>} Click result
    */
   async executeClickAction(page, action) {
+    const startedAt = Date.now();
     const timeout = this.actionTimeout(action);
     const locator = this.elementLocator(page, action.selector);
 
@@ -977,7 +981,8 @@ export class ActionExecutor extends EventEmitter {
         button: action.button,
         clickCount: action.clickCount,
         delay: action.delay,
-        force: action.force
+        force: action.force,
+        timeout
       });
     } else {
       // Standard click behavior
@@ -998,7 +1003,7 @@ export class ActionExecutor extends EventEmitter {
 
     // A click can follow a link or submit a form; let that navigation commit
     // before the next action runs against the outgoing document.
-    await this.settleAfterInteraction(page, timeout);
+    await this.settleAfterInteraction(page, timeout, startedAt);
 
     return {
       selector: action.selector,
@@ -1050,6 +1055,7 @@ export class ActionExecutor extends EventEmitter {
    * @returns {Promise<Object>} Press result
    */
   async executePressAction(page, action) {
+    const startedAt = Date.now();
     const timeout = this.actionTimeout(action);
     const keyOptions = { timeout };
     if (action.modifiers?.length > 0) {
@@ -1063,7 +1069,7 @@ export class ActionExecutor extends EventEmitter {
     }
 
     // Enter on a form field navigates as often as a click does.
-    await this.settleAfterInteraction(page, timeout);
+    await this.settleAfterInteraction(page, timeout, startedAt);
 
     return {
       key: action.key,
@@ -1161,6 +1167,7 @@ export class ActionExecutor extends EventEmitter {
    * @returns {Promise<Object>} Select result
    */
   async executeSelectAction(page, action) {
+    const startedAt = Date.now();
     const timeout = this.actionTimeout(action);
     const values = action.values?.length ? action.values : [action.value];
 
@@ -1169,7 +1176,7 @@ export class ActionExecutor extends EventEmitter {
 
     // Faceted-search dropdowns commonly submit the form on change, so let any
     // navigation commit before the next action runs.
-    await this.settleAfterInteraction(page, timeout);
+    await this.settleAfterInteraction(page, timeout, startedAt);
 
     return {
       selector: action.selector,
@@ -1323,7 +1330,9 @@ export class ActionExecutor extends EventEmitter {
   async executeSnapshotAction(page, action) {
     return await captureSnapshot(page, {
       interactiveOnly: action.interactiveOnly,
-      maxNodes: action.maxNodes
+      maxNodes: action.maxNodes,
+      // The render wait before the walk stays inside the action's deadline.
+      timeout: this.actionTimeout(action)
     });
   }
 

@@ -3638,8 +3638,10 @@ export class CamoufoxAdapter extends BrowserEngine {
     // `blockWebRTC: false` is the stealthier setting behind a proxy.
     if (config.blockWebRTC) options.block_webrtc = true;
     // Native cursor humanization: camoufox moves the pointer along a plausible
-    // path rather than teleporting it.
-    if (config.humanize) options.humanize = true;
+    // path rather than teleporting it. The number caps one move in seconds;
+    // `true` means camoufox's 1.5 s default, which made a single stealth click
+    // cost 2 s or more of cursor travel alone.
+    if (config.humanize) options.humanize = 0.5;
     // Pin the persona to the installed binary's Firefox major so the UA's two
     // version tokens agree. Left unpinned, camoufox's own version rewrite
     // reaches only `rv:` and about half of all launches announce a Firefox

@@ -102,7 +102,7 @@ export class HumanBehaviorSimulator {
    * Simulate human-like mouse movement to target coordinates
    */
   async simulateMouseMovement(page, fromX, fromY, toX, toY) {
-    if (!this.config.mouseMovements.enabled) {
+    if (!this.config.mouseMovements.enabled || this.browserHumanizesCursor(page)) {
       await page.mouse.move(toX, toY);
       return;
     }
@@ -128,6 +128,25 @@ export class HumanBehaviorSimulator {
     }
 
     this.stats.mouseMovements++;
+  }
+
+  /**
+   * Whether the browser already animates every page.mouse.move itself.
+   *
+   * camoufox launched with `humanize` (StealthBrowserManager sets it from
+   * simulateHumanBehavior, on by default) draws its own curved path for each
+   * move, at ~1-2 s a call whatever the distance (measured 2026-09-29: 10 px
+   * took 950 ms, across the window 2.2 s). Our path is 11-101 moves, so the
+   * two stacked turned one click into 10-20 s and hit the action backstop; one
+   * move to the target is still a humanized path. camoufox is the only
+   * Firefox this server launches.
+   */
+  browserHumanizesCursor(page) {
+    try {
+      return page.context().browser()?.browserType().name() === 'firefox';
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -312,7 +331,10 @@ export class HumanBehaviorSimulator {
    * Simulate human-like clicking with hover and delay
    */
   async simulateClick(page, selector, options = {}) {
-    const element = await page.waitForSelector(selector);
+    // `timeout` bounds the wait for the element; left unset it is Playwright's
+    // 30 s default. It is not a mouse.click option, so it stays out of those.
+    const { timeout, ...clickOptions } = options;
+    const element = await page.waitForSelector(selector, { timeout });
     const boundingBox = await element.boundingBox();
     
     if (!boundingBox) {
@@ -339,7 +361,7 @@ export class HumanBehaviorSimulator {
     await this.delay(clickDelay);
 
     // Perform the click
-    await page.mouse.click(clickX, clickY, options);
+    await page.mouse.click(clickX, clickY, clickOptions);
 
     this.stats.totalInteractions++;
   }
