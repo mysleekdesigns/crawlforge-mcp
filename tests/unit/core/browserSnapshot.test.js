@@ -2,17 +2,20 @@
  * Unit tests: the page snapshot and its element refs.
  * Run: node --test --test-force-exit tests/unit/core/browserSnapshot.test.js
  *
- * The snapshot is an injected DOM walk, so only a real DOM can say whether it
- * is right: computed styles, `el.labels`, bounding rects and aria-hidden
- * subtrees all have to come from the browser. Fixture-backed and served from
- * 127.0.0.1, no network; the whole file skips when Chromium isn't installed
- * (same pattern as actionExecutorPlaywrightApi.test.js).
+ * The snapshot is Playwright's native `ariaSnapshot({ mode: 'ai' })` translated
+ * into our tree, with an injected DOM walk as the fallback, so only a real DOM
+ * can say whether it is right: computed styles, accessible names, bounding
+ * rects, shadow roots and frames all have to come from the browser.
+ * Fixture-backed and served from 127.0.0.1, no network; the browser suites skip
+ * when Chromium isn't installed (same pattern as
+ * actionExecutorPlaywrightApi.test.js).
  */
 
 import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
+import { HumanBehaviorSimulator } from '../../../src/utils/HumanBehaviorSimulator.js';
 import {
   captureSnapshot,
   resolveRef,
@@ -32,13 +35,15 @@ try {
 }
 
 /**
- * Every kind of node the walk has to make a decision about: named four
+ * Every kind of node the snapshot has to make a decision about: named four
  * different ways, hidden four different ways, plus a heading and a landmark
- * that only interactiveOnly:false should reach.
+ * that only interactiveOnly:false should reach. The form carries a label
+ * because an unnamed <form> has no `form` role in ARIA — the native snapshot
+ * reports it as a plain generic, so it would not be a landmark at all.
  */
 const FIXTURE = `<html><head><title>Snapshot Fixture</title></head><body style="margin:0">
 <h1>Welcome</h1>
-<form>
+<form aria-label="Sign up">
   <label for="email">Email address</label>
   <input id="email" type="email">
   <input type="text" aria-label="Search query">
@@ -53,11 +58,43 @@ const FIXTURE = `<html><head><title>Snapshot Fixture</title></head><body style="
 <input type="hidden" name="csrf" value="x">
 </body></html>`;
 
+/**
+ * What the walk could never see: a control inside an open shadow root, one
+ * inside a same-origin iframe, a contenteditable editing host (a TinyMCE-style
+ * iframe body among them), and an onclick <div> known only by its pointer
+ * cursor. Each click writes to #log in its own document.
+ */
+const PAGES = {
+  '/page2': '<html><head><title>Page Two</title></head><body><button id="other">Other</button></body></html>',
+  '/shadow': `<html><head><title>Shadow</title></head><body style="margin:0">
+<div style="height:3000px">spacer</div>
+<div id="host"></div><div id="log"></div>
+<script>
+  const button = document.createElement('button');
+  button.textContent = 'Shadow btn';
+  button.onclick = () => { log.textContent = 'shadow clicked'; };
+  host.attachShadow({ mode: 'open' }).append(button);
+</script>
+</body></html>`,
+  '/frame': `<html><head><title>Frames</title></head><body style="margin:0">
+<button>Top</button>
+<iframe src="/inner"></iframe>
+<iframe src="/editor" title="Editor frame"></iframe>
+</body></html>`,
+  '/inner': `<html><body style="margin:0">
+<button id="in-frame" onclick="log.textContent = 'frame clicked'">In frame</button><div id="log"></div>
+</body></html>`,
+  '/editor': `<html><body contenteditable="true" aria-label="Rich Text Area"><p>Your content goes here.</p></body></html>`,
+  '/widgets': `<html><head><title>Widgets</title></head><body style="margin:0">
+<div contenteditable="true" aria-label="Message"><p>Draft</p></div>
+<div onclick="log.textContent = 'card clicked'" style="cursor:pointer">Open card <span>details</span></div>
+<div>Plain text</div><div id="log"></div>
+</body></html>`
+};
+
 const server = http.createServer((req, res) => {
   res.setHeader('content-type', 'text/html');
-  res.end(req.url === '/page2'
-    ? '<html><head><title>Page Two</title></head><body><button id="other">Other</button></body></html>'
-    : FIXTURE);
+  res.end(PAGES[req.url] || FIXTURE);
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const BASE = `http://127.0.0.1:${server.address().port}`;
@@ -67,10 +104,10 @@ after(async () => {
   server.close();
 });
 
-async function withPage(fn, { navigate = true } = {}) {
+async function withPage(fn, { navigate = true, path = '/' } = {}) {
   const page = await browser.newPage();
   try {
-    if (navigate) await page.goto(BASE);
+    if (navigate) await page.goto(BASE + path);
     return await fn(page);
   } finally {
     await page.close();
@@ -88,12 +125,17 @@ describe('captureSnapshot', { skip: !browser && 'Chromium not installed' }, () =
         '  @e2 [textbox] "Search query"',    // named by aria-label
         '  @e3 [textbox] "Zip code"',        // named by placeholder
         '  @e4 [button] "Go"',
-        '  @e5 [link] "More information..."'
+        '  @e5 [link] "More information..."',
+        // aria-hidden but on screen and clickable: Playwright's ai mode keeps
+        // it (visibility "ariaOrVisible"), and an agent can act on it. Its
+        // accessible name is empty, so it is captioned by its text.
+        '  @e6 [button] "Ghost"'
       ]);
-      assert.equal(snapshot.refCount, 5);
-      assert.equal(snapshot.nodeCount, 5);
+      assert.equal(snapshot.refCount, 6);
+      assert.equal(snapshot.nodeCount, 6);
       assert.equal(snapshot.truncated, false);
       assert.equal(snapshot.interactiveOnly, true);
+      assert.equal(snapshot.source, 'aria');
       assert.equal(snapshot.url, `${BASE}/`);
       assert.equal(snapshot.title, 'Snapshot Fixture');
       assert.match(snapshot.snapshotId, /^[0-9a-f]{8}$/);
@@ -104,11 +146,12 @@ describe('captureSnapshot', { skip: !browser && 'Chromium not installed' }, () =
     await withPage(async (page) => {
       const { tree, refCount } = await captureSnapshot(page);
 
-      assert.equal(refCount, 5, 'only the five reachable controls may be reffed');
-      for (const excluded of ['Ghost', 'Gone', 'Invisible', 'Zero', 'csrf']) {
+      assert.equal(refCount, 6, 'only the six on-screen controls may be reffed');
+      for (const excluded of ['Gone', 'Invisible', 'Zero', 'csrf']) {
         assert.doesNotMatch(tree, new RegExp(excluded), `${excluded} should not be in the tree`);
       }
-      assert.equal(await page.locator(`[${REF_ATTRIBUTE}]`).count(), 5, 'and none of them may be stamped');
+      assert.equal(await page.locator(`[${REF_ATTRIBUTE}]`).count(), 0,
+        'the native snapshot resolves through aria-ref and stamps nothing');
     });
   });
 
@@ -134,15 +177,16 @@ describe('captureSnapshot', { skip: !browser && 'Chromium not installed' }, () =
       assert.deepEqual(snapshot.tree.split('\n'), [
         '[document] "Snapshot Fixture"',
         '  [heading] "Welcome"',
-        '  [form]',
+        '  [form] "Sign up"',
         '    @e1 [textbox] "Email address"',
         '    @e2 [textbox] "Search query"',
         '    @e3 [textbox] "Zip code"',
         '    @e4 [button] "Go"',
-        '  @e5 [link] "More information..."'
+        '  @e5 [link] "More information..."',
+        '  @e6 [button] "Ghost"'
       ]);
-      assert.equal(snapshot.refCount, 5, 'the heading and the landmark must not consume refs');
-      assert.equal(snapshot.nodeCount, 7);
+      assert.equal(snapshot.refCount, 6, 'the heading and the landmark must not consume refs');
+      assert.equal(snapshot.nodeCount, 8);
       assert.equal(snapshot.interactiveOnly, false);
     });
   });
@@ -153,21 +197,90 @@ describe('captureSnapshot', { skip: !browser && 'Chromium not installed' }, () =
       const second = await captureSnapshot(page, { maxNodes: 2 });
 
       assert.equal(second.refCount, 2);
-      assert.equal(
-        await page.locator(`[${REF_ATTRIBUTE}]`).count(),
-        2,
-        'the first walk\'s stamps must be cleared, or @e5 would still answer'
-      );
+      assert.throws(() => resolveRef(page, '@e5'), StaleRefError,
+        'a ref only the first snapshot assigned must not still answer');
+    });
+  });
+
+  test('a control inside an open shadow root is reffed and clickable', async () => {
+    await withPage(async (page) => {
+      const snapshot = await captureSnapshot(page);
+
+      assert.deepEqual(snapshot.tree.split('\n'), ['[document] "Shadow"', '  @e1 [button] "Shadow btn"']);
+      await page.locator(resolveRef(page, '@e1')).click();
+      assert.equal(await page.locator('#log').textContent(), 'shadow clicked');
+    }, { path: '/shadow' });
+  });
+
+  test('frames are walked: their controls are reffed in document order and clickable', async () => {
+    await withPage(async (page) => {
+      await page.frameLocator('iframe >> nth=0').locator('#in-frame').waitFor();
+      const snapshot = await captureSnapshot(page, { interactiveOnly: false });
+
+      assert.deepEqual(snapshot.tree.split('\n'), [
+        '[document] "Frames"',
+        '  @e1 [button] "Top"',
+        '  [iframe]',
+        '    @e2 [button] "In frame"',
+        '  [iframe]',
+        // The TinyMCE shape: the frame's body is the contenteditable editor.
+        '    @e3 [textbox] "Rich Text Area"'
+      ]);
+      // Our refs stay contiguous; the selector is Playwright's frame-scoped ref.
+      assert.match(resolveRef(page, '@e2'), /^aria-ref=f\d+e\d+$/);
+      await page.locator(resolveRef(page, '@e2')).click();
+      assert.equal(await page.frameLocator('iframe >> nth=0').locator('#log').textContent(), 'frame clicked');
+
+      await page.locator(resolveRef(page, '@e3')).fill('typed into the frame');
+      assert.equal(await page.frameLocator('iframe >> nth=1').locator('body').textContent(), 'typed into the frame');
+    }, { path: '/frame' });
+  });
+
+  test('an editing host and a pointer-cursor <div> count as interactive; plain text does not', async () => {
+    await withPage(async (page) => {
+      const snapshot = await captureSnapshot(page);
+
+      assert.deepEqual(snapshot.tree.split('\n'), [
+        '[document] "Widgets"',
+        '  @e1 [textbox] "Message"',
+        '  @e2 [generic] "Open card details"'
+      ]);
+      await page.locator(resolveRef(page, '@e2')).click();
+      assert.equal(await page.locator('#log').textContent(), 'card clicked');
+    }, { path: '/widgets' });
+  });
+
+  test('falls back to the injected walk when the native snapshot fails, and says so', async () => {
+    await withPage(async (page) => {
+      page.ariaSnapshot = async () => { throw new Error('ariaSnapshot unavailable'); };
+      const snapshot = await captureSnapshot(page);
+
+      assert.equal(snapshot.source, 'walk');
+      assert.deepEqual(snapshot.tree.split('\n'), [
+        '[document] "Snapshot Fixture"',
+        '  @e1 [textbox] "Email address"',
+        '  @e2 [textbox] "Search query"',
+        '  @e3 [textbox] "Zip code"',
+        '  @e4 [button] "Go"',
+        '  @e5 [link] "More information..."'   // the walk honours aria-hidden
+      ]);
+      assert.equal(await page.locator(`[${REF_ATTRIBUTE}]`).count(), 5, 'the walk stamps what it refs');
+      assert.equal(resolveRef(page, '@e1'), `[${REF_ATTRIBUTE}="e1"]`);
+      assert.equal(await page.locator(resolveRef(page, '@e1')).getAttribute('id'), 'email');
+
+      // A re-walk clears the first walk's stamps, or @e5 would still answer.
+      await captureSnapshot(page, { maxNodes: 2 });
+      assert.equal(await page.locator(`[${REF_ATTRIBUTE}]`).count(), 2);
     });
   });
 });
 
 describe('resolveRef', { skip: !browser && 'Chromium not installed' }, () => {
-  test('a live ref becomes a plain CSS selector for the element it named', async () => {
+  test('a live ref becomes a Playwright selector for the element it named', async () => {
     await withPage(async (page) => {
       await captureSnapshot(page);
 
-      assert.equal(resolveRef(page, '@e1'), `[${REF_ATTRIBUTE}="e1"]`);
+      assert.match(resolveRef(page, '@e1'), /^aria-ref=e\d+$/);
       assert.equal(await page.locator(resolveRef(page, '@e1')).getAttribute('id'), 'email');
       assert.equal(await page.locator(resolveRef(page, '@e4')).textContent(), 'Go');
     });
@@ -188,7 +301,7 @@ describe('resolveRef', { skip: !browser && 'Chromium not installed' }, () => {
     await withPage(async (page) => {
       attachRefTracking(page);
       await captureSnapshot(page);
-      assert.equal(resolveRef(page, '@e1'), `[${REF_ATTRIBUTE}="e1"]`);
+      assert.match(resolveRef(page, '@e1'), /^aria-ref=/);
 
       const navigated = page.waitForEvent('framenavigated');
       await page.goto(`${BASE}/page2`);
@@ -210,7 +323,7 @@ describe('resolveRef', { skip: !browser && 'Chromium not installed' }, () => {
       assert.throws(
         () => resolveRef(page, '@e9'),
         (error) => error instanceof StaleRefError &&
-          /the current snapshot has 5 refs \(@e1-@e5\)/.test(error.message)
+          /the current snapshot has 6 refs \(@e1-@e6\)/.test(error.message)
       );
     });
   });
@@ -284,6 +397,81 @@ describe('a navigation during the walk', () => {
     // No refs were published, so acting on one names the snapshot rather than
     // timing out on a selector that can never match.
     assert.throws(() => resolveRef(page, '@e1'), StaleRefError);
+  });
+
+  /** A page with a native snapshot, whose first call runs into a navigation. */
+  const nativeStubPage = ({ throwsOnNavigation }) => {
+    let attempts = 0;
+    const page = {
+      on() {},
+      mainFrame: () => 'main',
+      url: () => 'https://example.test/',
+      frames: () => [],
+      title: async () => 'Second page',
+      get attempts() { return attempts; },
+      async evaluate() { throw new Error('the walk must not run'); },
+      async ariaSnapshot() {
+        attempts++;
+        if (attempts === 1) {
+          clearRefs(page);
+          if (throwsOnNavigation) throw new Error('Execution context was destroyed');
+        }
+        return '- generic [active] [ref=e1]:\n  - button "Go" [ref=e2]';
+      }
+    };
+    return page;
+  };
+
+  for (const throwsOnNavigation of [false, true]) {
+    test(`a native capture the navigation ${throwsOnNavigation ? 'broke' : 'outdated'} is retried, not handed to the walk`, async () => {
+      const page = nativeStubPage({ throwsOnNavigation });
+      const snapshot = await captureSnapshot(page);
+
+      assert.equal(page.attempts, 2);
+      assert.equal(snapshot.source, 'aria');
+      assert.equal(snapshot.tree, '[document] "Second page"\n  @e1 [button] "Go"');
+      assert.equal(resolveRef(page, '@e1'), 'aria-ref=e2', 'our @e1 is Playwright\'s e2');
+    });
+  }
+});
+
+/**
+ * The stealth path hands a resolved ref to HumanBehaviorSimulator as a raw
+ * selector string. A native ref is `aria-ref=…` and may live in a shadow root
+ * or a frame, none of which document.querySelector() can take.
+ */
+describe('HumanBehaviorSimulator with snapshot refs', { skip: !browser && 'Chromium not installed' }, () => {
+  const simulator = new HumanBehaviorSimulator({
+    mouseMovements: { enabled: false },
+    interactions: { hoverBeforeClick: false, clickDelay: { min: 0, max: 0 } }
+  });
+
+  test('scrolls to a ref inside a shadow root', async () => {
+    await withPage(async (page) => {
+      await captureSnapshot(page);
+      assert.equal(await page.evaluate(() => window.scrollY), 0);
+
+      await simulator.simulateScroll(page, { target: resolveRef(page, '@e1') });
+      await page.waitForFunction(() => window.scrollY > 1000);
+    }, { path: '/shadow' });
+  });
+
+  test('reads the text length of a ref', async () => {
+    await withPage(async (page) => {
+      await captureSnapshot(page);
+      // Resolves (a short read) rather than throwing on a non-CSS selector.
+      await simulator.simulateReadingTime(page, resolveRef(page, '@e1'));
+    }, { path: '/shadow' });
+  });
+
+  test('clicks a ref inside a frame', async () => {
+    await withPage(async (page) => {
+      await page.frameLocator('iframe >> nth=0').locator('#in-frame').waitFor();
+      await captureSnapshot(page);
+
+      await simulator.simulateClick(page, resolveRef(page, '@e2'), { timeout: 5000 });
+      assert.equal(await page.frameLocator('iframe >> nth=0').locator('#log').textContent(), 'frame clicked');
+    }, { path: '/frame' });
   });
 });
 

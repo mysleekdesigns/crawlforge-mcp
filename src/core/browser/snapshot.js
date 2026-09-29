@@ -2,25 +2,32 @@
  * Snapshot — the accessibility-style page tree that hands an agent stable
  * element refs (`@e1`, `@e2`, …) to act on instead of guessed CSS selectors.
  *
- * Why ours and not Playwright's: 1.62's `locator.ariaSnapshot()` emits YAML
- * with no element refs at all, and `page._snapshotForAI()` is private API we
- * will not depend on. The walk below is injected by us and returns the tree
- * and the refs from one pass.
+ * TWO SOURCES, one public format:
  *
- * A REF LIVES IN TWO PLACES, and the halves do different jobs:
+ *   1. `page.ariaSnapshot({ mode: 'ai' })` (Playwright ≥ 1.59; verified on
+ *      1.62.1, Chromium and Camoufox). It descends open shadow roots and
+ *      iframes, and tags each visible node `[ref=e5]` (`[ref=f1e3]` in a
+ *      frame) that the public `aria-ref=` selector engine resolves — shadow
+ *      and frame refs included. Its YAML is translated into our tree below.
+ *   2. The injected walk (snapshotScript), kept as the fallback for a page
+ *      where the native call throws. It stamps `data-cf-ref="e1"` on the
+ *      elements it refs and sees neither shadow roots nor frames.
  *
- *   1. In the page — the walk stamps `data-cf-ref="e1"` onto every element it
- *      refs, so a ref resolves to an ordinary CSS selector,
- *      `[data-cf-ref="e1"]`. That is what makes refs work with every existing
- *      action path for free, including the stealth human-behaviour code that
- *      takes a raw selector string.
- *   2. In Node — a WeakMap<Page, state> cleared on every main-frame
- *      navigation. This is the half that DETECTS staleness. Without it a ref
- *      from a previous page would merely fail to match, and the caller would
- *      be told "selector not found" instead of "take a new snapshot".
+ * The result's `source` ('aria' | 'walk') says which one described the page.
  *
- * So a stale ref fails loudly, with the reason and the fix (StaleRefError),
- * and never silently hits the wrong element.
+ * Refs are OURS, not Playwright's: `@e1…@eN`, contiguous, in document order
+ * across the page, its shadow roots and its frames. Playwright numbers every
+ * visible node (the body is usually its e1), so its ids have gaps and a page's
+ * one button would be e2; each of our refs instead maps to the selector that
+ * finds its element — `aria-ref=f1e3` natively, `[data-cf-ref="e1"]` from the
+ * walk. A resolved selector is therefore NOT always CSS: a consumer must hand
+ * it to page.locator()/waitForSelector(), never to document.querySelector().
+ *
+ * STALENESS lives in Node — a WeakMap<Page, state> cleared on every main-frame
+ * navigation. Without it a ref from a previous page would merely fail to
+ * match, and the caller would be told "selector not found" instead of "take a
+ * new snapshot". So a stale ref fails loudly, with the reason and the fix
+ * (StaleRefError), and never silently hits the wrong element.
  *
  * Not to be confused with src/core/SnapshotManager.js, which is change-
  * tracking history.
@@ -33,8 +40,9 @@ export const REF_ATTRIBUTE = 'data-cf-ref';
 export const DEFAULT_MAX_NODES = 200;
 export const MAX_NODES_LIMIT = 1000;
 
-// Walks of one snapshot call, including the retry when the page navigates
-// mid-walk. Two: one retry is enough for a page that settles, and a page
+// Captures of one snapshot call, including the retry when the page navigates
+// mid-capture (a fallback from the native snapshot to the walk is not one of
+// them). Two: one retry is enough for a page that settles, and a page
 // navigating repeatedly is not one a snapshot can describe.
 const MAX_WALK_ATTEMPTS = 2;
 
@@ -44,6 +52,26 @@ const MAX_INDENT = 10;
 const MAX_NAME_LENGTH = 120;
 
 const REF_PATTERN = /^@e[1-9]\d*$/;
+
+// Shared by both sources: the walk gets them as arguments, the translation of
+// the native snapshot reads them directly.
+const INTERACTIVE_ROLES = [
+  'button', 'link', 'checkbox', 'radio', 'textbox', 'combobox', 'menuitem',
+  'menuitemcheckbox', 'menuitemradio', 'tab', 'switch', 'option', 'searchbox',
+  'slider', 'spinbutton'
+];
+const STRUCTURAL_ROLES = [
+  'heading', 'banner', 'navigation', 'contentinfo', 'complementary', 'main',
+  'form', 'region', 'search', 'iframe'
+];
+const INTERACTIVE_ROLE_SET = new Set(INTERACTIVE_ROLES);
+const STRUCTURAL_ROLE_SET = new Set(STRUCTURAL_ROLES);
+
+// An editing host (`contenteditable`) has no ARIA role, so the native snapshot
+// shows it as a plain `generic`. Only a page that has one pays for the per-node
+// check that finds it, and each check gets this long before it counts as "no".
+const EDITABLE_SELECTOR = '[contenteditable]:not([contenteditable="false"])';
+const EDITABLE_CHECK_TIMEOUT_MS = 1000;
 
 /** Thrown when a ref cannot be resolved against the page's current snapshot. */
 export class StaleRefError extends Error {
@@ -67,17 +95,12 @@ export function isRef(selector) {
  * JavaScript, so it has nothing to do with the ALLOW_JAVASCRIPT_EXECUTION flag
  * that gates the `executeJavaScript` action. Do not put it behind that flag.
  */
-function snapshotScript({ refAttribute, interactiveOnly, maxNodes, maxIndent, maxNameLength }) {
+function snapshotScript({
+  refAttribute, interactiveOnly, maxNodes, maxIndent, maxNameLength, interactiveRoles, structuralRoles
+}) {
   const SKIP_TAGS = new Set(['script', 'style', 'noscript', 'template', 'head']);
-  const INTERACTIVE_ROLES = new Set([
-    'button', 'link', 'checkbox', 'radio', 'textbox', 'combobox', 'menuitem',
-    'menuitemcheckbox', 'menuitemradio', 'tab', 'switch', 'option', 'searchbox',
-    'slider', 'spinbutton'
-  ]);
-  const STRUCTURAL_ROLES = new Set([
-    'heading', 'banner', 'navigation', 'contentinfo', 'complementary', 'main',
-    'form', 'region', 'search'
-  ]);
+  const INTERACTIVE_ROLES = new Set(interactiveRoles);
+  const STRUCTURAL_ROLES = new Set(structuralRoles);
   const LANDMARK_TAGS = {
     main: 'main', nav: 'navigation', header: 'banner', footer: 'contentinfo',
     aside: 'complementary', form: 'form'
@@ -215,6 +238,148 @@ function snapshotScript({ refAttribute, interactiveOnly, maxNodes, maxIndent, ma
   return { title: clean(document.title), lines, refs, truncated };
 }
 
+// Same name rules as the walk's clean()/truncate(): one line, no double quotes.
+const cleanName = (value) => (value || '').replace(/\s+/g, ' ').trim().replace(/"/g, "'");
+const truncateName = (value) =>
+  (value.length > MAX_NAME_LENGTH ? `${value.slice(0, MAX_NAME_LENGTH - 1)}…` : value);
+
+/**
+ * One line of `page.ariaSnapshot({ mode: 'ai' })`:
+ *
+ *   - role "name" [checked] [level=1] [ref=e5] [cursor=pointer]: text
+ *
+ * The name is JSON-quoted, or printed bare when it is itself `/…/`. A key YAML
+ * would misread (a name holding `: ` or ` #`) comes wrapped in single quotes
+ * with `''` for `'`; a text value that needs it is double-quoted. Property
+ * lines (`- /url: …`) and bare text (`- text: …`) are not nodes and return null.
+ */
+function parseAriaLine(line) {
+  const item = /^( *)- (.*)$/.exec(line);
+  if (!item) return null;
+
+  let key = item[2];
+  let rest = '';
+  const quoted = /^'((?:[^']|'')*)'(.*)$/.exec(key);
+  if (quoted) {
+    key = quoted[1].replace(/''/g, "'");
+    rest = quoted[2];
+  } else {
+    // An unquoted key never contains `:` followed by a space or the end.
+    const colon = key.search(/:(\s|$)/);
+    if (colon >= 0) [key, rest] = [key.slice(0, colon), key.slice(colon)];
+  }
+
+  const parts = /^([a-z]+)(?: ("(?:[^"\\]|\\.)*"|\/.*\/(?= \[|$)))?(.*)$/.exec(key);
+  if (!parts || parts[1] === 'text') return null;
+
+  let text = rest.replace(/^:\s?/, '');
+  if (text.startsWith('"')) {
+    try {
+      text = JSON.parse(text.replace(/\\x([0-9a-f]{2})/gi, '\\u00$1'));
+    } catch {
+      // keep the raw value; it is only ever a fallback name
+    }
+  }
+
+  const ref = /\[ref=([^\]\s]+)\]/.exec(parts[3]);
+  return {
+    indent: item[1].length,
+    role: parts[1],
+    name: parts[2] ? (parts[2].startsWith('"') ? JSON.parse(parts[2]) : parts[2]) : '',
+    text,
+    ref: ref ? ref[1] : null,
+    pointer: parts[3].includes('[cursor=pointer]')
+  };
+}
+
+/** Playwright refs of the `generic` nodes that are contenteditable editing hosts. */
+async function editingHosts(page, nodes) {
+  const found = await Promise.all(page.frames().map((frame) =>
+    frame.locator(EDITABLE_SELECTOR).count().catch(() => 0)));
+  if (!found.some(Boolean)) return new Set();
+
+  const generics = nodes.filter((node) => node.role === 'generic');
+  const hosts = await Promise.all(generics.map((node) =>
+    page.locator(`aria-ref=${node.ref}`)
+      .evaluate(
+        (el) => el.isContentEditable && !(el.parentElement && el.parentElement.isContentEditable),
+        undefined,
+        { timeout: EDITABLE_CHECK_TIMEOUT_MS }
+      )
+      .catch(() => false)));
+  return new Set(generics.filter((_, i) => hosts[i]).map((node) => node.ref));
+}
+
+/**
+ * Describe the page with Playwright's native snapshot, in the walk's format.
+ *
+ * A node is interactive by role; or, having no such role, when it is an
+ * editing host (printed as the textbox it is typed into like) or the outermost
+ * node with a pointer cursor — the mark an onclick `<div>` usually carries.
+ * Nodes without a Playwright ref are left out: those are the invisible ones
+ * (display:none, zero-size, a closed <select>'s options). A `tabindex` or
+ * `onclick` element with neither a role nor a pointer cursor is not found —
+ * the YAML does not carry those attributes.
+ */
+async function ariaCapture(page, { interactiveOnly, maxNodes, timeout }) {
+  const yaml = await page.ariaSnapshot({ mode: 'ai', timeout });
+  const nodes = yaml.split('\n').map(parseAriaLine).filter((node) => node && node.ref);
+  const editable = await editingHosts(page, nodes);
+
+  const lines = [];
+  const refs = [];
+  let truncated = false;
+  // The emitted ancestors of the current node. Indentation follows EMITTED
+  // nesting, as in the walk, so it is this stack's depth, not the YAML's.
+  const emitted = [];
+
+  for (const node of nodes) {
+    while (emitted.length && emitted[emitted.length - 1].indent >= node.indent) emitted.pop();
+
+    const isHost = editable.has(node.ref);
+    const interactive = INTERACTIVE_ROLE_SET.has(node.role) || isHost ||
+      (node.pointer && !emitted.some((ancestor) => ancestor.interactive));
+    const structural = !interactive && !interactiveOnly && STRUCTURAL_ROLE_SET.has(node.role);
+    if (!interactive && !structural) continue;
+
+    if (lines.length >= maxNodes) {
+      truncated = true;
+      break;
+    }
+    const role = isHost ? 'textbox' : node.role;
+    // A control with no accessible name is captioned by its text, as the walk
+    // does; a landmark is named by its label only.
+    const name = truncateName(cleanName(node.name || (interactive ? node.text : '')));
+    let ref = '';
+    if (interactive) {
+      const id = `e${refs.length + 1}`;
+      refs.push({ id, role, name, selector: `aria-ref=${node.ref}` });
+      ref = `@${id} `;
+    }
+    lines.push(`${'  '.repeat(Math.min(emitted.length + 1, MAX_INDENT))}${ref}[${role}]${name ? ` "${name}"` : ''}`);
+    emitted.push({ indent: node.indent, interactive });
+  }
+
+  return { title: cleanName(await page.title()), lines, refs, truncated };
+}
+
+/** The injected walk, with each ref's selector pointing at the stamp it left. */
+async function walkCapture(page, { interactiveOnly, maxNodes }) {
+  const walk = await page.evaluate(snapshotScript, {
+    refAttribute: REF_ATTRIBUTE,
+    interactiveOnly,
+    maxNodes,
+    maxIndent: MAX_INDENT,
+    maxNameLength: MAX_NAME_LENGTH,
+    interactiveRoles: INTERACTIVE_ROLES,
+    structuralRoles: STRUCTURAL_ROLES
+  });
+  return {
+    ...walk,
+    refs: walk.refs.map(({ id, role, name }) => ({ id, role, name, selector: `[${REF_ATTRIBUTE}="${id}"]` }))
+  };
+}
+
 function stateFor(page) {
   let state = pageState.get(page);
   if (!state) {
@@ -225,13 +390,15 @@ function stateFor(page) {
 }
 
 /**
- * Walk the page and return its tree plus the refs it assigned.
+ * Describe the page and return its tree plus the refs it assigned. `source`
+ * in the result says whether the native snapshot or the walk produced it.
  *
  * @param {import('playwright').Page} page
  * @param {object} [options]
  * @param {boolean} [options.interactiveOnly=true] — false also emits headings and landmarks, unreffed
  * @param {number} [options.maxNodes=200] — cap on emitted nodes, clamped to [1, MAX_NODES_LIMIT]
- * @param {number} [options.timeout] — budget for the render wait before the walk (see settle.js)
+ * @param {number} [options.timeout] — budget for the render wait before the capture (see settle.js),
+ *   and for the native snapshot itself
  */
 export async function captureSnapshot(page, options = {}) {
   const interactiveOnly = options.interactiveOnly !== false;
@@ -250,25 +417,36 @@ export async function captureSnapshot(page, options = {}) {
 
   const state = stateFor(page);
   let title, lines, refs, truncated;
+  // The native snapshot unless this page object has none (a stub, an old
+  // Playwright) or it throws here; the walk is the fallback either way.
+  let source = typeof page.ariaSnapshot === 'function' ? 'aria' : 'walk';
 
-  // A navigation that commits WHILE the walk is running would otherwise leave us
-  // holding refs for a document that has gone — the attributes were stamped on
-  // the old page, so `@e1` would match nothing and surface as a locator timeout
-  // instead of the named error D2 requires. `generation` moves on every
-  // main-frame navigation, so a change across the evaluate means exactly that.
-  // Walk the new document instead; if it navigates again, give up and leave the
-  // refs invalidated rather than publishing a tree for a page nobody is on.
-  for (let attempt = 0; ; attempt++) {
+  // A navigation that commits WHILE the snapshot is running would otherwise
+  // leave us holding refs for a document that has gone, so `@e1` would match
+  // nothing and surface as a locator timeout instead of the named error D2
+  // requires. `generation` moves on every main-frame navigation, so a change
+  // across the capture means exactly that — whether the capture returned or
+  // threw because its context was destroyed. Capture the new document instead;
+  // if it navigates again, give up and leave the refs invalidated rather than
+  // publishing a tree for a page nobody is on.
+  for (let attempt = 0; ;) {
     const generation = state.generation;
-    ({ title, lines, refs, truncated } = await page.evaluate(snapshotScript, {
-      refAttribute: REF_ATTRIBUTE,
-      interactiveOnly,
-      maxNodes,
-      maxIndent: MAX_INDENT,
-      maxNameLength: MAX_NAME_LENGTH
-    }));
-    if (state.generation === generation) break;
-    if (attempt >= MAX_WALK_ATTEMPTS - 1) {
+    const capture = source === 'aria' ? ariaCapture : walkCapture;
+    let result;
+    try {
+      result = await capture(page, { interactiveOnly, maxNodes, timeout: options.timeout });
+    } catch (error) {
+      if (state.generation === generation) {
+        if (source === 'walk') throw error;
+        source = 'walk'; // the native snapshot failed on a page that stayed put
+        continue;
+      }
+    }
+    if (state.generation === generation) {
+      ({ title, lines, refs, truncated } = result);
+      break;
+    }
+    if (++attempt >= MAX_WALK_ATTEMPTS) {
       clearRefs(page);
       throw new StaleRefError(
         'The page navigated while the snapshot was being taken — take a new snapshot.'
@@ -278,7 +456,7 @@ export async function captureSnapshot(page, options = {}) {
 
   const snapshotId = randomUUID().slice(0, 8);
   state.snapshotId = snapshotId;
-  state.refs = new Map(refs.map(({ id, role, name, tag }) => [id, { role, name, tag }]));
+  state.refs = new Map(refs.map(({ id, role, name, selector }) => [id, { role, name, selector }]));
   state.invalidated = false;
 
   return {
@@ -290,13 +468,17 @@ export async function captureSnapshot(page, options = {}) {
     nodeCount: lines.length,
     truncated,
     interactiveOnly,
+    source,
     waited_ms: settle.waited_ms,
     settled_by: settle.settled_by
   };
 }
 
 /**
- * Turn `@e1` into the CSS selector every action path already understands.
+ * Turn `@e1` into the selector for the element it named: `aria-ref=…` from the
+ * native snapshot, `[data-cf-ref="e1"]` from the walk. Either works anywhere a
+ * Playwright selector does (locator, waitForSelector, page.type) — not in a
+ * raw document.querySelector().
  * Throws StaleRefError when the ref does not belong to the page's current
  * snapshot — it never guesses.
  */
@@ -326,7 +508,7 @@ export function resolveRef(page, selector) {
       : `Unknown element ref ${selector}: the current snapshot has ${count} refs (@e1-@e${count}) — take a new snapshot.`);
   }
 
-  return `[${REF_ATTRIBUTE}="${id}"]`;
+  return state.refs.get(id).selector;
 }
 
 /** Register the navigation listener that invalidates this page's refs. Idempotent. */

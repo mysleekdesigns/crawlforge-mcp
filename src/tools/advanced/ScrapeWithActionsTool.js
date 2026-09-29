@@ -199,7 +199,11 @@ const ScrapeWithActionsSchema = z.object({
     // — the standard pool is Chromium and camoufox exists only on the stealth
     // path — so "camoufox" without stealth is refused rather than quietly
     // downgraded (see executeSession).
-    engine: z.enum(['auto', 'chromium', 'camoufox', 'playwright']).default('auto')
+    engine: z.enum(['auto', 'chromium', 'camoufox', 'playwright']).default('auto'),
+    // Answer a cookie/consent wall (autoconsent) after the initial load and
+    // after each navigate action: "reject" opts out, "accept" opts in. Off by
+    // default so a chain that clicks the banner itself keeps working.
+    consent: z.enum(['off', 'reject', 'accept']).default('off')
   }).optional(),
 
   // Content extraction options
@@ -546,6 +550,9 @@ export class ScrapeWithActionsTool extends EventEmitter {
       // was chosen (an "auto" that fell back to Chromium says so here).
       engine: browserOptions.stealthMode?.engine || 'chromium',
       ...(warnings.length ? { warnings } : {}),
+      // The landing page's consent result; each navigate action's own is on
+      // its result. Absent when consent handling is off.
+      ...(chainResult.consent ? { consent: chainResult.consent } : {}),
 
       actionResults,
       attempt: chainResult.attempt ?? attempts.length,

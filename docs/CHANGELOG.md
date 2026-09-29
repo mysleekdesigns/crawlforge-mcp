@@ -5,6 +5,38 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.14.0] - 2026-09-29
+
+Phase 2 of the `scrape_with_actions` reliability plan: snapshot fidelity.
+Snapshots see inside shadow roots and iframes, and a chain can answer a
+cookie banner before it starts. The price is unchanged.
+
+### Changed
+
+- **Snapshots use Playwright's native accessibility snapshot**
+  (`page.ariaSnapshot({ mode: 'ai' })`, Playwright 1.62). Elements inside open
+  shadow roots and iframes, cross-origin ones included, now appear in the tree
+  and get ordinary refs (`@e1` … `@eN`, in document order). The tree format is
+  unchanged. A ref resolves through Playwright's `aria-ref=` selector; the old
+  injected walk remains as the fallback when the native call fails, and the
+  snapshot reports which ran as `source: "aria" | "walk"`. browser_session
+  snapshots get the same. On-screen `aria-hidden` controls are now listed.
+- The stealth human-behaviour scroll and reading-time helpers take Playwright
+  selectors, so refs inside shadow roots and frames work on the stealth path.
+
+### Added
+
+- **`browserOptions.consent: "off" | "reject" | "accept"`** (default `"off"`)
+  on `scrape_with_actions`. `"reject"` runs DuckDuckGo autoconsent's opt-out
+  (`"accept"` its opt-in) once after the first navigation and after each
+  `navigate` action, capped at 2 s each. The result carries
+  `consent: { cmp, action, ms }` for the first navigation and
+  `result.consent` on each navigate action; a page with no matching banner
+  reports `action: "none"` and never fails the chain. Verified live: the
+  Guardian's Sourcepoint dialog (`sourcepoint-top`, optOut, ~1 s) and Ecosia on
+  Camoufox (`ecosia`, optOut, ~140 ms). New dependency
+  `@duckduckgo/autoconsent` (MPL-2.0).
+
 ## [6.13.0] - 2026-09-29
 
 Phase 1 of the `scrape_with_actions` reliability plan: readiness and
