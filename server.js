@@ -41,6 +41,7 @@ import { memoryMonitor } from "./src/utils/MemoryMonitor.js";
 import { config, validateConfig, getToolConfig } from "./src/constants/config.js";
 import AuthManager from "./src/core/AuthManager.js";
 import { makeWithAuth } from "./src/server/withAuth.js";
+import { stripScreenshotData } from "./src/server/screenshotResources.js";
 // Transport helpers
 import { connectStdio } from "./src/server/transports/stdio.js";
 import { connectStreamableHttp } from "./src/server/transports/streamableHttp.js";
@@ -110,7 +111,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "6.12.0",
+  version: "6.12.1",
   description: "Production-ready MCP server with 31 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, stateful browser sessions with element refs, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -940,12 +941,12 @@ registerToolIfEnabled("read_result", {
 
 // Tool: scrape_with_actions
 registerToolIfEnabled("scrape_with_actions", {
-  description: "Use this when you must interact with a page before scraping - login, click buttons, fill forms, scroll, or wait for dynamic content to load - for SPAs, login-gated content, or multi-step flows. Actions: snapshot, wait, click, type, press, scroll, screenshot, executeJavaScript, select (dropdowns), hover, navigate. Start a chain with {type:\"snapshot\"} to list the page's interactive elements with stable refs (@e1, @e2 ...), then target those refs in later actions instead of guessing CSS selectors; navigation invalidates refs, so snapshot again after one. Set browserOptions.stealth:true to run the chain in the stealth browser, and browserOptions.engine to pick its engine (\"auto\" by default - camoufox when it is installed, Chromium otherwise, and the result says which ran). robots.txt is respected on every navigation. Screenshots from this tool are stored as crawlforge://screenshot/{actionId} resources. Not for pages that render without interaction (scrape) and not as the first attempt on a blocked site (stealth_mode operation:\"scrape\"). Cost: 5 credits. Example: scrape_with_actions({url: \"https://app.com/dashboard\", actions: [{type:\"snapshot\"},{type:\"type\",selector:\"@e2\",text:\"user@a.com\"},{type:\"click\",selector:\"@e4\"}]})",
+  description: "Use this when you must interact with a page before scraping - login, click buttons, fill forms, scroll, or wait for dynamic content to load - for SPAs, login-gated content, or multi-step flows. Actions: snapshot, wait, click, type, press, scroll, screenshot, executeJavaScript (disabled unless the server runs with ALLOW_JAVASCRIPT_EXECUTION=true; refused on the hosted API), select (dropdowns), hover, navigate. Start a chain with {type:\"snapshot\"} to list the page's interactive elements with stable refs (@e1, @e2 ...), then target those refs in later actions instead of guessing CSS selectors; navigation invalidates refs, so snapshot again after one. Set browserOptions.stealth:true to run the chain in the stealth browser, and browserOptions.engine to pick its engine (\"auto\" by default - camoufox when it is installed, Chromium otherwise, and the result says which ran). robots.txt is respected on every navigation. Screenshots from this tool are stored as crawlforge://screenshot/{actionId} resources. Not for pages that render without interaction (scrape) and not as the first attempt on a blocked site (stealth_mode operation:\"scrape\"). Cost: 5 credits. Example: scrape_with_actions({url: \"https://app.com/dashboard\", actions: [{type:\"snapshot\"},{type:\"type\",selector:\"@e2\",text:\"user@a.com\"},{type:\"click\",selector:\"@e4\"}]})",
   annotations: { title: "Scrape with Browser Actions", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to scrape"),
     actions: z.array(z.object({
-      type: z.enum(['snapshot', 'wait', 'click', 'type', 'press', 'scroll', 'screenshot', 'executeJavaScript', 'select', 'hover', 'navigate']),
+      type: z.enum(['snapshot', 'wait', 'click', 'type', 'press', 'scroll', 'screenshot', 'executeJavaScript', 'select', 'hover', 'navigate']).describe("executeJavaScript is disabled unless the server runs with ALLOW_JAVASCRIPT_EXECUTION=true; on the hosted API it is refused."),
       selector: z.string().optional().describe("A CSS selector, or a @e1 ref from an earlier snapshot action in this chain"),
       text: z.string().optional(),
       key: z.string().optional(),
@@ -1022,7 +1023,7 @@ registerToolIfEnabled("scrape_with_actions", {
       includeImages: z.boolean().default(true)
     }).optional().describe("Content extraction options. selectors results are returned as content.json.extracted, so include \"json\" in formats when passing selectors — without it the extraction is not part of the response."),
     continueOnActionError: z.boolean().default(false).describe("Continue executing actions if one fails"),
-    maxRetries: z.number().min(0).max(3).default(1).describe("Maximum retry attempts on failure"),
+    maxRetries: z.number().min(0).max(3).default(0).describe("Whole-chain retries on failure (0-3). A retry re-navigates to the starting URL and replays every action; each attempt is reported under attempts[]."),
     screenshotOnError: z.boolean().default(true).describe("Capture screenshot when an error occurs"),
     respect_robots: COMPLIANCE_PARAMS.respect_robots,
     ...MAX_INLINE_CHARS_PARAM,
@@ -1036,17 +1037,11 @@ registerToolIfEnabled("scrape_with_actions", {
     // resources (the documented contract) and annotate each with its URI.
     // The base64 `data` is dropped once stored, as the stealth_mode block
     // below already does: a failed chain's error screenshot came back inline
-    // as 1.7 MB of base64 beside a 40-char markdown (R21, 2026-09-09).
-    if (Array.isArray(result.screenshots)) {
-      result.screenshots = result.screenshots.map((shot) => {
-        if (shot?.actionId && shot?.data) {
-          resourceRegistry.storeScreenshot(shot.actionId, shot.data);
-          const { data, ...rest } = shot;
-          return { ...rest, resourceUri: `crawlforge://screenshot/${shot.actionId}` };
-        }
-        return shot;
-      });
-    }
+    // as 1.7 MB of base64 beside a 40-char markdown (R21, 2026-09-09). The
+    // same bytes also sit in actionResults[].result, content.screenshots and
+    // attempts[].results, so every copy is stripped, not just the top-level
+    // array (Phase 0, 0.4).
+    stripScreenshotData(result, (actionId, data) => resourceRegistry.storeScreenshot(actionId, data));
 
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (error) {

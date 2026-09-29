@@ -157,7 +157,7 @@ main frame only — elements inside iframes and shadow DOM get no refs.
 | `formAutoFill` | — | Declarative form fill: `fields[]` + `submitSelector`. |
 | `browserOptions` | — | `headless`, `userAgent`, `viewportWidth/Height`, `timeout`. |
 | `continueOnActionError` | `false` | Keep going if one action fails. |
-| `maxRetries` | `1` | 0–3 retries on failure. |
+| `maxRetries` | `0` | 0–3 whole-chain retries on failure. A retry re-navigates to the starting URL and replays every action; each run is reported under `attempts[]`. |
 | `screenshotOnError` | `true` | Capture a screenshot when an error occurs. |
 
 ## CLI action-script format

@@ -5,6 +5,59 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.12.1] - 2026-09-29
+
+Phase 0 of the `scrape_with_actions` reliability plan (live review of
+2026-09-29): the cheap correctness fixes. A failing chain now costs what the
+caller asked for, reports every attempt it made, and no longer ships
+screenshot bytes inline. The price is unchanged.
+
+### Changed
+
+- **`maxRetries` defaults to 0** (was 1). A retry re-navigates to the starting
+  URL and replays the whole chain, so the old default doubled the cost of
+  every failure: a click on a missing selector with `timeout: 4000` took
+  20.8 s and now takes about 4 s. Callers who want the replay set it
+  explicitly; each run is reported under a new `attempts[]` (one entry per
+  run: `attempt`, `success`, `error`, `results`) and `attempt` names the run
+  whose results are in `actionResults`. Attempt-1 results were previously
+  discarded on retry.
+- **`browserOptions.timeout` now reaches the actions.** It is the deadline
+  for every action that names no `timeout` of its own, and the ceiling for
+  those that do — previously it never reached a Playwright call and every
+  bare action ran on the executor's 10 s default. A `wait` for a selector
+  under `browserOptions.timeout: 20000` now fails at ~20 s, not 10 s.
+- **Error recovery is bounded at 3 s per action** (was 5 s per strategy), one
+  deadline shared by every strategy the action tries, pauses included. A
+  `wait` action gets no recovery at all — the wait already was the retry — and
+  no strategy runs for a selector that matches nothing, since a missing
+  element cannot be force-clicked or scrolled into view. A `wait` on a
+  selector that never appears now ends within its timeout plus 1 s.
+
+### Fixed
+
+- **`screenshotOnError` was ignored.** The flag never reached the executor,
+  whose constructor fixed it on. `screenshotOnError: false` on a failing
+  chain now reports `screenshotsCount: 0`.
+- **Screenshot base64 leaked inline.** Publishing `screenshots[]` as
+  `crawlforge://screenshot/{actionId}` resources left the same bytes in
+  `actionResults[].result`, `content.screenshots` (the `"screenshots"`
+  format) and now `attempts[].results`. Every copy is replaced with the
+  resource URI: a chain with one jpeg screenshot returns under 5 KB instead
+  of ~118 KB.
+- **`extract_embedded_state` pointed the wrong way after a block.** Its
+  "Next step" after an HTTP 403/429/444/5xx said to call again without
+  `path`, which sends the caller back into the same wall; it now names
+  `stealth_mode operation:"scrape"`. Path errors keep the original hint.
+
+### Documentation
+
+- `executeJavaScript` is marked in the tool description, the action `type`
+  schema and the CLI `actions` help as disabled unless the server runs with
+  `ALLOW_JAVASCRIPT_EXECUTION=true` (refused on the hosted API). It stays in
+  the enum so self-hosted chains keep validating.
+- `manifest.json` had drifted to 6.9.0; it carries the release version again.
+
 ## [6.12.0] - 2026-09-27
 
 Follow-ups to 6.11.0's `impit` step. A short app-error page under a normal

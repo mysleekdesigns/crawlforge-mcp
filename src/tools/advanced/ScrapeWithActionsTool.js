@@ -215,7 +215,7 @@ const ScrapeWithActionsSchema = z.object({
 
   // Error handling
   continueOnActionError: z.boolean().default(false),
-  maxRetries: z.number().min(0).max(3).default(1),
+  maxRetries: z.number().min(0).max(3).default(0),
   screenshotOnError: z.boolean().default(true),
 
   // ── Recording / replay ──────────────────────────────────────────────────
@@ -446,6 +446,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
         continueOnError: params.continueOnActionError,
         timeout: browserOptions.timeout || 30000,
         retryChain: params.maxRetries,
+        screenshotOnError: params.screenshotOnError,
         metadata: {
           sessionId: sessionContext.id,
           originalActionCount: params.actions.length,
@@ -483,6 +484,12 @@ export class ScrapeWithActionsTool extends EventEmitter {
 
     // Process action results
     const actionResults = this.processActionResults(chainResult.results);
+    // Every attempt the executor made (retryChain > 0 replays the whole
+    // chain), in the same shape as actionResults; `attempt` is the one whose
+    // results are reported above.
+    const attempts = (chainResult.attempts || [
+      { attempt: 1, success: chainResult.success, error: chainResult.error, results: chainResult.results }
+    ]).map((a) => ({ ...a, results: this.processActionResults(a.results || []) }));
     const intermediateStates = params.captureIntermediateStates ?
       await this.extractIntermediateStates(chainResult.capturedStates || [], params) : [];
 
@@ -527,6 +534,8 @@ export class ScrapeWithActionsTool extends EventEmitter {
       ...(warnings.length ? { warnings } : {}),
 
       actionResults,
+      attempt: chainResult.attempt ?? attempts.length,
+      attempts,
       totalActions: params.actions.length,
       successfulActions: actionResults.filter(r => r.success).length,
       failedActions: actionResults.filter(r => !r.success).length,

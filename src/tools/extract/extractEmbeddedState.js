@@ -19,6 +19,9 @@ import { extractEmbeddedState, selectJsonPath } from 'crawlforge-extractors';
 // the caller an exact way to ask for less.
 const LARGE_RESULT_BYTES = 256_000;
 
+const BLOCKED_HINT =
+  'stealth_mode operation:"scrape" renders the page in a browser and returns the HTML; the embedded state is in the returned html. Do not repeat this call with a different path.';
+
 /**
  * @param {{ url: string, path?: string, user_agent?: string, respect_robots?: boolean }} params
  */
@@ -81,8 +84,15 @@ export async function extractEmbeddedStateHandler({ url, path, user_agent, respe
       }]
     };
   } catch (error) {
+    // A block or server error is not a path problem: the generic hint
+    // ("call again without `path`") would send the caller back into the same
+    // wall. Naming the next step here keeps withAuth from appending it.
+    const blocked = /^HTTP (403|429|444|5\d\d)\b/.test(error.message);
     return {
-      content: [{ type: 'text', text: `Failed to extract embedded state: ${error.message}` }],
+      content: [{
+        type: 'text',
+        text: `Failed to extract embedded state: ${error.message}` + (blocked ? `\nNext step: ${BLOCKED_HINT}` : '')
+      }],
       isError: true
     };
   }

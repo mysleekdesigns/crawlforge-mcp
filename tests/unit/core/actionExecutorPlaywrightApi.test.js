@@ -285,7 +285,7 @@ describe('ActionExecutor error-recovery budget', () => {
 
   test('a recovery strategy never gets more time than the action itself', async () => {
     await withExecutorNoBrowser(async (executor) => {
-      assert.equal(executor.recoveryTimeout({}), 5000, 'capped, not another full 60s deadline');
+      assert.equal(executor.recoveryTimeout({}), 3000, 'capped, not another full 60s deadline');
       assert.equal(executor.recoveryTimeout({ timeout: 1200 }), 1200, 'and never exceeds the action timeout');
       assert.equal(executor.actionTimeout({}), 60000, 'the action itself still gets its full deadline');
     }, { defaultTimeout: 60000 });
