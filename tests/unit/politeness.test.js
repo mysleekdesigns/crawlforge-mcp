@@ -28,7 +28,7 @@ delete process.env.SSRF_PROTECTION_ENABLED;
 
 const { parseRetryAfter, getHostBackoffMs, throttleHost, _resetHostRateLimiter } =
   await import('../../src/utils/hostRateLimiter.js');
-const { _resetRobotsGate } = await import('../../src/utils/robotsGate.js');
+const { _resetRobotsGate, redirectGate } = await import('../../src/utils/robotsGate.js');
 const { fetchWithTimeout } = await import('../../src/tools/basic/_fetch.js');
 const { fetchUrl } = await import('../../src/tools/advanced/batchScrape/worker.js');
 
@@ -36,9 +36,11 @@ const { fetchUrl } = await import('../../src/tools/advanced/batchScrape/worker.j
 let backoffServer;
 let backoffUrl;
 
-/** Serves a robots.txt asking for a 1s Crawl-delay. */
+/** Serves a robots.txt asking for a 1s Crawl-delay, and two redirects. */
 let delayServer;
 let delayUrl;
+/** When each page request reached delayServer, by path. */
+let delayHits = {};
 
 before(async () => {
   backoffServer = http.createServer((req, res) => {
@@ -65,11 +67,19 @@ before(async () => {
   backoffUrl = `http://127.0.0.1:${backoffServer.address().port}`;
 
   delayServer = http.createServer((req, res) => {
-    if (req.url.split('?')[0] === '/robots.txt') {
+    const path = req.url.split('?')[0];
+    if (path === '/robots.txt') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       res.end('User-agent: *\nCrawl-delay: 1\n');
       return;
     }
+    delayHits[path] = Date.now();
+    if (path === '/moved' || path === '/moved-to-stalled') {
+      res.writeHead(301, { Location: path === '/moved' ? '/landed' : '/stalled' });
+      res.end();
+      return;
+    }
+    if (path === '/stalled') return; // never answers
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end('<html><body><p>ok</p></body></html>');
   });
@@ -79,6 +89,7 @@ before(async () => {
 
 beforeEach(() => {
   _resetHostRateLimiter();
+  delayHits = {};
 });
 
 after(async () => {
@@ -147,5 +158,43 @@ describe('robots.txt Crawl-delay is honoured (0.7)', () => {
     const gap = Date.now() - afterFirst;
 
     assert.ok(gap >= 950, `expected a >=1s gap between fetches, got ${gap}ms`);
+  });
+});
+
+describe('a redirect hop waits out Crawl-delay like any other request', () => {
+  beforeEach(() => _resetRobotsGate());
+
+  test('the hop is sent a delay after the request that redirected, and the wait is not charged to the timeout', async () => {
+    // The wait alone is twice the timeout: charged to it, the fetch would fail.
+    const response = await fetchWithTimeout(`${delayUrl}/moved`, { tool: 'fetch_url', timeout: 500 });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.redirected, true);
+    const gap = delayHits['/landed'] - delayHits['/moved'];
+    assert.ok(gap >= 950, `expected the hop >=1s after the first request, got ${gap}ms`);
+  });
+
+  test('a hop that does not answer still times out, once the wait is over', async () => {
+    const started = Date.now();
+
+    await assert.rejects(
+      () => fetchWithTimeout(`${delayUrl}/moved-to-stalled`, { tool: 'fetch_url', timeout: 500 }),
+      /Request timeout after 500ms/
+    );
+
+    assert.ok(delayHits['/stalled'], 'the hop was sent');
+    const took = Date.now() - started;
+    assert.ok(took >= 1400 && took < 3000, `expected the delay plus the timeout, took ${took}ms`);
+  });
+
+  test('a hop a browser has already made is decided on but not slept for', async () => {
+    const to = `${delayUrl}/landed`;
+    await throttleHost(to, { crawlDelayMs: 1000 }); // the host was just requested
+
+    const started = Date.now();
+    await redirectGate(`${delayUrl}/moved`, { tool: 'stealth_mode' })(to, { alreadyRequested: true });
+
+    const took = Date.now() - started;
+    assert.ok(took < 500, `expected no Crawl-delay wait, took ${took}ms`);
   });
 });

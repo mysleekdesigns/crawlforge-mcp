@@ -8,7 +8,7 @@ import BrowserProcessor from './processing/BrowserProcessor.js';
 import { EventEmitter } from 'events';
 import { createHash } from 'node:crypto';
 import { assertUrlAllowed, assertNavigationAllowed } from '../utils/ssrfGuard.js';
-import { browserPreflight, redirectGate, pageMoveGate } from '../utils/robotsGate.js';
+import { browserPreflight, redirectGate, pageMoveGate, gateRefusalCode } from '../utils/robotsGate.js';
 import { isRef, resolveRef, captureSnapshot } from './browser/snapshot.js';
 import { settlePage } from './browser/settle.js';
 import { handleConsent } from './browser/consent.js';
@@ -514,7 +514,7 @@ export class ActionExecutor extends EventEmitter {
             
             // Handle action failure
             if (!action.continueOnError && !chain.continueOnError) {
-              throw new Error('Action failed: ' + actionResult.error);
+              throw Object.assign(new Error('Action failed: ' + actionResult.error), { code: actionResult.errorCode });
             }
           }
 
@@ -553,7 +553,12 @@ export class ActionExecutor extends EventEmitter {
           attempt: attempt + 1, success: false, error: error.message, results: [...executionContext.results]
         });
         this.log('warn', 'Chain execution attempt ' + (attempt + 1) + ' failed: ' + error.message);
-        
+
+        // A refusal is the gate's answer, not a fault. Replaying the chain
+        // asks the same question again, after sending the site every request
+        // that led up to it a second time.
+        if (gateRefusalCode(error)) break;
+
         if (attempt < chain.retryChain) {
           // Wait before retry
           await this.delay(1000 * Math.pow(2, attempt));
@@ -839,11 +844,15 @@ export class ActionExecutor extends EventEmitter {
       return actionResult;
 
     } catch (error) {
+      const refusalCode = gateRefusalCode(error);
       const actionResult = {
         id: actionId,
         type: action.type,
         success: false,
         error: error.message,
+        // Only when the gate refused (a `navigate` to a URL it would not
+        // load), so the chain can tell an answer from a fault.
+        ...(refusalCode ? { errorCode: refusalCode } : {}),
         executionTime: Date.now() - actionStartTime,
         timestamp: Date.now(),
         description: action.description

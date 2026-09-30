@@ -368,7 +368,9 @@ export function navigationHops(landed, url, response) {
  * route handler, so here the hop has already been requested by the time anyone
  * can ask about it. What is held instead is everything after: a refusal empties
  * the page before it is thrown, so nothing of the refused document can be read,
- * acted on or captured, including by a caller that keeps the page.
+ * acted on or captured, including by a caller that keeps the page. For the same
+ * reason the gate is told the hop is `alreadyRequested`: there is nothing left
+ * for a Crawl-delay to space.
  *
  * Call it again with the URL a navigation landed on, and no response, before
  * reading a page that had time to move on by itself.
@@ -376,7 +378,8 @@ export function navigationHops(landed, url, response) {
  * @param {import('playwright').Page} page
  * @param {string} url the URL the navigation was asked for
  * @param {import('playwright').Response|null} [response] what `page.goto` returned
- * @param {(to: string) => Promise<void>} [onRedirect] refuses a hop by throwing
+ * @param {(to: string, hop?: { alreadyRequested?: boolean }) => Promise<void>} [onRedirect]
+ *   refuses a hop by throwing
  * @returns {Promise<string>} the URL the page stood on when it was checked
  */
 export async function assertNavigationAllowed(page, url, response, onRedirect) {
@@ -386,7 +389,9 @@ export async function assertNavigationAllowed(page, url, response, onRedirect) {
       await assertUrlAllowed(landedUrl, { resolveDns: true });
     }
     if (onRedirect) {
-      for (const hop of navigationHops(landedUrl, url, response)) await onRedirect(hop);
+      for (const hop of navigationHops(landedUrl, url, response)) {
+        await onRedirect(hop, { alreadyRequested: true });
+      }
     }
     return landedUrl;
   } catch (error) {

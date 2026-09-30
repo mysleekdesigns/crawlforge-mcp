@@ -41,10 +41,69 @@ function locationUrl(location, base) {
 }
 
 /**
+ * The caller's abort signal with the time a hop's gate takes given back.
+ *
+ * The gate for the URL a caller asked for runs before the caller starts its
+ * timeout. The gate for a redirect runs inside it, and may wait out the next
+ * host's Crawl-delay: 30 s on a host that asks for it, against a fetch timeout
+ * of 15. Charged to the timeout, that wait would fail the fetch as if the site
+ * had not answered. So the caller's abort reaches the fetch late by however
+ * long the gates have held it, and not while one is still holding it.
+ *
+ * @param {AbortSignal} [callerSignal]
+ * @returns {{ signal?: AbortSignal, gated: <T>(gate: () => Promise<T>) => Promise<T> }}
+ *   `signal` replaces the caller's on every later hop; `gated` runs a gate
+ *   with its time counted
+ */
+function gateTimeRefund(callerSignal) {
+  if (!callerSignal) return { gated: (gate) => gate() };
+
+  const controller = new AbortController();
+  let gateMs = 0;
+  let inGate = false;
+  let abortedAt = null;
+  let timer;
+
+  const deliver = () => {
+    if (abortedAt === null || inGate) return;
+    clearTimeout(timer);
+    timer = setTimeout(
+      () => controller.abort(callerSignal.reason),
+      Math.max(0, abortedAt + gateMs - Date.now())
+    );
+    // A fetch that finished long ago must not keep the process up for this.
+    timer.unref?.();
+  };
+  const onAbort = () => {
+    abortedAt = Date.now();
+    deliver();
+  };
+  if (callerSignal.aborted) onAbort();
+  else callerSignal.addEventListener('abort', onAbort, { once: true });
+
+  return {
+    signal: controller.signal,
+    async gated(gate) {
+      const startedAt = Date.now();
+      inGate = true;
+      clearTimeout(timer);
+      try {
+        return await gate();
+      } finally {
+        inGate = false;
+        gateMs += Date.now() - startedAt;
+        deliver();
+      }
+    }
+  };
+}
+
+/**
  * @param {string} url
  * @param {RequestInit & { onRedirect?: (to: string) => Promise<void> }} [options]
  *   `onRedirect` is awaited with each redirect target before it is requested;
- *   it refuses the hop by throwing.
+ *   it refuses the hop by throwing. The time it takes is not charged to
+ *   `signal` (see {@link gateTimeRefund}).
  * @returns {Promise<Response>}
  */
 export async function fetchResigned(url, options = {}) {
@@ -55,8 +114,9 @@ export async function fetchResigned(url, options = {}) {
   }
 
   let current = String(url);
-  // The first hop goes out with the caller's headers untouched.
+  // The first hop goes out with the caller's headers and signal untouched.
   let init = { ...fetchOptions, redirect: 'manual' };
+  let refund = null;
 
   for (let hop = 0; ; hop++) {
     const response = await fetch(current, init);
@@ -73,7 +133,10 @@ export async function fetchResigned(url, options = {}) {
     if (next.protocol !== 'http:' && next.protocol !== 'https:') {
       throw new TypeError('fetch failed: redirect to a URL that is not http(s)');
     }
-    if (onRedirect) await onRedirect(next.href);
+    if (onRedirect) {
+      refund ??= gateTimeRefund(fetchOptions.signal);
+      await refund.gated(() => onRedirect(next.href));
+    }
 
     const headers = new Headers(init.headers);
     if (next.origin !== new URL(current).origin) {
@@ -96,7 +159,7 @@ export async function fetchResigned(url, options = {}) {
       }
     }
 
-    init = { ...init, headers };
+    init = { ...init, headers, ...(refund?.signal ? { signal: refund.signal } : {}) };
     current = next.href;
   }
 }
