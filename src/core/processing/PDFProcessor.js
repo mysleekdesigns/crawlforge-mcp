@@ -10,6 +10,7 @@ import path from 'path';
 import { safeFetch } from '../../utils/ssrfGuard.js';
 import { config } from '../../constants/config.js';
 import { identityHeaders } from '../../utils/fetchIdentity.js';
+import { signRequestHeaders } from '../../utils/webBotAuth.js';
 
 const PDFProcessorSchema = z.object({
   // A Buffer is the 'buffer' source: process_document hands over a body it
@@ -85,9 +86,11 @@ export class PDFProcessor {
    * @param {string} params.source - PDF source (URL, file path, or buffer)
    * @param {string} params.sourceType - Type of source ('url', 'file', 'buffer')
    * @param {Object} params.options - Processing options
+   * @param {{ headers: Record<string,string>, onRedirect: Function }} [gate] -
+   *   what `preflightFetch` returned for a URL source
    * @returns {Promise<Object>} - Processing result with text and metadata
    */
-  async processPDF(params) {
+  async processPDF(params, gate) {
     const startTime = Date.now();
     
     try {
@@ -106,7 +109,7 @@ export class PDFProcessor {
       // Get PDF buffer based on source type
       let pdfBuffer;
       try {
-        pdfBuffer = await this.getPDFBuffer(source, sourceType);
+        pdfBuffer = await this.getPDFBuffer(source, sourceType, gate);
       } catch (error) {
         result.error = `Failed to load PDF: ${error.message}`;
         result.processingTime = Date.now() - startTime;
@@ -214,12 +217,13 @@ export class PDFProcessor {
    * Get PDF buffer from various sources
    * @param {string} source - PDF source
    * @param {string} sourceType - Source type
+   * @param {Object} [gate] - see processPDF
    * @returns {Promise<Buffer>} - PDF buffer
    */
-  async getPDFBuffer(source, sourceType) {
+  async getPDFBuffer(source, sourceType, gate) {
     switch (sourceType) {
       case 'url':
-        return await this.downloadPDFFromURL(source);
+        return await this.downloadPDFFromURL(source, gate);
       case 'file':
         return await this.readPDFFromFile(source);
       case 'buffer':
@@ -232,15 +236,20 @@ export class PDFProcessor {
   /**
    * Download PDF from URL
    * @param {string} url - PDF URL
+   * @param {Object} [gate] - see processPDF
    * @returns {Promise<Buffer>} - PDF buffer
    */
-  async downloadPDFFromURL(url) {
+  async downloadPDFFromURL(url, gate) {
     try {
       // `timeout` is not a fetch init option — undici/Node fetch silently
       // ignores unknown properties, so only `signal` actually enforces a
       // deadline here.
+      // The gate's headers are the identity the URL was cleared under plus the
+      // Web Bot Auth signature; this download used to discard them and go out
+      // unsigned. With no gate, sign as ourselves.
       const response = await safeFetch(url, {
-        headers: identityHeaders(),
+        headers: gate?.headers ?? { ...identityHeaders(), ...signRequestHeaders(url) },
+        onRedirect: gate?.onRedirect,
         signal: AbortSignal.timeout(30000)
       });
 

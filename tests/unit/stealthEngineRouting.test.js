@@ -71,6 +71,7 @@ function makeCapturingSessionExecutor(capture, pageEngine = null) {
       if (pageEngine) page.__crawlforgeEngine = pageEngine;
       return page;
     },
+    assertPageAllowed: async () => {},
     getStats: () => ({}),
     destroy: async () => {}
   };

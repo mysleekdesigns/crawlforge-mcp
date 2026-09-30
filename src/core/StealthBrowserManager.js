@@ -17,7 +17,7 @@ import path from 'path';
 import { createRequire } from 'module';
 import HumanBehaviorSimulator from '../utils/HumanBehaviorSimulator.js';
 import { BrowserContextPool } from './BrowserContextPool.js';
-import { safeGoto } from '../utils/ssrfGuard.js';
+import { safeGoto, assertNavigationAllowed } from '../utils/ssrfGuard.js';
 import { looksLikeInterstitial, detectChallengePage } from '../utils/challengeDetection.js';
 import { guardFirefoxPageErrors } from '../utils/firefoxPageErrorGuard.js';
 import { serverStealthProxies } from '../constants/config.js';
@@ -2850,8 +2850,11 @@ export class StealthBrowserManager {
    * @param {boolean} [options.readWindowState] also read the framework globals
    *   off `window` once the page has settled (extract_embedded_state's
    *   escalation, src/core/browser/windowState.js); returned as `windowState`
+   * @param {(to: string) => Promise<void>} [options.onRedirect] the caller's
+   *   gate for wherever the page is redirected to (robotsGate.js
+   *   `redirectGate`); a refusal throws and nothing of the page is returned
    */
-  async scrapeWithStealth({ url, engine, wait_for = 0, screenshot = false, stealthConfig = {}, readWindowState: wantWindowState = false } = {}) {
+  async scrapeWithStealth({ url, engine, wait_for = 0, screenshot = false, stealthConfig = {}, readWindowState: wantWindowState = false, onRedirect } = {}) {
     if (!url) throw new Error('scrapeWithStealth requires a url');
 
     const { contextId, engineFallbackWarning = null } = await this.createStealthContext({ ...stealthConfig, engine });
@@ -2877,7 +2880,8 @@ export class StealthBrowserManager {
       });
       // SSRF guard at the navigation boundary: the stealth engine resolves DNS
       // itself, so a URL/host-only check would miss rebinding to private/metadata IPs.
-      const response = await safeGoto(page, url, { waitUntil: 'domcontentloaded' });
+      const response = await safeGoto(page, url, { waitUntil: 'domcontentloaded', onRedirect });
+      const landedUrl = page.url();
       if (response && status === null) status = response.status();
       if (wait_for > 0) await page.waitForTimeout(wait_for);
       // Cloudflare's and Vercel's JavaScript challenges solve themselves in a
@@ -2895,6 +2899,10 @@ export class StealthBrowserManager {
       // a successful scrape.
       const renderMs = await this._settleRender(page);
       const gracedMs = emptyGraceMs + renderMs;
+      // The waits above are time in which a challenge or a client-side redirect
+      // can move the page on. The document read below is the one that has to
+      // pass, so wherever the page stands now is checked like a redirect hop.
+      await assertNavigationAllowed(page, landedUrl, null, onRedirect);
 
       // A failure to read the document is a failure. With every read wrapped
       // in .catch(() => ''), a renderer that crashed or a page closed during

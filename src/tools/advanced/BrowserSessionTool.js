@@ -111,8 +111,10 @@ const BrowserSessionSchema = z.object({
   timeout: z.number().min(10000).max(120000).default(30000),
 
   // Applies to the call it is sent on: on `open` to the first load, on `act` to
-  // every navigate in that call. It is never remembered by the session, so an
-  // override has to be repeated as deliberately as it was made.
+  // every navigate in that call, and on any call to wherever the page has moved
+  // since it was last checked (a click, a form, a script). It is never
+  // remembered by the session, so an override has to be repeated as
+  // deliberately as it was made. A URL that passed is not asked about again.
   respect_robots: z.boolean().optional(),
 
   // snapshot
@@ -358,6 +360,8 @@ export class BrowserSessionTool {
 
     let session;
     try {
+      // The load was gated; a script may have moved the page on since.
+      await this.actionExecutor.assertPageAllowed(page, browserOptions);
       session = this.store.create({
         ownerId,
         page,
@@ -371,8 +375,9 @@ export class BrowserSessionTool {
         maxPerOwner: ownerId.startsWith(REST_OWNER_PREFIX) ? REST_MAX_SESSIONS_PER_OWNER : undefined
       });
     } catch (error) {
-      // A cap refusal arrives with a live page in hand. Give it back before
-      // rethrowing, or the refused call leaks the context it just pinned.
+      // A cap refusal, or a page the gate refused, arrives with a live page in
+      // hand. Give it back before rethrowing, or the refused call leaks the
+      // context it just pinned.
       await releasePage();
       throw error;
     }
@@ -438,13 +443,29 @@ export class BrowserSessionTool {
     }
   }
 
+  /**
+   * Read from a session's page once the URL it stands on has passed the gate.
+   *
+   * A session's page outlives the call that loaded it, and between calls it
+   * can go anywhere: the last `act` clicked a link, or a script redirected.
+   * ActionExecutor.readGated holds it to the SSRF guard and the blocklist/
+   * robots gate on both sides of the read, with this call's `respect_robots`.
+   */
+  readPage(session, params, read) {
+    return this.actionExecutor.readGated(
+      session.page,
+      { respectRobots: params.respect_robots, tool: 'browser_session' },
+      read
+    );
+  }
+
   async snapshotSession(params, ownerId) {
     const session = this.requireSession(params, ownerId);
 
-    const snapshot = await captureSnapshot(session.page, {
+    const snapshot = await this.readPage(session, params, () => captureSnapshot(session.page, {
       interactiveOnly: params.interactive_only,
       maxNodes: params.max_nodes
-    });
+    }));
 
     this.store.touch(session, session.page.url());
     return { success: true, operation: 'snapshot', ...sessionInfo(session), snapshot };
@@ -473,9 +494,11 @@ export class BrowserSessionTool {
     }
 
     // Every `navigate` in here re-runs the SSRF guard and the blocklist/robots
-    // gate inside executeNavigateAction — verified, and the reason the gate is
-    // not repeated here. A long-lived session is a repeatable navigation
-    // primitive, so that per-hop check is what stops it becoming an SSRF hop.
+    // gate inside executeNavigateAction, and every action is bracketed by the
+    // same check on wherever the page has moved (executeGatedAction) — the
+    // reason the gate is not repeated here. A long-lived session is a
+    // repeatable navigation primitive, so those checks are what stop it
+    // becoming an SSRF hop.
     const result = await this.actionExecutor.executeActionsOnPage(session.page, params.actions, {
       continueOnError: params.continue_on_error,
       timeout: params.timeout,
@@ -503,8 +526,10 @@ export class BrowserSessionTool {
 
   async readSession(params, ownerId) {
     const session = this.requireSession(params, ownerId);
-    const url = session.page.url();
-    const html = await session.page.content();
+    const { url, html } = await this.readPage(session, params, async () => ({
+      url: session.page.url(),
+      html: await session.page.content()
+    }));
 
     const options = {};
     if (params.formats.includes('markdown')) options.outputFormat = 'markdown';
@@ -564,12 +589,12 @@ export class BrowserSessionTool {
   async screenshotSession(params, ownerId) {
     const session = this.requireSession(params, ownerId);
 
-    const shot = await this.actionExecutor.captureScreenshot(session.page, {
+    const shot = await this.readPage(session, params, () => this.actionExecutor.captureScreenshot(session.page, {
       fullPage: params.full_page,
       format: params.format,
       quality: params.quality,
       selector: params.selector
-    });
+    }));
 
     this.store.touch(session, session.page.url());
     // The actionId is what lets the server publish the image as a

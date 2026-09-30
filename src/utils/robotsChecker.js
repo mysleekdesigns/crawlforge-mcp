@@ -1,6 +1,8 @@
 import robotsParser from 'robots-parser';
 import { safeFetch } from './ssrfGuard.js';
 import { identityHeaders, CRAWLFORGE_USER_AGENT } from './fetchIdentity.js';
+import { signRequestHeaders } from './webBotAuth.js';
+import { assertHostAllowed } from './hostBlocklist.js';
 
 /**
  * The token this crawler used to identify as, honoured as a source of disallow
@@ -88,7 +90,10 @@ export class RobotsChecker {
     try {
       const response = await safeFetch(robotsUrl, {
         signal: controller.signal,
-        headers: identityHeaders({ userAgent: this.userAgent })
+        headers: { ...identityHeaders({ userAgent: this.userAgent }), ...signRequestHeaders(robotsUrl) },
+        // robots.txt is not itself subject to robots.txt, but a host on the
+        // platform blocklist is never requested, by redirect or otherwise.
+        onRedirect: async (to) => assertHostAllowed(to)
       });
 
       if (!response.ok) {

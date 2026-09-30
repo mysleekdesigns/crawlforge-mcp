@@ -114,6 +114,29 @@ describe('impitFetchPage', () => {
     assert.deepEqual(seen.urls, ['https://example.com/a'], 'the metadata address was never requested');
   });
 
+  test('asks the caller\'s gate about a redirect before requesting it, and a refusal throws', async () => {
+    const { FakeImpit, seen } = fakeImpit({
+      'https://example.com/a': redirect('/b'),
+      'https://example.com/b': redirect('https://www.example.com/c'),
+      'https://www.example.com/c': html(PAGE)
+    });
+    const asked = [];
+    const page = await impitFetchPage('https://example.com/a', {
+      Impit: FakeImpit,
+      onRedirect: async (to) => { asked.push(to); }
+    });
+    assert.deepEqual(asked, ['https://example.com/b', 'https://www.example.com/c']);
+    assert.equal(page.url, 'https://www.example.com/c');
+
+    seen.urls.length = 0;
+    const refused = Object.assign(new Error('robots.txt disallows that path'), { code: 'ROBOTS_DISALLOWED' });
+    await assert.rejects(
+      () => impitFetchPage('https://example.com/a', { Impit: FakeImpit, onRedirect: async () => { throw refused; } }),
+      (err) => err === refused
+    );
+    assert.deepEqual(seen.urls, ['https://example.com/a'], 'the refused hop was never requested');
+  });
+
   test('gives up after too many redirects', async () => {
     const routes = {};
     for (let i = 0; i < 10; i++) routes[`https://example.com/${i}`] = redirect(`/${i + 1}`);

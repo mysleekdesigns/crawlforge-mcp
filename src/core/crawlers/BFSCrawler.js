@@ -8,9 +8,10 @@ import { LinkAnalyzer } from '../analysis/LinkAnalyzer.js';
 import { normalizeUrl, extractLinks, isValidUrl } from '../../utils/urlNormalizer.js';
 import { Logger } from '../../utils/Logger.js';
 import { safeFetch } from '../../utils/ssrfGuard.js';
-import { robotsPreflight, RobotsDisallowedError } from '../../utils/robotsGate.js';
+import { robotsPreflight, redirectGate, RobotsDisallowedError } from '../../utils/robotsGate.js';
 import { throttleHost } from '../../utils/hostRateLimiter.js';
 import { CRAWLFORGE_USER_AGENT, identityHeaders } from '../../utils/fetchIdentity.js';
+import { signRequestHeaders } from '../../utils/webBotAuth.js';
 import { pageTitle } from '../../utils/pageTitle.js';
 import { extractMainContent, isThinMainContent } from '../../tools/scrape/_mainContent.js';
 
@@ -337,7 +338,10 @@ export class BFSCrawler {
         'Accept-Language': 'en-US,en;q=0.5',
         'Accept-Encoding': 'gzip, deflate',
         'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1'
+        'Upgrade-Insecure-Requests': '1',
+        // Web Bot Auth, as on every other fetching tool. crawl_deep pages went
+        // out with the identity alone: a claim with no proof.
+        ...signRequestHeaders(url)
       };
 
       let headers = { ...defaultHeaders, ...domainRules.customHeaders };
@@ -357,7 +361,12 @@ export class BFSCrawler {
 
       const response = await safeFetch(url, {
         signal: controller.signal,
-        headers
+        headers,
+        onRedirect: redirectGate(url, {
+          respectRobots: this.respectRobots,
+          userAgent: this.userAgent,
+          tool: 'crawl_deep'
+        })
       });
 
       // Capture any cookies the server sets during the crawl

@@ -474,6 +474,7 @@ export class LLMsTxtAnalyzer {
       const response = await safeFetch(url, {
         signal: controller.signal,
         headers: { ...gate.headers },
+        onRedirect: gate.onRedirect,
         ...options
       });
       clearTimeout(timeoutId);

@@ -182,6 +182,13 @@ describe('safeGoto (browser navigation guard)', () => {
     );
   });
 
+  test('a refused landing empties the page, so a caller that keeps it cannot read it', async () => {
+    const visited = [];
+    const page = fakePage('http://127.0.0.1/', (url) => { visited.push(url); });
+    await assert.rejects(() => safeGoto(page, 'http://8.8.8.8/'), /SSRF Protection/);
+    assert.deepEqual(visited, ['http://8.8.8.8/', 'about:blank']);
+  });
+
   test('passes an allowed URL through and returns the response', async () => {
     let seenOpts;
     const page = fakePage('http://8.8.8.8/', (_url, opts) => { seenOpts = opts; });

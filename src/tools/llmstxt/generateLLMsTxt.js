@@ -380,7 +380,8 @@ export class GenerateLLMsTxtTool {
       });
       const response = await safeFetch(baseUrl, {
         signal: controller.signal,
-        headers: { ...gate.headers }
+        headers: { ...gate.headers },
+        onRedirect: gate.onRedirect
       });
       if (!response.ok) return null;
       // Charset-aware read; .text() decodes UTF-8 only.

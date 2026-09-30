@@ -383,6 +383,7 @@ describe('TemplateRegistry.run (real extractors, table-driven)', () => {
 process.env.ALLOWED_DOMAINS = 'localhost';
 const { ScrapeTemplateTool } = await import('../../../../src/tools/templates/ScrapeTemplateTool.js');
 const { robotsPreflight } = await import('../../../../src/utils/robotsGate.js');
+const { setComplianceAuditSink } = await import('../../../../src/utils/complianceAudit.js');
 
 /** One product, shaped like the /products.json endpoint's rows. */
 const collectionProduct = (id, handle, title) => ({
@@ -621,6 +622,50 @@ describe('ScrapeTemplateTool (real module, real fetch against a local server)', 
       // The fixture server answers 401 unless the key arrived on the request.
       assert.equal(result.data.count, 2);
       assert.ok(!JSON.stringify(result).includes(KEY_VALUE), 'the API key must not be echoed back');
+    } finally {
+      delete process.env.FIXTURE_TEMPLATE_KEY;
+    }
+  });
+
+  test('key-based connector — a robots override is audited with the URL and without the key', async () => {
+    // `~` and `/` are where the two URL encodings part: searchParams writes
+    // %7E and %2F, encodeURIComponent leaves the `~` alone. The fixture server
+    // answers this key with a 401, which is after the row is written.
+    const awkwardKey = 'k~ey/value';
+    const rows = [];
+    setComplianceAuditSink((row) => { rows.push(row); });
+    for (const key of [KEY_VALUE, awkwardKey]) {
+      process.env.FIXTURE_TEMPLATE_KEY = key;
+      try {
+        const tool = new ScrapeTemplateTool({ templates: [KEYED_TEMPLATE] });
+        await tool.execute({ template: 'fixture-keyed', params: { base: baseUrl }, respect_robots: false }).catch(() => {});
+      } finally {
+        delete process.env.FIXTURE_TEMPLATE_KEY;
+      }
+    }
+    // The sink is called off the back of a resolved promise.
+    await new Promise((resolve) => setImmediate(resolve));
+    setComplianceAuditSink(null);
+
+    const overrides = rows.filter((row) => row.event === 'robots_override');
+    assert.equal(overrides.length, 2);
+    for (const row of overrides) {
+      assert.equal(row.url, `${baseUrl}/gated/list.json?key=[redacted]`);
+    }
+    const logged = JSON.stringify(rows);
+    for (const leak of [KEY_VALUE, 'k~ey', 'k%7Eey', 'ey/value', 'ey%2Fvalue']) {
+      assert.ok(!logged.includes(leak), `the audit log must not contain "${leak}"`);
+    }
+  });
+
+  test('key-based connector — a failed fetch does not quote the key', async () => {
+    process.env.FIXTURE_TEMPLATE_KEY = 'not-the-right-key';
+    try {
+      const tool = new ScrapeTemplateTool({ templates: [KEYED_TEMPLATE] });
+      const quotesNoKey = (error) => !/not-the-right-key/.test(`${error.message} ${error.cause?.message ?? ''}`);
+      // Refused by the API, then unreachable altogether.
+      await assert.rejects(() => tool.execute({ template: 'fixture-keyed', params: { base: baseUrl } }), quotesNoKey);
+      await assert.rejects(() => tool.execute({ template: 'fixture-keyed', params: { base: 'http://localhost:1' } }), quotesNoKey);
     } finally {
       delete process.env.FIXTURE_TEMPLATE_KEY;
     }

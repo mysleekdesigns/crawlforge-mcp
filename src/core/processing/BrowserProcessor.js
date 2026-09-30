@@ -9,7 +9,7 @@ import { z } from 'zod';
 import StealthBrowserManager from '../StealthBrowserManager.js';
 import HumanBehaviorSimulator from '../../utils/HumanBehaviorSimulator.js';
 import LocalizationManager from '../LocalizationManager.js';
-import { safeGoto } from '../../utils/ssrfGuard.js';
+import { safeGoto, assertNavigationAllowed } from '../../utils/ssrfGuard.js';
 
 const BrowserProcessorSchema = z.object({
   url: z.string().url(),
@@ -156,9 +156,12 @@ export class BrowserProcessor {
    * @param {Object} params - Processing parameters
    * @param {string} params.url - URL to process
    * @param {Object} params.options - Browser options
+   * @param {{ onRedirect?: (to: string) => Promise<void> }} [gate] - what the
+   *   calling tool's `preflightFetch` returned, so a redirect is gated the way
+   *   the URL was. A second argument because the schema strips it from `params`.
    * @returns {Promise<Object>} - Processing result with rendered content
    */
-  async processURL(params) {
+  async processURL(params, gate) {
     const startTime = Date.now();
     
     try {
@@ -178,7 +181,7 @@ export class BrowserProcessor {
 
       try {
         // Navigate and wait for content
-        const navigationResult = await this.navigateAndWait(page, url, processingOptions);
+        const navigationResult = await this.navigateAndWait(page, url, processingOptions, gate?.onRedirect);
         
         // Extract content and metadata
         const contentResult = await this.extractContent(page, processingOptions);
@@ -635,18 +638,23 @@ export class BrowserProcessor {
    * @param {Page} page - Playwright page
    * @param {string} url - URL to navigate to
    * @param {Object} options - Navigation options
+   * @param {(to: string) => Promise<void>} [onRedirect] - the calling tool's
+   *   redirect gate (robotsGate.js `redirectGate`)
    * @returns {Promise<Object>} - Navigation result
    */
-  async navigateAndWait(page, url, options) {
+  async navigateAndWait(page, url, options, onRedirect) {
     const startTime = Date.now();
 
     // Navigate to URL. safeGoto adds the SSRF/DNS-rebinding guard on top of the
-    // robots/blocklist preflight the calling tool already ran, and re-checks the
-    // landed URL so a redirect can't carry us into a private/metadata range.
+    // robots/blocklist preflight the calling tool already ran, and re-checks
+    // where the navigation went, so a redirect can't carry us into a
+    // private/metadata range or past the gate the URL itself went through.
     await safeGoto(page, url, {
       waitUntil: 'domcontentloaded',
-      timeout: 30000
+      timeout: 30000,
+      onRedirect
     });
+    const landedUrl = page.url();
 
     // Wait for specific selector if provided
     if (options.waitForSelector) {
@@ -686,6 +694,10 @@ export class BrowserProcessor {
         console.warn(`Custom script execution failed: ${error.message}`);
       }
     }
+
+    // The waits above are time in which a client-side redirect can move the
+    // page on; the document about to be read is the one that has to pass.
+    await assertNavigationAllowed(page, landedUrl, null, onRedirect);
 
     return {
       navigationTime: Date.now() - startTime

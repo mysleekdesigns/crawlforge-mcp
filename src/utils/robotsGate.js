@@ -28,17 +28,54 @@ import { markPreflightRefusal, internalOwnerToken } from '../server/requestConte
 import AuthManager from '../core/AuthManager.js';
 import { config } from '../constants/config.js';
 
+/** A URL as it may appear in an error: no query string, which can carry a key. */
+function withoutQuery(url) {
+  const parsed = new URL(url);
+  return `${parsed.origin}${parsed.pathname}`;
+}
+
 export class RobotsDisallowedError extends Error {
-  constructor(url) {
+  /**
+   * @param {string} url the URL robots.txt disallows
+   * @param {{ redirectedFrom?: string, movedFrom?: string }} [options] set when
+   *   `url` is not what the caller asked for, so the message says how it was
+   *   reached: `redirectedFrom` when a redirect led there, `movedFrom` when a
+   *   browser page went there by itself (a click, a form, a script)
+   */
+  constructor(url, { redirectedFrom, movedFrom } = {}) {
+    const host = new URL(url).host;
+    let reached = `robots.txt on ${host} disallows this path for CrawlForge. `;
+    if (redirectedFrom) {
+      reached = `${withoutQuery(redirectedFrom)} redirects to ${withoutQuery(url)}, and robots.txt on ${host} disallows that path for CrawlForge. `;
+    } else if (movedFrom) {
+      reached = `The page moved from ${withoutQuery(movedFrom)} to ${withoutQuery(url)}, and robots.txt on ${host} disallows that path for CrawlForge. `;
+    }
     super(
-      `robots.txt on ${new URL(url).host} disallows this path for CrawlForge. ` +
-      `Pass respect_robots: false to fetch it anyway — that override is recorded ` +
+      reached +
+      `Pass respect_robots: false to ${movedFrom ? 'use' : 'fetch'} it anyway — that override is recorded ` +
       `against your API key and is your decision to make.`
     );
     this.name = 'RobotsDisallowedError';
     this.code = 'ROBOTS_DISALLOWED';
     this.url = url;
   }
+}
+
+/**
+ * Remove a known deployment credential from a URL bound for the audit log: the
+ * raw value and both encodings of it. `URLSearchParams` escapes `~ ! ' ( )` and
+ * writes a space as `+`; `encodeURIComponent` does neither.
+ */
+function redactSecret(value, secret) {
+  if (!secret) return value;
+  const forms = new Set([
+    secret,
+    encodeURIComponent(secret),
+    new URLSearchParams({ s: secret }).toString().slice(2)
+  ]);
+  let redacted = value;
+  for (const form of forms) redacted = redacted.replaceAll(form, '[redacted]');
+  return redacted;
 }
 
 /**
@@ -68,6 +105,10 @@ function checkerFor(userAgent) {
  * @param {string}  [options.userAgent] per-request identity override
  * @param {string}  [options.tool] tool name, for the audit row
  * @param {string}  [options.apiKey] hashed into the audit row, never stored raw
+ * @param {string}  [options.redactCredential] a deployment credential that
+ *   appears in `url` (a keyed connector puts its key in the query string), to
+ *   remove from the audit row. The row keeps the URL, because it has to say
+ *   what was fetched, and loses the secret.
  * @returns {Promise<{ allowed: boolean, userAgent: string, crawlDelayMs: number,
  *   warnings: string[], overridden: boolean }>}
  * @throws {BlockedHostError} for a permanently blocked host
@@ -119,7 +160,7 @@ export async function robotsPreflight(url, options = {}) {
     const ownerToken = internalOwnerToken();
     recordComplianceEvent({
       event: 'robots_override',
-      url,
+      url: redactSecret(url, options.redactCredential),
       tool: options.tool || null,
       apiKeyId: apiKeyId(options.apiKey ?? AuthManager.getConfig()?.apiKey),
       ...(ownerToken ? { ownerId: apiKeyId(ownerToken) } : {}),
@@ -138,15 +179,51 @@ export async function robotsPreflight(url, options = {}) {
 }
 
 /**
- * The call-site helper: run the gate, honour Crawl-delay and any recorded
- * `Retry-After`, and hand back the identity headers to send.
+ * The gate for a redirect hop, to pass to the fetch as `onRedirect`.
  *
- * @param {string} url
+ * The gate above decides about the URL the caller asked for; a redirect can
+ * lead anywhere. Without this a 301 into a path robots.txt disallows, or onto
+ * a host on the platform blocklist, was fetched because nobody asked again.
+ * Each hop gets the decision a first request would: blocklist, then robots,
+ * with the caller's own `respect_robots` and an audit row when it overrides.
+ *
+ * It does not throttle. A redirect is the same fetch continuing, and sleeping
+ * out a Crawl-delay here would run inside the fetch's own timeout.
+ *
+ * @param {string} from the URL the fetch started at, for the refusal message
  * @param {object} [options] see {@link robotsPreflight}
- * @returns {Promise<{ headers: Record<string,string>, userAgent: string,
- *   warnings: string[], overridden: boolean }>}
- * @throws {BlockedHostError|RobotsDisallowedError}
+ * @returns {(to: string) => Promise<void>} throws BlockedHostError or
+ *   RobotsDisallowedError to refuse the hop
  */
+export function redirectGate(from, options = {}) {
+  return hopGate(options, { redirectedFrom: from });
+}
+
+/**
+ * The gate for a URL a browser page reached without being sent there: a click
+ * followed a link, a form posted, a script redirected, a client-side router
+ * rewrote the address. The decision is {@link redirectGate}'s; only the
+ * refusal reads differently, because nothing redirected.
+ *
+ * @param {string} [from] the last URL the page was checked at
+ * @param {object} [options] see {@link robotsPreflight}
+ * @returns {(to: string) => Promise<void>} throws BlockedHostError or
+ *   RobotsDisallowedError to refuse where the page now stands
+ */
+export function pageMoveGate(from, options = {}) {
+  return hopGate(options, { movedFrom: from });
+}
+
+function hopGate(options, reached) {
+  return async (to) => {
+    const decision = await robotsPreflight(to, options);
+    if (!decision.allowed) {
+      markPreflightRefusal('ROBOTS_DISALLOWED');
+      throw new RobotsDisallowedError(to, reached);
+    }
+  };
+}
+
 /**
  * The headers an HTTP page fetch carries: identity, the Web Bot Auth signature
  * when one is configured, and an EMPTY Accept-Language.
@@ -170,6 +247,18 @@ export function outboundHeaders(userAgent, signature = {}) {
   };
 }
 
+/**
+ * The call-site helper: run the gate, honour Crawl-delay and any recorded
+ * `Retry-After`, and hand back the identity headers to send and the gate for
+ * any redirect the fetch follows. Pass both to the fetch.
+ *
+ * @param {string} url
+ * @param {object} [options] see {@link robotsPreflight}
+ * @returns {Promise<{ headers: Record<string,string>, userAgent: string,
+ *   warnings: string[], overridden: boolean,
+ *   onRedirect: (to: string) => Promise<void> }>}
+ * @throws {BlockedHostError|RobotsDisallowedError}
+ */
 export async function preflightFetch(url, options = {}) {
   const decision = await robotsPreflight(url, options);
   if (!decision.allowed) {
@@ -191,7 +280,8 @@ export async function preflightFetch(url, options = {}) {
     headers: outboundHeaders(decision.userAgent, signature),
     userAgent: decision.userAgent,
     warnings: [...decision.warnings, ...crawlDelayWarning(url, decision.crawlDelayMs)],
-    overridden: decision.overridden
+    overridden: decision.overridden,
+    onRedirect: redirectGate(url, options)
   };
 }
 

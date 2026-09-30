@@ -8,9 +8,9 @@ import { ResultRanker } from '../tools/search/ranking/ResultRanker.js';
 import { CacheManager } from './cache/CacheManager.js';
 import { Logger } from '../utils/Logger.js';
 import { LLMManager } from './llm/LLMManager.js';
-import { safeFetch, safeGoto } from '../utils/ssrfGuard.js';
+import { safeFetch, safeGoto, assertNavigationAllowed } from '../utils/ssrfGuard.js';
 import { serverStealthProxies } from '../constants/config.js';
-import { preflightFetch, browserPreflight } from '../utils/robotsGate.js';
+import { preflightFetch, browserPreflight, redirectGate } from '../utils/robotsGate.js';
 import { guardFirefoxPageErrors } from '../utils/firefoxPageErrorGuard.js';
 import { noteRetryAfter } from '../utils/hostRateLimiter.js';
 import {
@@ -791,6 +791,7 @@ export class ResearchOrchestrator extends EventEmitter {
                 const gate = await preflightFetch(source.link, { tool: 'deep_research' });
                 const fetchResponse = await safeFetch(source.link, {
                   headers: { ...gate.headers },
+                  onRedirect: gate.onRedirect,
                   signal: AbortSignal.timeout(10000)
                 });
                 if (fetchResponse.status === 429 || fetchResponse.status === 503) {
@@ -1107,14 +1108,19 @@ export class ResearchOrchestrator extends EventEmitter {
     }
     try {
       // browserPreflight (robots + platform blocklist) ran in _stealthFetchHtml;
-      // safeGoto adds the SSRF/DNS-rebinding guard the browser path also needs.
-      const resp = await safeGoto(page, url, { waitUntil: 'domcontentloaded', timeout: this.stealthTimeoutMs });
+      // safeGoto adds the SSRF/DNS-rebinding guard the browser path also needs,
+      // and puts wherever the page is redirected to through the same gate.
+      const onRedirect = redirectGate(url, { tool: 'deep_research' });
+      const resp = await safeGoto(page, url, { waitUntil: 'domcontentloaded', timeout: this.stealthTimeoutMs, onRedirect });
+      const landedUrl = page.url();
       // Do NOT bail on the initial HTTP status: anti-bot challenges (Cloudflare
       // Turnstile) return 403 on the first response and only resolve to the
       // real page after their JS runs. Let it settle, then judge by the
       // *rendered* content instead.
       await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
       await page.waitForTimeout(2500).catch(() => {});
+      // A challenge or a client-side redirect may have moved the page on since.
+      await assertNavigationAllowed(page, landedUrl, null, onRedirect);
       const html = await page.content();
       const title = (await page.title().catch(() => '')) || '';
       const bodyLen = await page.evaluate(() => document.body?.innerText?.trim().length || 0).catch(() => 0);

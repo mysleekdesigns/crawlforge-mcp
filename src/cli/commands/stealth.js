@@ -2,7 +2,7 @@
  * stealth command — scrape a URL using stealth mode.
  */
 import { StealthBrowserManager } from '../../core/StealthBrowserManager.js';
-import { browserPreflight } from '../../utils/robotsGate.js';
+import { browserPreflight, redirectGate } from '../../utils/robotsGate.js';
 import { getToolConfig } from '../../constants/config.js';
 import { runTool } from '../lib/runTool.js';
 
@@ -22,7 +22,7 @@ export function register(program) {
         // a different door, not by a different set of rules.
         execute: async (p) => {
           await browserPreflight(p.url, { tool: 'stealth_mode' });
-          return mgr.scrapeWithStealth(p);
+          return mgr.scrapeWithStealth({ ...p, onRedirect: redirectGate(p.url, { tool: 'stealth_mode' }) });
         }
       };
       await runTool(wrapperTool, {

@@ -10,6 +10,7 @@ import { config as appConfig } from '../../../constants/config.js';
 import { ssrfGuard, isSsrfError } from '../../../utils/ssrfGuard.js';
 import { noteRetryAfter } from '../../../utils/hostRateLimiter.js';
 import { preflightFetch } from '../../../utils/robotsGate.js';
+import { fetchResigned } from '../../../utils/resignedFetch.js';
 import { htmlToMarkdown } from '../../../utils/htmlToMarkdown.js';
 import { elementText } from '../../../utils/elementText.js';
 import { pageTitle } from '../../../utils/pageTitle.js';
@@ -31,9 +32,10 @@ export async function fetchUrl(url, options = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   try {
-    const response = await fetch(url, {
+    const response = await fetchResigned(url, {
       signal: controller.signal,
       headers: { ...gate.headers, ...headers },
+      onRedirect: gate.onRedirect,
       ...guard
     });
     if (response.status === 429 || response.status === 503) {

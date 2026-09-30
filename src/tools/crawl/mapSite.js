@@ -384,7 +384,8 @@ export class MapSiteTool {
     try {
       const response = await safeFetch(url, {
         signal: controller.signal,
-        headers: gate.headers
+        headers: gate.headers,
+        onRedirect: gate.onRedirect
       });
       clearTimeout(timeoutId);
       return response;
