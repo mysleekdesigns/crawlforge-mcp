@@ -19,6 +19,8 @@ import { fileURLToPath } from 'node:url';
 
 import {
   recordStealthEscalation,
+  recordComplianceEvent,
+  auditUrl,
   setComplianceAuditSink,
   _resetComplianceAudit,
   getComplianceAuditRows,
@@ -62,6 +64,40 @@ describe('recordStealthEscalation', () => {
     const text = JSON.stringify(row);
     assert.equal(text.includes(KEY), false, 'raw API key is never stored');
     assert.equal(text.includes(OWNER), false, 'raw owner token is never stored');
+  });
+
+  test('a credential that rode along in the URL is not kept, on disk or in the ring', async () => {
+    const row = recordStealthEscalation({
+      url: 'https://user:hunter2@example.com/report?page=2&api_key=sk_live_abc&X-Amz-Signature=deadbeef&q=shoes',
+      tool: 'scrape', engine: 'camoufox', apiKey: KEY
+    });
+    assert.equal(row.url, 'https://example.com/report?page=2&api_key=[redacted]&X-Amz-Signature=[redacted]&q=shoes');
+    await new Promise((r) => setImmediate(r));
+    for (const kept of [sunk[0], getComplianceAuditRows().at(-1)]) {
+      const text = JSON.stringify(kept);
+      for (const secret of ['hunter2', 'sk_live_abc', 'deadbeef']) {
+        assert.equal(text.includes(secret), false, `${secret} must not be stored`);
+      }
+    }
+  });
+
+  test('every row gets the same treatment, the robots_override row included', () => {
+    const row = recordComplianceEvent({ event: 'robots_override', url: 'https://example.com/a?token=abc&page=2' });
+    assert.equal(row.url, 'https://example.com/a?token=[redacted]&page=2');
+  });
+
+  test('auditUrl goes by parameter name, and leaves every other URL exactly as it was sent', () => {
+    for (const [name, masked] of [
+      ['key', true], ['apikey', true], ['access_token', true], ['sig', true], ['password', true],
+      ['PHPSESSID', true], ['authorization', true], ['client_secret', true],
+      ['author', false], ['keyword', false], ['page', false], ['q', false]
+    ]) {
+      const url = `https://example.com/x?${name}=VALUE`;
+      assert.equal(auditUrl(url), masked ? `https://example.com/x?${name}=[redacted]` : url, name);
+    }
+    const plain = 'https://example.com/search?q=caf%C3%A9+au+lait&author=smith#top';
+    assert.equal(auditUrl(plain), plain);
+    assert.equal(auditUrl('not a url'), 'not a url');
   });
 
   test('no key records anonymous; a missing engine records null', () => {

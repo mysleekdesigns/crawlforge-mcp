@@ -80,10 +80,13 @@ const REDIRECTS = {
 let server;
 let baseUrl;
 let auditRows = [];
+/** Every path the server was asked for, in order. */
+let seen = [];
 
 before(async () => {
   server = http.createServer((req, res) => {
     const pathname = req.url.split('?')[0];
+    seen.push(pathname);
     if (pathname === '/robots.txt') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       return res.end('User-agent: *\nDisallow: /private\n');
@@ -112,6 +115,7 @@ beforeEach(() => {
   _resetRobotsGate();
   _resetHostRateLimiter();
   auditRows = [];
+  seen = [];
 });
 
 after(async () => {
@@ -359,6 +363,47 @@ describe('a page an action chain keeps is held to the gate wherever it goes', { 
       const result = await chain(executor, '/links', [{ type: 'click', selector: '#route' }]);
       assert.equal(result.success, false);
       assert.match(result.error, /The page moved from .*\/links to .*\/private\/view/);
+    });
+  });
+
+  test('a refused move is not replayed: retryChain is for faults, and a refusal is an answer', async () => {
+    await withExecutor(async (executor) => {
+      const result = await executor.executeActionChain(`${baseUrl}/links`, {
+        actions: [{ type: 'click', selector: '#to-private' }],
+        retryChain: 2
+      });
+      assert.equal(result.success, false);
+      assert.match(result.error, /The page moved from .*\/links to .*\/private/);
+      assert.equal(result.attempts.length, 1);
+      // Each replay reloads the start URL and clicks into the refused page again.
+      assert.equal(seen.filter((p) => p === '/links').length, 1);
+      assert.equal(seen.filter((p) => p === '/private').length, 1);
+    });
+  });
+
+  test('nor is a navigate action the gate refuses', async () => {
+    await withExecutor(async (executor) => {
+      const result = await executor.executeActionChain(`${baseUrl}/links`, {
+        actions: [{ type: 'navigate', url: `${baseUrl}/private` }],
+        retryChain: 2
+      });
+      assert.equal(result.success, false);
+      assert.match(result.error, /Action failed: robots\.txt on .* disallows this path/);
+      assert.equal(result.attempts.length, 1);
+      assert.equal(seen.filter((p) => p === '/links').length, 1);
+      assert.equal(seen.includes('/private'), false);
+    });
+  });
+
+  test('a chain that fails for any other reason is replayed as before', async () => {
+    await withExecutor(async (executor) => {
+      const result = await executor.executeActionChain(`${baseUrl}/links`, {
+        actions: [{ type: 'click', selector: '#not-there', timeout: 300, retries: 0 }],
+        retryChain: 1
+      });
+      assert.equal(result.success, false);
+      assert.equal(result.attempts.length, 2);
+      assert.equal(seen.filter((p) => p === '/links').length, 2);
     });
   });
 

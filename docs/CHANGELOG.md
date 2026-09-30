@@ -23,8 +23,15 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
   `respect_robots` (an override writes its `robots_override` row for the hop
   too). A refused hop is never requested, the error names both URLs
   ("… redirects to …, and robots.txt on … disallows that path"), and a call it
-  sinks is not charged. `preflightFetch` returns the gate as `onRedirect`;
-  hops are not throttled by Crawl-delay.
+  sinks is not charged. `preflightFetch` returns the gate as `onRedirect`.
+- **A redirect hop waits out Crawl-delay.** A hop is one more request to its
+  host, and it was sent the moment the redirect arrived. The gate now spaces it
+  as it spaces a first request: by that host's `Crawl-delay`, by a `Retry-After`
+  it has sent and by the per-host limit. The wait is not charged to the fetch's
+  timeout, so a same-host redirect on a site asking for 30 s takes 30 s longer
+  and still succeeds; the timeout keeps counting only while a request is out.
+  Browser redirects are the exception: the browser has made the request before
+  the gate can be asked, so there is nothing left to space.
 - **`crawl_deep` pages, robots.txt fetches and `process_document` PDF downloads
   are signed.** They went out with the identity headers alone. The PDF download
   now also sends the headers the gate returned, so a caller's `user_agent`
@@ -60,6 +67,11 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
   `browser_session` report a failed chain as `{ success: false }`, which was
   charged in full even when the failure was our own refusal. Such a result now
   carries `isError`, so it costs nothing, as a refusal does everywhere else.
+- **A chain the gate refused is not replayed.** With `maxRetries` set,
+  `scrape_with_actions` reloaded the start URL and ran the whole chain again
+  after a refusal (robots.txt, the blocklist, the SSRF guard), sending the site
+  the same requests to get the same answer. A refusal now ends the chain on the
+  attempt that met it. Any other failure is retried as before.
 - **`stealth_mode` `create_page` navigates through the SSRF guard.** It called
   `page.goto` directly, with no check of the URL's address or of where it
   landed.
@@ -69,6 +81,14 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
   `robots_override` row stores the URL that was fetched, and a key-based
   `scrape_template` connector puts its key in that URL. The row now keeps the
   URL with the key replaced by `[redacted]`. No shipped connector takes a key.
+- **An audit row no longer keeps a credential from the URL.** `stealth_escalation`
+  and `robots_override` rows stored the URL as the caller sent it, so
+  `user:password@` and parameters such as `?api_key=` or `?token=` landed in
+  `logs/compliance-audit.log`. Every row now drops the userinfo and replaces the
+  value of each query parameter named like a credential with `[redacted]`; the
+  path and the other parameters stay. Matching is by parameter name, so a
+  credential under a name that says nothing, or carried in the path, is not
+  caught.
 
 ## [6.15.0] - 2026-09-29
 

@@ -61,6 +61,23 @@ export class RobotsDisallowedError extends Error {
   }
 }
 
+/** What a refusal carries as `code`: this gate's three, and the SSRF guard's. */
+const REFUSAL_CODES = new Set(['ROBOTS_DISALLOWED', 'HOST_BLOCKED', 'USE_REDDIT_SEARCH', 'SSRF_BLOCKED']);
+
+/**
+ * The refusal code an error carries, or null when it is a failure rather than
+ * a refusal. A refusal is this gate or the SSRF guard saying no: asking again
+ * gets the same answer, so nothing should retry it.
+ * @param {unknown} error
+ * @returns {string|null}
+ */
+export function gateRefusalCode(error) {
+  for (const code of [error?.code, error?.cause?.code]) {
+    if (REFUSAL_CODES.has(code)) return code;
+  }
+  return null;
+}
+
 /**
  * Remove a known deployment credential from a URL bound for the audit log: the
  * raw value and both encodings of it. `URLSearchParams` escapes `~ ! ' ( )` and
@@ -187,13 +204,17 @@ export async function robotsPreflight(url, options = {}) {
  * Each hop gets the decision a first request would: blocklist, then robots,
  * with the caller's own `respect_robots` and an audit row when it overrides.
  *
- * It does not throttle. A redirect is the same fetch continuing, and sleeping
- * out a Crawl-delay here would run inside the fetch's own timeout.
+ * It then waits its turn as a first request would: the hop is one more request
+ * to its host, so it is spaced by that host's Crawl-delay, by a Retry-After it
+ * has sent and by our own per-host limit. A fetch does not charge that wait to
+ * its timeout (resignedFetch.js). A browser has made the request before anyone
+ * could be asked, so its caller passes `alreadyRequested` and nothing is
+ * slept: there is no request left to space.
  *
  * @param {string} from the URL the fetch started at, for the refusal message
  * @param {object} [options] see {@link robotsPreflight}
- * @returns {(to: string) => Promise<void>} throws BlockedHostError or
- *   RobotsDisallowedError to refuse the hop
+ * @returns {(to: string, hop?: { alreadyRequested?: boolean }) => Promise<void>}
+ *   throws BlockedHostError or RobotsDisallowedError to refuse the hop
  */
 export function redirectGate(from, options = {}) {
   return hopGate(options, { redirectedFrom: from });
@@ -207,20 +228,22 @@ export function redirectGate(from, options = {}) {
  *
  * @param {string} [from] the last URL the page was checked at
  * @param {object} [options] see {@link robotsPreflight}
- * @returns {(to: string) => Promise<void>} throws BlockedHostError or
- *   RobotsDisallowedError to refuse where the page now stands
+ * @returns {(to: string, hop?: { alreadyRequested?: boolean }) => Promise<void>}
+ *   throws BlockedHostError or RobotsDisallowedError to refuse where the page
+ *   now stands
  */
 export function pageMoveGate(from, options = {}) {
   return hopGate(options, { movedFrom: from });
 }
 
 function hopGate(options, reached) {
-  return async (to) => {
+  return async (to, { alreadyRequested = false } = {}) => {
     const decision = await robotsPreflight(to, options);
     if (!decision.allowed) {
       markPreflightRefusal('ROBOTS_DISALLOWED');
       throw new RobotsDisallowedError(to, reached);
     }
+    if (!alreadyRequested) await throttleHost(to, { crawlDelayMs: decision.crawlDelayMs });
   };
 }
 

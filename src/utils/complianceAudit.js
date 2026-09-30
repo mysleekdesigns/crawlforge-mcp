@@ -13,7 +13,9 @@
  * best-effort: an audit sink that throws must never fail a customer's fetch.
  *
  * The API key is never stored. `apiKeyId` is a truncated SHA-256 of it — stable
- * enough to group a key's overrides, useless as a credential.
+ * enough to group a key's overrides, useless as a credential. A row's `url` is
+ * kept, because the row has to say what was fetched, but not a credential that
+ * rode along in it (see `auditUrl`).
  */
 
 import { createHash } from 'crypto';
@@ -35,6 +37,30 @@ export function apiKeyId(apiKey) {
   return createHash('sha256').update(apiKey).digest('hex').slice(0, 16);
 }
 
+/**
+ * Query parameters whose value is a credential, by name: `token`,
+ * `access_token`, `api_key`, `key`, `sig`, `X-Amz-Signature`, `password`,
+ * `PHPSESSID`, `authorization`. `author` and `keyword` are not.
+ */
+const CREDENTIAL_PARAM_RE = /token|secret|passw|signature|credential|sess(?:ion|id)|api[_-]?key|access[_-]?key|private[_-]?key|jwt|auth(?!or(?!i[sz]))|^(?:key|sig|sid|pwd|pass)$/i;
+
+/**
+ * A URL as a row may keep it: `user:password@` removed, and the value of every
+ * query parameter named like a credential replaced. The path and every other
+ * parameter stay as they were sent. Matching is by name, so a credential under
+ * a name that says nothing (`?k=`, or one carried in the path) is not caught.
+ * @param {string} url
+ * @returns {string}
+ */
+export function auditUrl(url) {
+  if (typeof url !== 'string') return url;
+  return url
+    .replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#@]*@/i, '$1')
+    .replace(/([?&])([^=&#]+)=[^&#]*/g, (pair, separator, name) => (
+      CREDENTIAL_PARAM_RE.test(name) ? `${separator}${name}=[redacted]` : pair
+    ));
+}
+
 async function defaultSink(row) {
   await mkdir(dirname(DEFAULT_LOG_PATH), { recursive: true });
   await appendFile(DEFAULT_LOG_PATH, `${JSON.stringify(row)}\n`, 'utf8');
@@ -46,7 +72,11 @@ async function defaultSink(row) {
  * @returns {{ event: string, timestamp: string }} the row as written
  */
 export function recordComplianceEvent(event = {}) {
-  const row = { timestamp: new Date().toISOString(), ...event };
+  const row = {
+    timestamp: new Date().toISOString(),
+    ...event,
+    ...(event.url === undefined ? {} : { url: auditUrl(event.url) })
+  };
   ring.push(row);
   if (ring.length > RING_SIZE) ring.shift();
 
@@ -60,9 +90,9 @@ export function recordComplianceEvent(event = {}) {
 /**
  * Record that a request is about to go out under a browser identity (a stealth
  * render). Neither the raw key nor the raw owner token is stored: both are
- * reduced to apiKeyId digests. `ownerId` names the website customer behind an
- * internal-proxy request, where `apiKeyId` is always the service's own key.
- * Never throws.
+ * reduced to apiKeyId digests, and the URL is kept as `auditUrl` leaves it.
+ * `ownerId` names the website customer behind an internal-proxy request, where
+ * `apiKeyId` is always the service's own key. Never throws.
  */
 export function recordStealthEscalation({ url, tool, engine, apiKey, ownerToken } = {}) {
   return recordComplianceEvent({

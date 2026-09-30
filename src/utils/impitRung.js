@@ -112,7 +112,7 @@ export async function impitFetchPage(url, { Impit, timeoutMs = IMPIT_TIMEOUT_MS,
     ...(proxyUrl ? { proxyUrl } : {})
   });
 
-  const deadline = Date.now() + timeoutMs;
+  let deadline = Date.now() + timeoutMs;
   let current = url;
   let response;
   for (let hop = 0; ; hop++) {
@@ -133,7 +133,13 @@ export async function impitFetchPage(url, { Impit, timeoutMs = IMPIT_TIMEOUT_MS,
       return null;
     }
     if (!/^https?:\/\//i.test(current)) return null;
-    if (onRedirect) await onRedirect(current);
+    if (onRedirect) {
+      // The gate may wait out the next host's Crawl-delay. That is our
+      // waiting, not the site being slow, so the deadline moves with it.
+      const gateStartedAt = Date.now();
+      await onRedirect(current);
+      deadline += Date.now() - gateStartedAt;
+    }
   }
 
   let html;
