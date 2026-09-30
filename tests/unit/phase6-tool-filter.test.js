@@ -147,8 +147,8 @@ describe('createToolFilter — union + dependency rule', () => {
   // Phase 2: a tool whose large results come back as a result_handle names
   // read_result in its hint, so that tool must be registered alongside it.
   test('enabling any inline-threshold tool force-enables read_result', () => {
-    // extract_embedded_state never truncates but still returns a handle, so
-    // it brings read_result too.
+    // extract_embedded_state returns a preview and a handle as well (plan
+    // Phase 3.1), so it brings read_result too.
     for (const tool of ['scrape', 'fetch_url', 'crawl_deep', 'batch_scrape', 'stealth_mode', 'deep_research', 'extract_content', 'process_document', 'scrape_with_actions', 'extract_embedded_state']) {
       const filter = createToolFilter({ CRAWLFORGE_TOOLS: tool });
       assert.equal(filter.isEnabled(tool), true);

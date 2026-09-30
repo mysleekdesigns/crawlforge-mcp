@@ -20,7 +20,9 @@ import {
   resolveMaxInlineChars,
   readDottedPath,
   resultTextView,
-  applyInlineThreshold
+  applyInlineThreshold,
+  embeddedDataKeys,
+  wholeLinePreview
 } from '../../src/server/inlineThreshold.js';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crawlforge-inline-threshold-'));
@@ -52,15 +54,15 @@ test('MAX_INLINE_CHARS_PARAM is one optional int in [1000, 10,000,000]', () => {
   assert.equal(schema.safeParse({ max_inline_chars: 10_000_001 }).success, false);
 });
 
-test('the twelve large-output tools are configured; extract_embedded_state never truncates', () => {
+test('the twelve large-output tools are configured and all of them truncate', () => {
   assert.deepEqual(Object.keys(INLINE_THRESHOLD_TOOLS).sort(), [
     'batch_scrape', 'browser_session', 'crawl_deep', 'deep_research', 'extract_content',
     'extract_embedded_state', 'fetch_url', 'get_batch_results', 'process_document', 'scrape',
     'scrape_with_actions', 'stealth_mode'
   ]);
-  assert.equal(INLINE_THRESHOLD_TOOLS.extract_embedded_state.truncate, false);
+  // extract_embedded_state was returned whole until plan Phase 3.1.
   for (const [name, cfg] of Object.entries(INLINE_THRESHOLD_TOOLS)) {
-    if (name !== 'extract_embedded_state') assert.equal(cfg.truncate, true, name);
+    assert.equal(cfg.truncate, true, name);
   }
 });
 
@@ -168,19 +170,97 @@ test('crawl_deep has no text path, so the view is the pretty-printed JSON', () =
   assert.match(out.result.warnings[0], /first 1500 chars of the pretty-printed JSON/);
 });
 
-test('extract_embedded_state is never truncated but still gets a handle', () => {
-  const result = { url: 'https://shop.example.com/', found: [{ name: 'next_data' }], path: null, bytes: 5000, data: { props: { items: 'i'.repeat(5000) } }, warnings: ['big'] };
-  const out = applyInlineThreshold('extract_embedded_state', result, { url: 'https://shop.example.com/', max_inline_chars: 1000 }, { store, env });
+// Plan Phase 3.1: producthunt.com and zappos.com came back whole and
+// overflowed the client. Over the limit the result is now a preview cut at a
+// line boundary plus everything that says what the page carries.
+const embeddedResult = () => ({
+  url: 'https://shop.example.com/',
+  found: [
+    { name: 'next_data', variable: '__NEXT_DATA__', bytes: 40_000 },
+    { name: 'apollo_state', variable: '__APOLLO_STATE__', bytes: 900 }
+  ],
+  path: null,
+  bytes: 41_000,
+  escalated: true,
+  stealth: { engine: 'camoufox', vendor_detected: 'cloudflare' },
+  window_state: { note: 'read from window after JavaScript ran, not from the served HTML', found: [{ name: 'ytInitialData', bytes: 30 }] },
+  data: {
+    next_data: {
+      props: { items: Array.from({ length: 400 }, (_, i) => ({ id: i, name: `Item "${i}" — with a quote`, price: i * 1.5 })) },
+      page: '/shop'
+    },
+    apollo_state: { ROOT_QUERY: { a: 1 } },
+    window_state: { ytInitialData: { contents: 'x' } }
+  },
+  warnings: ['big']
+});
+
+test('extract_embedded_state over the limit: a whole-line preview inside max_inline_chars, and the full result under the handle', () => {
+  const result = embeddedResult();
+  const out = applyInlineThreshold('extract_embedded_state', result, { url: result.url, max_inline_chars: 3000 }, { store, env });
   assert.equal(out.stored, true);
-  assert.equal(out.result.truncated, false);
-  assert.deepEqual(out.result.data, result.data, 'the whole payload stays inline');
-  assert.match(out.result.result_handle, /^res_/);
-  assert.equal(out.result.view, 'json');
-  assert.equal(out.result.warnings[0], 'big');
-  assert.match(out.result.warnings[1], /returned whole \(this tool never truncates\)/);
-  assert.match(out.result.warnings[1], /read_result \(1 credit\)/);
-  assert.match(out.result.warnings[1], /do not fetch the page again/);
-  assert.ok(store.get(out.result.result_handle));
+  const shaped = out.result;
+
+  assert.ok(JSON.stringify(shaped).length <= 3000, `inline result is ${JSON.stringify(shaped).length} chars`);
+  assert.deepEqual(Object.keys(shaped), [
+    'url', 'path', 'bytes', 'found', 'data_keys', 'escalated', 'stealth', 'window_state',
+    'preview', 'result_handle', 'total_chars', 'view', 'view_path', 'truncated', 'expires_at', 'warnings'
+  ]);
+  assert.equal('data' in shaped, false);
+  assert.deepEqual(shaped.found, result.found, 'the whole found list stays inline');
+  assert.deepEqual(shaped.data_keys, ['next_data', 'apollo_state', 'window_state']);
+  assert.deepEqual(shaped.stealth, result.stealth);
+  assert.deepEqual(shaped.window_state, result.window_state, 'window_state is its note and list, no values');
+  assert.equal(shaped.view, 'json');
+  assert.equal(shaped.view_path, null);
+  assert.equal(shaped.truncated, true);
+
+  // The preview is the head of the pretty-printed JSON, ending at a line
+  // boundary: never inside a value.
+  const full = JSON.stringify(result, null, 2);
+  assert.equal(shaped.total_chars, full.length);
+  assert.ok(shaped.preview.length > 1000, `a useful preview, got ${shaped.preview.length} chars`);
+  assert.ok(full.startsWith(shaped.preview));
+  assert.equal(full[shaped.preview.length], '\n', 'cut at a newline');
+  const lines = new Set(full.split('\n'));
+  for (const line of shaped.preview.split('\n')) assert.ok(lines.has(line), `whole line: ${line}`);
+
+  assert.equal(shaped.warnings[0], 'big');
+  assert.match(shaped.warnings[1], /up to the last whole line that fits/);
+  assert.match(shaped.warnings[1], /operation "json_path", path "data\.next_data"/);
+  assert.match(shaped.warnings[1], /keys_only:true/);
+  assert.deepEqual(store.get(shaped.result_handle).payload, result, 'read_result json_path reads the whole payload');
+});
+
+test('extract_embedded_state: max_inline_chars is honoured across sizes, and an envelope too big for a line leaves the preview empty', () => {
+  for (const max of [2000, 3000, 5000, 20000]) {
+    const out = applyInlineThreshold('extract_embedded_state', embeddedResult(), { max_inline_chars: max }, { store, env });
+    assert.ok(JSON.stringify(out.result).length <= max, `${max}: ${JSON.stringify(out.result).length}`);
+    assert.ok(out.result.preview.length > 0, `${max}: some preview`);
+  }
+  const result = embeddedResult();
+  result.found = Array.from({ length: 40 }, (_, i) => ({ name: `json_scripts_${i}`, variable: 'script', bytes: 1 }));
+  const out = applyInlineThreshold('extract_embedded_state', result, { max_inline_chars: 1000 }, { store, env });
+  assert.equal(out.result.preview, '');
+  assert.equal(out.result.found.length, 40, 'found is never cut');
+});
+
+test('embeddedDataKeys: keys of an object, the length of an array, null for anything else', () => {
+  assert.deepEqual(embeddedDataKeys({ a: 1, b: 2 }), ['a', 'b']);
+  assert.equal(embeddedDataKeys([1, 2, 3]), 'array(3)');
+  assert.equal(embeddedDataKeys('x'), null);
+  assert.equal(embeddedDataKeys(null), null);
+  assert.equal(embeddedDataKeys(undefined), null);
+});
+
+test('wholeLinePreview never ends inside a line and fits its JSON-string budget', () => {
+  const text = ['{', '  "a": "one \\"quoted\\" value",', '  "b": "line\\\\two",', '  "c": 3', '}'].join('\n');
+  for (let budget = 0; budget <= JSON.stringify(text).length + 5; budget++) {
+    const preview = wholeLinePreview(text, budget);
+    assert.ok(JSON.stringify(preview).length <= Math.max(2, budget), `budget ${budget}`);
+    assert.ok(preview === '' || text === preview || text[preview.length] === '\n', `budget ${budget}: "${preview}"`);
+  }
+  assert.equal(wholeLinePreview(text, 10_000), text);
 });
 
 test('max_inline_chars param and the env var both move the threshold', () => {

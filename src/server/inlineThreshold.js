@@ -20,9 +20,9 @@ export const MAX_INLINE_CHARS_PARAM = {
 /**
  * Per-tool rule. `textPaths` are dotted paths tried in order; the first one
  * holding a string becomes the text view the preview and read_result work
- * on. An empty list means the pretty-printed JSON is the view. `truncate:
- * false` keeps the whole result inline and only adds the handle
- * (extract_embedded_state's never-truncate rule). `when` gates on params.
+ * on. An empty list means the pretty-printed JSON is the view. `when` gates
+ * on params. extract_embedded_state has a shape of its own (shapeEmbeddedState
+ * below).
  */
 /** The browser_session operations that hand back content worth shaping. */
 const BROWSER_SESSION_CONTENT_OPERATIONS = new Set(['snapshot', 'act', 'read']);
@@ -52,7 +52,10 @@ export const INLINE_THRESHOLD_TOOLS = Object.freeze({
   },
   process_document: { textPaths: ['content.text'], truncate: true },
   deep_research: { textPaths: [], truncate: true },
-  extract_embedded_state: { textPaths: [], truncate: false }
+  // Truncated since plan Phase 3.1: returned whole, producthunt.com and
+  // zappos.com overflowed the client. Shaped by shapeEmbeddedState, which never
+  // cuts inside a JSON value.
+  extract_embedded_state: { textPaths: [], truncate: true }
 });
 
 /** param -> env (an int of at least 1,000) -> default. */
@@ -147,21 +150,8 @@ export function applyInlineThreshold(toolName, resultObject, params, { store, en
   const viewDesc = view === 'text' ? `the ${view_path} text` : 'the pretty-printed JSON';
   const readWith = 'read it with read_result (1 credit) - operation "search" (query), "slice" (offset, length), "lines" or "json_path" (path) - and do not fetch the page again';
 
-  if (!config.truncate) {
-    const hint = `Result is ${json.length} chars as JSON, over the inline limit of ${maxInline}; it is returned whole (this tool never truncates) and is also kept for 1 hour under result_handle ${handle}: ${readWith}.`;
-    return {
-      result: {
-        ...resultObject,
-        result_handle: handle,
-        total_chars: text.length,
-        view,
-        view_path,
-        truncated: false,
-        expires_at,
-        warnings: [...warningsOf(resultObject), hint]
-      },
-      stored: true
-    };
+  if (toolName === 'extract_embedded_state') {
+    return { result: shapeEmbeddedState(resultObject, { json, text, maxInline, handle, expires_at, readWith }), stored: true };
   }
 
   const preview = text.slice(0, maxInline);
@@ -199,4 +189,76 @@ export function applyInlineThreshold(toolName, resultObject, params, { store, en
     warnings: [...warningsOf(resultObject), hint]
   });
   return { result: shaped, stored: true };
+}
+
+/** Object.keys(data) for a plain object, "array(<n>)" for an array, null otherwise. */
+export function embeddedDataKeys(data) {
+  if (Array.isArray(data)) return `array(${data.length})`;
+  if (data !== null && typeof data === 'object') return Object.keys(data);
+  return null;
+}
+
+/**
+ * The longest run of whole lines from the start of `text` whose JSON-string
+ * form fits in `budget` characters. A line that does not fit ends the preview,
+ * so it never stops inside a value; with a budget too small for the first
+ * line it is empty.
+ */
+export function wholeLinePreview(text, budget) {
+  const room = budget - 2; // the string's own quotes
+  let used = 0;
+  let end = 0;
+  let start = 0;
+  while (start < text.length) {
+    const newline = text.indexOf('\n', start);
+    const stop = newline === -1 ? text.length : newline;
+    // A line's escaped length, plus the escaped newline that joins it to the last.
+    const cost = JSON.stringify(text.slice(start, stop)).length - 2 + (end > 0 ? 2 : 0);
+    if (used + cost > room) break;
+    used += cost;
+    end = stop;
+    start = stop + 1;
+  }
+  return text.slice(0, end);
+}
+
+/**
+ * extract_embedded_state over the limit (plan Phase 3.1). What stays inline is
+ * everything that says what the page carries — url, path, bytes, the whole
+ * `found` list, data_keys, the escalation report and window_state's list —
+ * then a preview of the pretty-printed JSON cut at a line boundary. The
+ * preview gets whatever max_inline_chars leaves after the rest, measured as
+ * compact JSON, so the whole inline result stays within the limit whenever
+ * the rest fits. The full result is under the handle for read_result
+ * json_path. The REST route shapes it the same way; keep the two in step.
+ */
+function shapeEmbeddedState(resultObject, { json, text, maxInline, handle, expires_at, readWith }) {
+  const dataKeys = embeddedDataKeys(resultObject.data);
+  const firstKey = Array.isArray(dataKeys) && dataKeys.length > 0 ? dataKeys[0] : null;
+  const example = firstKey && /^[A-Za-z_$][\w$]*$/.test(firstKey) ? ` Read one payload with operation "json_path", path "data.${firstKey}".` : '';
+  const hint = `Result is ${json.length} chars as JSON, over the inline limit of ${maxInline}; preview holds the pretty-printed JSON up to the last whole line that fits (${text.length} chars in total), data_keys lists the top-level keys of data, and the full result is kept for 1 hour under result_handle ${handle}: ${readWith}.${example} Or re-run with path, or keys_only:true, to ask for less.`;
+
+  const shaped = {};
+  for (const key of ['url', 'path', 'bytes', 'found']) {
+    if (key in resultObject) shaped[key] = resultObject[key];
+  }
+  shaped.data_keys = dataKeys;
+  if ('escalated' in resultObject) shaped.escalated = resultObject.escalated;
+  if (resultObject.stealth) shaped.stealth = resultObject.stealth;
+  if (resultObject.window_state && typeof resultObject.window_state === 'object') {
+    shaped.window_state = { note: resultObject.window_state.note, found: resultObject.window_state.found };
+  }
+  const tail = {
+    result_handle: handle,
+    total_chars: text.length,
+    view: 'json',
+    view_path: null,
+    truncated: true,
+    expires_at,
+    warnings: [...warningsOf(resultObject), hint]
+  };
+  // `"preview":"",` is what the key itself adds once the value is in.
+  const envelope = JSON.stringify({ ...shaped, preview: '', ...tail }).length;
+  const preview = wholeLinePreview(text, Math.max(0, maxInline - envelope + 2));
+  return { ...shaped, preview, ...tail };
 }

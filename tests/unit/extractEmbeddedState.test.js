@@ -193,15 +193,16 @@ describe('a bare path is resolved inside the page\'s only payload', () => {
 });
 
 // Phase 0 (ACTIONS_EMBEDDED_STATE_FIX_PLAN 0.6): a block is not a path
-// problem, so the error names stealth_mode instead of the generic
+// problem, so the error names its own next step instead of the generic
 // "call again without `path`" hint that withAuth would otherwise append.
-describe('a blocked fetch points at stealth_mode, not at a different path', () => {
-  test('HTTP 403 carries its own Next step naming stealth_mode', async () => {
+// Since Phase 3.2 that step is this tool's own escalate:true.
+describe('a blocked fetch points at escalate:true, not at a different path', () => {
+  test('HTTP 403 carries its own Next step naming escalate:true', async () => {
     const result = await extractEmbeddedStateHandler({ url: `${baseUrl}/forbidden`, path: 'props' });
     assert.equal(result.isError, true);
     const text = result.content[0].text;
     assert.match(text, /HTTP 403/);
-    assert.match(text, /\nNext step: stealth_mode operation:"scrape"/);
+    assert.match(text, /\nNext step: Call extract_embedded_state again with escalate:true/);
     assert.ok(!/without `path`/.test(text));
     appendFallbackHint('extract_embedded_state', result);
     assert.equal(result.content[0].text, text, 'withAuth keeps the hint the error already carries');

@@ -55,7 +55,7 @@ import { extractTextHandler } from "./src/tools/basic/extractText.js";
 import { extractLinksHandler } from "./src/tools/basic/extractLinks.js";
 import { extractMetadataHandler } from "./src/tools/basic/extractMetadata.js";
 import { scrapeStructuredHandler } from "./src/tools/basic/scrapeStructured.js";
-import { extractEmbeddedStateHandler } from "./src/tools/extract/extractEmbeddedState.js";
+import { createExtractEmbeddedStateHandler, EMBEDDED_STATE_INPUT_SHAPE } from "./src/tools/extract/extractEmbeddedState.js";
 import { READ_RESULT_INPUT_SHAPE, readResultHandler } from "./src/tools/result/readResult.js"; // Phase 2
 import { MAX_INLINE_CHARS_PARAM } from "./src/server/inlineThreshold.js"; // Phase 2
 import { REDACT_PII_PARAM } from "./src/server/redaction.js"; // Phase 5 (5.3)
@@ -111,7 +111,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "6.14.0",
+  version: "6.15.0",
   description: "Production-ready MCP server with 31 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, stateful browser sessions with element refs, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -246,15 +246,16 @@ const deepResearchTool = new DeepResearchTool();
 const trackChangesTool = new TrackChangesTool();
 const generateLLMsTxtTool = new GenerateLLMsTxtTool();
 const scrapeTemplateTool = new ScrapeTemplateTool(); // D3.3
-// Phase 3: the escalation stage for `scrape`'s escalate:true and the agent's
-// automatic stealth retry (stealth review Phase 3) — one function, so both
-// go through the same gate, engine resolver and server-level proxy list.
+// Phase 3: the escalation stage for `scrape`'s escalate:true, the agent's
+// automatic stealth retry (stealth review Phase 3) and extract_embedded_state's
+// escalate:true (plan Phase 3.2) — one function, so all three go through the
+// same gate, engine resolver and server-level proxy list.
 // Injected so the tool modules never import StealthBrowserManager (that would pull a
 // browser dependency into every unit test that loads `scrape`). Same gate
 // and same browser the stealth_mode tool drives, plus the impit TLS try, and the
 // engine name is resolved here, beside its sibling, by the one resolver
 // every stealth entry point shares.
-const stealthEscalation = async ({ url, engine, respectRobots, tool }) => {
+const stealthEscalation = async ({ url, engine, respectRobots, tool, waitFor = 0, readWindowState = false }) => {
   const warnings = await stealthComplianceGate(url, respectRobots);
   const auditIdentity = { apiKey: AuthManager.getConfig()?.apiKey, ownerToken: internalOwnerToken() };
   // Stealth review Phase 7: under "auto", a Chrome TLS handshake with the
@@ -275,9 +276,13 @@ const stealthEscalation = async ({ url, engine, respectRobots, tool }) => {
   // Audit row: the request is about to go out under a browser identity. After
   // the gate (a refusal presents none) and the resolver (the engine that runs).
   recordStealthEscalation({ url, tool, engine: resolved.engine, ...auditIdentity });
+  // waitFor and readWindowState come from extract_embedded_state only; scrape
+  // and agent pass neither, so their stage is unchanged.
   const scraped = await stealthBrowserManager.scrapeWithStealth({
     url,
-    engine: resolved.engine
+    engine: resolved.engine,
+    wait_for: waitFor,
+    readWindowState
   });
   // The RESOLVED engine: `scrape` reports it as stealth.engine, where the
   // requested "auto" would tell the caller nothing about what ran.
@@ -456,15 +461,16 @@ registerToolIfEnabled("extract_metadata", {
 
 // Tool: extract_embedded_state
 registerToolIfEnabled("extract_embedded_state", {
-  description: "Use this when a page's data lives in its embedded JavaScript state rather than its rendered HTML - Next.js (__NEXT_DATA__ and React Server Component payloads), Nuxt, Apollo, Redux (__INITIAL_STATE__, __PRELOADED_STATE__), and <script type=\"application/json\"> blocks. One fetch, exact values, no LLM in the extraction path, so nothing can be fabricated. Payloads are routinely over a megabyte - pass `path` to return one subtree instead of the whole blob. Not for the rendered text of a page (scrape) or for sites built without a framework payload. Cost: 2 credits. Example: extract_embedded_state({url: \"https://www.ticketmaster.com/discover/concerts\", path: \"next_data.props.pageProps\"})",
+  description: "Use this when a page's data lives in its embedded JavaScript state rather than its rendered HTML - Next.js (__NEXT_DATA__ and React Server Component payloads), Nuxt, Apollo, Redux (__INITIAL_STATE__, __PRELOADED_STATE__), and <script type=\"application/json\"> blocks. One fetch, exact values, no LLM in the extraction path, so nothing can be fabricated. Payloads are routinely over a megabyte - pass `path` to return one subtree, or keys_only:true to see the first two levels of keys before choosing one. A result over max_inline_chars comes back as a preview (whole lines of the JSON), data_keys and a result_handle; read the rest with read_result json_path, e.g. \"data.next_data.props\". Set escalate:true when the site is known to block: the plain fetch still runs first, and only if it is walled does the stealth browser re-read the page, run the same parser and also read the globals off window (window_state: __NEXT_DATA__, __NUXT__, ytInitialData and others, read after JavaScript ran) - projected at 7, charged 2 when the plain fetch worked. Not for the rendered text of a page (scrape) or for sites built without a framework payload. Cost: 2 credits. Example: extract_embedded_state({url: \"https://www.ticketmaster.com/discover/concerts\", path: \"next_data.props.pageProps\"})",
   annotations: { title: "Extract Embedded State", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
-    url: z.string().url().describe("The URL to read embedded state from"),
-    path: z.string().optional().describe("Return only this subtree instead of the whole payload. Dotted keys and array indexes, e.g. \"next_data.props.pageProps\" or \"next_f[0].f\" — not JSONPath (no wildcards, filters or recursion). State payloads are routinely over a megabyte; scope them."),
+    ...EMBEDDED_STATE_INPUT_SHAPE,
     ...COMPLIANCE_PARAMS,
     ...MAX_INLINE_CHARS_PARAM
   }
-}, withAuth("extract_embedded_state", extractEmbeddedStateHandler));
+}, withAuth("extract_embedded_state", createExtractEmbeddedStateHandler({
+  escalateFetch: (args) => stealthEscalation({ ...args, tool: 'extract_embedded_state' })
+})));
 
 // Tool: scrape_structured
 registerToolIfEnabled("scrape_structured", {
