@@ -223,7 +223,8 @@ export class SessionContext {
     const fetchOpts = {
       method,
       headers: requestHeaders,
-      redirect: 'follow'
+      redirect: 'follow',
+      onRedirect: gate.onRedirect
     };
 
     if (body) {

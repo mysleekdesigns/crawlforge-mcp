@@ -36,7 +36,8 @@ import * as cheerio from "cheerio";
 import { htmlToMarkdown } from "./src/utils/htmlToMarkdown.js";
 import { detectChallengePage } from "./src/utils/challengeDetection.js";
 import { stealthDocumentVerdict } from "./src/utils/stealthVerdict.js";
-import { browserPreflight } from "./src/utils/robotsGate.js";
+import { browserPreflight, redirectGate } from "./src/utils/robotsGate.js";
+import { safeGoto } from "./src/utils/ssrfGuard.js";
 import { memoryMonitor } from "./src/utils/MemoryMonitor.js";
 import { config, validateConfig, getToolConfig } from "./src/constants/config.js";
 import AuthManager from "./src/core/AuthManager.js";
@@ -60,7 +61,7 @@ import { READ_RESULT_INPUT_SHAPE, readResultHandler } from "./src/tools/result/r
 import { MAX_INLINE_CHARS_PARAM } from "./src/server/inlineThreshold.js"; // Phase 2
 import { REDACT_PII_PARAM } from "./src/server/redaction.js"; // Phase 5 (5.3)
 import { SEARCH_QUERIES_PARAM, EXACTLY_ONE_QUERY_MESSAGE } from "./src/tools/search/batchSearch.js"; // Phase 5 (5.1)
-import { markPreflightRefusal, internalOwnerToken } from "./src/server/requestContext.js";
+import { markPreflightRefusal, preflightRefusal, internalOwnerToken } from "./src/server/requestContext.js";
 import { recordStealthEscalation } from "./src/utils/complianceAudit.js";
 import { loadImpit, impitEnabled, impitFetchPage, IMPIT_ENGINE } from "./src/utils/impitRung.js"; // stealth review Phase 7
 // D1.1 Resources + D1.2 Prompts + D1.4 Elicitation
@@ -257,6 +258,7 @@ const scrapeTemplateTool = new ScrapeTemplateTool(); // D3.3
 // every stealth entry point shares.
 const stealthEscalation = async ({ url, engine, respectRobots, tool, waitFor = 0, readWindowState = false }) => {
   const warnings = await stealthComplianceGate(url, respectRobots);
+  const onRedirect = stealthRedirectGate(url, respectRobots);
   const auditIdentity = { apiKey: AuthManager.getConfig()?.apiKey, ownerToken: internalOwnerToken() };
   // Stealth review Phase 7: under "auto", a Chrome TLS handshake with the
   // honest User-Agent is tried before any browser launches. A caller who
@@ -264,7 +266,7 @@ const stealthEscalation = async ({ url, engine, respectRobots, tool, waitFor = 0
   // CRAWLFORGE_IMPIT=off skips it for a deployment whose exit IP it cannot help.
   if (engine === 'auto' && impitEnabled() && await loadImpit()) {
     recordStealthEscalation({ url, tool, engine: IMPIT_ENGINE, ...auditIdentity });
-    const page = await impitFetchPage(url);
+    const page = await impitFetchPage(url, { onRedirect });
     if (page) return { ...page, warnings };
   }
   // "auto" prefers camoufox and falls back to chromium when its binary is
@@ -282,7 +284,8 @@ const stealthEscalation = async ({ url, engine, respectRobots, tool, waitFor = 0
     url,
     engine: resolved.engine,
     wait_for: waitFor,
-    readWindowState
+    readWindowState,
+    onRedirect
   });
   // The RESOLVED engine: `scrape` reports it as stealth.engine, where the
   // requested "auto" would tell the caller nothing about what ran.
@@ -408,6 +411,18 @@ const VERIFY_NUMBERS_PARAM = {
   verify_numbers: z.boolean().optional().default(true).describe("Numeric provenance guard (default: true): every price or numeric value the LLM returns must appear literally in the page source, else it is returned as null with a reason in `provenance.unverified`. Set false to get the model's raw numbers back, including ones it derived (a count, a sum, a total) rather than read off the page.")
 };
 
+
+/**
+ * Whether a browser tool's result is a chain the compliance gate refused.
+ *
+ * scrape_with_actions and browser_session report a failed chain as
+ * `{ success: false, error }` rather than by throwing, so the actions that did
+ * run are still in the result. withAuth waives the charge for a refusal only
+ * on an error result, so without `isError` a caller paid in full for a chain
+ * we refused to finish: a load redirected into a disallowed path, or a click
+ * that landed on one.
+ */
+const refusedByGate = (result) => result?.success === false && preflightRefusal() !== null;
 
 // Tool: fetch_url
 registerToolIfEnabled("fetch_url", {
@@ -1050,7 +1065,10 @@ registerToolIfEnabled("scrape_with_actions", {
     // array (Phase 0, 0.4).
     stripScreenshotData(result, (actionId, data) => resourceRegistry.storeScreenshot(actionId, data));
 
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      ...(refusedByGate(result) ? { isError: true } : {})
+    };
   } catch (error) {
     return { content: [{ type: "text", text: `Scrape with actions failed: ${error.message}` }], isError: true };
   }
@@ -1116,7 +1134,10 @@ registerToolIfEnabled("browser_session", {
     if (result.screenshot) result.screenshot = publish(result.screenshot);
     if (Array.isArray(result.screenshots)) result.screenshots = result.screenshots.map(publish);
 
-    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+      ...(refusedByGate(result) ? { isError: true } : {})
+    };
   } catch (error) {
     return { content: [{ type: "text", text: `Browser session failed: ${error.message}` }], isError: true };
   }
@@ -1324,6 +1345,17 @@ async function stealthComplianceGate(url, respectRobots) {
 }
 
 /**
+ * The same gate for wherever a navigation to `url` is redirected to. The
+ * pre-flight above decides about the URL the caller named; a redirect can lead
+ * anywhere, so each stealth entry point hands this to its navigation.
+ *
+ * @returns {(to: string) => Promise<void>} refuses a hop by throwing
+ */
+function stealthRedirectGate(url, respectRobots) {
+  return redirectGate(url, { respectRobots, tool: 'stealth_mode' });
+}
+
+/**
  * Build the requested formats from one stealth render. The browser already
  * returned the rendered HTML and visible text, so nothing here refetches;
  * markdown goes through the same Turndown helper the `scrape` tool uses.
@@ -1447,7 +1479,8 @@ registerToolIfEnabled("stealth_mode", {
           engine: resolvedEngine.engine,
           wait_for: wait_for || 0,
           screenshot: wantsScreenshot,
-          stealthConfig
+          stealthConfig,
+          onRedirect: stealthRedirectGate(url, respect_robots)
         });
 
         // A bot-wall interstitial arrives as HTTP 200 with a title and prose
@@ -1538,7 +1571,13 @@ registerToolIfEnabled("stealth_mode", {
             // JSON-serializable — extract just the useful navigation details.
             // Explicit timeout keeps navigation inside every caller's window
             // (Playwright's default is 30s, longer than some proxy budgets).
-            const response = await page.goto(urlToTest, { waitUntil: 'domcontentloaded', timeout: 20000 });
+            // safeGoto, not page.goto: the SSRF guard on the URL and on where
+            // it lands, and the gate above again for every redirect on the way.
+            const response = await safeGoto(page, urlToTest, {
+              waitUntil: 'domcontentloaded',
+              timeout: 20000,
+              onRedirect: stealthRedirectGate(urlToTest, respect_robots)
+            });
             navigation = {
               requestedUrl: urlToTest,
               finalUrl: page.url(),

@@ -679,7 +679,8 @@ export class SitemapParser {
           ...gate.headers,
           'Accept': 'application/xml,text/xml,text/plain,*/*',
           'Accept-Encoding': 'gzip, deflate'
-        }
+        },
+        onRedirect: gate.onRedirect
       });
       clearTimeout(timeoutId);
       if (response.status === 429 || response.status === 503) {

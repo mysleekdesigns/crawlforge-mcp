@@ -22,7 +22,8 @@
  *
  * impit resolves DNS itself, outside the undici dispatcher ssrfGuard installs,
  * so redirects are followed here, one hop at a time, and every hop is checked
- * with DNS resolution — the same check safeGoto applies to a navigation.
+ * with DNS resolution — the same check safeGoto applies to a navigation — and
+ * put to the caller's `onRedirect` gate before it is requested.
  */
 
 import { load } from 'cheerio';
@@ -84,16 +85,19 @@ export async function loadImpit() {
  * not (a wall, an error page, an empty shell) or the request failed. A null
  * means "run the browser"; this function never throws for a failed fetch.
  *
- * An SSRF refusal on any hop DOES throw: the browser would be refused the same
- * URL, so falling through to it would only fail slower.
+ * An SSRF refusal on any hop DOES throw, and so does a hop the caller's gate
+ * refuses: the browser would be refused the same URL, so falling through to it
+ * would only fail slower.
  *
  * @param {string} url
  * @param {object} [options]
  * @param {Function} [options.Impit] the client class (tests inject a fake)
  * @param {number} [options.timeoutMs]
+ * @param {(to: string) => Promise<void>} [options.onRedirect] awaited with each
+ *   redirect target before it is requested (robotsGate.js `redirectGate`)
  * @returns {Promise<{ html: string, text: string, title: string, url: string, status: number, engine: string } | null>}
  */
-export async function impitFetchPage(url, { Impit, timeoutMs = IMPIT_TIMEOUT_MS } = {}) {
+export async function impitFetchPage(url, { Impit, timeoutMs = IMPIT_TIMEOUT_MS, onRedirect } = {}) {
   const ImpitClass = Impit ?? await loadImpit();
   if (!ImpitClass) return null;
 
@@ -129,6 +133,7 @@ export async function impitFetchPage(url, { Impit, timeoutMs = IMPIT_TIMEOUT_MS 
       return null;
     }
     if (!/^https?:\/\//i.test(current)) return null;
+    if (onRedirect) await onRedirect(current);
   }
 
   let html;

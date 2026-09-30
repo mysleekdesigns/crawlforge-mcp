@@ -72,6 +72,7 @@ export async function fetchContent(url, options = {}) {
         'Accept-Encoding': 'gzip, deflate',
         'Cache-Control': 'no-cache'
       },
+      onRedirect: gate.onRedirect,
       signal: AbortSignal.timeout(30000)
     });
 

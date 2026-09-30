@@ -35,6 +35,7 @@ import net from 'node:net';
 import { Agent, buildConnector } from 'undici';
 import { config } from '../constants/config.js';
 import { SSRFProtection } from './ssrfProtection.js';
+import { fetchResigned } from './resignedFetch.js';
 
 // Reused only for its (well-tested) CIDR range math — no network state.
 const _ssrf = new SSRFProtection();
@@ -307,14 +308,18 @@ export function isSsrfError(err) {
  * blocked targets it throws a clear `SSRF Protection: ...` error (pre-flight) or
  * the fetch rejects at connect time with an SSRF_BLOCKED cause.
  *
+ * A crawl request (one carrying a Web Bot Auth signature, or the gate's
+ * `onRedirect`) has its redirects followed one hop at a time, each through the
+ * same dispatcher, each gated and each signed for itself (see resignedFetch.js).
+ *
  * @param {string} url
- * @param {RequestInit} [options]
+ * @param {RequestInit & { onRedirect?: (to: string) => Promise<void> }} [options]
  * @returns {Promise<Response>}
  */
 export async function safeFetch(url, options = {}) {
   const guard = ssrfGuard(url); // throws on protocol / metadata-host / blocklist / IP-literal violations
   try {
-    return await fetch(url, { ...options, ...guard });
+    return await fetchResigned(url, { ...options, ...guard });
   } catch (err) {
     if (isSsrfError(err)) {
       throw new Error(err.cause?.message || err.message);
@@ -324,26 +329,93 @@ export async function safeFetch(url, options = {}) {
 }
 
 /**
+ * Where a navigation went after the URL it was asked for: every HTTP redirect
+ * hop in order, then the URL the page stands on when that is somewhere else
+ * again (a client-side redirect). Fragments are ignored; they never reach a
+ * server.
+ *
+ * @param {string} landed the page's current URL
+ * @param {string} [url] the URL the navigation was asked for
+ * @param {import('playwright').Response|null} [response] what `page.goto` returned
+ * @returns {string[]}
+ */
+export function navigationHops(landed, url, response) {
+  const bare = (value) => {
+    try {
+      const parsed = new URL(value);
+      parsed.hash = '';
+      return parsed.href;
+    } catch {
+      return value;
+    }
+  };
+  const chain = [];
+  for (let request = response?.request?.(); request; request = request.redirectedFrom()) {
+    chain.unshift(request.url());
+  }
+  const hops = chain.slice(1);
+  if (/^https?:\/\//i.test(landed) && bare(landed) !== bare(hops.at(-1) ?? url)) hops.push(landed);
+  return hops;
+}
+
+/**
+ * The checks a navigation gets once it has happened: the SSRF guard on where
+ * the page landed, and the caller's `onRedirect` gate on every hop that led
+ * there.
+ *
+ * A fetch is refused a redirect before the hop is requested (resignedFetch.js).
+ * A browser follows redirects itself and Playwright hands no redirect hop to a
+ * route handler, so here the hop has already been requested by the time anyone
+ * can ask about it. What is held instead is everything after: a refusal empties
+ * the page before it is thrown, so nothing of the refused document can be read,
+ * acted on or captured, including by a caller that keeps the page.
+ *
+ * Call it again with the URL a navigation landed on, and no response, before
+ * reading a page that had time to move on by itself.
+ *
+ * @param {import('playwright').Page} page
+ * @param {string} url the URL the navigation was asked for
+ * @param {import('playwright').Response|null} [response] what `page.goto` returned
+ * @param {(to: string) => Promise<void>} [onRedirect] refuses a hop by throwing
+ * @returns {Promise<string>} the URL the page stood on when it was checked
+ */
+export async function assertNavigationAllowed(page, url, response, onRedirect) {
+  try {
+    const landedUrl = page.url();
+    if (/^https?:\/\//i.test(landedUrl)) {
+      await assertUrlAllowed(landedUrl, { resolveDns: true });
+    }
+    if (onRedirect) {
+      for (const hop of navigationHops(landedUrl, url, response)) await onRedirect(hop);
+    }
+    return landedUrl;
+  } catch (error) {
+    await page.goto('about:blank').catch(() => {});
+    throw error;
+  }
+}
+
+/**
  * SSRF-safe wrapper around Playwright's `page.goto`. The navigate analog of
  * safeFetch: a browser drives its own DNS resolution, so URL/host checks alone
  * miss DNS-rebinding and private-IP targets — resolveDns:true closes that.
- * Checks the URL before navigating, then re-checks the landed URL, because a
- * redirect during navigation could carry us into a blocked range even when the
+ * Checks the URL before navigating, then re-checks where the navigation went
+ * (see assertNavigationAllowed), because a redirect could carry us into a
+ * blocked range, or past the caller's `onRedirect` gate, even when the
  * original URL was safe. Returns the Response so callers can read the status.
- * Options pass through unchanged; behaviour-preserving for allowed URLs.
+ * Every other option passes through unchanged; behaviour-preserving for
+ * allowed URLs.
  *
  * @param {import('playwright').Page} page
  * @param {string} url
- * @param {Parameters<import('playwright').Page['goto']>[1]} [options]
+ * @param {Parameters<import('playwright').Page['goto']>[1] & { onRedirect?: (to: string) => Promise<void> }} [options]
  * @returns {Promise<import('playwright').Response|null>}
  */
 export async function safeGoto(page, url, options = {}) {
+  const { onRedirect, ...gotoOptions } = options;
   await assertUrlAllowed(url, { resolveDns: true });
-  const response = await page.goto(url, options);
-  const landedUrl = page.url();
-  if (/^https?:\/\//i.test(landedUrl)) {
-    await assertUrlAllowed(landedUrl, { resolveDns: true });
-  }
+  const response = await page.goto(url, gotoOptions);
+  await assertNavigationAllowed(page, url, response, onRedirect);
   return response;
 }
 

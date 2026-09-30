@@ -8,6 +8,7 @@ import { config } from '../../constants/config.js';
 import { ssrfGuard, isSsrfError } from '../../utils/ssrfGuard.js';
 import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
 import { preflightFetch } from '../../utils/robotsGate.js';
+import { fetchResigned } from '../../utils/resignedFetch.js';
 
 /**
  * Fetch a URL with a configurable timeout and body-size cap.
@@ -51,12 +52,13 @@ export async function fetchWithTimeout(url, options = {}) {
   try {
     let response;
     try {
-      response = await fetch(url, {
+      response = await fetchResigned(url, {
         signal: controller.signal,
         headers: {
           ...gate.headers,
           ...headers
         },
+        onRedirect: gate.onRedirect,
         ...guard
       });
     } catch (error) {

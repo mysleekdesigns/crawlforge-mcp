@@ -128,7 +128,7 @@ describe('server.js records the row on exactly the owner-named paths', () => {
     ordered(caseBody('scrape'), 'scrapeWithStealth(', RECORD, ['stealthComplianceGate(', 'resolveStealthEngine(']);
 
     const pageCase = caseBody('create_page');
-    ordered(pageCase, 'page.goto(', RECORD, ['stealthComplianceGate(']);
+    ordered(pageCase, 'safeGoto(', RECORD, ['stealthComplianceGate(']);
   });
 
   test('no other path in server.js writes the row', () => {

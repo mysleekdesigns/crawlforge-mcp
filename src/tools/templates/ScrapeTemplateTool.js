@@ -123,10 +123,13 @@ export class ScrapeTemplateTool {
     }
 
     // Robots gate + per-host politeness before any request to the target.
+    // A keyed connector's URL carries the key, and an override writes the URL
+    // to the audit log — so the gate is told what to strip from that row.
     const gate = await preflightFetch(fetchUrl, {
       respectRobots: respect_robots,
       userAgent: user_agent,
-      tool: 'scrape_template'
+      tool: 'scrape_template',
+      redactCredential: apiKey
     });
 
     // Fetch the page
@@ -136,7 +139,8 @@ export class ScrapeTemplateTool {
     try {
       const response = await safeFetch(fetchUrl, {
         signal: controller.signal,
-        headers: { ...gate.headers }
+        headers: { ...gate.headers },
+        onRedirect: gate.onRedirect
       });
       clearTimeout(timeoutId);
 
@@ -200,7 +204,11 @@ export class ScrapeTemplateTool {
     const timeoutId = setTimeout(() => controller.abort(), timeout);
     let response;
     try {
-      response = await safeFetch(url, { signal: controller.signal, headers: { ...pageGate.headers } });
+      response = await safeFetch(url, {
+        signal: controller.signal,
+        headers: { ...pageGate.headers },
+        onRedirect: pageGate.onRedirect
+      });
     } finally {
       clearTimeout(timeoutId);
     }

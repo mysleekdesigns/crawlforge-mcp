@@ -7,8 +7,8 @@ import { z } from 'zod';
 import BrowserProcessor from './processing/BrowserProcessor.js';
 import { EventEmitter } from 'events';
 import { createHash } from 'node:crypto';
-import { assertUrlAllowed } from '../utils/ssrfGuard.js';
-import { browserPreflight } from '../utils/robotsGate.js';
+import { assertUrlAllowed, assertNavigationAllowed } from '../utils/ssrfGuard.js';
+import { browserPreflight, redirectGate, pageMoveGate } from '../utils/robotsGate.js';
 import { isRef, resolveRef, captureSnapshot } from './browser/snapshot.js';
 import { settlePage } from './browser/settle.js';
 import { handleConsent } from './browser/consent.js';
@@ -318,11 +318,10 @@ export class ActionExecutor extends EventEmitter {
         // Capture the LIVE post-action page state before the page is closed,
         // so callers can extract final content reflecting all actions
         // (instead of re-fetching the original URL).
-        try {
-          executionContext.finalHtml = await page.content();
-          executionContext.finalUrl = page.url();
-        } catch (captureErr) {
-          this.log('warn', 'Failed to capture final page content: ' + captureErr.message);
+        const finalState = await this.captureState(page, browserOptions, 'final page content');
+        if (finalState) {
+          executionContext.finalHtml = finalState.html;
+          executionContext.finalUrl = finalState.url;
         }
 
         this.stats.successfulChains++;
@@ -336,6 +335,9 @@ export class ActionExecutor extends EventEmitter {
         // Capture error screenshot if enabled
         if ((validatedChain.screenshotOnError ?? this.enableScreenshotOnError) && page) {
           try {
+            // Not of a page the gate has not passed: the chain may have failed
+            // for another reason after the page moved.
+            await this.assertPageAllowed(page, browserOptions);
             const errorScreenshot = await this.captureScreenshot(page, {
               fullPage: true,
               description: 'Error screenshot'
@@ -473,7 +475,9 @@ export class ActionExecutor extends EventEmitter {
           // (form half-filled, menu open, possibly a different URL) is not a
           // retry. Reload the starting URL so every attempt begins where the
           // first one did.
-          await this.navigateToUrl(page, executionContext.url);
+          await this.navigateToUrl(page, executionContext.url, {
+            browserOptions: executionContext.browserOptions
+          });
         }
 
         // Execute actions in sequence
@@ -486,7 +490,7 @@ export class ActionExecutor extends EventEmitter {
             ...chain.actions[i],
             timeout: Math.min(chain.actions[i].timeout || chain.timeout, chain.timeout)
           };
-          const actionResult = await this.executeActionInternal(page, action, executionContext);
+          const actionResult = await this.executeGatedAction(page, action, executionContext);
           
           executionContext.results.push(actionResult);
           this.stats.totalActions++;
@@ -519,18 +523,16 @@ export class ActionExecutor extends EventEmitter {
           // the ALLOW_JAVASCRIPT_EXECUTION flag and doesn't add phantom
           // actions to the chain's failure/success counts.
           if (action.captureAfter) {
-            try {
-              const capturedHtml = await page.content();
+            const captured = await this.captureState(page, executionContext.browserOptions, 'intermediate state');
+            if (captured) {
               executionContext.capturedStates = executionContext.capturedStates || [];
               executionContext.capturedStates.push({
                 afterActionIndex: i,
                 afterActionId: actionResult.id,
-                url: page.url(),
-                html: capturedHtml,
+                url: captured.url,
+                html: captured.html,
                 timestamp: Date.now()
               });
-            } catch (captureErr) {
-              this.log('warn', 'Failed to capture intermediate state: ' + captureErr.message);
             }
           }
 
@@ -577,8 +579,12 @@ export class ActionExecutor extends EventEmitter {
    *
    * Gating comes for free and must not be duplicated by callers: a `navigate`
    * action goes through executeNavigateAction, which re-runs the SSRF guard and
-   * the blocklist/robots gate on every hop (see the comment at its definition).
-   * `browserOptions.respectRobots` is what reaches that gate.
+   * the blocklist/robots gate on every hop (see the comment at its definition),
+   * and every action is run through executeGatedAction, which holds the page to
+   * the same gate wherever a click or a script has taken it. A refusal there
+   * throws rather than failing one action: the page has been emptied, and
+   * nothing after it could run. `browserOptions.respectRobots` is what reaches
+   * both gates.
    *
    * No `finalHtml` here, unlike the chain: the page is still open afterwards, so
    * content is read from it when it is asked for rather than on every call.
@@ -614,7 +620,7 @@ export class ActionExecutor extends EventEmitter {
       // per-call timeout is applied as the default for actions that set none.
       const action = timeout && !actions[i].timeout ? { ...actions[i], timeout } : actions[i];
 
-      const actionResult = await this.executeActionInternal(page, action, executionContext);
+      const actionResult = await this.executeGatedAction(page, action, executionContext);
       executionContext.results.push(actionResult);
       this.stats.totalActions++;
 
@@ -638,17 +644,15 @@ export class ActionExecutor extends EventEmitter {
       }
 
       if (action.captureAfter) {
-        try {
-          const capturedHtml = await page.content();
+        const captured = await this.captureState(page, browserOptions, 'intermediate state');
+        if (captured) {
           executionContext.capturedStates.push({
             afterActionIndex: i,
             afterActionId: actionResult.id,
-            url: page.url(),
-            html: capturedHtml,
+            url: captured.url,
+            html: captured.html,
             timestamp: Date.now()
           });
-        } catch (captureErr) {
-          this.log('warn', 'Failed to capture intermediate state: ' + captureErr.message);
         }
       }
 
@@ -677,6 +681,88 @@ export class ActionExecutor extends EventEmitter {
         failedActions: executionContext.results.filter(r => !r.success).length
       }
     };
+  }
+
+  /**
+   * Hold the page to the gate wherever it stands now.
+   *
+   * navigateToUrl gates a load and its redirects. After that a page moves
+   * without being sent anywhere: a click follows a link, a form posts, a
+   * script redirects, a client-side router rewrites the address. Any URL the
+   * page has reached since it was last checked gets what a `navigate` to it
+   * would: the SSRF guard, then the blocklist/robots gate with this call's
+   * `respectRobots`. A refusal leaves the page empty and throws.
+   *
+   * Cheap when nothing moved (one string comparison), so it is called on both
+   * sides of everything that touches the page.
+   * @param {Page} page - Playwright page
+   * @param {Object} [browserOptions] - Browser options (`respectRobots` override)
+   * @returns {Promise<void>}
+   * @throws {Error} SSRF_BLOCKED, BlockedHostError or RobotsDisallowedError
+   */
+  async assertPageAllowed(page, browserOptions = {}) {
+    const gatedUrl = page.__crawlforgeGatedUrl;
+    if (page.url() === gatedUrl) return;
+    page.__crawlforgeGatedUrl = await assertNavigationAllowed(page, gatedUrl, null, pageMoveGate(gatedUrl, {
+      respectRobots: browserOptions?.respectRobots,
+      tool: browserOptions?.tool || 'scrape_with_actions'
+    }));
+  }
+
+  /**
+   * Read from the page with the gate held on both sides of the read, so what
+   * comes back is from a document that passed it: the check after the read
+   * discards anything read while the page was moving somewhere it may not be.
+   * @param {Page} page - Playwright page
+   * @param {Object} [browserOptions] - Browser options (`respectRobots` override)
+   * @param {() => Promise<T>} read - the read to make
+   * @returns {Promise<T>}
+   * @template T
+   */
+  async readGated(page, browserOptions, read) {
+    await this.assertPageAllowed(page, browserOptions);
+    const value = await read();
+    await this.assertPageAllowed(page, browserOptions);
+    return value;
+  }
+
+  /**
+   * The page's URL and HTML, read natively (no in-page JS execution, so it
+   * works regardless of ALLOW_JAVASCRIPT_EXECUTION). A page that cannot be
+   * read yields null and a warning; a page the gate refuses throws.
+   * @param {Page} page - Playwright page
+   * @param {Object} [browserOptions] - Browser options (`respectRobots` override)
+   * @param {string} what - names the capture in the warning
+   * @returns {Promise<{ url: string, html: string }|null>}
+   */
+  async captureState(page, browserOptions, what) {
+    return await this.readGated(page, browserOptions, async () => {
+      try {
+        return { html: await page.content(), url: page.url() };
+      } catch (captureErr) {
+        this.log('warn', 'Failed to capture ' + what + ': ' + captureErr.message);
+        return null;
+      }
+    });
+  }
+
+  /**
+   * Run one action with the page held to the gate before it and after it.
+   * Before, because an action must not read or drive a page that moved while
+   * nothing was looking; after, because the action is what usually moves it,
+   * and its result is not kept if where it led is refused.
+   * @param {Page} page - Playwright page
+   * @param {Object} action - Action to execute
+   * @param {Object} executionContext - Execution context (`browserOptions` feeds the gate)
+   * @returns {Promise<Object>} Action result
+   */
+  async executeGatedAction(page, action, executionContext) {
+    const browserOptions = executionContext?.browserOptions;
+    // A navigate leaves the page it is on and gates the URL it is sent to.
+    if (action.type !== 'navigate') await this.assertPageAllowed(page, browserOptions);
+    const actionResult = await this.executeActionInternal(page, action, executionContext);
+    await this.assertPageAllowed(page, browserOptions);
+    return actionResult;
   }
 
   /**
@@ -1239,7 +1325,8 @@ export class ActionExecutor extends EventEmitter {
 
     await this.navigateToUrl(page, action.url, {
       waitUntil: action.waitUntil,
-      timeout
+      timeout,
+      browserOptions: executionContext?.browserOptions
     });
     page.__crawlforgeGateWarnings = gateWarnings;
 
@@ -1392,12 +1479,14 @@ export class ActionExecutor extends EventEmitter {
   }
 
   /**
-   * Navigate an existing page to a URL under the SSRF checks every load needs.
-   * Used for the initial load, again before each chain retry, and by the
-   * `navigate` action.
+   * Navigate an existing page to a URL under the SSRF checks every load needs,
+   * and put wherever it is redirected to through the same blocklist/robots
+   * gate the URL itself passed (assertRobotsAllowed). Used for the initial
+   * load, again before each chain retry, and by the `navigate` action.
    * @param {Page} page - Playwright page
    * @param {string} url - URL to navigate to
-   * @param {{ waitUntil?: string, timeout?: number }} [options] - Navigation options
+   * @param {{ waitUntil?: string, timeout?: number, browserOptions?: Object }} [options] -
+   *   Navigation options; `browserOptions` carries `respectRobots` to the redirect gate
    * @returns {Promise<void>}
    */
   async navigateToUrl(page, url, options = {}) {
@@ -1410,12 +1499,16 @@ export class ActionExecutor extends EventEmitter {
       timeout: options.timeout || 30000
     });
 
-    // Re-validate the landed URL: a redirect during navigation could have
-    // taken us into a blocked range even though the original URL was safe.
-    const landedUrl = page.url();
-    if (/^https?:\/\//i.test(landedUrl)) {
-      await assertUrlAllowed(landedUrl, { resolveDns: true });
-    }
+    // Re-validate where the navigation went: a redirect could have taken us
+    // into a blocked range, onto a blocklisted host or into a path robots.txt
+    // disallows, even though the original URL was fine. A refusal leaves the
+    // page empty, so a session that keeps it cannot read the refused document.
+    const landedUrl = await assertNavigationAllowed(page, url, response, redirectGate(url, {
+      respectRobots: options.browserOptions?.respectRobots,
+      tool: options.browserOptions?.tool || 'scrape_with_actions'
+    }));
+    // What assertPageAllowed compares the page against from here on.
+    page.__crawlforgeGatedUrl = landedUrl;
 
     // Remembered on the page so the chain result can report the status of
     // the last navigation: tesla.com's Akamai denial ran a full action chain
@@ -1489,7 +1582,7 @@ export class ActionExecutor extends EventEmitter {
       // Navigate to URL. The pre-flight above repeats inside navigateToUrl —
       // that one is deliberately before page creation so a blocked URL never
       // launches a browser (tests/unit/phase1-ssrf-paths.test.js pins it).
-      await this.navigateToUrl(page, url);
+      await this.navigateToUrl(page, url, { browserOptions });
 
       // Handle CloudFlare challenges and reCAPTCHA if stealth mode is enabled
       if (isStealth && this.browserProcessor.stealthManager) {

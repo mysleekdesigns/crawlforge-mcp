@@ -176,7 +176,7 @@ export class ExtractContentTool {
             enableImages: options.preserveImageInfo,
             captureScreenshot: false
           }
-        });
+        }, gate);
 
         if (!browserResult.success) {
           throw new Error(`Browser processing failed: ${browserResult.error}`);
@@ -188,6 +188,7 @@ export class ExtractContentTool {
         // Simple HTTP fetch
         const response = await safeFetch(url, {
           headers: { ...gate.headers },
+          onRedirect: gate.onRedirect,
           signal: AbortSignal.timeout(15000)
         });
 

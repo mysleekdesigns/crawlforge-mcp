@@ -147,6 +147,7 @@ export async function fetchAndParse(url, options = {}) {
       ...gate.headers,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
     },
+    onRedirect: gate.onRedirect,
     signal: AbortSignal.timeout(timeoutMs)
   });
 

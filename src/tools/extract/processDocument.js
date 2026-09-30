@@ -283,8 +283,9 @@ export class ProcessDocumentTool {
    */
   async processPDFDocument(result, source, sourceType, options, identity = {}) {
     // A remote PDF is a fetch of the target like any other; a local file is not.
+    let gate;
     if (sourceType === 'pdf_url') {
-      const gate = await preflightFetch(source, {
+      gate = await preflightFetch(source, {
         respectRobots: identity.respect_robots,
         userAgent: identity.user_agent,
         tool: 'process_document'
@@ -302,7 +303,7 @@ export class ProcessDocumentTool {
         maxPages: options.maxPages,
         ...(options.pageRange ? { pageRange: options.pageRange } : {})
       }
-    });
+    }, gate);
 
     if (!pdfResult.success) {
       throw new Error(pdfResult.error || 'PDF processing failed');
@@ -369,7 +370,7 @@ export class ProcessDocumentTool {
           enableImages: false,
           captureScreenshot: false
         }
-      });
+      }, gate);
 
       if (!browserResult.success) {
         throw new Error(`Browser processing failed: ${browserResult.error}`);
@@ -381,6 +382,7 @@ export class ProcessDocumentTool {
       // Simple HTTP fetch
       const response = await safeFetch(source, {
         headers: { ...gate.headers },
+        onRedirect: gate.onRedirect,
         signal: AbortSignal.timeout(15000)
       });
 

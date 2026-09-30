@@ -5,6 +5,71 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Fixed
+
+- **A Web Bot Auth signature is now made per redirect hop.** The gate signed
+  once and fetch forwarded those headers unchanged when it followed a redirect,
+  so a same-host redirect arrived with a nonce the site had already seen (a
+  replay to any verifier that tracks nonces) and a cross-host redirect arrived
+  with a signature over the previous host's `@authority` (invalid to every
+  verifier). A signed request now has its redirects followed one hop at a time,
+  through the same SSRF dispatcher, each with a fresh `created`, `nonce` and
+  authority.
+- **A redirect is gated like a first request.** The pre-fetch gate decided
+  about the URL the caller asked for, and fetch then followed redirects on its
+  own, so a 301 into a path robots.txt disallows, or onto a host on the
+  platform blocklist, was fetched anyway. Every fetching tool now asks the gate
+  again before each hop: blocklist first, then robots.txt with the caller's own
+  `respect_robots` (an override writes its `robots_override` row for the hop
+  too). A refused hop is never requested, the error names both URLs
+  ("… redirects to …, and robots.txt on … disallows that path"), and a call it
+  sinks is not charged. `preflightFetch` returns the gate as `onRedirect`;
+  hops are not throttled by Crawl-delay.
+- **`crawl_deep` pages, robots.txt fetches and `process_document` PDF downloads
+  are signed.** They went out with the identity headers alone. The PDF download
+  now also sends the headers the gate returned, so a caller's `user_agent`
+  reaches it as it does every other fetch.
+- **A browser navigation's redirects are gated too.** `stealth_mode`,
+  `scrape_with_actions`, `browser_session`, the stealth stage of `scrape`,
+  `agent`, `extract_embedded_state` and `deep_research`, and the
+  browser-rendered path of `extract_content` and `process_document` gated the
+  URL they were given and then let the browser follow redirects on its own.
+  Each now puts every HTTP redirect hop, and the URL the page landed on, to
+  the same gate (blocklist, then robots.txt with the caller's
+  `respect_robots`). The one-shot paths check once more before the page is
+  read, which catches a redirect the page makes itself. A browser requests a
+  redirect hop before anything can ask about it, so unlike a fetch the hop is
+  not prevented: the call fails with the same error, the page is emptied so a
+  session that keeps it cannot read the refused document, and a call it sinks
+  is not charged. The same emptying now follows an SSRF refusal of a landed
+  URL, which used to leave a kept session page on the refused address.
+- **A page that `scrape_with_actions` or `browser_session` keeps is gated
+  wherever it goes.** After the load, a click, a form, a script or a
+  client-side route change could take the page anywhere, including a path
+  robots.txt disallows or a private address, and it was read there. The page's
+  URL is now checked before and after every action and every read (`snapshot`,
+  `read`, `screenshot`, captured states, the final content). A URL it has
+  reached since the last check gets the SSRF guard and the blocklist/robots
+  gate, with the `respect_robots` of the call that finds it; a URL that passed
+  is not asked about again. A refusal fails the call ("The page moved from …
+  to …, and robots.txt on … disallows that path"), empties the page and keeps
+  nothing the action returned. This refuses flows that used to work: a login
+  link or a search form whose target robots.txt disallows now needs
+  `respect_robots: false` on the call that follows it.
+- **A chain the gate refused is an error result.** `scrape_with_actions` and
+  `browser_session` report a failed chain as `{ success: false }`, which was
+  charged in full even when the failure was our own refusal. Such a result now
+  carries `isError`, so it costs nothing, as a refusal does everywhere else.
+- **`stealth_mode` `create_page` navigates through the SSRF guard.** It called
+  `page.goto` directly, with no check of the URL's address or of where it
+  landed.
+- **The impit step asks the gate before each redirect hop.** It followed
+  redirects itself with the SSRF check alone.
+- **A connector's API key is kept out of the compliance audit log.** A
+  `robots_override` row stores the URL that was fetched, and a key-based
+  `scrape_template` connector puts its key in that URL. The row now keeps the
+  URL with the key replaced by `[redacted]`. No shipped connector takes a key.
+
 ## [6.15.0] - 2026-09-29
 
 Phase 3 of the actions + embedded-state plan: `extract_embedded_state` reach

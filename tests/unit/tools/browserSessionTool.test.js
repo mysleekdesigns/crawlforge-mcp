@@ -129,6 +129,7 @@ function stubPage(url) {
 function stubExecutor() {
   return {
     initializePage: async (url) => stubPage(url),
+    assertPageAllowed: async () => {},
     browserProcessor: { releaseStealthPage: async () => {} }
   };
 }
@@ -384,6 +385,7 @@ describe('browser_session and the shared browser-slot budget', () => {
       store,
       actionExecutor: {
         initializePage: async (url) => { runningDuringOpen = limiter.running; return stubPage(url); },
+        assertPageAllowed: async () => {},
         browserProcessor: { releaseStealthPage: async () => {} }
       },
       extractContentTool,
