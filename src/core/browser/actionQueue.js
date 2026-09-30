@@ -57,7 +57,10 @@ export function createActionQueue({
         'CRAWLFORGE_MAX_ACTION_SESSIONS / CRAWLFORGE_ACTION_QUEUE_TIMEOUT_MS if the machine has room.'
       ));
     }, timeoutMs);
-    timer.unref?.();
+    // Not unref()'d: a caller is awaiting this wait, so it must keep the event
+    // loop alive. Unref'd, Node 22 could exit mid-wait with the promise still
+    // pending (it did, under node:test in CI). The timer never outlives the
+    // wait — it is cleared when the job starts.
 
     return queue.add(() => {
       clearTimeout(timer);
