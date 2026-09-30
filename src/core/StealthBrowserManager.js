@@ -22,6 +22,7 @@ import { looksLikeInterstitial, detectChallengePage } from '../utils/challengeDe
 import { guardFirefoxPageErrors } from '../utils/firefoxPageErrorGuard.js';
 import { serverStealthProxies } from '../constants/config.js';
 import { ClearanceJar, sharedClearanceJar } from './ClearanceJar.js';
+import { readWindowState } from './browser/windowState.js';
 
 // Grace given to a document that rendered no title and no text (see _waitOutEmptyDocument).
 export const EMPTY_DOCUMENT_GRACE_MS = 8000;
@@ -2844,7 +2845,13 @@ export class StealthBrowserManager {
     return this._clickTurnstile(page);
   }
 
-  async scrapeWithStealth({ url, engine, wait_for = 0, screenshot = false, stealthConfig = {} } = {}) {
+  /**
+   * @param {object} options
+   * @param {boolean} [options.readWindowState] also read the framework globals
+   *   off `window` once the page has settled (extract_embedded_state's
+   *   escalation, src/core/browser/windowState.js); returned as `windowState`
+   */
+  async scrapeWithStealth({ url, engine, wait_for = 0, screenshot = false, stealthConfig = {}, readWindowState: wantWindowState = false } = {}) {
     if (!url) throw new Error('scrapeWithStealth requires a url');
 
     const { contextId, engineFallbackWarning = null } = await this.createStealthContext({ ...stealthConfig, engine });
@@ -2913,6 +2920,12 @@ export class StealthBrowserManager {
       const shot = screenshot
         ? await page.screenshot({ encoding: 'base64', fullPage: false }).catch(() => null)
         : null;
+      let windowState;
+      if (wantWindowState) {
+        const read = await readWindowState(page);
+        windowState = read.state;
+        warnings.push(...read.warnings);
+      }
 
       // Still a wall after everything above: whatever clearance this context
       // carried for the site did not work, so closeContext drops it instead of
@@ -2921,7 +2934,7 @@ export class StealthBrowserManager {
         this._markBlocked(contextId, [url, page.url()]);
       }
 
-      return { success: true, url, title, text, html, screenshot: shot, status, gracedMs, engine: engineUsed, warnings };
+      return { success: true, url, title, text, html, screenshot: shot, status, gracedMs, engine: engineUsed, warnings, ...(windowState ? { windowState } : {}) };
     } finally {
       await this.closeContext(contextId).catch(() => {});
     }

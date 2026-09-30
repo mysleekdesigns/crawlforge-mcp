@@ -44,8 +44,8 @@ export const FALLBACK_HINTS = Object.freeze({
 });
 
 /**
- * The second-stage hint (Phase 3, 3.4). A `scrape` that came back
- * `escalated: true` has ALREADY run the stealth browser on this URL, so the
+ * The second-stage hint (Phase 3, 3.4). A `scrape` or `extract_embedded_state`
+ * that came back `escalated: true` has ALREADY run the stealth browser on this URL, so the
  * ordinary hint would send the model back to a tool that has just failed.
  * What is left is a region-specific block, which `localization` can change,
  * or a block that is final: an Akamai-style TLS-level wall is beaten with
@@ -56,9 +56,12 @@ export const SCRAPE_ESCALATED_HINT =
   'If the block is regional, set a country with localization and try once more; otherwise the block is final - ' +
   'a TLS-level wall needs residential proxies, which CrawlForge does not offer. Get the content from another source.';
 
-/** The hint for this result: the tool's, unless a scrape already escalated. */
+/** The tools whose escalate:true runs the stealth stage itself (Phase 3; extract_embedded_state since plan Phase 3.2). */
+const ESCALATING_TOOLS = new Set(['scrape', 'extract_embedded_state']);
+
+/** The hint for this result: the tool's, unless the call already escalated. */
 function hintFor(toolName, parsed) {
-  if (toolName === 'scrape' && parsed?.escalated === true) return SCRAPE_ESCALATED_HINT;
+  if (ESCALATING_TOOLS.has(toolName) && parsed?.escalated === true) return SCRAPE_ESCALATED_HINT;
   return FALLBACK_HINTS[toolName];
 }
 

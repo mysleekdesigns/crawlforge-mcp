@@ -43,8 +43,18 @@ the path, so values are exact rather than inferred.
 
 These payloads are routinely over a megabyte — pass `path` (dotted keys and
 array indexes, e.g. `next_data.props.pageProps` or `next_f[0].f`) to return one
-subtree. Without it, a large result comes back with a warning naming the biggest
-source and a ready-to-paste path.
+subtree, or `keys_only: true` first to see the first two levels of keys (types,
+no values) before choosing one. A result over `max_inline_chars` comes back as a
+`preview` (whole lines of the JSON), `data_keys` and a `result_handle`: read the
+rest with `read_result` operation `json_path` (e.g. path `data.next_data.props`)
+instead of fetching again.
+
+On a site that blocks a plain fetch (403/429/challenge page), pass
+`escalate: true` (projected 7, charged 2 when the plain fetch works): the stealth
+browser re-reads the page, the same parser runs on it, and the framework globals
+are read off `window` after JavaScript ran — `ytInitialData`, `__NUXT__`,
+`__remixContext` and others, under `window_state` (path
+`window_state.ytInitialData.contents`). A 404 or 5xx never escalates.
 
 ## scrape_template — known sites, zero selectors (cost: 1)
 

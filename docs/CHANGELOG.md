@@ -5,6 +5,61 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.15.0] - 2026-09-29
+
+Phase 3 of the actions + embedded-state plan: `extract_embedded_state` reach
+and size. Large results no longer overflow the client, and a walled page can
+be re-read in the stealth browser. The price is unchanged at 2; `escalate:true`
+projects 7 and charges 2 when the plain fetch gets the page.
+
+### Changed
+
+- **Over `max_inline_chars`, `extract_embedded_state` returns a preview and a
+  `result_handle`** instead of the whole payload (producthunt.com and
+  zappos.com came back as 1-2 MB inline). The inline result keeps `url`,
+  `path`, `bytes`, the whole `found` list, `data_keys` (the top-level keys of
+  `data`), `escalated`/`stealth` and `window_state`'s list, then a `preview`:
+  the pretty-printed JSON cut at a line boundary, never inside a value, sized
+  so the inline result stays within `max_inline_chars`. The full result stays
+  readable with `read_result` operation `json_path` (e.g. `data.next_f.0`).
+  Verified live at `max_inline_chars: 3000`: producthunt.com 2,979 and
+  zappos.com 2,970 characters of shaped JSON (before `_cost`).
+- **Without `escalate`, a wall or an empty shell is an error**, named by the
+  same document verdict `scrape` uses (a Cloudflare challenge served with 200
+  used to come back as a success with "No embedded state found"). The next step
+  is `escalate:true`, not `stealth_mode`. A client-rendered page that ships only
+  its state (an "empty shell" carrying `__NEXT_DATA__`) is still a success.
+  404 and 5xx fail as before.
+
+### Added
+
+- **`keys_only: true`** returns `keys` instead of `data`: the first two levels
+  of keys of the selected data (after `path`), every value replaced by its type
+  (`"object"`, `"array(<n>)"`, `"string"`, `"number"`, `"boolean"`, `"null"`);
+  a selected array shows `{ length, first }`.
+- **`escalate: true`, `escalate_engine`, `wait_for`.** When the plain fetch
+  (always first) is walled (403/429, a challenge page, or an empty shell with
+  no state), the page is re-read through the same escalation stage `scrape`
+  uses (compliance gate, robots.txt, impit under `"auto"`, then the stealth
+  browser, one audit row) and the same parser runs on the rendered document. A
+  404 or 5xx never escalates. The result reports `escalated` and
+  `stealth: { engine, vendor_detected }`; an escalated failure's hint no longer
+  points at `stealth_mode`. Verified live: doordash.com (Cloudflare) returned
+  103-106 `next_f` rows via impit, Camoufox and Chromium.
+- **`window_state`.** In the browser, the framework globals are read off
+  `window` after JavaScript ran (`__NEXT_DATA__`, `__NUXT__`, `__remixContext`,
+  `ytInitialData`, `ytInitialPlayerResponse`, `__INITIAL_STATE__`,
+  `__PRELOADED_STATE__`, `__APOLLO_STATE__`, `__TGT_DATA__`, `__PWS_DATA__`),
+  reported as `window_state: { note, found: [{ name, bytes }] }` with the values
+  under `data.window_state.<global>` (path `window_state.ytInitialData.contents`).
+  A global the served HTML already carried is not repeated. On Camoufox the
+  read goes through Firefox's `wrappedJSObject` from the isolated world, so no
+  script runs in the page's own world. `scrapeWithStealth` takes the opt-in
+  `readWindowState` option; `scrape` and `agent` do not pass it. A YouTube
+  watch page read through the stage directly returned `ytInitialData` (~0.5 MB)
+  and `ytInitialPlayerResponse` on Camoufox and Chromium; through the tool that
+  page does not escalate, because the plain fetch gets it.
+
 ## [6.14.0] - 2026-09-29
 
 Phase 2 of the `scrape_with_actions` reliability plan: snapshot fidelity.

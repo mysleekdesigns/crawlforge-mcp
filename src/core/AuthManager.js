@@ -680,6 +680,13 @@ class AuthManager {
       return costs.scrape + query + model + scrapeEscalationSurcharge(params?.escalate) + redaction;
     }
 
+    // extract_embedded_state's escalate:true (plan Phase 3.2) is scrape's
+    // second stage on the same terms: the projection carries the stealth
+    // browser's 5, and the tool reports 2 when the plain fetch sufficed.
+    if (tool === 'extract_embedded_state') {
+      return costs.extract_embedded_state + scrapeEscalationSurcharge(params?.escalate) + redaction;
+    }
+
     // search_web's batch form (5.1) runs one backend search per query, so it
     // is priced as that many search_web calls. The count rule lives with the
     // schema that declares `queries` (src/tools/search/batchSearch.js).
@@ -766,6 +773,11 @@ class AuthManager {
           'json format may incur external LLM cost (billed by your provider).';
         break;
       }
+      case 'extract_embedded_state':
+        note = params?.escalate === true
+          ? 'Base 2; escalate:true adds 5 for the stealth browser it may need - the projection is the ceiling, and the actual charge drops back to 2 when the plain fetch succeeded and no escalation ran.'
+          : 'Fixed cost per invocation.';
+        break;
       case 'agent': {
         const agentUrls = params?.maxUrls || 10;
         const isPro = params?.model === 'pro';
