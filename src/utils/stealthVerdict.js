@@ -29,29 +29,6 @@ export { SOFT_ERROR_MAX_CHARS };
 // document that carries one is still upstream's block to make.
 const TURNSTILE_WIDGET = /challenges\.cloudflare\.com|cf-chl-widget/gi;
 
-// AWS WAF's challenge interstitial, which upstream's table does not know yet.
-// amazon.com answered a headless Chromium with HTTP 202 and this page four
-// times out of four (2026-10-03): no title, no text, `window.gokuProps = {…}`
-// and a token.awswaf.com challenge.js that reloads into the real homepage
-// about 0.4 s after domcontentloaded. gokuProps is the payload the WAF injects
-// into its own page; a real page that integrates the WAF SDK loads
-// challenge.js but carries no gokuProps, and the short-page cap keeps it out
-// regardless. Read only here until upstream's CHALLENGES table takes it.
-const AWS_WAF_INTERSTITIAL = /window\.gokuProps\s*=/;
-const SHORT_PAGE_CHARS = 4000;
-
-function awsWafVerdict(scraped, verdict, options) {
-  const visible = String(scraped?.text || '').replace(/\s+/g, ' ').trim();
-  if (visible.length >= SHORT_PAGE_CHARS || !AWS_WAF_INTERSTITIAL.test(String(scraped?.html || ''))) return null;
-  const blocked = { vendor: 'aws-waf', evidence: `an AWS WAF challenge interstitial on a ${visible.length}-character page` };
-  return {
-    success: false,
-    status: verdict.status,
-    blocked,
-    error: `${blocked.vendor} served a challenge page instead of the content (${blocked.evidence}); ${options?.fetcher || 'the stealth browser'} did not pass it.`
-  };
-}
-
 /**
  * @param {{ url?: string, title?: string, text?: string, html?: string, status?: number|null }} scraped
  * @param {{ waitedMs?: number, allowEmpty?: boolean, fetcher?: string, rendered?: boolean, contentReturned?: boolean }} [options]
@@ -59,8 +36,7 @@ function awsWafVerdict(scraped, verdict, options) {
  */
 export function stealthDocumentVerdict(scraped, options) {
   const verdict = documentVerdict(scraped, options);
-  if (!verdict.blocked) return awsWafVerdict(scraped, verdict, options) || verdict;
-  if (detectChallengePage(scraped || {})) return verdict;
+  if (!verdict.blocked || detectChallengePage(scraped || {})) return verdict;
   // The neutralised copy is read by upstream and discarded; the caller's own
   // document is never rewritten.
   const html = String(scraped?.html || '').replace(TURNSTILE_WIDGET, 'turnstile-widget');

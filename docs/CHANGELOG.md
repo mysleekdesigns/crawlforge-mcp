@@ -5,6 +5,15 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.17.1] - 2026-10-03
+
+### Changed
+
+- **`crawlforge-extractors` ^1.12.0.** AWS WAF's challenge interstitial
+  (`aws-waf`) is now in the shared vendor table, so the server's own copy in
+  `stealthVerdict.js` is gone and the REST surface names it too. It now also
+  reaches `stealth_mode` through `detectChallengePage`.
+
 ### Fixed
 
 - **The stealth Cloudflare wait recognises Cloudflare's current interstitial.**
