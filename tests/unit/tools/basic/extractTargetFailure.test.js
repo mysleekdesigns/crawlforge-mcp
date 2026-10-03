@@ -21,6 +21,7 @@ const { extractTextHandler } = await import('../../../../src/tools/basic/extract
 const FIXTURES = fileURLToPath(new URL('../../../fixtures/blocked/', import.meta.url));
 const CLOUDFLARE = readFileSync(`${FIXTURES}cloudflare.html`, 'utf8');
 const AKAMAI = readFileSync(`${FIXTURES}akamai.html`, 'utf8');
+const F5 = readFileSync(`${FIXTURES}f5.html`, 'utf8');
 const EMPTY_SHELL = readFileSync(`${FIXTURES}empty-shell.html`, 'utf8');
 
 const PAGE = `<html><head><title>Docs</title></head><body>
@@ -88,6 +89,12 @@ for (const [tool, handler, prefix] of HANDLERS) {
       const res = await call(handler, 403, AKAMAI);
       assert.equal(res.isError, true);
       assert.match(res.content[0].text, /Target answered HTTP 403: akamai served a challenge page/);
+    });
+
+    test("walmart's F5 Request Rejected page served as 444 names f5", async () => {
+      const res = await call(handler, 444, F5);
+      assert.equal(res.isError, true);
+      assert.ok(res.content[0].text.startsWith(`${prefix}Target answered HTTP 444: f5 served a challenge page`), res.content[0].text);
     });
 
     test('a 503 with a plain body fails with the status alone', async () => {

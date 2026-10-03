@@ -5,6 +5,19 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+Requires `crawlforge-extractors` ^1.14.0.
+
+### Fixed
+
+- **F5's "Request Rejected" page is named as a wall** (`blocked.vendor:
+  "f5"`). walmart.com answered a plain fetch with HTTP 444 and F5 BIG-IP
+  ASM's default blocking page (the title "Request Rejected" and a support ID),
+  which no vendor rule matched, so `extract_text`/`extract_links` reported a
+  bare `Target answered HTTP 444`. The rule is in crawlforge-extractors 1.14.0
+  and applies wherever the server reads a verdict. The response's Akamai
+  `server-timing` header is on walmart's normal pages too (Akamai is its CDN),
+  so the page, not the header, names the blocker.
+
 ## [6.18.0] - 2026-10-03
 
 extract_text and extract_links get scrape's fetch ladder, truthful errors and
