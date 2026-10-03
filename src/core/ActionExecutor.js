@@ -1581,9 +1581,12 @@ export class ActionExecutor extends EventEmitter {
     // hostname-based checks alone would miss DNS-rebinding/private-IP targets.
     await assertUrlAllowed(url, { resolveDns: true });
 
+    // The initial load and a retry's reload pass no timeout of their own, so
+    // browserOptions.timeout bounds them as it bounds the actions (0.2); a
+    // navigate action's own timeout comes first.
     const response = await page.goto(url, {
       waitUntil: options.waitUntil || 'domcontentloaded',
-      timeout: options.timeout || 30000
+      timeout: options.timeout || options.browserOptions?.timeout || 30000
     });
 
     // Re-validate where the navigation went: a redirect could have taken us
