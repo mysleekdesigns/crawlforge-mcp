@@ -8,6 +8,7 @@
 
 import { CrawlForgeSearchAdapter } from './crawlforgeSearch.js';
 import { GoogleSearchAdapter } from './googleSearch.js';
+import { SEARCH_WEB_CREDITS } from '../batchSearch.js';
 
 export class SearchProviderFactory {
   /**
@@ -138,7 +139,7 @@ export class SearchProviderFactory {
       supportsCountryTargeting: true,
       maxResultsPerRequest: 100,
       rateLimit: 'Based on your CrawlForge plan',
-      creditCost: '2 credits per search',
+      creditCost: `${SEARCH_WEB_CREDITS} credits per search`,
       features: [
         'Google Search results via CrawlForge proxy',
         'No Google API credentials needed',

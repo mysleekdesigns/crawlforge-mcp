@@ -380,6 +380,7 @@
             "type": "object",
             "properties": {
               "title": {
+                "description": "The document <title>; og:title, then the first H1, only when the page has none. og:title itself is og_tags.title",
                 "type": "string"
               },
               "description": {
@@ -462,11 +463,13 @@
                   "type": "string"
                 },
                 "kind": {
+                  "description": "\"heading\" occurs only in question evidence",
                   "type": "string",
                   "enum": [
                     "sentence",
                     "table_row",
-                    "code_block"
+                    "code_block",
+                    "heading"
                   ]
                 },
                 "offset": {
@@ -493,7 +496,7 @@
                 "type": "string"
               },
               "grounded": {
-                "description": "True when every number and proper noun in text appears in the evidence or the question; always true in extractive mode",
+                "description": "False when no unit matched (text is empty) or, in model mode, when the model found no answer in the evidence (text is empty) or used a number or proper noun that appears in neither the evidence nor the question",
                 "type": "boolean"
               },
               "evidence": {
@@ -507,11 +510,13 @@
                       "type": "string"
                     },
                     "kind": {
+                      "description": "\"heading\" occurs only in question evidence",
                       "type": "string",
                       "enum": [
                         "sentence",
                         "table_row",
-                        "code_block"
+                        "code_block",
+                        "heading"
                       ]
                     },
                     "offset": {

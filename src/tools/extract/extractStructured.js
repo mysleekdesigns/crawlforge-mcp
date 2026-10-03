@@ -107,6 +107,67 @@ function isEmptyValue(value) {
   return false;
 }
 
+/** A field key split into lowercase words: "productSKU" / "latest_version". */
+function keyWords(key) {
+  return key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+/** Field-name words that mean "one identifier token", never a phrase. */
+const IDENTIFIER_WORDS = new Set(['sku', 'isbn', 'isbn10', 'isbn13', 'gtin', 'gtin8', 'gtin12', 'gtin13', 'gtin14', 'upc', 'ean', 'mpn']);
+
+/**
+ * Null a top-level string field whose value cannot be what its name asks for.
+ *
+ * The numeric provenance guard checks a value against the page, and these
+ * values pass it, because they ARE on the page — just not as the answer. R24:
+ * hono.dev states no version, and the model filled `version` with the word
+ * "latest"; a Shopify product's `sku` came back as the product title "Dark
+ * Roast Coffee". A version carries a number, and a SKU/ISBN/GTIN/UPC/EAN/MPN
+ * is one token, so either shape failing means the model answered with the
+ * nearest string rather than the field. A field named for a version's name
+ * ("version_name": "Sequoia") is left alone.
+ *
+ * @param {object} data - extracted data (top level)
+ * @param {object} schema - the caller's schema
+ * @returns {{ data: object, unverified: Array<{path: string, value: string, reason: string}> }}
+ */
+export function verifyFieldShapes(data, schema) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return { data, unverified: [] };
+  const out = { ...data };
+  const unverified = [];
+  for (const key of Object.keys(schema?.properties || {})) {
+    const value = out[key];
+    if (typeof value !== 'string' || value.trim() === '') continue;
+    const words = keyWords(key);
+    let reason = null;
+    if (words.includes('version') && !words.includes('name') && !/\d/.test(value)) {
+      reason = 'not_a_version';
+    } else if (words.some((w) => IDENTIFIER_WORDS.has(w)) && /\s/.test(value.trim())) {
+      reason = 'not_an_identifier';
+    }
+    if (reason) {
+      unverified.push({ path: key, value, reason });
+      out[key] = null;
+    }
+  }
+  return { data: out, unverified };
+}
+
+/** Lowercased, whitespace-collapsed text for a containment check. */
+function squash(text) {
+  return text.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/** Every string at any depth of an extracted value. */
+function stringLeaves(value, out = []) {
+  if (typeof value === 'string') {
+    if (value.trim()) out.push(value);
+  } else if (value && typeof value === 'object') {
+    for (const item of Object.values(value)) stringLeaves(item, out);
+  }
+  return out;
+}
+
 const ExtractStructuredSchema = z.object({
   url: z.string().url(),
   schema: z.object({
@@ -180,7 +241,12 @@ export class ExtractStructuredTool {
 
     try {
       const validated = ExtractStructuredSchema.parse(params);
-      const { url, schema, prompt, llmConfig, fallbackToSelectors, selectorHints, respect_robots, user_agent, verify_numbers } = validated;
+      const { url, schema: requestedSchema, prompt, llmConfig, fallbackToSelectors, selectorHints, respect_robots, user_agent, verify_numbers } = validated;
+      // `type` is optional on input, and the tool's own example omits it. The
+      // validator reads a typeless schema as "anything", so the CSS fallback
+      // reported valid:true for "2 reviews" in an integer field (R24). A schema
+      // with properties describes an object.
+      const schema = requestedSchema.type ? requestedSchema : { type: 'object', ...requestedSchema };
 
       let extractionResult = null;
       let extractionMethod = 'llm';
@@ -291,7 +357,16 @@ export class ExtractStructuredTool {
 
       /** Run the guard over one extraction and describe what it did. */
       const applyGuard = (result) => {
-        const checked = verifyNumericProvenance(result.data || {}, fullSource);
+        const numeric = verifyNumericProvenance(result.data || {}, fullSource);
+        // Then the field-shape check: a value can be on the page and still not
+        // be the field — "latest" as a version, a title as a SKU.
+        const shaped = verifyFieldShapes(numeric.data, schema);
+        const checked = {
+          ...numeric,
+          data: shaped.data,
+          nulled: numeric.nulled + shaped.unverified.length,
+          unverified: [...numeric.unverified, ...shaped.unverified]
+        };
         // The model's own `valid` flag described the data before the guard ran.
         // A required field the guard nulled is not filled in any more, so that
         // flag cannot stand or the response reports a fabrication as valid.
@@ -313,7 +388,11 @@ export class ExtractStructuredTool {
               valid: false,
               validationErrors: [
                 ...(result.validationErrors || []),
-                ...nulledRequired.map((field) => `Field "${field}" was not found in the page source`)
+                ...checked.unverified
+                  .filter((entry) => nulledRequired.includes(entry.path))
+                  .map((entry) => entry.reason === 'not_found_in_source'
+                    ? `Field "${entry.path}" was not found in the page source`
+                    : `Field "${entry.path}": ${JSON.stringify(entry.value)} is ${entry.reason === 'not_a_version' ? 'not a version' : 'not an identifier'}`)
               ]
             } : {})
           }
@@ -378,16 +457,24 @@ export class ExtractStructuredTool {
       }
 
       // Step 6: Calculate confidence
-      const confidence = this._calculateConfidence(extractionResult, extractionMethod);
+      const confidence = this._calculateConfidence(extractionResult, extractionMethod, schema, fullSource);
 
       const extractionNotes = extractionResult.extractionNotes || [];
       if (llmErrorMessage) {
         extractionNotes.push(`LLM extraction failed: ${llmErrorMessage}`);
       }
-      if (provenance.nulled > 0) {
+      const notInSource = (provenance.unverified || []).filter((u) => u.reason === 'not_found_in_source');
+      const wrongShape = (provenance.unverified || []).filter((u) => u.reason !== 'not_found_in_source');
+      if (notInSource.length > 0) {
         extractionNotes.push(
-          `Numeric provenance: ${provenance.nulled} value(s) the model returned are not in the page source and were replaced with null: ` +
-          provenance.unverified.map((u) => `${u.path}=${JSON.stringify(u.value)}`).join(', ')
+          `Numeric provenance: ${notInSource.length} value(s) the model returned are not in the page source and were replaced with null: ` +
+          notInSource.map((u) => `${u.path}=${JSON.stringify(u.value)}`).join(', ')
+        );
+      }
+      if (wrongShape.length > 0) {
+        extractionNotes.push(
+          `Field shape: ${wrongShape.length} value(s) cannot be what the field names and were replaced with null: ` +
+          wrongShape.map((u) => `${u.path}=${JSON.stringify(u.value)} (${u.reason})`).join(', ')
         );
       }
 
@@ -419,6 +506,10 @@ export class ExtractStructuredTool {
         url,
         data: extractionResult.data || {},
         extraction_method: extractionMethod,
+        // The provider and model that produced an LLM extraction (R24).
+        ...(extractionMethod === 'llm' && extractionResult.model
+          ? { provider: extractionResult.provider, model: extractionResult.model }
+          : {}),
         confidence,
         schema_used: schema,
         processingTime: Date.now() - startTime,
@@ -609,9 +700,16 @@ export class ExtractStructuredTool {
    */
   _coerceValue(rawValue, fieldSchema) {
     const type = fieldSchema.type;
-    if (type === 'number') {
-      const num = parseFloat(rawValue.replace(/[^0-9.-]/g, ''));
-      return isNaN(num) ? rawValue : num;
+    if (type === 'number' || type === 'integer') {
+      // The first number in the text. Deleting every non-digit ran the
+      // numbers together ("4.5 out of 5" read as 4.55), and an integer field
+      // was never coerced at all. Text with no number, or a fraction for an
+      // integer, stays a string so validation reports the wrong type.
+      const match = rawValue.match(/[-+]?\d[\d,]*(?:\.\d+)?/);
+      if (!match) return rawValue;
+      const num = Number(match[0].replace(/,/g, ''));
+      if (!Number.isFinite(num) || (type === 'integer' && !Number.isInteger(num))) return rawValue;
+      return num;
     }
     if (type === 'boolean') {
       return /true|yes|1/i.test(rawValue);
@@ -624,9 +722,15 @@ export class ExtractStructuredTool {
   }
 
   /**
-   * Calculate confidence score based on extraction method and validation
+   * Calculate confidence from the method, validation, how many of the
+   * requested fields were filled, and — for an LLM extraction — how many of
+   * its short string values appear in the page.
+   *
+   * Method and validation alone gave every valid LLM answer 0.9, including
+   * hono.dev's `version: "latest"` (R24). Filled share and grounding are what
+   * separate an answer read off the page from one the model wrote.
    */
-  _calculateConfidence(result, method) {
+  _calculateConfidence(result, method, schema = {}, source = '') {
     if (!result || !result.data) return 0;
 
     const dataKeys = Object.keys(result.data).length;
@@ -643,7 +747,24 @@ export class ExtractStructuredTool {
     const errorCount = (result.validationErrors || []).length;
     const penalty = Math.min(0.3, errorCount * 0.1);
 
-    return Math.max(0, Math.round((base - penalty) * 100) / 100);
+    const fields = Object.keys(schema.properties || {});
+    const filled = fields.length > 0
+      ? fields.filter((field) => !isEmptyValue(result.data[field])).length / fields.length
+      : 1;
+
+    // Strings up to 100 characters only: a longer value is prose the model may
+    // fairly re-word. The CSS and keyword paths copy page text, so they are
+    // grounded by construction.
+    let grounded = 1;
+    if (method === 'llm' && source) {
+      const values = stringLeaves(result.data).filter((value) => value.length <= 100);
+      if (values.length > 0) {
+        const haystack = squash(source);
+        grounded = values.filter((value) => haystack.includes(squash(value))).length / values.length;
+      }
+    }
+
+    return Math.max(0, Math.round((base - penalty) * filled * (0.5 + 0.5 * grounded) * 100) / 100);
   }
 
   /**

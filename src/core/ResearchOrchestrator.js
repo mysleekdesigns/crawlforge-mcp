@@ -13,6 +13,8 @@ import { serverStealthProxies } from '../constants/config.js';
 import { preflightFetch, browserPreflight, redirectGate } from '../utils/robotsGate.js';
 import { guardFirefoxPageErrors } from '../utils/firefoxPageErrorGuard.js';
 import { noteRetryAfter } from '../utils/hostRateLimiter.js';
+import { load } from 'cheerio';
+import { flattenText } from 'crawlforge-extractors';
 import {
   isAdmissibleClaim,
   isVendorSelfPromotion,
@@ -38,6 +40,41 @@ const MIN_CLAIM_TOPIC_RELEVANCE = 0.3;
 // which is how a vendor's description of its own product ends up synthesized
 // as a recommendation.
 const MIN_SYNTHESIS_TOPIC_RELEVANCE = 0.5;
+
+// A claim is material — fit to be a key finding or one side of a conflict —
+// unless the LLM scored it below MIN_SYNTHESIS_TOPIC_RELEVANCE. Below that it
+// stays in the evidence but is not reported as a finding (the R24 live sweep
+// listed findings scored 0.3). Unscored claims count: nothing was measured.
+function isMaterialClaim(claim) {
+  return typeof claim.topicRelevance !== 'number' ||
+    claim.topicRelevance >= MIN_SYNTHESIS_TOPIC_RELEVANCE;
+}
+
+/**
+ * The key findings the report lists: the material ones. When none is
+ * material, all of them — the same fallback the synthesis input uses, so a
+ * run whose every claim scored weakly still reports what it synthesized from.
+ *
+ * @param {object[]} keyFindings
+ * @returns {object[]}
+ */
+export function reportedFindings(keyFindings) {
+  const material = keyFindings.filter(isMaterialClaim);
+  return material.length > 0 ? material : keyFindings;
+}
+
+/**
+ * Page text for the plain-fetch fallback, one line per block element. The
+ * regex tag-strip it replaces ran every block together on one line.
+ *
+ * @param {string} html
+ * @returns {string}
+ */
+export function fallbackPageText(html) {
+  const $ = load(html);
+  $('script, style, noscript').remove();
+  return flattenText($);
+}
 
 // A vendor's promotional claim about itself keeps its place in the evidence but
 // stops competing with third-party analysis for a finding slot.
@@ -799,13 +836,7 @@ export class ResearchOrchestrator extends EventEmitter {
                 }
                 if (fetchResponse.ok) {
                   const html = await fetchResponse.text();
-                  // Strip HTML tags for basic text content
-                  const textContent = html
-                    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-                    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-                    .replace(/<[^>]+>/g, ' ')
-                    .replace(/\s+/g, ' ')
-                    .trim();
+                  const textContent = fallbackPageText(html);
                   if (textContent.length > 50) {
                     contentData = {
                       content: textContent.slice(0, 5000),
@@ -1566,13 +1597,20 @@ export class ResearchOrchestrator extends EventEmitter {
 
       // Pairs grow quadratically, so compare only a group's most credible
       // claims and bound the batch overall — this runs inside the tool's
-      // wall-clock limit.
-      const claims = [...group.claims]
+      // wall-clock limit. A claim not material to the topic cannot be one
+      // side of a conflict worth reporting.
+      const claims = group.claims
+        .filter(isMaterialClaim)
         .sort((a, b) => (b.credibility || 0) - (a.credibility || 0))
         .slice(0, MAX_CONFLICT_CLAIMS_PER_GROUP);
 
       for (let i = 0; i < claims.length; i++) {
         for (let j = i + 1; j < claims.length; j++) {
+          // A conflict is between sources ("conflicting information across
+          // sources", as the tool's parameter says). Two sentences of one page
+          // are a heading and its prose, or a point and its elaboration —
+          // pairs the judge has no business seeing.
+          if (claims[i].source === claims[j].source) continue;
           pairs.push({ a: claims[i], b: claims[j] });
         }
       }
@@ -1939,7 +1977,11 @@ export class ResearchOrchestrator extends EventEmitter {
     // the per-source cap bounds a source that outlasts all the others.
     const queues = new Map(); // insertion order: strongest source first
     for (const { group } of ranked) {
-      const claim = this.mostCredibleClaim(group);
+      // The group surfaces its most credible MATERIAL claim, so an off-topic
+      // claim cannot stand in for an on-topic one (the report drops the former,
+      // see reportedFindings).
+      const material = group.claims.filter(isMaterialClaim);
+      const claim = this.mostCredibleClaim(material.length > 0 ? { claims: material } : group);
       if (!queues.has(claim.source)) queues.set(claim.source, []);
       queues.get(claim.source).push({ group, claim });
     }
@@ -2120,18 +2162,20 @@ export class ResearchOrchestrator extends EventEmitter {
       };
     }
 
+    const findings = reportedFindings(synthesis.keyFindings);
+
     const baseResults = {
       sessionId: this.researchState.sessionId,
       topic,
       researchSummary: {
         totalSources: this.metrics.urlsProcessed,
         verifiedSources: this.metrics.sourcesVerified,
-        keyFindings: synthesis.keyFindings.length,
+        keyFindings: findings.length,
         conflictsFound: synthesis.conflicts.length,
         consensusAreas: synthesis.consensus.length,
         llmEnhanced: this.enableLLMFeatures
       },
-      findings: synthesis.keyFindings,
+      findings,
       supportingEvidence: synthesis.supportingEvidence,
       consensus: synthesis.consensus,
       conflicts: synthesis.conflicts,

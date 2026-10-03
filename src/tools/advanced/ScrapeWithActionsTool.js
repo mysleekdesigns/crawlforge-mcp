@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { EventEmitter } from 'events';
 import ActionExecutor from '../../core/ActionExecutor.js';
 import { load } from 'cheerio';
+import { flattenText } from 'crawlforge-extractors';
 
 // Import existing tool for content extraction
 import ExtractContentTool from '../extract/extractContent.js';
@@ -756,7 +757,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
         };
 
         if (params.formats.includes('text')) {
-          state.content.text = $('body').text().replace(/\s+/g, ' ').trim();
+          state.content.text = flattenText($);
         }
 
         if (params.formats.includes('html')) {
@@ -828,7 +829,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
         // A short readable result means it found nothing substantial, so hand
         // back the whole (equally short) body text instead.
         const readable = extractResult.content.text || '';
-        const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
+        const bodyText = flattenText($);
         if (readable.length < 300 && bodyText.length > readable.length) {
           extractResult.content.text = bodyText;
           extractResult.content.textSource = 'body';

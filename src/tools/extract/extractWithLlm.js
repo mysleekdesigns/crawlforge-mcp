@@ -468,9 +468,9 @@ export class ExtractWithLlm {
     const { provider, apiKey } = resolved;
     const defaultModel =
       provider === 'openai' ? OPENAI_DEFAULT_MODEL :
-      // Picks the most accurate model actually installed; OLLAMA_DEFAULT_MODEL
-      // still wins when set.
-      provider === 'ollama' ? await selectOllamaModel() :
+      // Picks the most accurate installed model for field extraction (see
+      // EXTRACTION_MODELS); OLLAMA_DEFAULT_MODEL still wins when set.
+      provider === 'ollama' ? await selectOllamaModel('extraction') :
       ANTHROPIC_DEFAULT_MODEL;
     const model = modelParam || defaultModel;
 

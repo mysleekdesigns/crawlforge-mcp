@@ -81,6 +81,26 @@ const PREFERRED_MODELS = [
  */
 export const JUDGEMENT_MODELS = ['gemma3:12b'];
 
+/**
+ * Models measured fit for SCHEMA FIELD extraction on real pages — the
+ * `extraction` role, used by extract_structured and extract_with_llm. Measured
+ * 2026-10-03 (R24) on the pages where the default pick failed, two runs each,
+ * same answers both runs:
+ *
+ *                   hono.dev (states no version)     djangoproject.com/download (LTS patch)
+ *   gemma3:4b       name "HonoWeb", version "latest"  6.1.1 — the wrong row (not LTS)
+ *   gemma3:12b      name "Hono",    version null      5.2.17 — correct
+ *
+ * Both tied on a Shopify product page. The 2026-08-25 product benchmark that
+ * put gemma3:4b first counted a fabricated compare-at price against
+ * gemma3:12b; that failure is a number, which the provenance guard now nulls,
+ * while gemma3:4b's failures — the wrong row, a word where a version belongs —
+ * are values that sit on the page and pass it. gemma3:12b is about three times
+ * slower, so the default ranking (agent, scrape json, sampling) keeps 4b.
+ * When no listed model is installed the role falls through to that ranking.
+ */
+export const EXTRACTION_MODELS = ['gemma3:12b'];
+
 /** Used only when Ollama cannot be reached, so the error names a real model. */
 export const FALLBACK_OLLAMA_MODEL = 'llama3.2';
 
@@ -128,8 +148,9 @@ export async function installedOllamaModels() {
  * instead would break anyone who has not pulled it, so the best *installed*
  * model is chosen, and an explicit OLLAMA_DEFAULT_MODEL always wins.
  *
- * @param {'default'|'judgement'} [role] 'judgement' tries JUDGEMENT_MODELS
- *   first and falls through to the extraction ranking when none is installed.
+ * @param {'default'|'judgement'|'extraction'} [role] 'judgement' tries
+ *   JUDGEMENT_MODELS first and 'extraction' tries EXTRACTION_MODELS first;
+ *   both fall through to the default ranking when none is installed.
  * @returns {Promise<string>}
  */
 export async function selectOllamaModel(role = 'default') {
@@ -140,7 +161,9 @@ export async function selectOllamaModel(role = 'default') {
   if (installed.length === 0) return FALLBACK_OLLAMA_MODEL;
 
   const byBase = new Map(installed.map((name) => [baseName(name), name]));
-  const ranking = role === 'judgement' ? [...JUDGEMENT_MODELS, ...PREFERRED_MODELS] : PREFERRED_MODELS;
+  const ranking = role === 'judgement' ? [...JUDGEMENT_MODELS, ...PREFERRED_MODELS]
+    : role === 'extraction' ? [...EXTRACTION_MODELS, ...PREFERRED_MODELS]
+    : PREFERRED_MODELS;
   for (const preferred of ranking) {
     const match = byBase.get(baseName(preferred));
     if (match) return match;

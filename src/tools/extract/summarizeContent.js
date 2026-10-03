@@ -168,7 +168,9 @@ export class SummarizeContentTool {
       // If it can't run (no LLM/sampling available), fall back to the extractive
       // result but flag it explicitly rather than silently masking.
       if (options.summaryType === 'abstractive') {
-        const abstractive = await this._abstractiveSummaryViaSampling(text, analysisResult.summary, options.summaryLength);
+        const abstractive = await this._abstractiveSummaryViaSampling(
+          text, analysisResult.summary, options.summaryLength, analysisResult.language?.name
+        );
         if (abstractive) {
           result.summary = abstractive;
         } else {
@@ -237,25 +239,15 @@ export class SummarizeContentTool {
    * @param {string} text - Full original text
    * @param {Object} extractiveSummary - The extractive summary (for shape/fallback)
    * @param {string} summaryLength - 'short' | 'medium' | 'long'
+   * @param {string} [languageName] - Detected language of the text, e.g. 'German'
    * @returns {Promise<Object|null>}
    */
-  async _abstractiveSummaryViaSampling(text, extractiveSummary, summaryLength) {
+  async _abstractiveSummaryViaSampling(text, extractiveSummary, summaryLength, languageName) {
     try {
       const SamplingClient = await getSamplingClient();
       const client = new SamplingClient({ mcpServer: this._mcpServer });
 
-      const lengthGuide = {
-        short: '1-2 sentences',
-        medium: '3-5 sentences',
-        long: '6-10 sentences'
-      }[summaryLength] || '3-5 sentences';
-
-      const prompt =
-        `Write a concise, fluent abstractive summary (${lengthGuide}) of the text below. ` +
-        `Capture the main ideas in your own words. Respond with only the summary text.\n\n` +
-        // Fenced: summarising a page is exactly the case where an instruction
-        // planted in it would otherwise be read as part of the task.
-        fenceUntrusted(text.slice(0, 12000), 'text');
+      const prompt = this.buildAbstractivePrompt(text, summaryLength, languageName);
 
       const { text: summaryText } = await client.complete(prompt, { maxTokens: 600 });
       if (!summaryText || !summaryText.trim()) {
@@ -279,6 +271,33 @@ export class SummarizeContentTool {
       // No sampling/LLM backend available — caller falls back to extractive.
       return null;
     }
+  }
+
+  /**
+   * Prompt for the abstractive summary. It names the language to write in: an
+   * English instruction over German text got an English summary back (R24).
+   * @param {string} text - Full original text
+   * @param {string} summaryLength - 'short' | 'medium' | 'long'
+   * @param {string} [languageName] - Detected language of the text
+   * @returns {string}
+   */
+  buildAbstractivePrompt(text, summaryLength, languageName) {
+    const lengthGuide = {
+      short: '1-2 sentences',
+      medium: '3-5 sentences',
+      long: '6-10 sentences'
+    }[summaryLength] || '3-5 sentences';
+
+    const languageRule = languageName
+      ? `Write the summary in ${languageName}, the language of the text — do not translate it. `
+      : 'Write the summary in the same language as the text — do not translate it. ';
+
+    return `Write a concise, fluent abstractive summary (${lengthGuide}) of the text below. ` +
+      `Capture the main ideas in your own words. ${languageRule}` +
+      `Respond with only the summary text.\n\n` +
+      // Fenced: summarising a page is exactly the case where an instruction
+      // planted in it would otherwise be read as part of the task.
+      fenceUntrusted(text.slice(0, 12000), 'text');
   }
 
   /**
@@ -412,7 +431,9 @@ export class SummarizeContentTool {
    */
   calculateTextStatistics(text) {
     const characters = text.length;
-    const words = text.split(/\s+/).filter(w => w.length > 0);
+    // Same tokenizer as analyze_content: whitespace splitting counted a whole
+    // Japanese paragraph as one word (R24).
+    const words = this.contentAnalyzer.tokenizeWords(text);
     const sentences = splitSentences(text);
     const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     

@@ -88,7 +88,8 @@ const AnalysisResult = z.object({
     polarity: z.number(),
     subjectivity: z.number(),
     label: z.string(),
-    confidence: z.number()
+    confidence: z.number(),
+    notApplicable: z.string().optional()
   }).optional(),
   statistics: z.object({
     characters: z.number(),
@@ -255,7 +256,7 @@ export class ContentAnalyzer {
 
       // Sentiment analysis
       if (analysisOptions.includeSentiment) {
-        result.sentiment = await this.analyzeSentiment(text);
+        result.sentiment = await this.analyzeSentiment(text, analysisOptions);
       }
 
       result.processingTime = Date.now() - startTime;
@@ -347,7 +348,7 @@ export class ContentAnalyzer {
         summarySentences = await this.createAbstractiveSummary(text, targetSentences);
       }
 
-      const summaryText = summarySentences.map(s => s.replace(/[.!?]+$/, '').trim()).join('. ').trim() + '.';
+      const summaryText = this.joinSentences(summarySentences);
       const compressionRatio = summaryText.length / text.length;
 
       return {
@@ -364,15 +365,37 @@ export class ContentAnalyzer {
       // Fallback: return first few sentences
       const sentences = splitSentences(text);
       const fallbackSentences = sentences.slice(0, 2);
-      
+      const fallbackText = this.joinSentences(fallbackSentences);
+
       return {
         type: 'fallback',
         length: 'short',
         sentences: fallbackSentences,
-        text: fallbackSentences.map(s => s.replace(/[.!?]+$/, '').trim()).join('. ').trim() + '.',
-        compressionRatio: fallbackSentences.map(s => s.replace(/[.!?]+$/, '').trim()).join('. ').length / text.length
+        text: fallbackText,
+        compressionRatio: fallbackText.length / text.length
       };
     }
+  }
+
+  /**
+   * Join summary sentences into one text. An ASCII-terminated sentence is
+   * normalised to end in "." as before; a sentence that ends in a CJK or
+   * Devanagari terminator keeps it, with no "." added — "…している。." was
+   * the R24 output — and CJK sentences are joined without a space, as the
+   * source writes them.
+   * @param {string[]} sentences
+   * @returns {string}
+   */
+  joinSentences(sentences) {
+    let out = '';
+    for (const raw of sentences) {
+      const trimmed = raw.trim();
+      const sentence = /[。．！？；।॥]$/.test(trimmed)
+        ? trimmed
+        : trimmed.replace(/[.!?]+$/, '').trim() + '.';
+      out += (out === '' || /[。．！？；]$/.test(out) ? '' : ' ') + sentence;
+    }
+    return out;
   }
 
   /**
@@ -491,7 +514,7 @@ export class ContentAnalyzer {
       // whole multi-sentence runs as one "phrase". Use dictionary-segmented
       // content words, ranked by RAKE-style relative salience like below.
       if (this.needsSegmentedTerms(text, options)) {
-        const termFreq = this.cjkContentWordFrequencies(text);
+        const termFreq = this.cjkContentWordFrequencies(text, options.detectedLanguage);
         const maxFreq = Math.max(1, ...Object.values(termFreq));
         return Object.entries(termFreq)
           .map(([topic, frequency]) => ({
@@ -689,7 +712,7 @@ export class ContentAnalyzer {
       // compromise is English-only: on CJK text it returns whole multi-sentence
       // runs as single "terms". Rank dictionary-segmented content words instead.
       if (this.needsSegmentedTerms(text, options)) {
-        const termFreq = this.cjkContentWordFrequencies(text);
+        const termFreq = this.cjkContentWordFrequencies(text, options.detectedLanguage);
         const totalTerms = Object.values(termFreq).reduce((sum, freq) => sum + freq, 0);
         return Object.entries(termFreq)
           .map(([keyword, frequency]) => ({
@@ -816,9 +839,10 @@ export class ContentAnalyzer {
   /**
    * Analyze sentiment of text
    * @param {string} text - Text to analyze
+   * @param {{ detectedLanguage?: string|null }} [options]
    * @returns {Promise<Object>} - Sentiment analysis result
    */
-  async analyzeSentiment(text) {
+  async analyzeSentiment(text, options = {}) {
     try {
       const doc = nlp(text);
       
@@ -840,6 +864,20 @@ export class ContentAnalyzer {
       const totalSentimentWords = positiveCount + negativeCount;
       
       if (totalSentimentWords === 0) {
+        // The lexicon is English. Finding none of its words in German or
+        // Japanese text is not evidence of neutrality, so say the measure does
+        // not apply instead of reporting "neutral" (R24). Only when nothing
+        // matched: franc puts short English such as "I am so happy today" in
+        // Somali, and those strings must still be scored.
+        if (this.needsSegmentedTerms(text, options)) {
+          return {
+            polarity: 0,
+            subjectivity: 0,
+            label: 'not_applicable',
+            confidence: 0,
+            notApplicable: 'sentiment-lexicon-is-english-only'
+          };
+        }
         return {
           polarity: 0,
           subjectivity: 0,
@@ -1059,16 +1097,17 @@ export class ContentAnalyzer {
    * particles: 的, 是, 了…), as are short/stop-worded Latin tokens mixed in
    * and common two-character CJK function words.
    * @param {string} text - Text to analyze
+   * @param {string|null} [language] - Detected ISO 639-3 code; adds that language's stop words
    * @returns {Object} - Map of word -> frequency
    */
-  cjkContentWordFrequencies(text) {
+  cjkContentWordFrequencies(text, language = null) {
     const freq = {};
     for (const raw of this.segmentWords(text)) {
       const word = raw.toLowerCase();
       const isCjkWord = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(word);
       const keep = isCjkWord
         ? word.length >= 2 && !this.isCjkStopWord(word)
-        : word.length > 2 && !this.isStopWord(word);
+        : word.length > 2 && !this.isStopWord(word) && !LANGUAGE_STOP_WORDS[language]?.has(word);
       if (keep) {
         freq[word] = (freq[word] || 0) + 1;
       }
@@ -1137,5 +1176,29 @@ const STOP_WORDS = new Set([
   'разве', 'три', 'эту', 'моя', 'впрочем', 'свою', 'этой', 'перед', 'иногда', 'лучше',
   'чуть', 'том', 'нельзя', 'такой', 'им', 'более', 'всегда', 'конечно', 'всю', 'между'
 ]);
+
+/**
+ * Stop words applied only when the text is detected as that language. German
+ * keywords came back as "die, ist, und, der, ein, für, das" (R24). They are
+ * kept out of STOP_WORDS because several are English content words — "war",
+ * "hat", "die", "man" — that an English article must still be able to rank.
+ */
+const LANGUAGE_STOP_WORDS = {
+  deu: new Set([
+    'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einer', 'eines', 'einem', 'einen',
+    'und', 'oder', 'aber', 'doch', 'sondern', 'denn', 'weil', 'dass', 'daß', 'wenn', 'als', 'wie',
+    'ob', 'ist', 'sind', 'war', 'waren', 'wird', 'werden', 'wurde', 'wurden', 'worden', 'sein',
+    'seine', 'seinen', 'seiner', 'seinem', 'seines', 'ihre', 'ihren', 'ihrer', 'ihrem', 'ihr',
+    'hat', 'haben', 'hatte', 'hatten', 'habe', 'kann', 'können', 'konnte', 'muss', 'müssen',
+    'soll', 'sollen', 'will', 'wollen', 'mit', 'von', 'vom', 'zum', 'zur', 'bei', 'beim', 'aus',
+    'nach', 'auf', 'für', 'über', 'unter', 'vor', 'durch', 'gegen', 'ohne', 'um', 'bis', 'seit',
+    'zwischen', 'auch', 'nur', 'noch', 'schon', 'sehr', 'mehr', 'nicht', 'kein', 'keine', 'keinen',
+    'sich', 'sie', 'ich', 'du', 'er', 'es', 'wir', 'ihn', 'ihm', 'uns', 'euch', 'man', 'mich',
+    'dir', 'mir', 'dich', 'dies', 'diese', 'dieser', 'dieses', 'diesem', 'diesen', 'jede',
+    'jeder', 'jedes', 'alle', 'allen', 'aller', 'alles', 'damit', 'dann', 'da', 'hier', 'dort',
+    'so', 'im', 'ins', 'am', 'an', 'in', 'zu', 'was', 'wer', 'wo', 'etwa', 'immer',
+    'bereits', 'sowie', 'zwei', 'drei', 'viele', 'einige', 'andere', 'anderen', 'unser', 'unsere'
+  ])
+};
 
 export default ContentAnalyzer;

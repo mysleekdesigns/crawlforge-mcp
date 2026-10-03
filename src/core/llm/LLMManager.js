@@ -14,6 +14,18 @@ const ROW_OUTPUT_CEILING = 4000;
 const ROW_FIELD_ALLOWANCE = 1200;
 
 /**
+ * Fill `answeredBy` with the provider name and model that produced a
+ * completion. Ollama resolves its model per role (cached, so no extra call);
+ * the cloud providers carry a fixed `model`.
+ */
+async function recordAnswer(answeredBy, name, provider, role) {
+  answeredBy.provider = name;
+  answeredBy.model = typeof provider.resolveModel === 'function'
+    ? await provider.resolveModel(role)
+    : provider.model;
+}
+
+/**
  * True when a JSON string that failed to parse simply stops partway — the
  * signature of a response that hit its output-token limit, as opposed to one
  * that is malformed from the start.
@@ -201,20 +213,27 @@ export class LLMManager {
    * Generate completion with fallback support
    */
   async generateCompletion(prompt, options = {}) {
-    const { provider = null, ...llmOptions } = options;
-    
+    // `answeredBy`, when given, is filled with the provider and model that
+    // produced the answer — the fallback provider can answer instead of the
+    // default, so the caller cannot know which ran without being told.
+    const { provider = null, answeredBy = null, ...llmOptions } = options;
+
     try {
       const llmProvider = this.getProvider(provider);
-      return await llmProvider.generateCompletion(prompt, llmOptions);
+      const text = await llmProvider.generateCompletion(prompt, llmOptions);
+      if (answeredBy) await recordAnswer(answeredBy, provider || this.defaultProvider, llmProvider, llmOptions.role);
+      return text;
     } catch (error) {
       this.logger.warn(`Primary provider failed: ${error.message}`);
-      
+
       // Try fallback provider if available
       if (this.fallbackProvider && (!provider || provider === this.defaultProvider)) {
         try {
           this.logger.info(`Trying fallback provider: ${this.fallbackProvider}`);
           const fallbackLLM = this.getProvider(this.fallbackProvider);
-          return await fallbackLLM.generateCompletion(prompt, llmOptions);
+          const text = await fallbackLLM.generateCompletion(prompt, llmOptions);
+          if (answeredBy) await recordAnswer(answeredBy, this.fallbackProvider, fallbackLLM, llmOptions.role);
+          return text;
         } catch (fallbackError) {
           this.logger.error(`Fallback provider also failed: ${fallbackError.message}`);
         }
@@ -1033,11 +1052,16 @@ Extract the data and return valid JSON:`;
     let lastError;
     for (let attempt = 0; attempt < 2; attempt++) {
       const budget = attempt === 0 ? scaledTokens : Math.min(ceiling * 2, scaledTokens * 2);
+      // Which provider and model answered, so extract_structured can say (R24).
+      const answeredBy = {};
       try {
         const response = await this.generateCompletion(extractionPrompt, {
           systemPrompt,
           maxTokens: budget,
           temperature: 0.1,
+          // Ollama picks its schema-extraction winner, not the default pick.
+          role: 'extraction',
+          answeredBy,
           // Constrain the output to the caller's shape with every field
           // nullable, so a model shown content that does not state a field can
           // answer null instead of being decoded into an invented string. Small
@@ -1065,6 +1089,7 @@ Extract the data and return valid JSON:`;
           return {
             data: salvaged.data,
             method: 'llm',
+            ...answeredBy,
             valid: validation.valid,
             validationErrors: validation.errors,
             partial: true,
@@ -1076,6 +1101,7 @@ Extract the data and return valid JSON:`;
         return {
           data: parsed,
           method: 'llm',
+          ...answeredBy,
           valid: validation.valid,
           validationErrors: validation.errors
         };

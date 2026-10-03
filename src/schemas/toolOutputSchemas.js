@@ -69,7 +69,7 @@ const scrapeLinksShape = z.object({
 }).passthrough();
 
 const scrapeMetadataShape = z.object({
-  title: z.string().optional(),
+  title: z.string().optional().describe('The document <title>; og:title, then the first H1, only when the page has none. og:title itself is og_tags.title'),
   description: z.string().optional(),
   keywords: z.array(z.string()).optional(),
   canonical_url: z.string().optional(),
@@ -88,7 +88,7 @@ const scrapeMetadataShape = z.object({
 // format of the same call.
 const scrapeHighlightUnitShape = z.object({
   text: z.string().optional().describe('Verbatim page text: markdown.slice(offset, offset + length) === text'),
-  kind: z.enum(['sentence', 'table_row', 'code_block']).optional(),
+  kind: z.enum(['sentence', 'table_row', 'code_block', 'heading']).optional().describe('"heading" occurs only in question evidence'),
   offset: z.number().optional().describe('JS string index into the markdown format of this call'),
   length: z.number().optional(),
   score: z.number().optional().describe('BM25 relevance to the query, higher is better')
@@ -113,7 +113,7 @@ const scrapeFormatShapes = {
   highlights: z.array(scrapeHighlightUnitShape).optional().describe('Result of the {type:"highlights"} format: the units matching the query, best first, verbatim with offsets'),
   answer: z.object({
     text: z.string().optional().describe('Extractive mode: the evidence texts joined; model mode: the model\'s answer'),
-    grounded: z.boolean().optional().describe('True when every number and proper noun in text appears in the evidence or the question; always true in extractive mode'),
+    grounded: z.boolean().optional().describe('False when no unit matched (text is empty) or, in model mode, when the model found no answer in the evidence (text is empty) or used a number or proper noun that appears in neither the evidence nor the question'),
     evidence: z.array(scrapeHighlightUnitShape).optional().describe('The units the answer rests on, verbatim with offsets')
   }).passthrough().optional().describe('Result of the {type:"question"} format')
 };
@@ -299,12 +299,13 @@ const searchWebShape = {
   count: z.number().optional().describe('Batch form: how many queries ran'),
   results_by_query: z.array(searchWebBatchEntryShape).optional().describe('Batch form: one entry per query, in order'),
   effective_query: z.string().optional().describe('Present when query expansion changed the query actually used'),
-  expanded_queries: z.array(z.string()).optional(),
+  expanded_queries: z.array(z.string()).optional().describe('Present only when the original query returned nothing: the queries searched, in order - the original, then its expanded form'),
   results: z.array(searchWebResultShape).optional(),
   total_results: z.union([z.string(), z.number()]).optional(),
   search_time: z.number().optional(),
   offset: z.number().optional(),
   limit: z.number().optional(),
+  next_offset: z.number().optional().describe('The offset to pass for the next page. Duplicates removed from this page are replaced from further down the provider\'s results, so it can be larger than offset + limit'),
   cached: z.boolean().optional(),
   provider: z.object({
     name: z.string().optional(),
@@ -323,7 +324,7 @@ const searchWebShape = {
   processing: z.object({
     ranking: z.record(z.unknown()).nullable().optional(),
     deduplication: z.record(z.unknown()).nullable().optional(),
-    query_expansion: z.record(z.unknown()).nullable().optional(),
+    query_expansion: z.record(z.unknown()).nullable().optional().describe('{original_query, used_query, search_attempts} when the original query returned nothing and its expanded form was searched too; null otherwise'),
     localization_applied: z.boolean().optional()
   }).passthrough().optional(),
   redaction: redactionShape,
@@ -337,7 +338,9 @@ const extractStructuredShape = {
   url: z.string().optional(),
   data: z.record(z.unknown()).optional().describe('Extracted fields matching the requested schema'),
   extraction_method: z.string().optional().describe('"llm" | "css_fallback" | "keyword_fallback" | "none"'),
-  confidence: z.number().optional(),
+  provider: z.string().optional().describe('LLM provider that produced the data ("ollama" | "openai" | "anthropic"); present when extraction_method is "llm"'),
+  model: z.string().optional().describe('Model that produced the data, e.g. "gemma3:12b"; present when extraction_method is "llm"'),
+  confidence: z.number().optional().describe('0-1: method and validation, scaled by the share of requested fields filled and, for "llm", the share of short string values found in the page'),
   schema_used: z.record(z.unknown()).optional(),
   processingTime: z.number().optional(),
   error: z.string().optional(),
@@ -349,11 +352,11 @@ const extractStructuredShape = {
   provenance: z.object({
     enabled: z.boolean().optional().describe('Whether the numeric provenance guard ran'),
     verified: z.number().optional().describe('Numeric values found literally in the page source'),
-    nulled: z.number().optional().describe('Numeric values replaced with null because the source does not contain them'),
+    nulled: z.number().optional().describe('Values replaced with null: numbers the source does not contain, and string fields whose value cannot be what the field names'),
     unverified: z.array(z.object({
       path: z.string().optional().describe('Path to the field, e.g. configurations[2].price'),
       value: z.unknown().optional().describe('The value that was removed'),
-      reason: z.string().optional().describe('"not_found_in_source"')
+      reason: z.string().optional().describe('"not_found_in_source" | "not_a_version" (a version field with no number, e.g. "latest") | "not_an_identifier" (a sku/isbn/gtin/upc/ean/mpn field holding a phrase)')
     }).passthrough()).optional(),
     skipped: z.string().optional().describe('"empty_source" when there was nothing to check against')
   }).passthrough().optional(),

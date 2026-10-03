@@ -276,6 +276,33 @@ export function extractMainContent(html, url) {
   };
 }
 
+const escapeHtml = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
+ * Put the page's H1 back at the top of Readability's article when no heading
+ * in it already says the same thing. Readability moves the headline into its
+ * `title` and drops a heading that repeats it, and on a landing page the H1
+ * sits outside the one block it keeps: Caddy's docs and gov.uk's browse pages
+ * both came back as main content with no H1 at all (R24, 2026-10-03).
+ *
+ * The H1 inside <main> or <article> is preferred, so a logo wrapped in an H1
+ * in the site header does not stand in for the page's own heading.
+ *
+ * @param {string} mainHtml - Readability's article HTML
+ * @param {import('cheerio').CheerioAPI} $ - the whole page
+ * @returns {string} mainHtml, with an <h1> prepended when it was missing
+ */
+export function keepPageHeading(mainHtml, $) {
+  const heading = normalizeWhitespace(
+    $('main h1, article h1, [role="main"] h1').first().text() || $('h1').first().text() || ''
+  );
+  if (!heading) return mainHtml;
+  const $main = load(mainHtml);
+  const present = $main('h1, h2, h3, h4, h5, h6').toArray()
+    .some((el) => normalizeWhitespace($main(el).text()) === heading);
+  return present ? mainHtml : `<h1>${escapeHtml(heading)}</h1>\n${mainHtml}`;
+}
+
 // Below both of these, Readability's article is a fragment of the page, not
 // its main content.
 export const THIN_MAIN_CONTENT = { maxChars: 1500, maxShare: 0.35 };

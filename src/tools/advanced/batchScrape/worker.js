@@ -5,7 +5,7 @@
  */
 
 import { load } from 'cheerio';
-import { readBody } from 'crawlforge-extractors';
+import { readBody, flattenText } from 'crawlforge-extractors';
 import { config as appConfig } from '../../../constants/config.js';
 import { ssrfGuard, isSsrfError } from '../../../utils/ssrfGuard.js';
 import { noteRetryAfter } from '../../../utils/hostRateLimiter.js';
@@ -123,13 +123,25 @@ function extractStructuredData($, selectors) {
     try {
       const elements = $(selector);
       if (elements.length === 0) extracted[key] = null;
-      else if (elements.length === 1) extracted[key] = elementText($, elements.get(0));
-      else extracted[key] = elements.map((_, el) => elementText($, el)).get();
+      else if (elements.length === 1) extracted[key] = valueText($, elements.get(0));
+      else extracted[key] = elements.map((_, el) => valueText($, el)).get();
     } catch {
       extracted[key] = { error: `Invalid selector: ${selector}` };
     }
   }
   return extracted;
+}
+
+/**
+ * A matched element's text. Tables keep elementText's one line per row, cells
+ * joined by " | "; anything else is read one line per block element, where
+ * .text() welded "<h2>Title</h2><p>Body</p>" into "TitleBody" (R24 3.1).
+ */
+function valueText($, el) {
+  const $el = $(el);
+  return $el.is('table, thead, tbody, tfoot, tr') || $el.find('table').length > 0
+    ? elementText($, el)
+    : flattenText($, $el);
 }
 
 export function generateFormats($, html, formats) {
@@ -140,7 +152,7 @@ export function generateFormats($, html, formats) {
   $('script, style, noscript, template').remove();
   const content = {};
   if (formats.includes('html')) content.html = html;
-  if (formats.includes('text')) content.text = $('body').text().replace(/\s+/g, ' ').trim();
+  if (formats.includes('text')) content.text = flattenText($);
   if (formats.includes('markdown')) content.markdown = buildMarkdown($);
   if (formats.includes('json')) {
     content.json = {

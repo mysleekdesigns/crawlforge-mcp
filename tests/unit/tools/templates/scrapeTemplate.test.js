@@ -129,7 +129,7 @@ const CASES = [
     </body></html>`,
     assert: (data) => {
       assert.equal(data.name, 'react-layout');
-      assert.equal(data.watchers, '635');
+      assert.equal(data.watchers, 635);
       assert.deepEqual(data.topics, ['mcp', 'scraping']);
       assert.equal(data.language, null);
     }

@@ -1,5 +1,5 @@
 import { load } from 'cheerio';
-import { readBody } from 'crawlforge-extractors';
+import { readBody, flattenText } from 'crawlforge-extractors';
 import { QueueManager } from '../queue/QueueManager.js';
 import { CacheManager } from '../cache/CacheManager.js';
 import { RateLimiter } from '../../utils/rateLimiter.js';
@@ -414,20 +414,21 @@ export class BFSCrawler {
     // Cessna pages, whose menu is plain <div>s outside any <nav> (R20,
     // 2026-09-07). Use the same main-content pass scrape uses, fall back to
     // the body minus its landmark chrome when Readability finds nothing or
-    // only a thin fragment, and to the whole body as a last resort.
+    // only a thin fragment, and to the whole body as a last resort. Text is
+    // one line per block element; .text() welded "July 2023" onto the
+    // paragraph after it (R24 3.1).
     $('script, style, noscript').remove();
-    const squash = (text) => text.replace(/\s+/g, ' ').trim();
     let content = '';
     try {
       const main = extractMainContent(html, url);
       if (main.html && !isThinMainContent(main.html, html)) {
-        content = squash(load(main.html)('body').text());
+        content = flattenText(load(main.html));
       }
     } catch { /* fall through to the body */ }
     if (!content) {
       const $body = $('body').clone();
       $body.find('header, nav, footer, aside, [role="navigation"], [role="banner"], [role="contentinfo"]').remove();
-      content = squash($body.text()) || squash($('body').text());
+      content = flattenText($, $body) || flattenText($);
     }
     
     // Extract metadata
