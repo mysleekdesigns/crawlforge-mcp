@@ -5,6 +5,21 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Fixed
+
+- **The stealth Cloudflare wait recognises Cloudflare's current interstitial.**
+  It reads "Performing security verification" under the title "Just a
+  moment..." and carries none of the older phrases, so the wait ended at once
+  (doordash.com, 2026-10-03). It now waits on that text and on the title. Only
+  Cloudflare's own script runs; nothing is clicked.
+- **That wait is capped at 10 s, and the cap now applies.** The timeout was
+  passed to `page.waitForFunction` as the page function's argument, so every
+  wait ran Playwright's 30 s default. A walled stealth chain on doordash.com
+  went from 39.5 s to 19.5 s, still reported `blocked: cloudflare`.
+- **A wall met outside the stealth browser no longer blames it.** A non-stealth
+  `scrape_with_actions` chain's wall error read "the stealth browser did not
+  pass it"; it now says "the browser".
+
 ## [6.17.0] - 2026-10-03
 
 Phase 5 of the actions + embedded-state plan (bot walls): a

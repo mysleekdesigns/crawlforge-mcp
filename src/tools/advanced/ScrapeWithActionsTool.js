@@ -567,7 +567,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
       text: finalContent?.content?.text || '',
       html: chainResult?.finalHtml || '',
       status: chainResult?.navigationStatus ?? null
-    }, { allowEmpty: true });
+    }, { allowEmpty: true, fetcher: browserOptions.stealthMode?.enabled ? 'the stealth browser' : 'the browser' });
 
     return {
       success: chainResult.success && verdict.success,

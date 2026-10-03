@@ -1405,7 +1405,10 @@ export class ActionExecutor extends EventEmitter {
           page.content(),
           page.evaluate(() => (document.body ? document.body.innerText : ''))
         ]);
-        return stealthDocumentVerdict({ url: page.url(), title, html, text, status: httpStatus }, { allowEmpty: true });
+        return stealthDocumentVerdict(
+          { url: page.url(), title, html, text, status: httpStatus },
+          { allowEmpty: true, fetcher: browserOptions?.stealthMode?.enabled ? 'the stealth browser' : 'the browser' }
+        );
       } catch {
         return null; // mid-navigation, or a page that cannot be read
       }
