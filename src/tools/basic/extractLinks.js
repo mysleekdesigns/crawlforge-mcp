@@ -1,9 +1,12 @@
 /**
  * extract_links — Extract all links from a webpage with optional filtering.
  * Extracted from server.js inline handler.
+ * E3: Link records come from crawlforge-extractors' extractLinkRecords, the
+ * reader the REST route uses, so both surfaces return the same links.
  */
 
 import { load } from 'cheerio';
+import { extractLinkRecords } from 'crawlforge-extractors';
 import { fetchLadder, ladderErrorResult, isJsonType } from '../../utils/fetchLadder.js';
 
 /**
@@ -34,6 +37,7 @@ async function extractLinks({ url, filter_external, base_url, user_agent, respec
             total_count: 0,
             internal_count: 0,
             external_count: 0,
+            other_count: 0,
             base_url: base_url || ladder.url,
             ...ladder.fields,
             warnings: [...ladder.warnings, 'the target returned application/json; it has no HTML links']
@@ -46,51 +50,32 @@ async function extractLinks({ url, filter_external, base_url, user_agent, respec
     const $ = load(html);
 
     const finalUrl = ladder.url;
-    const pageUrl = new URL(finalUrl);
 
-    // <base href>, if present, overrides the page URL as the resolution base
-    // for relative links (but an explicit base_url override wins over both).
+    // Reported base: an explicit base_url, else <base href> resolved against
+    // the page, else the page URL (extractLinkRecords resolves the same way).
     let docBase = finalUrl;
     const baseHref = $('base[href]').first().attr('href');
     if (baseHref) {
       try { docBase = new URL(baseHref, finalUrl).toString(); } catch { /* ignore invalid <base href> */ }
     }
-
     const baseUrl = base_url || docBase;
-    const links = [];
 
-    $('a[href]').each((_, element) => {
-      const href = $(element).attr('href');
-      const text = $(element).text().trim();
-
-      // A javascript: pseudo-link ("Cookie Settings") is a button, not a
-      // link; it was counted as an external link on boeing.com (R20).
-      if (!href || /^\s*javascript:/i.test(href)) return;
-
-      try {
-        const absoluteUrl = new URL(href, baseUrl).toString();
-        const isExternal = new URL(absoluteUrl).origin !== pageUrl.origin;
-
-        if (filter_external && !isExternal) return;
-
-        links.push({ href: absoluteUrl, text, is_external: isExternal, original_href: href });
-      } catch {
-        // skip invalid URLs
-      }
-    });
-
-    const uniqueLinks = links.filter((link, index, arr) =>
-      arr.findIndex(l => l.href === link.href) === index
-    );
+    // Records are deduplicated on the URL without fragment or trailing slash;
+    // mailto:/tel:/javascript: links are type "other". filter_external drops
+    // only the internal ones.
+    const records = extractLinkRecords($, { pageUrl: finalUrl, baseUrl: base_url });
+    const links = filter_external ? records.filter(l => l.type !== 'internal') : records;
+    const count = (type) => links.filter(l => l.type === type).length;
 
     return {
       content: [{
         type: 'text',
         text: JSON.stringify({
-          links: uniqueLinks,
-          total_count: uniqueLinks.length,
-          internal_count: uniqueLinks.filter(l => !l.is_external).length,
-          external_count: uniqueLinks.filter(l => l.is_external).length,
+          links,
+          total_count: links.length,
+          internal_count: count('internal'),
+          external_count: count('external'),
+          other_count: count('other'),
           base_url: baseUrl,
           ...ladder.fields,
           ...(ladder.warnings.length > 0 ? { warnings: ladder.warnings } : {})

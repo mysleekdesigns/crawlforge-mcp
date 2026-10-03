@@ -112,7 +112,7 @@ describe('B1.2 extractText block structure and markdown mode', () => {
     });
   }
 
-  test('text mode: block-level elements produce \\n\\n paragraph breaks', async () => {
+  test('text mode: each block element is its own line (E3: one \\n, the REST flattener)', async () => {
     const { extractTextHandler } = await import('../../src/tools/basic/extractText.js');
     origFetch = globalThis.fetch;
     mockFetch('<html><body><p>First paragraph.</p><p>Second paragraph.</p></body></html>');
@@ -121,7 +121,7 @@ describe('B1.2 extractText block structure and markdown mode', () => {
       assert.ok(!res.isError, `unexpected error: ${res.content[0]?.text}`);
       const payload = JSON.parse(res.content[0].text);
       assert.equal(payload.output_format, 'text');
-      assert.ok(payload.text.includes('\n\n'), 'text mode must join blocks with \\n\\n');
+      assert.equal(payload.text, 'First paragraph.\nSecond paragraph.');
     } finally {
       globalThis.fetch = origFetch;
     }
