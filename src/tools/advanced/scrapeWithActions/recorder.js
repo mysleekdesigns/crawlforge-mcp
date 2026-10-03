@@ -168,6 +168,8 @@ export function buildRecordedEntry(action, timestampMsSinceStart) {
   if (action.duration !== undefined) entry.duration = action.duration;
   if (action.url !== undefined) entry.url = action.url;
   if (action.value !== undefined) entry.value = action.value;
+  // check (a formAutoFill checkbox/radio field) does not replay without it
+  if (action.fieldType !== undefined) entry.fieldType = action.fieldType;
   if (action.direction !== undefined) entry.direction = action.direction;
   if (action.distance !== undefined) entry.distance = action.distance;
   // scroll: absolute scroll-to coordinates

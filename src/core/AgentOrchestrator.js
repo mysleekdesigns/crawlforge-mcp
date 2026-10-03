@@ -172,6 +172,40 @@ export function isCurrentStateTask(prompt) {
   return CURRENT_STATE_RE.test(prompt || '');
 }
 
+/**
+ * The names a prompt uses: words carrying a capital letter that is not just
+ * the capital opening a sentence ("TypeScript", "Hacker", "News", "NASA"; not
+ * "What"). These are what the task is about, so a planned query that drops
+ * one has lost its subject.
+ */
+export function namedTerms(prompt) {
+  const words = (prompt || '').split(/\s+/);
+  const terms = [];
+  words.forEach((raw, i) => {
+    if (raw.includes('://')) return;
+    const word = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '').replace(/['’]s$/, '');
+    if (word.length < 2) return;
+    const opensSentence = i === 0 || /[.?!:]$/.test(words[i - 1]);
+    if (!/\p{Lu}/u.test(opensSentence ? word.slice(1) : word)) return;
+    if (!terms.some(t => t.toLowerCase() === word.toLowerCase())) terms.push(word);
+  });
+  return terms;
+}
+
+/**
+ * A task scoped to its seed URLs: the caller passed `urls` and the prompt
+ * points at them ("this page", "these URLs", "the given site"). The answer is
+ * then on those pages and nowhere else, so GATHER runs no web search — search
+ * results for the task's words are other people's pages. Asked how many books
+ * "this page" lists, the agent searched "count books on webpage" and merged
+ * Reddit threads about word counts into the evidence (R24, 2026-10-03).
+ */
+const SEED_SCOPE_RE = /\b(?:this|these|the (?:given|provided|above|following|seed))\s+(?:web\s?)?(?:pages?|urls?|sites?|websites?|links?|documents?|articles?)\b/i;
+
+export function isSeedScopedTask(prompt, seedUrls) {
+  return Array.isArray(seedUrls) && seedUrls.length > 0 && SEED_SCOPE_RE.test(prompt || '');
+}
+
 // ── Orchestrator ──────────────────────────────────────────────────────────────
 
 export class AgentOrchestrator {
@@ -358,6 +392,17 @@ export class AgentOrchestrator {
       );
     }
     // A current-state plan is told to make its first query the bare entity
+    // name, and for a prompt naming two things a small model can keep the
+    // wrong one: "latest stable version of the TypeScript npm package" was
+    // searched as the single word "npm" (R24, 2026-10-03). The first query
+    // carries every name the prompt uses; what the planner wrote stays as the
+    // qualifier ("TypeScript npm").
+    if (currentState) {
+      const first = searchQueries[0].toLowerCase();
+      const dropped = namedTerms(prompt).filter(t => !first.includes(t.toLowerCase()));
+      if (dropped.length > 0) searchQueries[0] = `${dropped.join(' ')} ${searchQueries[0]}`;
+    }
+    // A current-state plan is told to make its first query the bare entity
     // name, and a small model often stops there. The bare query surfaces the
     // live front page, which rarely states the fact asked for: "what does
     // Southwest charge for a first checked bag" fetched southwest.com's home,
@@ -397,7 +442,7 @@ export class AgentOrchestrator {
     /** url -> { title, text }: the engine's excerpt, evidence of last resort for a page that cannot be fetched. */
     const excerpts = new Map();
 
-    if (urlQueue.length < capUrls) {
+    if (urlQueue.length < capUrls && !isSeedScopedTask(prompt, seedUrls)) {
       try {
         const searchTool = await this._getSearchTool();
         for (const q of searchQueries) {
@@ -607,14 +652,24 @@ export class AgentOrchestrator {
           schema,
           provider: 'auto'
         });
+        // A required field left null is an incomplete answer, not a
+        // structured success (R24, 2026-10-03).
+        const missingRequired = result.success && Array.isArray(schema.required)
+          ? schema.required.filter(key => result.data?.[key] == null || result.data[key] === '')
+          : [];
+        const missingReason = missingRequired.length > 0
+          ? `Required ${missingRequired.length === 1 ? 'field' : 'fields'} ${missingRequired.map(k => `"${k}"`).join(', ')} ` +
+            `${missingRequired.length === 1 ? 'is' : 'are'} null: the fetched sources do not state ${missingRequired.length === 1 ? 'it' : 'them'}.`
+          : undefined;
+        if (missingReason) warnings.push(missingReason);
         return {
           success: result.success,
           answer: result.success ? result.data : null,
           structured: true,
           search_results: searchResults,
           evidence: evidence.map(e => (e.via ? { url: e.url, via: e.via } : { url: e.url })),
-          degraded: !result.success,
-          reason: result.success ? undefined : result.error,
+          degraded: !result.success || missingRequired.length > 0,
+          reason: result.success ? missingReason : result.error,
           steps: step,
           urls_fetched: urlsFetched,
           stealth_retries: usage.escalations,

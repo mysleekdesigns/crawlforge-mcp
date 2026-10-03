@@ -191,7 +191,8 @@ describe('trackChanges tool — real module (Phase 2 fix)', () => {
 
     const parsedMonitor = TrackChangesSchema.parse({ url: 'https://example.com', operation: 'monitor' });
     assert.equal(parsedMonitor.monitoringOptions.interval, 300000);
-    assert.equal(parsedMonitor.monitoringOptions.enabled, false);
+    // true since R24 1.9: enabled:false now means "turn the monitor off".
+    assert.equal(parsedMonitor.monitoringOptions.enabled, true);
   });
 
   describe('execute() with real TrackChangesTool', () => {

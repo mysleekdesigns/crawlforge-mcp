@@ -308,6 +308,15 @@ export class TrackChangesTool extends EventEmitter {
   async setupMonitoring(params) {
     const { url, monitoringOptions, trackingOptions, storageOptions, notificationOptions } = params;
 
+    // enabled:false turns the URL's polling monitor off and starts nothing.
+    if (monitoringOptions.enabled === false) {
+      return {
+        success: true, operation: 'monitor', url,
+        monitoring: { enabled: false, stopped: this.stopMonitoring(url) },
+        timestamp: Date.now()
+      };
+    }
+
     if (this.activeMonitors.has(url)) {
       clearInterval(this.activeMonitors.get(url).timer);
     }
@@ -498,6 +507,15 @@ export class TrackChangesTool extends EventEmitter {
   async stopScheduledMonitor(params) {
     const { url, scheduledMonitorOptions } = params;
     const monitorId = scheduledMonitorOptions?.monitorId;
+    // A polling monitor (operation:"monitor") is listed as poll:<url>.
+    if (monitorId?.startsWith('poll:')) {
+      const stopped = this.stopMonitoring(monitorId.slice(5));
+      return {
+        success: stopped, operation: 'stop_scheduled_monitor', monitorId, stopped,
+        ...(stopped ? {} : { error: `No polling monitor found with id ${monitorId}` }),
+        timestamp: Date.now()
+      };
+    }
     if (monitorId) {
       if (!this.monitorStore._loaded) await this.monitorStore.load();
       if (this.monitorStore.get(monitorId)) {
@@ -517,6 +535,7 @@ export class TrackChangesTool extends EventEmitter {
     }
     if (!url) throw new Error('stop_scheduled_monitor requires a url or scheduledMonitorOptions.monitorId');
     const result = await this.scheduler.stopByUrl(url);
+    const stoppedPolling = this.stopMonitoring(url) ? 1 : 0;
     // Only a hosted monitor whose every target is this URL — never a
     // multi-target monitor that merely includes it.
     let stoppedHosted = 0;
@@ -533,7 +552,7 @@ export class TrackChangesTool extends EventEmitter {
       hostedError = error.message;
     }
     return {
-      success: true, operation: 'stop_scheduled_monitor', url, stoppedMonitors: result.stopped, stoppedHosted,
+      success: true, operation: 'stop_scheduled_monitor', url, stoppedMonitors: result.stopped, stoppedPolling, stoppedHosted,
       ...(hostedError ? { hostedError } : {}),
       timestamp: Date.now()
     };
@@ -541,7 +560,10 @@ export class TrackChangesTool extends EventEmitter {
 
   async listScheduledMonitors() {
     if (!this.monitorStore._loaded) await this.monitorStore.load();
-    const local = this.scheduler.list().map((m) => ({ ...m, hosted: false }));
+    const local = [
+      ...this._pollingMonitors().map((m) => ({ ...m, hosted: false })),
+      ...this.scheduler.list().map((m) => ({ ...m, hosted: false }))
+    ];
     // The local list never fails because the website is unreachable.
     let hosted = [];
     let hostedError = null;
@@ -560,16 +582,21 @@ export class TrackChangesTool extends EventEmitter {
     };
   }
 
+  /** The in-process polling monitors operation:"monitor" started, as the dashboard and the list show them. */
+  _pollingMonitors() {
+    return Array.from(this.activeMonitors.entries()).map(([url, m]) => ({
+      id: `poll:${url}`, url, kind: 'polling', status: 'active',
+      interval: m.options?.interval ?? null, stats: m.stats
+    }));
+  }
+
   async getMonitoringDashboard(params) {
     // The schema defaults every flag to true, but only inside a dashboardOptions
     // object the caller supplied; an omitted object must mean the same thing.
     const dashboardOptions = { includeRecentAlerts: true, includeTrends: true, includeMonitorStatus: true, ...(params.dashboardOptions || {}) };
     const dashboard = this.changeTracker.getMonitoringDashboard();
     // The tracker only knows tracked pages; the monitors that poll them live here.
-    const polling = Array.from(this.activeMonitors.entries()).map(([url, m]) => ({
-      id: `poll:${url}`, url, kind: 'polling', status: 'active',
-      interval: m.options?.interval ?? null, stats: m.stats
-    }));
+    const polling = this._pollingMonitors();
     if (!this.monitorStore._loaded) await this.monitorStore.load();
     const scheduled = this.scheduler.list().map(m => ({
       id: m.id, url: m.url, kind: 'scheduled',

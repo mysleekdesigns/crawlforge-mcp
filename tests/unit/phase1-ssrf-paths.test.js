@@ -61,14 +61,15 @@ test('map_site: fetchWithTimeout rejects blocked loopback target directly', asyn
   );
 });
 
-test('map_site: execute() with a blocked target returns no URLs (no leak)', async () => {
+test('map_site: execute() with a blocked target rejects with the SSRF refusal', async () => {
   const { MapSiteTool } = await import('../../src/tools/crawl/mapSite.js');
   const tool = new MapSiteTool({ cacheEnabled: false, timeout: 3000 });
-  // fetchPageUrls swallows fetch errors and returns []; include_sitemap:false
-  // avoids the separate sitemap-discovery path so only the guarded fetch runs.
-  const result = await tool.execute({ url: LOOPBACK_URL, include_sitemap: false });
-  assert.equal(result.total_urls, 0, 'expected no URLs discovered for a blocked target');
-  assert.deepEqual(result.urls, {}, 'expected no URLs grouped for a blocked target');
+  // include_sitemap:false avoids the separate sitemap-discovery path so only
+  // the guarded fetch runs. It used to return a success with total_urls: 0.
+  await assert.rejects(
+    () => tool.execute({ url: LOOPBACK_URL, include_sitemap: false }),
+    /SSRF Protection/
+  );
 });
 
 // ── 4. process_document PDF download path ───────────────────────────────────

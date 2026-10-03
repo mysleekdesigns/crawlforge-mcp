@@ -280,4 +280,55 @@ describe('mapSite tool — real module (Phase 2 fixes)', () => {
       assert.equal(result.total_urls, 6);
     });
   });
+
+  describe('a start URL that cannot be read is an error, not an empty map (R24 1.4)', () => {
+    let server;
+    let baseUrl;
+
+    before(async () => {
+      server = http.createServer((req, res) => {
+        if (req.url === '/robots.txt') {
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.end(`Sitemap: ${baseUrl}/sitemap.xml\n`);
+          return;
+        }
+        if (req.url === '/sitemap.xml') {
+          res.writeHead(200, { 'Content-Type': 'application/xml' });
+          res.end(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${baseUrl}/a</loc></url></urlset>`);
+          return;
+        }
+        res.writeHead(503);
+        res.end();
+      });
+      await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+      baseUrl = `http://127.0.0.1:${server.address().port}`;
+    });
+
+    after(async () => {
+      await new Promise((resolve) => server.close(resolve));
+    });
+
+    test('SSRF refusal', async () => {
+      const realTool = new MapSiteTool({ cacheEnabled: false, timeout: 5000 });
+      await assert.rejects(
+        () => realTool.execute({ url: 'http://169.254.169.254/' }),
+        /Site mapping failed: SSRF Protection/
+      );
+    });
+
+    test('DNS failure', async () => {
+      const realTool = new MapSiteTool({ cacheEnabled: false, timeout: 5000 });
+      await assert.rejects(
+        () => realTool.execute({ url: 'http://no-such-host-r24.invalid/' }),
+        /Site mapping failed: http:\/\/no-such-host-r24\.invalid\/ could not be read \(.*ENOTFOUND.*\) and no sitemap was found/
+      );
+    });
+
+    test('an unreadable start page with a working sitemap still maps, with a warning', async () => {
+      const realTool = new MapSiteTool({ cacheEnabled: false, timeout: 5000 });
+      const result = await realTool.execute({ url: baseUrl, group_by_path: false });
+      assert.deepEqual(result.urls, [`${baseUrl}/a`]);
+      assert.match(result.warnings[0], /start page could not be read \(HTTP 503\)/);
+    });
+  });
 });

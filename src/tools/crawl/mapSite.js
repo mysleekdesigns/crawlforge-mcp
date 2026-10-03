@@ -48,6 +48,9 @@ export function searchScore(url, search) {
   return terms.filter((t) => haystack.includes(t)).length;
 }
 
+// A gate refusal is the answer to the request, not a page we failed to read.
+const REFUSAL_CODES = new Set(['ROBOTS_DISALLOWED', 'HOST_BLOCKED', 'USE_REDDIT_SEARCH', 'SSRF_BLOCKED']);
+
 // Lazy singleton — avoids creating a CacheManager timer per request
 let _ranker = null;
 function getRanker() {
@@ -159,13 +162,24 @@ export class MapSiteTool {
         sitemapUrls.forEach(url => urls.add(normalizeUrl(url)));
       }
 
-      // Fetch and parse the main page for additional URLs
-      const pageUrls = await this.fetchPageUrls(validated.url, domainFilter, identity);
-      pageUrls.forEach(url => {
-        if (urls.size < poolLimit) {
-          urls.add(normalizeUrl(url));
+      // Fetch and parse the main page for additional URLs. A start page that
+      // cannot be read is an error when the sitemap gave nothing either: an
+      // unresolvable host used to return a success with total_urls: 0 (R24).
+      try {
+        const pageUrls = await this.fetchPageUrls(validated.url, domainFilter, identity);
+        pageUrls.forEach(url => {
+          if (urls.size < poolLimit) {
+            urls.add(normalizeUrl(url));
+          }
+        });
+      } catch (error) {
+        if (REFUSAL_CODES.has(error.code) || error.message.startsWith('SSRF Protection:')) throw error;
+        const reason = error.cause?.message || error.message;
+        if (urls.size === 0) {
+          throw new Error(`${validated.url} could not be read (${reason}) and no sitemap was found`);
         }
-      });
+        warnings.push(`The start page could not be read (${reason}); the URLs come from the sitemap only.`);
+      }
 
       let pool = Array.from(urls);
       if (scopePath) {
@@ -304,46 +318,40 @@ export class MapSiteTool {
   }
 
   async fetchPageUrls(url, domainFilter = null, identity = {}) {
-    try {
-      const response = await this.fetchWithTimeout(url, identity);
-      if (!response.ok) {
-        return [];
-      }
-
-      const html = await response.text();
-      const $ = load(html);
-      const urls = new Set();
-      const baseUrl = getBaseUrl(url);
-
-      // Extract all links
-      $('a[href]').each((_, element) => {
-        const href = $(element).attr('href');
-        if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
-          try {
-            const absoluteUrl = new URL(href, url);
-            // Only include URLs from the same domain
-            if (absoluteUrl.origin === new URL(baseUrl).origin) {
-              const urlString = absoluteUrl.toString();
-              
-              // Apply domain filter if provided
-              if (!domainFilter || domainFilter.isAllowed(urlString).allowed) {
-                urls.add(urlString);
-              }
-            }
-          } catch {
-            // Invalid URL, skip
-          }
-        }
-      });
-
-      return Array.from(urls);
-    } catch (error) {
-      // A gate refusal is the answer to the request, not a page we failed to
-      // read: surface it instead of returning an emptier map than the caller
-      // would notice.
-      if (error.code === 'ROBOTS_DISALLOWED' || error.code === 'HOST_BLOCKED' || error.code === 'USE_REDDIT_SEARCH') throw error;
-      return [];
+    // Throws when the page cannot be read — a gate or SSRF refusal, a network
+    // failure, a non-2xx status. execute() decides which of those end the call.
+    const response = await this.fetchWithTimeout(url, identity);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
     }
+
+    const html = await response.text();
+    const $ = load(html);
+    const urls = new Set();
+    const baseUrl = getBaseUrl(url);
+
+    // Extract all links
+    $('a[href]').each((_, element) => {
+      const href = $(element).attr('href');
+      if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
+        try {
+          const absoluteUrl = new URL(href, url);
+          // Only include URLs from the same domain
+          if (absoluteUrl.origin === new URL(baseUrl).origin) {
+            const urlString = absoluteUrl.toString();
+
+            // Apply domain filter if provided
+            if (!domainFilter || domainFilter.isAllowed(urlString).allowed) {
+              urls.add(urlString);
+            }
+          }
+        } catch {
+          // Invalid URL, skip
+        }
+      }
+    });
+
+    return Array.from(urls);
   }
 
   async fetchMetadata(urls, metadataMap, identity = {}) {

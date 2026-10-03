@@ -7,8 +7,50 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
 
 Requires `crawlforge-extractors` ^1.14.0.
 
+### Changed
+
+- **`crawl_deep` counters each mean one thing.** `pages_crawled` is now the
+  pages actually fetched (it counted failed URLs too), `error_count` the URLs
+  that failed, and the new `pages_attempted` their sum;
+  `site_structure.total_pages` and `depth_distribution` count fetched pages
+  only. Error entries carry a `code` (e.g. `SSRF_BLOCKED`) when one is known.
+- **`track_changes` `monitoringOptions.enabled` defaults to `true`**, and
+  `false` now stops the URL's polling monitor and starts nothing (it used to
+  start one). Polling monitors appear in `list_scheduled_monitors`
+  (`id: "poll:<url>"`) and `stop_scheduled_monitor` stops them by url or id.
+- **`scrape_with_actions` `totalActions`** counts the whole chain that ran,
+  including the actions `formAutoFill` generates, so it equals
+  `actionsExecuted`.
+
 ### Fixed
 
+Live test of 2026-10-03, fix plan Phase 1 (`LIVE_TEST_R24_FIX_PLAN.md`).
+
+- **`crawl_deep` no longer fails output validation on an SSRF-refused seed**
+  (a 0 ms crawl made `pages_per_second` Infinity), and it **stops when
+  `max_pages` is reached**: the queue is cleared instead of draining every
+  queued link at 10 a second (g2.com: 232 s for 3 pages). `queueStats.active`
+  is read live.
+- **`map_site` reports a seed it could not read.** An SSRF refusal, a DNS
+  failure or an HTTP error with no sitemap is an error, not a success with
+  `total_urls: 0`; with a sitemap, the map carries a `warnings[]` entry.
+- **`batch_scrape` refuses binary content** with `scrape`'s wording instead
+  of returning `%PDF-1.4 …` as the page text.
+- **`browser_session` `act` keeps screenshot bytes out of
+  `actionResults[]`**: a screenshot action's result carries `resourceUri`,
+  not base64 `data`.
+- **`formAutoFill` honours field `type`**: `select` selects, `checkbox` and
+  `radio` check (a group selector checks the member whose value matches);
+  `file` is unsupported and fails that action. Every type used to be typed
+  into, which changed nothing and reported no failure.
+- **`scrape`**: `<noscript>` markup no longer leaks into the `text` format
+  as tags, and a success with empty markdown carries a warning. Fastly's
+  "Client Challenge" page (lemonde.fr) is reported as blocked and escalates
+  with `escalate:true` once crawlforge-extractors 1.15.0 is installed.
+- **`agent`**: a question scoped to its seed URLs ("this page") runs no web
+  search; a `required` schema field that comes back null sets
+  `degraded:true` with a warning; a current-state plan's first query keeps
+  the named entity ("TypeScript npm", not "npm").
 - **F5's "Request Rejected" page is named as a wall** (`blocked.vendor:
   "f5"`). walmart.com answered a plain fetch with HTTP 444 and F5 BIG-IP
   ASM's default blocking page (the title "Request Rejected" and a support ID),

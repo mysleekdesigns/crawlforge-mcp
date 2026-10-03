@@ -77,6 +77,9 @@ export class QueueManager {
   getStats() {
     return {
       ...this.stats,
+      // Read live: the 'active' event fires when a task starts, never when the
+      // last one ends, so the stored value stayed at 8 on a finished crawl.
+      active: this.queue.pending,
       size: this.queue.size,
       pending: this.queue.pending,
       isPaused: this.queue.isPaused

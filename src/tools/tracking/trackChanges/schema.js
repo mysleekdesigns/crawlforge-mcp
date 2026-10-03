@@ -57,7 +57,7 @@ export const TRACK_CHANGES_INPUT_SHAPE = {
   }).optional().prefault({}).describe("Options for how changes are tracked and compared"),
 
   monitoringOptions: z.object({
-    enabled: z.boolean().default(false),
+    enabled: z.boolean().default(true).describe("operation:\"monitor\" starts polling the URL; false stops the URL's polling monitor and starts nothing"),
     interval: z.number().min(60000).max(24 * 60 * 60 * 1000).default(300000),
     maxRetries: z.number().min(0).max(5).default(3),
     retryDelay: z.number().min(1000).max(60000).default(5000),
@@ -113,7 +113,7 @@ export const TRACK_CHANGES_INPUT_SHAPE = {
     enabled: z.boolean().default(true),
     interval: z.number().min(60000).optional().describe("Polling interval in ms (default 1h)"),
     goal: z.string().optional().describe("Plain-English alert goal; an LLM judges whether a change matches (degrades to threshold if no LLM)"),
-    monitorId: z.string().optional().describe("Monitor id for stop_scheduled_monitor"),
+    monitorId: z.string().optional().describe("Monitor id for stop_scheduled_monitor, as list_scheduled_monitors shows it (poll:<url> for a polling monitor)"),
     notificationThreshold: z.enum(['minor', 'moderate', 'major', 'critical']).optional(),
     hosted: z.boolean().default(false).describe("Run the monitor on CrawlForge's servers: it fires from the hosted scheduler whether or not this process is alive and sends email and signed webhooks. Each check bills 3 credits per compared target from the account; blocked and errored targets are free. Default false = local, in-process."),
     name: z.string().min(1).max(80).optional().describe("Display name for a hosted monitor (default: the URL host)")

@@ -58,6 +58,13 @@ async function readTextWithSizeCap(response) {
   return readBody(response, { maxBytes: maxBodySize });
 }
 
+/** The refusal for a binary response; batch_scrape gives the same one (R24 1.5). */
+export function unsupportedContentTypeError(contentType) {
+  return new Error(
+    `Unsupported content type "${contentType}" — this looks like binary content, not HTML/text. Use process_document for PDFs/documents/binary files.`
+  );
+}
+
 /**
  * Classify a Content-Type header for the purposes of HTML parsing.
  * Missing header is treated as 'html' (permissive default — many servers,
@@ -65,7 +72,7 @@ async function readTextWithSizeCap(response) {
  * @param {string|null} contentType
  * @returns {'html'|'text'|'binary'}
  */
-function classifyContentType(contentType) {
+export function classifyContentType(contentType) {
   if (!contentType) return 'html';
   const type = contentType.split(';')[0].trim().toLowerCase();
   if (
@@ -146,9 +153,7 @@ export async function fetchAndParse(url, options = {}) {
   }
 
   if (classification === 'binary') {
-    throw new Error(
-      `Unsupported content type "${contentType}" — this looks like binary content, not HTML/text. Use process_document for PDFs/documents/binary files.`
-    );
+    throw unsupportedContentTypeError(contentType);
   }
 
   const html = await readTextWithSizeCap(response);

@@ -133,3 +133,41 @@ describe('BFSCrawler — max_pages / max_depth limits', () => {
     assert.deepEqual(result.urls, [baseUrl + '/']);
   });
 });
+
+describe('BFSCrawler — stops when max_pages is spent (R24 1.2)', () => {
+  // A seed with far more links than the budget. Every waiting task used to be
+  // run to its cap check at the queue's 10-a-second release rate: 300 links
+  // held the crawl open ~30 s after the third page was fetched.
+  let hubServer;
+  let hubUrl;
+
+  before(async () => {
+    const links = Array.from({ length: 300 }, (_, i) => `<a href="/p${i}">p${i}</a>`).join('');
+    hubServer = http.createServer((req, res) => {
+      if (req.url === '/robots.txt') { res.writeHead(404); res.end(); return; }
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(req.url === '/' ? `<html><body>${links}</body></html>` : '<html><body>Leaf.</body></html>');
+    });
+    await new Promise((resolve) => hubServer.listen(0, '127.0.0.1', resolve));
+    hubUrl = `http://127.0.0.1:${hubServer.address().port}`;
+  });
+
+  after(async () => {
+    await new Promise((resolve) => hubServer.close(resolve));
+  });
+
+  test('returns right after the last budgeted fetch, with an empty and idle queue', async () => {
+    const crawler = makeCrawler({ maxDepth: 1, maxPages: 3 });
+    const started = Date.now();
+    const result = await crawler.crawl(hubUrl);
+    const elapsed = Date.now() - started;
+
+    assert.equal(result.urls.length, 3);
+    assert.equal(result.results.length, 3);
+    assert.ok(elapsed < 5000, `crawl took ${elapsed} ms for 3 pages`);
+    const { active, size, processed } = result.stats.queueStats;
+    assert.equal(active, 0, 'no task is running at return');
+    assert.equal(size, 0, 'no task is waiting at return');
+    assert.ok(processed <= 20, `ran ${processed} tasks for a 3-page budget`);
+  });
+});
