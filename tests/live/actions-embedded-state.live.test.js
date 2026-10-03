@@ -1,7 +1,8 @@
 /**
  * Live regression harness for scrape_with_actions and extract_embedded_state
  * (ACTIONS_EMBEDDED_STATE_FIX_PLAN.md, Phase 6): the 2026-09-29 review battery,
- * re-run against what Phases 0–5 fixed.
+ * re-run against what Phases 0–5 fixed; plus extract_links and extract_text
+ * (Part 2, Phase E5) against what Phases E1–E3 fixed.
  *
  * Run by hand, never in CI (it needs the network, Chromium and Camoufox):
  *
@@ -21,6 +22,17 @@
  * screenshot base64 came back inline, and for embedded state the `found`
  * names. A target that is down, slow to load, rate-limited or newly walled is
  * a SKIP, not a FAIL; only a violated assertion fails.
+ *
+ * The extract_links + extract_text cases (fix plan Phase E5) run each target
+ * through both tools on both surfaces: MCP over the same stdio client, and
+ * REST with POST ${CRAWLFORGE_REST_URL}/api/v1/tools/<tool> (default
+ * https://www.crawlforge.dev) carrying CRAWLFORGE_API_KEY from .env as a
+ * Bearer token. The REST cases spend real production credits (about 20 for
+ * the set: 1 per page, 6 per ecosia escalation, 0 for a failure), one call
+ * each and no retries, and skip when CRAWLFORGE_API_KEY is unset. Run only
+ * them with:
+ *
+ *   CRAWLFORGE_LIVE=1 node --test --test-force-exit --test-name-pattern='extract_(links|text)' tests/live/actions-embedded-state.live.test.js
  *
  * Compliance: every call takes the default robots-respecting path (bing.com's
  * /search is disallowed for CrawlForge, so that case asserts the refusal), the
@@ -55,10 +67,11 @@ let client;
 
 /**
  * One tools/call. Returns { r, text, ms, isError }; skips the test when the
- * target, not the tool, is what failed. Asserts the ceiling and the absence of
- * inline screenshot bytes on every call.
+ * target, not the tool, is what failed, unless `skipTargetFailures` is false
+ * (the extract cases judge those themselves). Asserts the ceiling and the
+ * absence of inline screenshot bytes on every call.
  */
-async function call(t, name, args, ceilingMs) {
+async function call(t, name, args, ceilingMs, { skipTargetFailures = true } = {}) {
   const started = Date.now();
   let result;
   try {
@@ -80,7 +93,7 @@ async function call(t, name, args, ceilingMs) {
   const fetchFailure = result.isError && !/robots\.txt/.test(text) && TRANSIENT.test(text);
   const pageFailure = r?.success === false &&
     (/page\.goto|net::ERR_/.test(r.error || '') || [429, 500, 502, 503, 504].includes(r.httpStatus));
-  if (fetchFailure || pageFailure) {
+  if (skipTargetFailures && (fetchFailure || pageFailure)) {
     return t.skip(`target unavailable: ${(r?.error || text).slice(0, 160)}`);
   }
 
@@ -90,6 +103,83 @@ async function call(t, name, args, ceilingMs) {
 }
 
 const foundNames = (r) => (r?.found || []).map((f) => f.name);
+
+/** The pre-fetch gate's refusals (the website's REFUSAL_CODES): compliance, not a regression. */
+const REST_REFUSALS = new Set(['ROBOTS_DISALLOWED', 'CRAWL_DELAY', 'HOST_BLOCKED', 'HOST_BACKOFF']);
+
+/** What a success carried, for the run's diagnostics. */
+const extracted = (d) =>
+  (d?.links ? `${d.links.length} links` : `${d?.text?.length ?? 0} chars`) +
+  (d?.escalated !== undefined ? `, escalated=${d.escalated}${d.stealth ? ` via ${d.stealth.engine}` : ''}` : '');
+
+/**
+ * One call to an extract tool on one surface, as { ok, data, error, vendor,
+ * refused, down } for the cases to judge: `vendor` names a wall, `refused` is
+ * a robots or gate refusal, `down` a target that timed out, could not be
+ * reached or answered 429/5xx. MCP goes over the stdio client (creator mode,
+ * no credits); REST spends production credits, one call, no retry.
+ */
+async function extractCall(t, surface, tool, args, ceilingMs) {
+  if (surface === 'MCP') {
+    const res = await call(t, tool, args, ceilingMs, { skipTargetFailures: false });
+    if (!res) return null;
+    const firstLine = res.text.split('\n')[0];
+    t.diagnostic(`MCP ${res.isError ? `error: ${firstLine.slice(0, 200)}` : `ok ${extracted(res.r)}`}, ${res.ms} ms`);
+    return {
+      ok: !res.isError,
+      data: res.r,
+      error: res.text,
+      vendor: res.r?.blocked?.vendor ?? firstLine.match(/: ([\w-]+) served a challenge page/)?.[1],
+      refused: /robots\.txt/.test(firstLine),
+      down: res.isError && TRANSIENT.test(firstLine) && !/served a challenge page/.test(firstLine)
+    };
+  }
+
+  if (!process.env.CRAWLFORGE_API_KEY) return t.skip('CRAWLFORGE_API_KEY not set: no REST call');
+  const started = Date.now();
+  let response;
+  try {
+    // Read here, not at load: `before` loads .env.
+    const restUrl = process.env.CRAWLFORGE_REST_URL ?? 'https://www.crawlforge.dev';
+    response = await fetch(`${restUrl}/api/v1/tools/${tool}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.CRAWLFORGE_API_KEY}` },
+      body: JSON.stringify(args),
+      signal: AbortSignal.timeout(ceilingMs + 60000)
+    });
+  } catch (error) {
+    return t.skip(`REST unreachable: ${error.message.slice(0, 160)}`);
+  }
+  const body = await response.json().catch(() => ({}));
+  const ms = Date.now() - started;
+  const code = body.error?.code;
+  t.diagnostic(
+    `REST ${response.status}${code ? ` ${code}: ${body.error.message?.slice(0, 160)}` : ` ${extracted(body.data)}`}` +
+    `${body.blocked ? ` blocked.vendor=${body.blocked.vendor}` : ''}, ${body.credits_used ?? 0} credits, ${ms} ms`
+  );
+  assert.ok(ms <= ceilingMs, `took ${ms} ms, ceiling ${ceilingMs} ms`);
+  return {
+    ok: response.status === 200 && body.success === true,
+    data: body.data,
+    error: `HTTP ${response.status} ${code}: ${body.error?.message}`,
+    status: response.status,
+    code,
+    vendor: body.blocked?.vendor,
+    refused: REST_REFUSALS.has(code),
+    down: code === 'FETCH_FAILED' || code === 'FETCH_TIMEOUT' ||
+      (code === 'UPSTREAM_HTTP' && [429, 500, 502, 503, 504].includes(response.status))
+  };
+}
+
+/** A success holds what the tool extracts: at least `minLinks` links, or text. */
+function assertExtracted(tool, data, minLinks = 1) {
+  if (tool === 'extract_links') {
+    assert.ok(Array.isArray(data?.links), 'no links array');
+    assert.ok(data.links.length >= minLinks, `${data.links.length} links`);
+  } else {
+    assert.ok(data?.text?.trim().length > 0, 'no text');
+  }
+}
 
 describe('scrape_with_actions + extract_embedded_state, live', { skip: LIVE ? false : 'set CRAWLFORGE_LIVE=1 to run' }, () => {
   before(async () => {
@@ -359,5 +449,72 @@ describe('scrape_with_actions + extract_embedded_state, live', { skip: LIVE ? fa
       for (const name of ['yt_initial_data', 'yt_initial_player_response']) assert.ok(names.includes(name), `found: ${names.join(', ')}`);
       assert.match(res.r.data, /Never Gonna Give You Up/);
     });
+  });
+
+  describe('extract_links + extract_text, MCP and REST (Phase E5)', () => {
+    // An httpstat.us instance (robots.txt 404) that holds the response for
+    // `sleep` ms, up to 30 s. httpbin's /delay stops at 10 s, inside the 15 s
+    // ladder timeout since Phase E2, so it no longer times out.
+    const SLOW_URL = 'https://tools-httpstatus.pickup-services.com/200?sleep=25000';
+    const PDF_URL = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
+
+    /** A page the plain fetch reads: down, refused or newly walled is a skip. */
+    const expectPage = (minLinks) => (tool) => (t, o) => {
+      if (!o.ok && (o.refused || o.down || o.vendor)) return t.skip(`target unavailable: ${o.error.slice(0, 160)}`);
+      assert.ok(o.ok, o.error);
+      assertExtracted(tool, o.data, minLinks);
+    };
+
+    const CASES = [
+      // example.com's page has had no <a> since 2026-10 at the latest: an
+      // empty links array is the right answer there.
+      ['example.com', { url: 'https://example.com/' }, 30000, expectPage(0)],
+      ['wikipedia', { url: 'https://en.wikipedia.org/wiki/Web_scraping' }, 30000, expectPage(1)],
+      ['bbc news', { url: 'https://www.bbc.com/news' }, 30000, expectPage(1)],
+      // walmart answered this network a 444 F5 page before (E1) and a 200
+      // since, so the block is never required: content, or a named wall.
+      ['walmart: content or a named block', { url: 'https://www.walmart.com/' }, 30000, (tool) => (t, o) => {
+        if (o.ok) return assertExtracted(tool, o.data);
+        if (o.vendor) return t.diagnostic(`named block: ${o.vendor}`);
+        if (o.refused || o.down) return t.skip(`target unavailable: ${o.error.slice(0, 160)}`);
+        assert.fail(`neither content nor a named block: ${o.error.slice(0, 300)}`);
+      }],
+      ['ecosia escalate:true returns the page', { url: 'https://www.ecosia.org/', escalate: true }, 60000, (tool) => (t, o) => {
+        if (!o.ok && (o.refused || o.down || o.vendor)) return t.skip(`still walled or down after escalation: ${o.error.slice(0, 160)}`);
+        assert.ok(o.ok, o.error);
+        assertExtracted(tool, o.data);
+        assert.equal(typeof o.data.escalated, 'boolean', 'a caller who asked to escalate is told whether it ran');
+      }],
+      ['a PDF is UNSUPPORTED_CONTENT_TYPE', { url: PDF_URL }, 30000, () => (t, o, surface) => {
+        if (o.refused || o.down) return t.skip(`target unavailable: ${o.error.slice(0, 160)}`);
+        assert.equal(o.ok, false);
+        assert.match(o.error, /UNSUPPORTED_CONTENT_TYPE/);
+        if (surface === 'REST') assert.equal(o.status, 415);
+      }],
+      ['a slow host times out at 15 s', { url: SLOW_URL }, 40000, () => (t, o, surface) => {
+        if (o.refused) return t.skip(o.error.slice(0, 160));
+        assert.equal(o.ok, false, 'the host answered inside the 15 s timeout');
+        if (surface === 'REST') {
+          if (o.code !== 'FETCH_TIMEOUT' && o.down) return t.skip(`target unavailable: ${o.error.slice(0, 160)}`);
+          assert.equal(o.status, 504, o.error);
+          assert.equal(o.code, 'FETCH_TIMEOUT');
+        } else {
+          if (!/timeout/i.test(o.error) && o.down) return t.skip(`target unavailable: ${o.error.slice(0, 160)}`);
+          assert.match(o.error, /Request timeout after 15000ms/);
+        }
+      }]
+    ];
+
+    for (const [label, args, ceilingMs, judge] of CASES) {
+      for (const tool of ['extract_links', 'extract_text']) {
+        for (const surface of ['MCP', 'REST']) {
+          test(`${tool} ${label} (${surface})`, async (t) => {
+            const o = await extractCall(t, surface, tool, args, ceilingMs);
+            if (!o) return;
+            judge(tool)(t, o, surface);
+          });
+        }
+      }
+    }
   });
 });

@@ -17,6 +17,10 @@ Requires `crawlforge-extractors` ^1.14.0.
   and applies wherever the server reads a verdict. The response's Akamai
   `server-timing` header is on walmart's normal pages too (Akamai is its CDN),
   so the page, not the header, names the blocker.
+- **`extract_text`/`extract_links` say why a target could not be reached.**
+  A DNS failure, refused or reset connection came back as a bare
+  `fetch failed`; it is now `Could not reach <url> (<reason>)`, e.g.
+  `(getaddrinfo ENOTFOUND …)`, matching the REST routes' `FETCH_FAILED`.
 
 ## [6.18.0] - 2026-10-03
 

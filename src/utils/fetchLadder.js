@@ -92,17 +92,32 @@ function retryAfterMs(response) {
 }
 
 /**
+ * fetchWithTimeout, with undici's bare "fetch failed" (DNS, refused, reset)
+ * given the URL and the reason it keeps in `cause`, as the REST route's
+ * FETCH_FAILED "Could not reach <url>" does.
+ */
+async function fetchOnce(url, options) {
+  try {
+    return await fetchWithTimeout(url, options);
+  } catch (error) {
+    if (!(error instanceof TypeError) || error.message !== 'fetch failed') throw error;
+    const reason = error.cause?.message || error.cause?.code;
+    throw new Error(`Could not reach ${url}${reason ? ` (${reason})` : ''}`, { cause: error });
+  }
+}
+
+/**
  * The plain fetch, retried once on a 429/503 whose Retry-After is at most
  * RETRY_AFTER_MAX_MS. fetchWithTimeout has already recorded the Retry-After
  * (noteRetryAfter), and the second request's gate waits it out in the
  * per-host throttle — so the wait happens once, there.
  */
 async function plainFetch(url, options) {
-  const response = await fetchWithTimeout(url, options);
+  const response = await fetchOnce(url, options);
   if (response.status !== 429 && response.status !== 503) return response;
   const waitMs = retryAfterMs(response);
   if (waitMs === null || waitMs > RETRY_AFTER_MAX_MS) return response;
-  return fetchWithTimeout(url, options);
+  return fetchOnce(url, options);
 }
 
 /**
