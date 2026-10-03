@@ -687,6 +687,12 @@ class AuthManager {
       return costs.extract_embedded_state + scrapeEscalationSurcharge(params?.escalate) + redaction;
     }
 
+    // extract_text and extract_links (fix plan Phase E2) run the same ladder:
+    // projected 1+5 when escalating, charged 1 when the plain fetch sufficed.
+    if (tool === 'extract_text' || tool === 'extract_links') {
+      return costs[tool] + scrapeEscalationSurcharge(params?.escalate) + redaction;
+    }
+
     // search_web's batch form (5.1) runs one backend search per query, so it
     // is priced as that many search_web calls. The count rule lives with the
     // schema that declares `queries` (src/tools/search/batchSearch.js).
@@ -776,6 +782,12 @@ class AuthManager {
       case 'extract_embedded_state':
         note = params?.escalate === true
           ? 'Base 2; escalate:true adds 5 for the stealth browser it may need - the projection is the ceiling, and the actual charge drops back to 2 when the plain fetch succeeded and no escalation ran.'
+          : 'Fixed cost per invocation.';
+        break;
+      case 'extract_text':
+      case 'extract_links':
+        note = params?.escalate === true
+          ? 'Base 1; escalate:true adds 5 for the stealth browser it may need - the projection is the ceiling, and the actual charge drops back to 1 when the plain fetch succeeded and no escalation ran.'
           : 'Fixed cost per invocation.';
         break;
       case 'agent': {

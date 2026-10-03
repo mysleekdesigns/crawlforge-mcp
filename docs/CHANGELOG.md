@@ -37,6 +37,29 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
 
 ### Added
 
+- **`extract_text` and `extract_links` take `escalate` and `escalate_engine`
+  (fix plan Phase E2).** They run `scrape`'s fetch ladder through one helper,
+  `src/utils/fetchLadder.js`: the plain fetch first, and with `escalate:true`,
+  only when it is walled (a named vendor, 403, 429, 444, or a 2xx that is not
+  the page), the same stealth stage `scrape` runs — impit under `auto`, then
+  the browser, behind the same compliance gate. A 404 or 5xx never escalates.
+  Projected 1+5, charged 1 when the plain fetch worked; the result carries
+  `escalated`, `stealth` and `warnings` as `scrape` does. Also on both tools:
+  - a 2xx PDF, image, archive or other binary fails with
+    `UNSUPPORTED_CONTENT_TYPE` and a `Next step:` naming `process_document`,
+    without escalating;
+  - `application/json` comes back as the body (`extract_text`) or as no
+    links (`extract_links`), with a warning saying so;
+  - the fetch timeout is 15 s (other basic tools keep 10 s), and a 429/503
+    whose `Retry-After` is at most 10 s is waited out in the per-host
+    throttle and retried once; while a host's Retry-After is still open
+    (over 10 s, or repeated on the retry) the call fails with the 429 and
+    does not escalate;
+  - an empty client-rendered shell (under 200 characters of text and an
+    either an empty `#root`, `#app` or `#__next` or text saying the page
+    needs JavaScript) succeeds with `rendered: false` and
+    the warning `page renders client-side; use scrape`.
+  The `Next step:` hint now names the tool's own `escalate:true` first.
 - **`tests/live/actions-embedded-state.live.test.js`**, the live regression
   harness for `scrape_with_actions` and `extract_embedded_state` (fix plan
   Phase 6): 24 cases over real MCP stdio, run by hand with

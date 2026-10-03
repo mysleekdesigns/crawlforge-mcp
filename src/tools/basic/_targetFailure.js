@@ -17,28 +17,38 @@ import { pageTitle } from '../../utils/pageTitle.js';
 const TEXTUAL_BODY = /^(?:text\/(?:html|plain)|application\/xhtml\+xml)\b/i;
 
 /**
+ * The plain fetch's verdict on a document, or null for a body a verdict
+ * cannot be read from (a binary, JSON). The fetch ladder reads it to decide
+ * whether escalation could help (src/utils/fetchLadder.js).
  * @param {Response & { _body: string }} response - from fetchWithTimeout
  * @param {string} url - the requested URL
+ */
+export function plainVerdict(response, url) {
+  const contentType = response.headers?.get?.('content-type');
+  if (contentType && !TEXTUAL_BODY.test(contentType)) return null;
+  // A parse of its own, scripts and styles removed, so the handler's
+  // document stays intact.
+  const $ = load(response._body ?? '');
+  $('script, style, noscript').remove();
+  return stealthDocumentVerdict(
+    {
+      url: response.url || url,
+      status: response.status,
+      title: pageTitle($),
+      text: $('body').text().replace(/\s+/g, ' ').trim(),
+      html: response._body
+    },
+    { fetcher: 'a plain fetch', rendered: false, contentReturned: false }
+  );
+}
+
+/**
+ * @param {Response & { _body: string }} response - from fetchWithTimeout
+ * @param {string} url - the requested URL
+ * @param {object|null} [verdict] - plainVerdict's, when the caller already has it
  * @returns {string|null} the error message, or null when the document is usable
  */
-export function targetFailure(response, url) {
-  const contentType = response.headers?.get?.('content-type');
-  if (!contentType || TEXTUAL_BODY.test(contentType)) {
-    // A parse of its own, scripts and styles removed, so the handler's
-    // document stays intact.
-    const $ = load(response._body ?? '');
-    $('script, style, noscript').remove();
-    const verdict = stealthDocumentVerdict(
-      {
-        url: response.url || url,
-        status: response.status,
-        title: pageTitle($),
-        text: $('body').text().replace(/\s+/g, ' ').trim(),
-        html: response._body
-      },
-      { fetcher: 'a plain fetch', rendered: false, contentReturned: false }
-    );
-    if (verdict.blocked) return `Target answered HTTP ${response.status}: ${verdict.error}`;
-  }
+export function targetFailure(response, url, verdict = plainVerdict(response, url)) {
+  if (verdict?.blocked) return `Target answered HTTP ${response.status}: ${verdict.error}`;
   return response.ok ? null : `Target answered HTTP ${response.status}`;
 }
