@@ -5,7 +5,17 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
-Requires `crawlforge-extractors` ^1.15.0.
+## [6.18.1] - 2026-10-03
+
+Fixes from the live test of 2026-10-03 (fix plan Phase 1): one crash, several
+silent failures and wrong data returned as success, across `crawl_deep`,
+`map_site`, `batch_scrape`, `browser_session`, `scrape_with_actions`,
+`scrape`, `track_changes` and `agent`. Requires `crawlforge-extractors`
+^1.15.0.
+
+**Upgrade note:** `crawl_deep` `pages_crawled` now counts fetched pages only
+(failed URLs are in `error_count`, the total in `pages_attempted`), and
+`track_changes` `monitoringOptions.enabled:false` no longer starts a monitor.
 
 ### Changed
 
