@@ -48,7 +48,7 @@ describe('A1.1 extract_links filter_external', () => {
       assert.ok(Array.isArray(payload.links));
       assert.ok(payload.links.length > 0, 'should return external links');
       for (const l of payload.links) {
-        assert.equal(l.is_external, true, `expected external link, got ${l.href}`);
+        assert.equal(l.type, 'external', `expected external link, got ${l.href}`);
       }
       const hosts = payload.links.map(l => new URL(l.href).host);
       assert.ok(hosts.includes('other.com'));

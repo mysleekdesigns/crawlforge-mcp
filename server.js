@@ -440,13 +440,15 @@ registerToolIfEnabled("fetch_url", {
 
 // Tool: extract_text
 registerToolIfEnabled("extract_text", {
-  description: "Use this for a page's plain text or markdown with tags, scripts and styles removed - the cheapest read of a static HTML page. Use output_format:\"markdown\" for RAG. Not for article pages (extract_content strips nav and boilerplate), JS-rendered pages (scrape), or when you also want links or metadata (scrape with several formats, one fetch). A PDF or other binary is refused (process_document reads documents); an empty client-rendered shell succeeds with rendered:false and a warning. Set escalate:true when the site is known to block: the plain fetch still runs first, and only if it is walled does the stealth browser re-read the page - projected at 6, charged 1 when the plain fetch worked. Cost: 1 credit. Example: extract_text({url: \"https://example.com/article\", output_format:\"markdown\"})",
+  description: "Use this for a page's plain text or markdown with tags, scripts and styles removed - the cheapest read of a static HTML page. Use output_format:\"markdown\" for RAG; selector reads only the matched elements, max_length caps the returned text. Not for article pages (extract_content strips nav and boilerplate), JS-rendered pages (scrape), or when you also want links or metadata (scrape with several formats, one fetch). A PDF or other binary is refused (process_document reads documents); an empty client-rendered shell succeeds with rendered:false and a warning. Set escalate:true when the site is known to block: the plain fetch still runs first, and only if it is walled does the stealth browser re-read the page - projected at 6, charged 1 when the plain fetch worked. Cost: 1 credit. Example: extract_text({url: \"https://example.com/article\", output_format:\"markdown\"})",
   annotations: { title: "Extract Text", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to extract text from"),
     remove_scripts: z.boolean().optional().default(true).describe("Remove script tags before extraction"),
     remove_styles: z.boolean().optional().default(true).describe("Remove style tags before extraction"),
     output_format: z.enum(["text", "markdown"]).optional().default("text").describe("Output format: \"text\" (default) or \"markdown\" — use markdown for RAG workflows"),
+    selector: z.string().optional().describe("CSS selector: read only the matched elements (nav/header/footer are then kept). No match is an error"),
+    max_length: z.number().int().min(1).max(1000000).optional().describe("Maximum characters of text or markdown to return; a longer result is cut and ends with \"...\""),
     ...EXTRACT_ESCALATION_SHAPE,
     ...COMPLIANCE_PARAMS,
     ...REDACT_PII_PARAM
@@ -457,11 +459,11 @@ registerToolIfEnabled("extract_text", {
 
 // Tool: extract_links
 registerToolIfEnabled("extract_links", {
-  description: "Use this to list the hyperlinks on one page - a crawl seed list, a broken-link audit, related resources. filter_external:true returns only outbound links. Not for a whole site (map_site), and not alongside a scrape of the same URL: scrape formats:[\"markdown\",\"links\"] returns both in one fetch. A PDF or other binary is refused (process_document reads documents); an empty client-rendered shell succeeds with rendered:false and a warning. Set escalate:true when the site is known to block: the plain fetch still runs first, and only if it is walled does the stealth browser re-read the page - projected at 6, charged 1 when the plain fetch worked. Cost: 1 credit. Example: extract_links({url: \"https://example.com\", filter_external: true})",
+  description: "Use this to list the hyperlinks on one page - a crawl seed list, a broken-link audit, related resources. filter_external:true drops internal links; mailto:, tel: and javascript: links are type \"other\". Not for a whole site (map_site), and not alongside a scrape of the same URL: scrape formats:[\"markdown\",\"links\"] returns both in one fetch. A PDF or other binary is refused (process_document reads documents); an empty client-rendered shell succeeds with rendered:false and a warning. Set escalate:true when the site is known to block: the plain fetch still runs first, and only if it is walled does the stealth browser re-read the page - projected at 6, charged 1 when the plain fetch worked. Cost: 1 credit. Example: extract_links({url: \"https://example.com\", filter_external: true})",
   annotations: { title: "Extract Links", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to extract links from"),
-    filter_external: z.boolean().optional().default(false).describe("Only return external links"),
+    filter_external: z.boolean().optional().default(false).describe("Drop internal (same-host) links"),
     base_url: z.string().url().optional().describe("Base URL for resolving relative links"),
     ...EXTRACT_ESCALATION_SHAPE,
     ...COMPLIANCE_PARAMS

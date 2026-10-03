@@ -34,8 +34,12 @@ your provider).
 | `remove_scripts` | boolean | `true` | Strip `script` tags. |
 | `remove_styles` | boolean | `true` | Strip `style` tags. |
 | `output_format` | enum | `text` | `text` or `markdown` (use markdown for RAG). |
+| `selector` | string | — | CSS selector: read only the matched elements (nav/header/footer inside them are kept). No match is an error: `No elements found for selector: <sel>`. |
+| `max_length` | integer | — | 1–1,000,000. Text or markdown longer than this is cut and ends with `...`; `word_count`/`char_count` count the cut result. |
 | `escalate` | boolean | `false` | When the plain fetch is blocked (403/429/444/challenge page/empty shell), re-read the page once in the stealth browser (impit first under `auto`). A 404 or 5xx never escalates. Projected 6, charged 1 when the plain fetch worked. |
 | `escalate_engine` | enum | `auto` | `auto`, `playwright` (Chromium) or `camoufox`. |
+
+Text mode returns one line per block element (`<h1>Hi</h1><p>there</p>` reads `Hi\nthere`). The REST route (`/api/v1/tools/extract_text`) takes the same parameters plus `preserve_links` and `preserve_formatting`, which the MCP tool does not.
 
 A PDF or other binary body fails with `UNSUPPORTED_CONTENT_TYPE` (use `process_document`). An empty client-rendered shell succeeds with `rendered:false` and the warning `page renders client-side; use scrape`.
 
@@ -44,10 +48,12 @@ A PDF or other binary body fails with `UNSUPPORTED_CONTENT_TYPE` (use `process_d
 | Param | Type | Default | Notes |
 |-------|------|---------|-------|
 | `url` | string (URL) | — | Required. |
-| `filter_external` | boolean | `false` | Only return outbound links. |
-| `base_url` | string (URL) | — | Resolve relative links against this. |
+| `filter_external` | boolean | `false` | Drop internal (same-host) links; external and `other` links stay. |
+| `base_url` | string (URL) | — | Resolve relative links against this. Without it, the page's `<base href>`, else the page URL. |
 | `escalate` | boolean | `false` | When the plain fetch is blocked (403/429/444/challenge page/empty shell), re-read the page once in the stealth browser (impit first under `auto`). A 404 or 5xx never escalates. Projected 6, charged 1 when the plain fetch worked. |
 | `escalate_engine` | enum | `auto` | `auto`, `playwright` (Chromium) or `camoufox`. |
+
+Each link is `{ href, text, type, domain, rel, original_href }` (plus `title` when the link has one). `type` is `internal` (same host as the page), `external` or `other` (`mailto:`, `tel:`, `javascript:` and other non-web schemes; only `mailto:`/`tel:` keep an `href`, the rest are `null`). `#fragment`-only links are skipped, and links are deduplicated on the URL without its fragment or trailing slash. Counts: `total_count`, `internal_count`, `external_count`, `other_count`. The REST route returns the same records.
 
 A PDF or other binary body fails with `UNSUPPORTED_CONTENT_TYPE` (use `process_document`). An empty client-rendered shell succeeds with `rendered:false` and the warning `page renders client-side; use scrape`.
 

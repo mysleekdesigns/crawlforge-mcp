@@ -270,10 +270,14 @@ describe('G2/G3: extract_links and crawl_deep page content', () => {
   });
   after(() => server.close());
 
-  test('G2: a javascript: href is not a link, external or otherwise', async () => {
+  test('G2: a javascript: href is not an external link (E3: it is type "other", href null)', async () => {
     const result = JSON.parse((await extractLinksHandler({ url: `${baseUrl}/commercial`, filter_external: true })).content[0].text);
-    assert.deepEqual(result.links.map((l) => l.href), ['https://services.example/parts']);
+    assert.deepEqual(result.links.filter((l) => l.type === 'external').map((l) => l.href), ['https://services.example/parts']);
     assert.equal(result.external_count, 1);
+    const pseudo = result.links.find((l) => l.text === 'Cookie Settings');
+    assert.equal(pseudo.type, 'other');
+    assert.equal(pseudo.href, null);
+    assert.equal(result.other_count, 1);
   });
 
   test('G3: BFSCrawler content is the main region, not the site chrome', () => {

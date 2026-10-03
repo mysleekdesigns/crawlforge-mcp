@@ -89,3 +89,89 @@ describe('extractText noscript stripping (tag-leak regression)', () => {
     }
   });
 });
+
+// ── E3: the shared flattener, selector and max_length ───────────────────────
+
+async function extract(html, params = {}) {
+  const restore = mockFetch(html, 'https://example.com/page');
+  try {
+    return await extractTextHandler({ url: 'https://example.com/page', ...params });
+  } finally {
+    restore();
+  }
+}
+
+const parse = (res) => {
+  assert.ok(!res.isError, `unexpected error: ${res.content[0]?.text}`);
+  return JSON.parse(res.content[0].text);
+};
+
+const CHROME_HTML = `<html><body>
+<nav>Menu</nav>
+<article><h2>Title</h2><p>First paragraph.</p></article>
+<div class="note"><p>Aside note.</p></div>
+<footer>Footer text</footer>
+</body></html>`;
+
+describe('extractText E3 (flattenText, selector, max_length)', () => {
+  test('adjacent blocks are one line each: <h1>Hi</h1><p>there</p> reads "Hi\\nthere"', async () => {
+    const payload = parse(await extract('<html><body><h1>Hi</h1><p>there</p></body></html>'));
+    assert.equal(payload.text, 'Hi\nthere');
+    assert.equal(payload.word_count, 2);
+    assert.equal(payload.char_count, 8);
+  });
+
+  test('selector reads only the matched elements and keeps chrome inside them', async () => {
+    const payload = parse(await extract(CHROME_HTML, { selector: 'article, footer' }));
+    assert.equal(payload.text, 'Title\nFirst paragraph.\nFooter text');
+  });
+
+  test('selector with markdown converts the matched elements, not the Readability article', async () => {
+    const payload = parse(await extract(CHROME_HTML, { selector: '.note', output_format: 'markdown' }));
+    assert.equal(payload.markdown.trim(), 'Aside note.');
+  });
+
+  test('a selector that matches nothing is an error naming it', async () => {
+    const res = await extract(CHROME_HTML, { selector: '.missing' });
+    assert.equal(res.isError, true);
+    assert.match(res.content[0].text, /No elements found for selector: \.missing/);
+  });
+
+  test('without a selector, nav and footer are still stripped', async () => {
+    const payload = parse(await extract(CHROME_HTML));
+    assert.equal(payload.text, 'Title\nFirst paragraph.\nAside note.');
+  });
+
+  test('max_length cuts the text, appends "..." and counts after the cut', async () => {
+    const payload = parse(await extract('<html><body><p>abcdefghij klmnop</p></body></html>', { max_length: 5 }));
+    assert.equal(payload.text, 'abcde...');
+    assert.equal(payload.char_count, 8);
+    assert.equal(payload.word_count, 1);
+  });
+
+  test('max_length cuts markdown too', async () => {
+    const payload = parse(await extract(CHROME_HTML, { selector: 'article', output_format: 'markdown', max_length: 4 }));
+    assert.equal(payload.markdown, '## T...');
+  });
+
+  test('max_length cuts a JSON body too', async () => {
+    const orig = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      ok: true, status: 200, statusText: 'OK', url: 'https://example.com/api',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: async () => '{"items":[1,2,3]}'
+    });
+    try {
+      const payload = parse(await extractTextHandler({ url: 'https://example.com/api', max_length: 9 }));
+      assert.equal(payload.text, '{"items":...');
+      assert.equal(payload.char_count, 12);
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+
+  test('max_length longer than the text leaves it whole', async () => {
+    const payload = parse(await extract('<html><body><p>short</p></body></html>', { max_length: 100 }));
+    assert.equal(payload.text, 'short');
+  });
+});

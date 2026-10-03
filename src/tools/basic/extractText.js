@@ -3,9 +3,12 @@
  * Extracted from server.js inline handler.
  * D3.1: Added output_format:"markdown" option backed by Turndown.
  * B1: Preserve block structure for text mode; use Readability + GFM for markdown mode.
+ * E3: Text mode reads through crawlforge-extractors' flattenText, as the REST
+ * route does; `selector` and `max_length` take the REST route's meaning.
  */
 
 import { load } from 'cheerio';
+import { flattenText } from 'crawlforge-extractors';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import { fetchLadder, ladderErrorResult, isJsonType } from '../../utils/fetchLadder.js';
@@ -74,12 +77,23 @@ export function readabilityToMarkdown(html, pageUrl) {
 }
 
 /**
+ * Cut text to max_length characters and mark the cut with '...' (the REST rule).
+ * @param {string} text
+ * @param {number} [maxLength]
+ * @returns {string}
+ */
+function truncate(text, maxLength) {
+  return maxLength && text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+}
+
+/**
  * @param {{ url: string, remove_scripts?: boolean, remove_styles?: boolean,
- *   output_format?: "text"|"markdown", user_agent?: string, respect_robots?: boolean,
+ *   output_format?: "text"|"markdown", selector?: string, max_length?: number,
+ *   user_agent?: string, respect_robots?: boolean,
  *   escalate?: boolean, escalate_engine?: string }} params
  * @param {Function} [escalateFetch] the stealth escalation stage
  */
-async function extractText({ url, remove_scripts, remove_styles, output_format, user_agent, respect_robots, escalate, escalate_engine }, escalateFetch) {
+async function extractText({ url, remove_scripts, remove_styles, output_format, selector, max_length, user_agent, respect_robots, escalate, escalate_engine }, escalateFetch) {
   try {
     const ladder = await fetchLadder(url, {
       tool: 'extract_text',
@@ -98,7 +112,7 @@ async function extractText({ url, remove_scripts, remove_styles, output_format, 
 
     // A JSON body has no markup to strip: it is returned as it came.
     if (isJsonType(ladder.type)) {
-      const body = ladder.html;
+      const body = truncate(ladder.html, max_length);
       const format = output_format === 'markdown' ? 'markdown' : 'text';
       return {
         content: [{
@@ -129,21 +143,32 @@ async function extractText({ url, remove_scripts, remove_styles, output_format, 
     // enabled never render noscript content, so always strip it.
     $('noscript').remove();
 
-    $('nav, header, footer, aside, .advertisement, .ad, .sidebar').remove();
+    // A selector names the content, so the boilerplate strip is skipped.
+    let $target;
+    if (selector) {
+      $target = $(selector);
+      if ($target.length === 0) throw new Error(`No elements found for selector: ${selector}`);
+    } else {
+      $('nav, header, footer, aside, .advertisement, .ad, .sidebar').remove();
+    }
 
     const result = {
       url: ladder.url
     };
 
     if (output_format === 'markdown') {
-      // Run Readability first to get main content, then convert to GFM markdown
-      result.markdown = readabilityToMarkdown(html, ladder.url);
+      // Run Readability first to get main content, then convert to GFM markdown;
+      // a selector's matches are converted as they are.
+      const markdown = $target
+        ? htmlToMarkdown($target.toArray().map(el => $.html(el)).join('\n'))
+        : readabilityToMarkdown(html, ladder.url);
+      result.markdown = truncate(markdown, max_length);
       result.output_format = 'markdown';
       const plainText = result.markdown.replace(/[#*`_\[\]]/g, '').replace(/\s+/g, ' ').trim();
       result.word_count = plainText.split(/\s+/).filter(w => w.length > 0).length;
       result.char_count = plainText.length;
     } else {
-      const text = extractBlockText($);
+      const text = truncate(flattenText($, $target), max_length);
       result.text = text;
       result.output_format = 'text';
       result.word_count = text.split(/\s+/).filter(w => w.length > 0).length;

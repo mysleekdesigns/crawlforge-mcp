@@ -64,6 +64,34 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
   harness for `scrape_with_actions` and `extract_embedded_state` (fix plan
   Phase 6): 24 cases over real MCP stdio, run by hand with
   `CRAWLFORGE_LIVE=1`, skipped otherwise and outside CI's `tests/unit`.
+- **`extract_text` takes `selector` and `max_length` (fix plan Phase E3)**,
+  as the REST route does. `selector` reads only the matched elements, skips
+  the nav/header/footer/aside strip (the caller named the content) and, with
+  `output_format:"markdown"`, converts the matches without Readability; no
+  match fails with `No elements found for selector: <sel>`. `max_length`
+  (1–1,000,000) cuts the text, markdown or JSON body and appends `...`;
+  `word_count` and `char_count` count the cut result.
+
+### Changed
+
+- **`extract_text` text mode is one line per block element (fix plan Phase
+  E3).** It reads through `flattenText` from `crawlforge-extractors`, the
+  flattener `_fetchAndParse.js` used (`flattenBodyText`, now a re-export of
+  it) and the REST route now shares: blocks were separated by a blank line
+  and are now separated by one newline, and table cells on a row are joined
+  by a space. `<h1>Hi</h1><p>there</p>` reads `Hi\nthere` on both surfaces.
+  `scrape`'s `text` format is unchanged.
+- **`extract_links` returns the link record the REST route returns (fix plan
+  Phase E3)**, read by `extractLinkRecords` from `crawlforge-extractors`:
+  `{ href, text, type, domain, rel, original_href }` plus `title` when the
+  link has one. `is_external` is gone; `type` is `internal`, `external` or
+  `other`. `mailto:` and `tel:` links, counted as external before, are
+  `other`; a `javascript:` link, dropped before, is an `other` record with
+  `href: null`. Internal now means the same hostname as the page (it was the
+  same origin, so another scheme or port on the host counted as external).
+  Links are deduplicated on the URL without its fragment or trailing slash,
+  keeping the first. `other_count` joins the counts, and `filter_external`
+  drops only internal records.
 
 ## [6.17.1] - 2026-10-03
 

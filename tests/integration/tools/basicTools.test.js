@@ -222,7 +222,7 @@ test('extractLinksHandler: filter_external:true returns only external links', as
     const parsed = JSON.parse(result.content[0].text);
     // Phase A (A1.1): filter_external:true keeps ONLY external links
     assert.ok(parsed.links.length > 0, 'should return external links');
-    assert.ok(parsed.links.every(l => l.is_external), 'all links should be external when filter_external is true');
+    assert.ok(parsed.links.every(l => l.type !== 'internal'), 'no internal link should remain when filter_external is true');
   } finally {
     restoreFetch();
   }
