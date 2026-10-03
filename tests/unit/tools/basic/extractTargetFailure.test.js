@@ -3,7 +3,8 @@
  * Phase E1): a named vendor's wall on any status fails naming the vendor and
  * the status, any other non-2xx fails as "Target answered HTTP <n>", and a
  * 200 page extracts as before. The wall bodies are the shared fixtures the
- * scrape verdict tests use.
+ * scrape verdict tests use. A target that never answers (a timeout, an
+ * unreachable host) fails saying which and why (Phase E5).
  *
  * Mocks globalThis.fetch (no live network); robots.txt answers 404.
  *
@@ -17,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 const { extractLinksHandler } = await import('../../../../src/tools/basic/extractLinks.js');
 const { extractTextHandler } = await import('../../../../src/tools/basic/extractText.js');
+const { LADDER_TIMEOUT_MS } = await import('../../../../src/utils/fetchLadder.js');
 
 const FIXTURES = fileURLToPath(new URL('../../../fixtures/blocked/', import.meta.url));
 const CLOUDFLARE = readFileSync(`${FIXTURES}cloudflare.html`, 'utf8');
@@ -111,6 +113,62 @@ for (const [tool, handler, prefix] of HANDLERS) {
     test('an empty shell on a 200 is not raised', async () => {
       const res = await call(handler, 200, EMPTY_SHELL);
       assert.equal(res.isError, undefined, res.content[0].text);
+    });
+  });
+}
+
+/** Robots.txt answers 404; the page request goes to `page(init)`. */
+function mockPageFetch(page) {
+  const orig = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input?.url ?? input);
+    if (url.endsWith('/robots.txt')) {
+      return { ok: false, status: 404, statusText: 'Not Found', url, headers: new Headers(), text: async () => '' };
+    }
+    return page(init);
+  };
+  return () => { globalThis.fetch = orig; };
+}
+
+for (const [tool, handler, prefix] of HANDLERS) {
+  describe(`${tool}: a target that never answers`, () => {
+    test('a fetch held past the 15 s timeout fails naming the timeout', async (t) => {
+      t.mock.timers.enable({ apis: ['setTimeout'] });
+      let requested;
+      const pageRequested = new Promise((resolve) => { requested = resolve; });
+      // What undici does when the signal fires: reject with an AbortError.
+      const restore = mockPageFetch((init) => new Promise((_, reject) => {
+        requested();
+        init.signal.addEventListener('abort', () => reject(new DOMException('This operation was aborted', 'AbortError')));
+      }));
+      try {
+        const pending = handler({ url: nextUrl() });
+        await pageRequested;
+        t.mock.timers.tick(LADDER_TIMEOUT_MS);
+        const res = await pending;
+        assert.equal(res.isError, true);
+        assert.equal(res.content[0].text, `${prefix}Request timeout after ${LADDER_TIMEOUT_MS}ms`);
+      } finally {
+        restore();
+      }
+    });
+
+    test('an unreachable host fails naming the URL and the cause', async () => {
+      const url = nextUrl();
+      const host = new URL(url).hostname;
+      // undici's shape: a bare "fetch failed" with the reason in `cause`.
+      const restore = mockPageFetch(async () => {
+        throw new TypeError('fetch failed', {
+          cause: Object.assign(new Error(`getaddrinfo ENOTFOUND ${host}`), { code: 'ENOTFOUND' })
+        });
+      });
+      try {
+        const res = await handler({ url });
+        assert.equal(res.isError, true);
+        assert.equal(res.content[0].text, `${prefix}Could not reach ${url} (getaddrinfo ENOTFOUND ${host})`);
+      } finally {
+        restore();
+      }
     });
   });
 }
