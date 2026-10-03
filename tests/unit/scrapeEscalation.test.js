@@ -183,6 +183,26 @@ describe('a blocked page with escalate:true runs the stealth stage and returns i
     assert.ok(result.warnings.some((w) => /blocked by cloudflare; the chromium stealth browser returned it/.test(w)));
   });
 
+  // lemonde.fr's client challenge came back success:true, escalated:false
+  // (R24 1.8): it has a title and visible text, so nothing failed the verdict
+  // until the vendor table named it.
+  test('a Fastly client challenge escalates, and the vendor is reported', async () => {
+    const escalator = fakeEscalator();
+    const tool = new UnifiedScrapeTool({ escalateScrape: escalator });
+
+    const { result } = await scrapeWithCost(tool, {
+      url: `${baseUrl}/fastly`,
+      formats: ['markdown', 'metadata'],
+      resolveHiddenContent: 'off',
+      escalate: true
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.escalated, true);
+    assert.deepEqual(result.stealth, { engine: 'chromium', vendor_detected: 'fastly' });
+    assert.equal(escalator.calls.length, 1);
+  });
+
   // Escalation must fire on ANY failed verdict, not only a vendor-named
   // block: an empty shell and an error placeholder are precisely the cases a
   // browser fixes, and they carry no vendor at all.

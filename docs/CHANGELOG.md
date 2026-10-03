@@ -5,7 +5,7 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
-Requires `crawlforge-extractors` ^1.14.0.
+Requires `crawlforge-extractors` ^1.15.0.
 
 ### Changed
 
@@ -46,7 +46,7 @@ Live test of 2026-10-03, fix plan Phase 1 (`LIVE_TEST_R24_FIX_PLAN.md`).
 - **`scrape`**: `<noscript>` markup no longer leaks into the `text` format
   as tags, and a success with empty markdown carries a warning. Fastly's
   "Client Challenge" page (lemonde.fr) is reported as blocked and escalates
-  with `escalate:true` once crawlforge-extractors 1.15.0 is installed.
+  with `escalate:true` (crawlforge-extractors 1.15.0).
 - **`agent`**: a question scoped to its seed URLs ("this page") runs no web
   search; a `required` schema field that comes back null sets
   `degraded:true` with a warning; a current-state plan's first query keeps
