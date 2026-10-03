@@ -20,8 +20,9 @@ export const MAX_INLINE_CHARS_PARAM = {
 /**
  * Per-tool rule. `textPaths` are dotted paths tried in order; the first one
  * holding a string becomes the text view the preview and read_result work
- * on. An empty list means the pretty-printed JSON is the view. `when` gates
- * on params. extract_embedded_state has a shape of its own (shapeEmbeddedState
+ * on. An empty list means the pretty-printed JSON is the view. `keep` names
+ * top-level fields carried inline past the scalar filter (keepNamedFields).
+ * `when` gates on params. extract_embedded_state has a shape of its own (shapeEmbeddedState
  * below).
  */
 /** The browser_session operations that hand back content worth shaping. */
@@ -37,7 +38,14 @@ export const INLINE_THRESHOLD_TOOLS = Object.freeze({
   // an async job's page came back as 111 KB whole (R20, 2026-09-07).
   get_batch_results: { textPaths: [], truncate: true },
   stealth_mode: { textPaths: ['content.markdown', 'content.text', 'content.html'], truncate: true, when: (params) => params?.operation === 'scrape' },
-  scrape_with_actions: { textPaths: ['content.markdown', 'content.text', 'content.html'], truncate: true },
+  // `keep` names the top-level reports that stay inline past the scalar
+  // filter (keepNamedFields): a walled Guardian chain over 40,000 chars lost
+  // `blocked`, `navigations` and every action's outcome (2026-10-03).
+  scrape_with_actions: {
+    textPaths: ['content.markdown', 'content.text', 'content.html'],
+    truncate: true,
+    keep: ['error', 'blocked', 'consent', 'navigations', 'actionResults']
+  },
   // `read` hands back the same content shape scrape_with_actions does, and was
   // the one content-returning tool with no cap: a read of the World War II
   // article returned 541,308 characters inline where scrape returned 42,259
@@ -48,6 +56,7 @@ export const INLINE_THRESHOLD_TOOLS = Object.freeze({
   browser_session: {
     textPaths: ['content.markdown', 'content.text', 'content.html', 'snapshot.tree'],
     truncate: true,
+    keep: ['error', 'blocked', 'actionResults'],
     when: (params) => BROWSER_SESSION_CONTENT_OPERATIONS.has(params?.operation)
   },
   process_document: { textPaths: ['content.text'], truncate: true },
@@ -111,6 +120,42 @@ export function keepSmallContentFields(content, textPaths = [], maxInline = DEFA
   return Object.keys(kept).length > 0 ? kept : null;
 }
 
+/**
+ * The top-level fields a tool names in `keep`, each carried inline when its
+ * JSON fits a quarter of the inline budget. An actionResults list over that
+ * keeps every entry without its `result` (a snapshot tree, an extracted
+ * value), so which action ran and whether it worked stays inline.
+ * @returns {{ kept: object|null, partial: string[], dropped: string[] }}
+ */
+export function keepNamedFields(resultObject, keys = [], maxInline = DEFAULT_MAX_INLINE_CHARS) {
+  const cap = Math.max(1000, Math.floor(maxInline / 4));
+  const kept = {};
+  const partial = [];
+  const dropped = [];
+  for (const key of keys) {
+    const value = resultObject[key];
+    if (value === undefined) continue;
+    if (JSON.stringify(value).length <= cap) {
+      kept[key] = value;
+      continue;
+    }
+    if (key === 'actionResults' && Array.isArray(value)) {
+      const slim = value.map((entry) => {
+        if (!entry || typeof entry !== 'object') return entry;
+        const { result: _result, ...rest } = entry;
+        return rest;
+      });
+      if (JSON.stringify(slim).length <= cap) {
+        kept[key] = slim;
+        partial.push(key);
+        continue;
+      }
+    }
+    dropped.push(key);
+  }
+  return { kept: Object.keys(kept).length > 0 ? kept : null, partial, dropped };
+}
+
 function warningsOf(resultObject) {
   return Array.isArray(resultObject.warnings) ? resultObject.warnings.filter((w) => typeof w === 'string') : [];
 }
@@ -156,7 +201,16 @@ export function applyInlineThreshold(toolName, resultObject, params, { store, en
 
   const preview = text.slice(0, maxInline);
   const keptFields = keepSmallContentFields(resultObject.content, config.textPaths, maxInline);
-  const keptDesc = keptFields ? `; content.${Object.keys(keptFields).join(', content.')} kept inline` : '';
+  const named = keepNamedFields(resultObject, config.keep, maxInline);
+  const keptNames = [
+    ...(named.kept ? Object.keys(named.kept).filter((key) => !named.partial.includes(key)) : []),
+    ...(keptFields ? Object.keys(keptFields).map((key) => `content.${key}`) : [])
+  ];
+  const keptDesc = [
+    keptNames.length > 0 ? `; ${keptNames.join(', ')} kept inline` : '',
+    named.partial.includes('actionResults') ? '; actionResults kept without each action\'s result (json_path "actionResults[<i>].result" reads one)' : '',
+    named.dropped.length > 0 ? `; ${named.dropped.join(', ')} too large to keep inline (json_path "${named.dropped[0]}" reads it)` : ''
+  ].join('');
   const hint = `Result is ${json.length} chars as JSON, over the inline limit of ${maxInline}; preview holds the first ${preview.length} chars of ${viewDesc} (${text.length} chars in total)${keptDesc} and the full result is kept for 1 hour under result_handle ${handle}: ${readWith}.`;
 
   const shaped = {};
@@ -171,6 +225,7 @@ export function applyInlineThreshold(toolName, resultObject, params, { store, en
   if (resultObject.redaction && typeof resultObject.redaction === 'object') {
     shaped.redaction = resultObject.redaction;
   }
+  if (named.kept) Object.assign(shaped, named.kept);
   // The query-scoped formats live beside the page text under `content`
   // (highlights, answer, json, metadata, links). They are the small, exact
   // answer the caller paid for, and truncating the markdown must not drop
@@ -190,6 +245,14 @@ export function applyInlineThreshold(toolName, resultObject, params, { store, en
   });
   return { result: shaped, stored: true };
 }
+
+/**
+ * Room for the `_cost` block withAuth adds to the text after shaping:
+ * pretty-printed, projected/actual/remaining_credits and the projection
+ * note, whose longest form for extract_embedded_state (escalate:true) is
+ * about 200 chars, about 340 in all.
+ */
+export const COST_BLOCK_RESERVE = 400;
 
 /** Object.keys(data) for a plain object, "array(<n>)" for an array, null otherwise. */
 export function embeddedDataKeys(data) {
@@ -227,10 +290,12 @@ export function wholeLinePreview(text, budget) {
  * everything that says what the page carries — url, path, bytes, the whole
  * `found` list, data_keys, the escalation report and window_state's list —
  * then a preview of the pretty-printed JSON cut at a line boundary. The
- * preview gets whatever max_inline_chars leaves after the rest, measured as
- * compact JSON, so the whole inline result stays within the limit whenever
- * the rest fits. The full result is under the handle for read_result
- * json_path. The REST route shapes it the same way; keep the two in step.
+ * preview gets whatever max_inline_chars leaves after the rest, measured the
+ * way withAuth sends it — pretty-printed, with COST_BLOCK_RESERVE held back
+ * for the `_cost` block it adds after shaping — so the text the client
+ * receives stays within the limit whenever the rest fits. The full result is
+ * under the handle for read_result json_path. The REST route shapes it the
+ * same way, measured as the compact JSON it sends; keep the two in step.
  */
 function shapeEmbeddedState(resultObject, { json, text, maxInline, handle, expires_at, readWith }) {
   const dataKeys = embeddedDataKeys(resultObject.data);
@@ -257,8 +322,9 @@ function shapeEmbeddedState(resultObject, { json, text, maxInline, handle, expir
     expires_at,
     warnings: [...warningsOf(resultObject), hint]
   };
-  // `"preview":"",` is what the key itself adds once the value is in.
-  const envelope = JSON.stringify({ ...shaped, preview: '', ...tail }).length;
+  // The preview's value is one line of the pretty-printed text and escapes
+  // the same way there as in compact JSON; `""` is its empty value's quotes.
+  const envelope = JSON.stringify({ ...shaped, preview: '', ...tail }, null, 2).length + COST_BLOCK_RESERVE;
   const preview = wholeLinePreview(text, Math.max(0, maxInline - envelope + 2));
   return { ...shaped, preview, ...tail };
 }
