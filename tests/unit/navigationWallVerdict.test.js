@@ -250,5 +250,18 @@ describe('ScrapeWithActionsTool reports navigations and keeps the final verdict'
     assert.equal(result.success, false, 'never success:true on the wall');
     assert.equal(result.blocked.vendor, 'cloudflare');
     assert.equal(result.httpStatus, 403);
+    assert.match(result.error, /the stealth browser did not pass it/);
+  });
+
+  test('a chain outside the stealth browser does not blame the stealth browser for the wall', async () => {
+    const result = await makeTool(CLOUDFLARE, 'Just a moment...').execute({
+      url: 'https://example.com/',
+      actions: [{ type: 'navigate', url: 'https://walled.example/' }]
+    });
+
+    assert.equal(result.success, false);
+    assert.equal(result.blocked.vendor, 'cloudflare');
+    assert.match(result.error, /; the browser did not pass it/);
+    assert.doesNotMatch(result.error, /stealth/);
   });
 });

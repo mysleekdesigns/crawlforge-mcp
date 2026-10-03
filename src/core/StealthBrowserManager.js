@@ -2431,18 +2431,23 @@ export class StealthBrowserManager {
       // Wait for potential challenge page
       await page.waitForTimeout(2000);
       
-      // Check for CloudFlare challenge indicators
+      // Check for CloudFlare challenge indicators. Cloudflare's current
+      // interstitial reads "Performing security verification" under the title
+      // "Just a moment..." (doordash.com, 2026-10-03); none of the older
+      // phrases below appear on it, so the wait further down ended at once.
       const challengeDetected = await page.evaluate(() => {
         const indicators = [
           'cf-browser-verification',
           'cf-challenge-running',
           'Checking your browser',
+          'Performing security verification',
           'DDoS protection by Cloudflare',
           'Ray ID'
         ];
         
         const pageText = document.body.innerText;
-        return indicators.some(indicator => pageText.includes(indicator));
+        return /^just a moment/i.test(document.title.trim()) ||
+          indicators.some(indicator => pageText.includes(indicator));
       });
       
       if (challengeDetected) {
@@ -2464,16 +2469,25 @@ export class StealthBrowserManager {
           }
         }
         
-        // Wait for challenge to complete (up to 30 seconds)
+        // Wait for the challenge to complete, up to 10 s. Only waits for
+        // Cloudflare's own script to finish; nothing is clicked. A challenge
+        // that passes clears in seconds; one that will not pass (an
+        // interactive check, or this IP's reputation) never clears, and 30 s
+        // there put a walled chain past the REST window (doordash.com stealth
+        // Chromium, 3 of 3 runs walled at 39 s with the 30 s cap, 2026-10-03).
         await page.waitForFunction(() => {
           const indicators = [
             'cf-browser-verification',
             'cf-challenge-running',
-            'Checking your browser'
+            'Checking your browser',
+            'Performing security verification'
           ];
-          const pageText = document.body.innerText;
-          return !indicators.some(indicator => pageText.includes(indicator));
-        }, { timeout: 30000 }).catch(() => {});
+          const pageText = document.body ? document.body.innerText : '';
+          return !/^just a moment/i.test(document.title.trim()) &&
+            !indicators.some(indicator => pageText.includes(indicator));
+          // Options are the third argument; in the second they were the page
+          // function's argument and the wait ran Playwright's 30 s default.
+        }, undefined, { timeout: 10000 }).catch(() => {});
         
         this.performanceMetrics.successfulBypasses++;
         return true;
