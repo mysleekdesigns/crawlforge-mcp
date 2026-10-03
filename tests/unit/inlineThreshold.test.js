@@ -22,8 +22,11 @@ import {
   resultTextView,
   applyInlineThreshold,
   embeddedDataKeys,
-  wholeLinePreview
+  wholeLinePreview,
+  keepNamedFields
 } from '../../src/server/inlineThreshold.js';
+import { makeWithAuth } from '../../src/server/withAuth.js';
+import authManager from '../../src/core/AuthManager.js';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crawlforge-inline-threshold-'));
 const store = new ResultStore({ baseDir: dir });
@@ -219,7 +222,7 @@ test('extract_embedded_state over the limit: a whole-line preview inside max_inl
   // boundary: never inside a value.
   const full = JSON.stringify(result, null, 2);
   assert.equal(shaped.total_chars, full.length);
-  assert.ok(shaped.preview.length > 1000, `a useful preview, got ${shaped.preview.length} chars`);
+  assert.ok(shaped.preview.length > 800, `a useful preview, got ${shaped.preview.length} chars`);
   assert.ok(full.startsWith(shaped.preview));
   assert.equal(full[shaped.preview.length], '\n', 'cut at a newline');
   const lines = new Set(full.split('\n'));
@@ -243,6 +246,31 @@ test('extract_embedded_state: max_inline_chars is honoured across sizes, and an 
   const out = applyInlineThreshold('extract_embedded_state', result, { max_inline_chars: 1000 }, { store, env });
   assert.equal(out.result.preview, '');
   assert.equal(out.result.found.length, 40, 'found is never cut');
+});
+
+test('extract_embedded_state through withAuth: the text sent, pretty-printed with _cost, stays within max_inline_chars', async () => {
+  const auth = {
+    isCreatorMode: () => false,
+    getToolCost: (name, params) => authManager.getToolCost(name, params),
+    projectCost: (name, params) => authManager.projectCost(name, params),
+    checkCredits: async () => true,
+    reportUsage: async () => {},
+    creditCache: new Map([['key', 123_456_789]])
+  };
+  const withAuth = makeWithAuth({ authManager: auth, logger: { info() {}, warn() {}, error() {}, debug() {} } });
+  const handler = withAuth('extract_embedded_state', async () => ({
+    content: [{ type: 'text', text: JSON.stringify(embeddedResult(), null, 2) }]
+  }));
+  // escalate:true carries the longest projection note.
+  for (const max of [2000, 3000, 5000, 20000]) {
+    const sent = await handler({ url: 'https://shop.example.com/', escalate: true, max_inline_chars: max });
+    const text = sent.content[0].text;
+    assert.ok(text.length <= max, `${max}: sent ${text.length} chars`);
+    const body = JSON.parse(text);
+    assert.equal(body.truncated, true);
+    assert.ok(body._cost, '_cost is in the text');
+    assert.ok(body.preview.length > 0, `${max}: some preview`);
+  }
 });
 
 test('embeddedDataKeys: keys of an object, the length of an array, null for anything else', () => {
@@ -319,4 +347,64 @@ test('a content field bigger than a quarter of the budget is left to read_result
   const result = { success: true, url: 'https://example.com/big', content: { markdown: bigMarkdown, links: { links: Array.from({ length: 200 }, (_, i) => ({ href: `https://example.com/${i}`, text: `link ${i}` })) } } };
   const out = applyInlineThreshold('scrape', result, { url: 'https://example.com/big', max_inline_chars: 2000 }, { store, env });
   assert.equal('content' in out.result, false);
+});
+
+// 2026-10-03: a walled Guardian chain over 40,000 chars kept only scalars
+// inline, so `blocked`, `navigations`, `consent` and every action's outcome
+// were reachable only through the handle.
+const actionsResult = (tree) => ({
+  success: false,
+  url: 'https://www.theguardian.com/',
+  error: 'The page is a bot wall: '.padEnd(260, 'x'),
+  blocked: { vendor: 'cloudflare', reason: 'challenge page' },
+  consent: { handled: true, choice: 'reject', cmp: 'sourcepoint' },
+  navigations: [{ url: 'https://www.theguardian.com/', status: 200 }, { url: 'https://www.theguardian.com/world', status: 403, blocked: { vendor: 'cloudflare' } }],
+  actionResults: [
+    { id: 'a1', type: 'snapshot', success: true, result: { tree } },
+    { id: 'a2', type: 'navigate', success: true, result: { url: 'https://www.theguardian.com/world' } }
+  ],
+  attempts: [{ attempt: 1, success: false, results: [] }],
+  content: { markdown: bigMarkdown.repeat(5) }
+});
+
+test('scrape_with_actions over the limit keeps blocked, consent, navigations, error and actionResults inline', () => {
+  const result = actionsResult('- link "World" [ref=@e1]\n'.repeat(20));
+  const out = applyInlineThreshold('scrape_with_actions', result, { max_inline_chars: 40000 }, { store, env });
+  assert.equal(out.stored, true);
+  const shaped = out.result;
+  assert.deepEqual(shaped.blocked, result.blocked);
+  assert.deepEqual(shaped.consent, result.consent);
+  assert.deepEqual(shaped.navigations, result.navigations);
+  assert.equal(shaped.error, result.error, 'an error over 200 chars is kept');
+  assert.deepEqual(shaped.actionResults, result.actionResults, 'small snapshot trees stay inline');
+  assert.equal('attempts' in shaped, false);
+  assert.match(shaped.warnings.at(-1), /error, blocked, consent, navigations, actionResults kept inline/);
+});
+
+test('scrape_with_actions: an actionResults list too big to keep loses each result, not each outcome', () => {
+  const result = actionsResult('- link "World" [ref=@e1]\n'.repeat(2000));
+  const out = applyInlineThreshold('scrape_with_actions', result, { max_inline_chars: 40000 }, { store, env });
+  const shaped = out.result;
+  assert.deepEqual(shaped.actionResults, [
+    { id: 'a1', type: 'snapshot', success: true },
+    { id: 'a2', type: 'navigate', success: true }
+  ]);
+  assert.deepEqual(shaped.blocked, result.blocked);
+  assert.match(shaped.warnings.at(-1), /actionResults kept without each action's result \(json_path "actionResults\[<i>\]\.result" reads one\)/);
+  assert.deepEqual(store.get(shaped.result_handle).payload.actionResults, result.actionResults);
+});
+
+test('keepNamedFields: absent keys are skipped, oversized ones are named as dropped', () => {
+  const big = 'x'.repeat(20_000);
+  const { kept, partial, dropped } = keepNamedFields({ blocked: { vendor: 'akamai' }, navigations: [big] }, ['error', 'blocked', 'navigations'], 40000);
+  assert.deepEqual(kept, { blocked: { vendor: 'akamai' } });
+  assert.deepEqual(partial, []);
+  assert.deepEqual(dropped, ['navigations']);
+  assert.deepEqual(keepNamedFields({}, ['blocked'], 40000), { kept: null, partial: [], dropped: [] });
+});
+
+test('browser_session read keeps blocked inline over the limit', () => {
+  const result = { success: true, operation: 'read', blocked: { vendor: 'datadome' }, content: { markdown: bigMarkdown } };
+  const out = applyInlineThreshold('browser_session', result, { operation: 'read', max_inline_chars: 1000 }, { store, env });
+  assert.deepEqual(out.result.blocked, { vendor: 'datadome' });
 });

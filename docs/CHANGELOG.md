@@ -12,6 +12,19 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
   took longer failed at 30 s even with `timeout: 60000` (the-internet's
   `/shadowdom`, 2026-10-03). A `navigate` action's own timeout still comes
   first, and the default stays 30 s.
+- **An over-cap `scrape_with_actions` or `browser_session` result keeps its
+  wall report inline.** Over `max_inline_chars` only scalars stayed, so
+  `blocked`, `navigations`, `consent`, a long `error` and every action's
+  outcome were reachable only through `result_handle`; a walled page with a
+  lot of text lost its `blocked` report. Each is now kept when it fits a
+  quarter of the budget, and an `actionResults` list over that keeps every
+  entry without its `result` (a snapshot tree), read with `json_path`
+  `actionResults[<i>].result`.
+- **An over-cap `extract_embedded_state` result stays within
+  `max_inline_chars` as sent.** The preview was sized against compact JSON,
+  but the text is pretty-printed and `_cost` is added after shaping, so it ran
+  about 10% over. It is now measured pretty-printed, with room held for
+  `_cost`.
 
 ### Added
 
