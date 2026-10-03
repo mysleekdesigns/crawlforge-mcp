@@ -259,7 +259,7 @@ describe('extractStructured — the LLM reads main content first, then the page'
 
   test('a banner Readability drops is still in view, after the main content', async () => {
     const tool = new ExtractStructuredTool();
-    const captured = stubLlm(tool, { data: { version: 'x' }, valid: true, validationErrors: [] });
+    const captured = stubLlm(tool, { data: { version: '9.3' }, valid: true, validationErrors: [] });
 
     await tool.execute({
       url: `${baseUrl}/banner`,

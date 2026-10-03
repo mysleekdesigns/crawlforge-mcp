@@ -146,7 +146,7 @@ describe('question: extractive mode is the evidence itself', () => {
 
   test('no match: empty text, empty evidence, a warning', async () => {
     const result = await scrape(['markdown', { type: 'question', question: 'zebra giraffe' }]);
-    assert.deepEqual(result.content.answer, { text: '', grounded: true, evidence: [] });
+    assert.deepEqual(result.content.answer, { text: '', grounded: false, evidence: [] });
     assert.ok(result.warnings.some((w) => w.startsWith('question: no sentence, table row or code block matched')));
   });
 });

@@ -221,7 +221,11 @@ export class ResultRanker {
       const tf = termFreqs[term] || 0;
       if (tf > 0) {
         const df = docFreqs[term] || 1;
-        const idf = Math.log((allResults.length - df + 0.5) / (df + 0.5));
+        // Lucene's non-negative IDF. The classic form goes negative once a
+        // term is in more than half the results — which, for the results of a
+        // search for that term, is nearly always — and the clamp below then
+        // turned every result's BM25 into 0.
+        const idf = Math.log(1 + (allResults.length - df + 0.5) / (df + 0.5));
 
         // BM25 formula
         const numerator = tf * (k1 + 1);

@@ -37,6 +37,52 @@ export function parseChosenIndexes(reply, count, limit) {
   return chosen;
 }
 
+const HEADING_LINE = /^[ \t]{0,3}#{1,6}[ \t]+(.*?)[ \t]*#*[ \t]*$/gm;
+
+/**
+ * The markdown's headings as candidate units for the question format. A
+ * value that sits in a heading is in no sentence: the webscraper.io test
+ * shop prints a product's price and name as two adjacent <h4>s, so a
+ * question about either matched nothing and came back empty (R24). A
+ * heading unit carries the other headings of its run — headings with no
+ * unit between them — as its `heading` context, which is how the price
+ * heading answers a question naming the product, the way a price row under
+ * a plan-name heading already does.
+ *
+ * @param {string} markdown
+ * @param {Array<{ kind: string, offset: number, length: number }>} units the
+ *   segmentUnits() result for the same markdown; a "#" line inside one of its
+ *   code blocks is not a heading
+ * @returns {Array<{ text: string, kind: 'heading', offset: number, length: number, heading: string | null }>}
+ */
+export function headingUnits(markdown, units) {
+  const code = units.filter((u) => u.kind === 'code_block');
+  const found = [];
+  for (const match of String(markdown ?? '').matchAll(HEADING_LINE)) {
+    const text = match[1];
+    if (!text || text.replace(/\s/g, '').length < 2) continue;
+    const offset = match.index + match[0].indexOf(text);
+    if (code.some((u) => offset >= u.offset && offset < u.offset + u.length)) continue;
+    found.push({ text, kind: 'heading', offset, length: text.length });
+  }
+  // Group into runs: a run ends where any unit sits between two headings.
+  const runs = [];
+  for (const unit of found) {
+    const last = runs.at(-1)?.at(-1);
+    const between = last && units.some((u) => u.offset > last.offset && u.offset < unit.offset);
+    if (!last || between) runs.push([unit]);
+    else runs.at(-1).push(unit);
+  }
+  return runs.flatMap((run) => run.map((unit) => ({
+    ...unit,
+    heading: run.filter((other) => other !== unit).map((other) => other.text).join(' ') || null
+  })));
+}
+
+// What the model is told to reply when the evidence does not answer the
+// question; such a reply is an empty, ungrounded answer, not a paraphrase.
+export const NOT_IN_EVIDENCE = 'NOT_IN_EVIDENCE';
+
 const NUMBER = /\d[\d.,:%]*/g;
 // A capitalised word of two or more letters. Letters only: "Node.js" is
 // "Node" (checked) and "js" (not capitalised).

@@ -4,7 +4,7 @@
  * Proxies search requests through CrawlForge.dev API which uses Google Search.
  * Users only need their CrawlForge API key - no Google credentials required.
  * 
- * Credit Cost: 2 credits per search
+ * Credit Cost: 5 credits per search (SEARCH_WEB_CREDITS in ../batchSearch.js)
  */
 
 export class CrawlForgeSearchAdapter {

@@ -122,11 +122,12 @@ with offsets into the `markdown` of the same call:
 `kind` is `sentence`, `table_row` or `code_block`, and
 `markdown.slice(offset, offset + length) === text`. `{ "type": "question",
 "question", "mode"? }` returns `content.answer: { text, grounded, evidence }`,
-with `text` the evidence joined and `grounded: true`. Either adds 1 credit once
-per call and calls no model. `"mode": "model"` adds 3 once per call: the model
-chooses the highlights (never rewrites them) or writes the answer, and a
-grounding check sets `grounded: false` when the answer holds a number or a name
-the evidence does not. Ask for `"markdown"` in the same call to quote with a
+with `text` the evidence joined; evidence can also be a `heading`, and
+`grounded` is false when nothing matched (`text` empty). Either adds 1 credit
+once per call and calls no model. `"mode": "model"` adds 3 once per call: the
+model chooses the highlights (never rewrites them) or writes the answer, and
+`grounded` is false when the model finds no answer in the evidence or the
+answer holds a number or a name the evidence does not. Ask for `"markdown"` in the same call to quote with a
 locator.
 
 CLI equivalent:

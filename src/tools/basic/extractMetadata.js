@@ -44,6 +44,24 @@ function parseMicrodata($) {
 }
 
 /**
+ * `redirected` always; `requested_url` only when the fetch ended on a
+ * different URL. Compared after URL parsing, so "https://example.com" and
+ * "https://example.com/" are the same page.
+ * @param {string} requested
+ * @param {string} final
+ * @returns {{ redirected: boolean, requested_url?: string }}
+ */
+function redirectFields(requested, final) {
+  let redirected;
+  try {
+    redirected = Boolean(final) && new URL(requested).href !== new URL(final).href;
+  } catch {
+    redirected = false;
+  }
+  return redirected ? { redirected, requested_url: requested } : { redirected };
+}
+
+/**
  * @param {{ url: string, user_agent?: string, respect_robots?: boolean,
  *   json_ld_types?: string[] }} params
  */
@@ -113,7 +131,10 @@ export async function extractMetadataHandler({ url, user_agent, respect_robots, 
       twitter_tags: twitterTags,
       json_ld: jsonLd,
       microdata,
-      url: response.url
+      url: response.url,
+      // A redirect to another page returned that page's metadata under the
+      // requested URL's name, with nothing to say so (R24).
+      ...redirectFields(url, response.url)
     };
 
     // With a type filter, json_ld carries only the matching nodes — returning
@@ -121,7 +142,17 @@ export async function extractMetadataHandler({ url, user_agent, respect_robots, 
     // make filtering worth asking for.
     if (json_ld_types?.length) {
       const { items, counts } = filterJsonLdByType(jsonLd, json_ld_types);
-      result.json_ld = items;
+      // A match nested inside another returned node already travels with it:
+      // ["Product","Offer"] returned Apple's AggregateOffer inside its Product
+      // and again on its own (R24). The counts still include it.
+      const nested = new Set();
+      const mark = (value) => {
+        if (!value || typeof value !== 'object') return;
+        nested.add(value);
+        Object.values(value).forEach(mark);
+      };
+      for (const item of items) Object.values(item).forEach(mark);
+      result.json_ld = items.filter((item) => !nested.has(item));
       result.json_ld_type_counts = counts;
     }
 

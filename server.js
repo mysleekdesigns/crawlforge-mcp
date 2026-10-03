@@ -448,7 +448,7 @@ registerToolIfEnabled("extract_text", {
     remove_styles: z.boolean().optional().default(true).describe("Remove style tags before extraction"),
     output_format: z.enum(["text", "markdown"]).optional().default("text").describe("Output format: \"text\" (default) or \"markdown\" — use markdown for RAG workflows"),
     selector: z.string().optional().describe("CSS selector: read only the matched elements (nav/header/footer are then kept). No match is an error"),
-    max_length: z.number().int().min(1).max(1000000).optional().describe("Maximum characters of text or markdown to return; a longer result is cut and ends with \"...\""),
+    max_length: z.number().int().min(1).max(1000000).optional().describe("Maximum characters of text or markdown to return; a longer result is cut, ends with \"...\" and carries truncated:true"),
     ...EXTRACT_ESCALATION_SHAPE,
     ...COMPLIANCE_PARAMS,
     ...REDACT_PII_PARAM
@@ -474,11 +474,11 @@ registerToolIfEnabled("extract_links", {
 
 // Tool: extract_metadata
 registerToolIfEnabled("extract_metadata", {
-  description: "Use this for a page's SEO metadata only: title, meta description, Open Graph tags, canonical URL, schema.org data. Not alongside a scrape of the same URL: scrape formats:[\"markdown\",\"metadata\"] returns both in one fetch. Cost: 1 credit. Example: extract_metadata({url: \"https://example.com\"})",
+  description: "Use this for a page's SEO metadata only: title, meta description, Open Graph tags, canonical URL, schema.org data. `url` is the final URL; redirected:true (with requested_url) says a redirect moved the request to another page. Not alongside a scrape of the same URL: scrape formats:[\"markdown\",\"metadata\"] returns both in one fetch. Cost: 1 credit. Example: extract_metadata({url: \"https://example.com\"})",
   annotations: { title: "Extract Metadata", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to extract metadata from"),
-    json_ld_types: z.array(z.string()).optional().describe("Filter the returned JSON-LD to nodes of these schema.org types, e.g. [\"Product\",\"Offer\"]. Subtypes match their parent: \"Event\" returns MusicEvent, \"Offer\" returns AggregateOffer, \"ItemList\" returns BreadcrumbList. Nodes are found at any depth, including inside @graph and nested inside a parent node. When set, json_ld carries only the matching nodes instead of the raw dump, and json_ld_type_counts reports how many matched per requested type. Documented types: ItemList, Product, Offer, Event, JobPosting, RealEstateListing — any other schema.org type is matched exactly."),
+    json_ld_types: z.array(z.string()).optional().describe("Filter the returned JSON-LD to nodes of these schema.org types, e.g. [\"Product\",\"Offer\"]. Subtypes match their parent: \"Event\" returns MusicEvent, \"Offer\" returns AggregateOffer, \"ItemList\" returns BreadcrumbList. Nodes are found at any depth, including inside @graph and nested inside a parent node; a match nested inside another returned node comes back inside it, not again on its own. When set, json_ld carries only the matching nodes instead of the raw dump, and json_ld_type_counts reports how many matched per requested type, nested ones included. Documented types: ItemList, Product, Offer, Event, JobPosting, RealEstateListing — any other schema.org type is matched exactly."),
     ...COMPLIANCE_PARAMS
   }
 }, withAuth("extract_metadata", extractMetadataHandler));
@@ -520,14 +520,14 @@ registerToolIfEnabled("search_web", {
     query: z.string().optional().describe("Search query string. Use this OR queries, not both"),
     ...SEARCH_QUERIES_PARAM,
     limit: z.number().min(1).max(100).optional().describe("Maximum number of results to return"),
-    offset: z.number().min(0).optional().describe("Number of results to skip for pagination"),
+    offset: z.number().min(0).optional().describe("Number of results to skip for pagination. For the next page pass the previous response's next_offset, not offset + limit"),
     lang: z.string().optional().describe("Language code for results (e.g. 'en', 'fr')"),
     safe_search: z.boolean().optional().describe("Enable safe search filtering"),
     time_range: z.enum(["day", "week", "month", "year", "all"]).optional().describe("Filter results by time range"),
     site: z.string().optional().describe("Limit results to a specific domain"),
     file_type: z.string().optional().describe("Filter by file type (e.g. 'pdf', 'doc')"),
     provider: z.enum(["crawlforge", "searxng"]).optional().describe("Search backend to use"),
-    expand_query: z.boolean().optional().describe("Expand the query with synonyms/stemming/etc."),
+    expand_query: z.boolean().optional().describe("When the query returns no results, search once more with an expanded form (synonyms/stemming/etc.)"),
     expansion_options: z.object({
       enableSynonyms: z.boolean().optional(),
       enableSpellCheck: z.boolean().optional(),
@@ -750,7 +750,7 @@ registerToolIfEnabled("extract_content", {
 
 // Tool: process_document
 registerToolIfEnabled("process_document", {
-  description: "Use this to extract text from a PDF or DOCX URL or file - research papers, contracts, reports. The body decides how it is read: a PDF or Word document served under sourceType \"url\" still reaches its parser, and a body this tool cannot read (an image, an archive) is refused by name. Returns structured sections, metadata, and word count. Not for ordinary web pages (scrape), though an HTML URL is accepted. Cost: 2 credits. Example: process_document({source: \"https://example.com/report.pdf\", sourceType: \"pdf_url\"})",
+  description: "Use this to extract text from a PDF or DOCX URL or file - research papers, contracts, reports. The body decides how it is read: a PDF or Word document served under sourceType \"url\" still reaches its parser, and a body this tool cannot read (an image, an archive) is refused by name. Returns structured sections, metadata, and word count; for a PDF, pagesRead names the pages read (maxPages defaults to 100). Not for ordinary web pages (scrape), though an HTML URL is accepted. Cost: 2 credits. Example: process_document({source: \"https://example.com/report.pdf\", sourceType: \"pdf_url\"})",
   annotations: { title: "Process Document", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     source: z.string().describe("Document source - URL or file path"),
@@ -859,7 +859,7 @@ registerToolIfEnabled("extract_with_llm", {
     prompt: z.string().describe("Natural-language extraction instruction"),
     schema: z.record(z.unknown()).optional().describe("Optional JSON-schema for output shape (used as Ollama structured-outputs format when provider is 'ollama')"),
     provider: z.enum(["openai", "anthropic", "ollama", "auto"]).optional().default("auto").describe("LLM provider. Defaults to 'ollama' (local, no key, http://localhost:11434). Use 'openai' or 'anthropic' for cloud models (requires the matching API key)."),
-    model: z.string().optional().describe("Override the model. For ollama, pass a name returned by list_ollama_models (e.g. 'llama3.2', 'qwen2.5:7b'). Defaults: openai='gpt-4o-mini', anthropic='claude-haiku-4-5-20251001', ollama='llama3.2' or $OLLAMA_DEFAULT_MODEL."),
+    model: z.string().optional().describe("Override the model. For ollama, pass a name returned by list_ollama_models (e.g. 'llama3.2', 'qwen2.5:7b'). Defaults: openai='gpt-4o-mini', anthropic='claude-haiku-4-5-20251001', ollama=$OLLAMA_DEFAULT_MODEL, else the best installed model for extraction (gemma3:12b, then gemma3:4b, gpt-oss:20b, mistral:7b, llama3.2, qwen2.5:3b)."),
     maxTokens: z.number().optional().default(4096).describe("Maximum output tokens"),
     ...COMPLIANCE_PARAMS,
     ...VERIFY_NUMBERS_PARAM
@@ -1774,7 +1774,7 @@ registerToolIfEnabled("localization", {
 
 // Tool: scrape_template (D3.3 — pre-built site templates)
 registerToolIfEnabled("scrape_template", {
-  description: "Use this when you want structured data from a well-known site or platform API without writing custom selectors. Three modes: a template id with a url (scrape_template({template:\"github-repo\", url:\"https://github.com/user/repo\"})); template:\"auto\" with a url, which picks the template from the URL and names its choice in the response; or template:\"list\" to enumerate every template with the URLs it handles. Page templates return one record - e-commerce, social, developer and news sites (shopify-product, amazon-product, github-repo, youtube-video, reddit-thread, hacker-news-front-page, producthunt-launch, stackoverflow-question, npm-package; reddit-thread reads the post from the Arctic Shift archive and reddit_search reads the comment tree). linkedin-profile and tweet are retired - those sites' robots.txt disallow every keyless path - and naming one returns the reason. List connectors return N records from one call and are driven by params instead of a url: job boards (Greenhouse, Lever, Ashby, Workable, Recruitee, Teamtailor) return a company's whole careers board, US government APIs (NHTSA VIN decode, NPI provider registry) answer keyless lookups, and shopify-collection returns a whole collection. Not for a site without a template (scrape) - template:\"list\" shows what exists. Cost: 1 credit. Example: scrape_template({template:\"greenhouse-jobs\", params:{company:\"stripe\"}})",
+  description: "Use this when you want structured data from a well-known site or platform API without writing custom selectors. Three modes: a template id with a url (scrape_template({template:\"github-repo\", url:\"https://github.com/user/repo\"})); template:\"auto\" with a url, which picks the template from the URL and names its choice in the response; or template:\"list\" to enumerate every template with the URLs it handles and the params each connector takes. Page templates return one record - e-commerce, social, developer and news sites (shopify-product, amazon-product, github-repo, youtube-video, reddit-thread, hacker-news-front-page, producthunt-launch, stackoverflow-question, npm-package; reddit-thread reads the post from the Arctic Shift archive and reddit_search reads the comment tree). linkedin-profile and tweet are retired - those sites' robots.txt disallow every keyless path - and naming one returns the reason. List connectors return N records from one call and are driven by params instead of a url: job boards (Greenhouse, Lever, Ashby, Workable, Recruitee, Teamtailor) return a company's whole careers board, US government APIs (NHTSA VIN decode, NPI provider registry) answer keyless lookups, and shopify-collection returns a whole collection. Not for a site without a template (scrape) - template:\"list\" shows what exists. Cost: 1 credit. Example: scrape_template({template:\"greenhouse-jobs\", params:{company:\"stripe\"}})",
   annotations: { title: "Scrape Template", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     template: z.string().describe("Template ID (e.g. github-repo), \"auto\" to detect one from the url, or \"list\" to enumerate available templates"),

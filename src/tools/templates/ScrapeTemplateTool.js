@@ -191,7 +191,10 @@ export class ScrapeTemplateTool {
     // run() stamps fetchedUrl itself; runList() does not.
     if (tpl.extractList && reportedFetchUrl !== reportedUrl) result.fetchedUrl = reportedFetchUrl;
 
-    return gate.warnings.length > 0 ? { ...result, warnings: gate.warnings } : result;
+    // The template's own warnings (reddit-thread: the URL named the wrong
+    // subreddit) and the gate's are both kept — neither replaces the other.
+    const warnings = [...(result.warnings ?? []), ...gate.warnings];
+    return warnings.length > 0 ? { ...result, warnings } : result;
   }
   /**
    * Read the product page itself when the .json endpoint was refused. The

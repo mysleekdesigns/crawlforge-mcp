@@ -15,6 +15,8 @@ import { safeFetch } from '../../utils/ssrfGuard.js';
 import { preflightFetch } from '../../utils/robotsGate.js';
 import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
 import { isRemoteTransport } from '../../utils/remoteMode.js';
+import { flattenText } from 'crawlforge-extractors';
+import { load } from 'cheerio';
 
 const ProcessDocumentSchema = z.object({
   source: z.string().min(1),
@@ -66,6 +68,13 @@ const ProcessDocumentResult = z.object({
     page: z.number(),
     rows: z.array(z.array(z.string()))
   })).optional(),
+  // PDF only: the 1-based inclusive pages the text and tables were read from
+  pagesRead: z.object({
+    start: z.number(),
+    end: z.number(),
+    count: z.number(),
+    totalPages: z.number()
+  }).optional(),
   metadata: z.object({
     // Common metadata
     title: z.string().nullable(),
@@ -320,6 +329,12 @@ export class ProcessDocumentTool {
       result.tables = pdfResult.tables || [];
     }
 
+    // Which pages the text and tables come from. maxPages (default 100) and
+    // pageRange both cut a long PDF short, and the response never said so (R24).
+    if (pdfResult.extractedPages) {
+      result.pagesRead = { ...pdfResult.extractedPages, totalPages: pdfResult.pageCount };
+    }
+
     // Set title
     result.title = pdfResult.metadata?.title || null;
 
@@ -503,7 +518,9 @@ export class ProcessDocumentTool {
     let extractedContent = '';
 
     if (processingResult.readability) {
-      mainText = processingResult.readability.textContent || processingResult.readability.content;
+      // Read the article HTML one line per block. Readability's textContent
+      // joins blocks with no separator: "July 2023If you collected…" (R24 3.1).
+      mainText = flattenText(load(processingResult.readability.content));
       extractedContent = processingResult.readability.content;
     } else if (processingResult.fallback_content) {
       mainText = processingResult.fallback_content.content;

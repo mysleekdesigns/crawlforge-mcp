@@ -163,14 +163,15 @@ describe('extract_metadata json_ld_types', () => {
     assert.deepEqual(data.json_ld_type_counts, { JobPosting: 0 });
   });
 
-  test('Apple: Product carries its prices, and Offer matches the AggregateOffer', async () => {
+  test('Apple: Product carries its prices, and the nested AggregateOffer is not repeated', async () => {
     const data = await extract('/apple', ['Product', 'Offer']);
     assert.deepEqual(data.json_ld_type_counts, { Product: 1, Offer: 1 });
-    const [product, offer] = data.json_ld;
+    assert.equal(data.json_ld.length, 1);
+    const [product] = data.json_ld;
     assert.equal(product['@type'], 'Product');
+    assert.equal(product.offers[0]['@type'], 'AggregateOffer');
     assert.equal(product.offers[0].lowPrice, 1299);
-    assert.equal(offer['@type'], 'AggregateOffer');
-    assert.equal(offer.priceCurrency, 'USD');
+    assert.equal(product.offers[0].priceCurrency, 'USD');
   });
 
   test('propertyfinder.ae: RealEstateListing nodes come back with offers.price', async () => {

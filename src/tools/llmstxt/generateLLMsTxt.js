@@ -209,6 +209,15 @@ export class GenerateLLMsTxtTool {
         return u;
       }
     };
+    // Each URL is listed once in the whole file: a docs link the API detector
+    // also picked up ("C API") appeared under Pages and again under APIs (R24).
+    const listed = new Set();
+    const firstListing = (u) => {
+      const key = this.normalizeTitleKey(u);
+      if (listed.has(key)) return false;
+      listed.add(key);
+      return true;
+    };
     const emitSection = (heading, urls) => {
       // Coerce to an array: sitemap/sections may arrive as a flat array, a
       // grouped object ({path: [...]}), or a single value.
@@ -221,6 +230,7 @@ export class GenerateLLMsTxtTool {
       const list = arr
         .map((u) => (typeof u === 'string' ? u : (u?.url || u?.loc)))
         .filter(Boolean)
+        .filter(firstListing)
         .slice(0, 25);
       if (list.length === 0) return;
       lines.push(`## ${heading}`);
@@ -263,10 +273,12 @@ export class GenerateLLMsTxtTool {
     }
 
     // APIs as their own section.
-    if (Array.isArray(analysis.apis) && analysis.apis.length > 0) {
+    const apis = (Array.isArray(analysis.apis) ? analysis.apis : [])
+      .filter((api) => api?.url && firstListing(api.url));
+    if (apis.length > 0) {
       lines.push('## APIs');
       lines.push('');
-      for (const api of analysis.apis.slice(0, 25)) {
+      for (const api of apis.slice(0, 25)) {
         const note = api.type ? `: ${api.type}` : '';
         lines.push(`- [${linkLabel(api.url)}](${api.url})${note}`);
       }
@@ -852,11 +864,33 @@ export class GenerateLLMsTxtTool {
       });
     }
 
-    // Missing robots.txt
-    if (!analysis.structure || !analysis.structure.robotsTxt) {
+    // robots.txt: missing, refusing us and unreadable are three different
+    // findings. A refusal used to read "No robots.txt found" (lobste.rs, R24).
+    const robots = analysis.robots;
+    let host = analysis.metadata?.baseUrl;
+    try { host = new URL(host).host; } catch { /* keep baseUrl */ }
+    if (robots?.status === 'disallowed') {
+      warnings.push({
+        type: 'robots',
+        message: `robots.txt on ${host} disallows CrawlForge, including /robots.txt itself, so the site was not analysed. ` +
+          'Pass analysisOptions.respectRobots: false to analyse it anyway — that override is recorded against your API key and is your decision to make.'
+      });
+    } else if (robots?.status === 'unreachable') {
+      warnings.push({
+        type: 'robots',
+        message: `robots.txt on ${host} could not be read (${robots.error}). Extra caution recommended.`
+      });
+    } else if (robots ? robots.status === 'not_found' : !analysis.structure?.robotsTxt) {
       warnings.push({
         type: 'robots',
         message: 'No robots.txt found. Extra caution recommended.'
+      });
+    }
+
+    if (analysis.structure?.robotsExcluded > 0) {
+      warnings.push({
+        type: 'robots',
+        message: `${analysis.structure.robotsExcluded} discovered URL(s) were left out because robots.txt disallows them for CrawlForge.`
       });
     }
 

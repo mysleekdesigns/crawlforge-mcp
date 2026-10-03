@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { ContentQualityAssessor } from '../../utils/contentUtils.js';
 import { recoverDroppedTables } from '../../tools/scrape/_mainContent.js';
 import { pageTitle } from '../../utils/pageTitle.js';
+import { flattenText } from 'crawlforge-extractors';
 
 const ContentProcessorSchema = z.object({
   html: z.string(),
@@ -463,14 +464,16 @@ export class ContentProcessor {
     for (const selector of contentSelectors) {
       const element = $(selector).first();
       if (element.length > 0) {
-        mainContent = element.text().trim();
+        // One line per block: .text() welded "July 2023" onto the first
+        // paragraph (R24 3.1).
+        mainContent = flattenText($, element);
         break;
       }
     }
 
     // Fallback to body content
     if (!mainContent) {
-      mainContent = $('body').text().trim();
+      mainContent = flattenText($);
     }
 
     return {

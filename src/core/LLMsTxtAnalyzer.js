@@ -7,7 +7,7 @@ import { normalizeUrl, getBaseUrl } from '../utils/urlNormalizer.js';
 import { Logger } from '../utils/Logger.js';
 import { safeFetch } from '../utils/ssrfGuard.js';
 import { resolveUserAgent } from '../utils/fetchIdentity.js';
-import { preflightFetch } from '../utils/robotsGate.js';
+import { preflightFetch, robotsPreflight } from '../utils/robotsGate.js';
 import { noteRetryAfter } from '../utils/hostRateLimiter.js';
 import { pageTitle } from '../utils/pageTitle.js';
 
@@ -172,7 +172,19 @@ export class LLMsTxtAnalyzer {
       // group_by_path:true returns {section: [...]}; flatten before ranking.
       const candidates = Array.isArray(siteMap.urls) ? siteMap.urls :
                          (siteMap.urls && typeof siteMap.urls === 'object' ? Object.values(siteMap.urls).flat() : []);
-      const pages = this.prioritizeUrls(candidates, getBaseUrl(url), this.options.maxPages);
+      // Read after the crawl, not before: the read is a request to the host,
+      // and on a site with a long Crawl-delay (news.ycombinator.com, 30 s) one
+      // more request ahead of the crawl's first fetch made the crawl time out.
+      this.analysis.robots = await this.fetchRobotsTxt(getBaseUrl(url));
+
+      // A sitemap or a homepage link can name a path robots.txt disallows;
+      // a guide to the site must not send an LLM there (R24). Filtered before
+      // ranking so the page budget goes to allowed pages, and again after,
+      // because ranking always adds the site root.
+      const allowed = await this.filterRobotsAllowed(candidates);
+      const pages = await this.filterRobotsAllowed(
+        this.prioritizeUrls(allowed, getBaseUrl(url), this.options.maxPages)
+      );
 
       this.analysis.structure = {
         // Every field describes the same selected pages, not the wider pool.
@@ -181,7 +193,8 @@ export class LLMsTxtAnalyzer {
         sections: this.categorizeSections(pages),
         navigation: this.analyzeNavigation(crawlResult.pages),
         hierarchy: this.buildHierarchy(pages),
-        robotsTxt: await this.fetchRobotsTxt(url),
+        robotsTxt: this.analysis.robots?.text ?? null,
+        robotsExcluded: candidates.length - allowed.length,
         sitemap: pages
       };
 
@@ -194,6 +207,10 @@ export class LLMsTxtAnalyzer {
         error: error.message,
         timestamp: new Date().toISOString()
       });
+      // A refused map stops the try above before robots.txt is read. Read it
+      // anyway: without it a site whose robots.txt refuses CrawlForge was
+      // reported as having no robots.txt at all (lobste.rs, R24).
+      this.analysis.robots ??= await this.fetchRobotsTxt(getBaseUrl(url));
     }
   }
 
@@ -488,17 +505,50 @@ export class LLMsTxtAnalyzer {
     }
   }
 
+  /**
+   * Read the site's robots.txt and say what happened, so "not there" and "there,
+   * and it refuses us" are no longer reported the same way.
+   * @param {string} baseUrl - origin, no trailing slash
+   * @returns {Promise<{status: 'found'|'not_found'|'disallowed'|'unreachable',
+   *   text: string|null, error?: string}>}
+   */
   async fetchRobotsTxt(baseUrl) {
     try {
-      const robotsUrl = `${baseUrl}/robots.txt`;
-      const response = await this.fetchWithTimeout(robotsUrl);
+      const response = await this.fetchWithTimeout(`${baseUrl}/robots.txt`);
       if (response.ok) {
-        return await readBody(response);
+        return { status: 'found', text: await readBody(response) };
       }
-    } catch {
-      // No robots.txt found
+      return { status: 'not_found', text: null };
+    } catch (error) {
+      // The gate refusing /robots.txt itself means robots.txt exists and
+      // disallows CrawlForge there, which is a statement about the whole site.
+      if (error?.code === 'ROBOTS_DISALLOWED') {
+        return { status: 'disallowed', text: null };
+      }
+      return { status: 'unreachable', text: null, error: error.message };
     }
-    return null;
+  }
+
+  /**
+   * Keep the URLs robots.txt lets CrawlForge fetch. A no-op when the caller
+   * turned respectRobots off, or when the site's robots.txt was not read —
+   * there is then nothing to filter by. A URL the gate refuses outright (a
+   * blocked host) is dropped too.
+   * @param {string[]} urls
+   * @returns {Promise<string[]>}
+   */
+  async filterRobotsAllowed(urls) {
+    if (!this.options.respectRobots || this.analysis.robots?.status !== 'found') return urls;
+    const kept = [];
+    for (const url of urls) {
+      try {
+        const gate = await robotsPreflight(url, { respectRobots: true, userAgent: this.options.userAgent });
+        if (gate.allowed) kept.push(url);
+      } catch {
+        // refused by the blocklist — not a page to list
+      }
+    }
+    return kept;
   }
 
   /**

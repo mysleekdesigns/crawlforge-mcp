@@ -76,6 +76,22 @@ const SearchWebSchema = z.object({
 const DEDUPE_OVERFETCH = 4;
 const GOOGLE_MAX_RESULTS_PER_REQUEST = 10;
 
+/**
+ * Index, in the provider's page, of the first item this response does not
+ * show. Deduplication tags each kept result with its provider index
+ * (`originalIndex`); without deduplication result i IS provider item i.
+ *
+ * @param {object[]} deduped results after deduplication, before the trim to `limit`
+ * @param {number} limit results shown
+ * @param {number} fetchedCount items the provider returned
+ * @returns {number}
+ */
+export function firstUnshownIndex(deduped, limit, fetchedCount) {
+  const unshown = deduped.slice(limit);
+  if (unshown.length === 0) return fetchedCount;
+  return Math.min(...unshown.map((r, i) => r.originalIndex ?? limit + i));
+}
+
 export class SearchWebTool {
   constructor(options = {}) {
     const {
@@ -199,31 +215,14 @@ export class SearchWebTool {
         }
       }
       
-      // Expand query if enabled
-      let searchQueries = [localizedParams.query];
-      let expandedQueries = [];
-      
-      if (localizedParams.expand_query) {
-        try {
-          expandedQueries = await this.queryExpander.expandQuery(
-            localizedParams.query,
-            localizedParams.expansion_options || {}
-          );
-          
-          // Use the best expanded query as primary, keep original as fallback
-          if (expandedQueries.length > 1) {
-            searchQueries = expandedQueries;
-          }
-        } catch (expansionError) {
-          console.warn('Query expansion failed, using original query:', expansionError.message);
-          // Continue with original query
-        }
-      }
-      
-      // Generate cache key (include expansion and localization info for accurate caching)
+      // The original query is always searched first. Query expansion is only a
+      // zero-result fallback: the expanded form is computed and searched (one
+      // more billed backend search) only when the original returned nothing.
+      const queriesToTry = [localizedParams.query];
+
+      // Generate cache key (include localization info for accurate caching)
       const cacheKey = this.cache ? this.cache.generateKey('search', {
         ...localizedParams,
-        expandedQueries: localizedParams.expand_query ? expandedQueries : undefined,
         localization: validated.localization
       }) : null;
       
@@ -238,12 +237,9 @@ export class SearchWebTool {
         }
       }
       
-      // Try searches with expanded queries, starting with the best one.
       // Each retry (triggered when the previous query returned zero items) is
-      // a separate billed backend search — cap attempts so one search_web
-      // call can't silently fan out into up to maxExpansions backend requests.
-      const MAX_SEARCH_ATTEMPTS = 2;
-      const queriesToTry = searchQueries.slice(0, MAX_SEARCH_ATTEMPTS);
+      // a separate billed backend search — at most one expanded fallback, so
+      // one search_web call can't fan out into maxExpansions backend requests.
       let bestResults = null;
       let usedQuery = validated.query;
       let searchError = null;
@@ -252,7 +248,7 @@ export class SearchWebTool {
       for (let i = 0; i < queriesToTry.length; i++) {
         try {
           // Build search query with modifiers
-          let searchQuery = searchQueries[i];
+          let searchQuery = queriesToTry[i];
           
           if (validated.site) {
             searchQuery = `site:${validated.site} ${searchQuery}`;
@@ -296,10 +292,19 @@ export class SearchWebTool {
           searchError = error;
           searchAttempts++;
           console.warn(`Search failed for query "${queriesToTry[i]}":`, error.message);
+        }
 
-          // If this is the last query and we haven't found results, throw the error
-          if (i === queriesToTry.length - 1 && !bestResults) {
-            throw error;
+        // The original query found nothing: try its first expanded form once.
+        if (i === 0 && !bestResults?.items?.length && localizedParams.expand_query) {
+          try {
+            const expansions = await this.queryExpander.expandQuery(
+              localizedParams.query,
+              localizedParams.expansion_options || {}
+            );
+            // expansions[0] is the original query itself
+            if (expansions.length > 1) queriesToTry.push(expansions[1]);
+          } catch (expansionError) {
+            console.warn('Query expansion failed, using original query:', expansionError.message);
           }
         }
       }
@@ -331,6 +336,16 @@ export class SearchWebTool {
         };
       }
 
+      // Where the next page starts. Deduplication backfills this page from
+      // the over-fetched margin, so the next page begins after the first
+      // provider item NOT shown here, not at offset + limit (which repeated
+      // the backfilled items on the next page).
+      const nextOffset = localizedParams.offset + firstUnshownIndex(
+        processedResults,
+        localizedParams.limit,
+        bestResults.items?.length || 0
+      );
+
       // Drop the over-fetched margin. Runs unconditionally because the extra
       // items are requested whether or not deduplication is enabled.
       if (processedResults.length > localizedParams.limit) {
@@ -340,15 +355,15 @@ export class SearchWebTool {
       // Apply ranking if enabled
       let rankingInfo = null;
       if (validated.enable_ranking && processedResults.length > 1) {
-        const rankingOptions = validated.ranking_weights ? 
+        const rankingOptions = validated.ranking_weights ?
           { weights: validated.ranking_weights } : {};
-        
+
         processedResults = await this.resultRanker.rankResults(
           processedResults,
           validated.query,
           rankingOptions
         );
-        
+
         rankingInfo = {
           algorithmsUsed: ['bm25', 'semantic', 'authority', 'freshness'],
           // rankingDetails.weights carries the actually-applied (merged) weights
@@ -377,12 +392,13 @@ export class SearchWebTool {
       const response = {
         query: validated.query,
         effective_query: usedQuery !== validated.query ? usedQuery : undefined,
-        expanded_queries: localizedParams.expand_query && expandedQueries.length > 1 ? expandedQueries : undefined,
+        expanded_queries: queriesToTry.length > 1 ? queriesToTry : undefined,
         results: processedResults,
         total_results: bestResults.searchInformation?.totalResults || 0,
         search_time: bestResults.searchInformation?.searchTime || 0,
         offset: localizedParams.offset,
         limit: localizedParams.limit,
+        next_offset: nextOffset,
         cached: false,
         
         // Add provider information
@@ -410,13 +426,13 @@ export class SearchWebTool {
         processing: {
           ranking: rankingInfo,
           deduplication: deduplicationInfo,
-          query_expansion: localizedParams.expand_query && expandedQueries.length > 1 ? {
+          // Present only when the original found nothing and an expanded
+          // form was searched as well.
+          query_expansion: queriesToTry.length > 1 ? {
             original_query: validated.query,
-            expanded_count: expandedQueries.length,
             used_query: usedQuery,
-            // Backend searches actually issued for this call (capped at
-            // MAX_SEARCH_ATTEMPTS) — surfaces the retry/billing cost that was
-            // previously invisible.
+            // Backend searches actually issued for this call (at most 2) —
+            // surfaces the retry/billing cost that was previously invisible.
             search_attempts: searchAttempts
           } : null,
           localization_applied: !!validated.localization
@@ -514,6 +530,9 @@ export class SearchWebTool {
       search_time: adapterResult.searchInformation?.searchTime || 0,
       offset: validated.offset,
       limit: validated.limit,
+      // SearXNG is paged (offset maps to page floor(offset/limit)+1), so the
+      // next page starts at the next multiple of limit.
+      next_offset: page * validated.limit,
       cached: false,
       provider: {
         name: 'searxng',

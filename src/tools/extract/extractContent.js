@@ -12,8 +12,51 @@ import { isThinMainContent } from '../scrape/_mainContent.js';
 import { safeFetch } from '../../utils/ssrfGuard.js';
 import { preflightFetch } from '../../utils/robotsGate.js';
 import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
-import { readBody } from 'crawlforge-extractors';
+import { readBody, flattenText } from 'crawlforge-extractors';
+import { load } from 'cheerio';
+import { elementText } from '../../utils/elementText.js';
 import { config as appConfig } from '../../constants/config.js';
+
+// The candidates ContentProcessor.extractFallbackContent tries, in its order.
+const FALLBACK_SELECTORS = [
+  'main', 'article', '[role="main"]', '.main-content', '.content',
+  '.post-content', '.entry-content', '#content', '#main'
+];
+
+/**
+ * Text of an HTML fragment, one line per block element. Readability's
+ * textContent and cheerio's .text() join blocks with no separator: Paul
+ * Graham's "July 2023<br><br>If you collected" came back as "July 2023If you
+ * collected" (R24 3.1). A table reads one line per row, cells joined by " | ",
+ * as the tables ContentProcessor re-attaches always have.
+ * @param {import('cheerio').CheerioAPI} $
+ * @param {import('cheerio').Cheerio<any>} [$root] default `<body>`
+ * @returns {string}
+ */
+function blockText($, $root = $('body')) {
+  const $copy = $root.clone();
+  $copy.find('table')
+    .filter((_, table) => $(table).parents('table').length === 0)
+    .each((_, table) => {
+      const $rows = $('<div></div>');
+      for (const line of elementText($, table).split('\n')) $rows.append($('<div></div>').text(line));
+      $(table).replaceWith($rows);
+    });
+  return flattenText($, $copy);
+}
+
+/**
+ * The boilerplate-removal fallback's text: the element
+ * ContentProcessor.extractFallbackContent reads, read by blockText.
+ * @param {string} html
+ * @returns {string}
+ */
+function fallbackText(html) {
+  const $ = load(html);
+  $('script, style, nav, header, footer, aside, .advertisement, .ads, .social-share').remove();
+  const $main = FALLBACK_SELECTORS.map((selector) => $(selector).first()).find(($el) => $el.length > 0);
+  return ($main && blockText($, $main)) || blockText($);
+}
 
 const ExtractContentSchema = z.object({
   url: z.string().url(),
@@ -235,7 +278,7 @@ export class ExtractContentTool {
       if (processingResult.readability && !thin) {
         result.readability = processingResult.readability;
         result.content = {
-          text: processingResult.readability.textContent || processingResult.readability.content,
+          text: blockText(load(processingResult.readability.content)),
         };
         result.extractionMethod = 'readability';
         result.confidence = 0.9;
@@ -252,7 +295,7 @@ export class ExtractContentTool {
         }
       } else if (processingResult.fallback_content) {
         result.content = {
-          text: processingResult.fallback_content.content
+          text: fallbackText(html)
         };
         result.extractionMethod = 'fallback_boilerplate_removal';
         result.fallback_reason = thin

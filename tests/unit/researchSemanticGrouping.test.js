@@ -513,7 +513,7 @@ describe('4.4 per-claim topical relevance', () => {
     assert.ok(claims.every(c => c.topicRelevance === undefined));
   });
 
-  test('a weakly on-topic finding is reported but withheld from aiSummary', async () => {
+  test('a weakly on-topic finding is kept in the synthesis but withheld from aiSummary', async () => {
     const ro = withKeypoints(withLLM(orchestrator(), { scores: [0.35, 0.95] }), {
       'content-a': ['Scrapy Cloud hosts and schedules spiders for teams of any size.'],
       'content-b': [ON_TOPIC]
@@ -534,7 +534,7 @@ describe('4.4 per-claim topical relevance', () => {
       TOPIC
     );
 
-    assert.equal(synthesis.keyFindings.length, 2, 'both findings are still reported');
+    assert.equal(synthesis.keyFindings.length, 2, 'both findings are kept in the synthesis');
     assert.deepEqual(sentToLLM.map(f => f.finding), [ON_TOPIC]);
   });
 

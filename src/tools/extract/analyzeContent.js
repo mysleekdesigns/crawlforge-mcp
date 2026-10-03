@@ -84,6 +84,8 @@ const AnalyzeContentResult = z.object({
     subjectivity: z.number(),
     label: z.string(),
     confidence: z.number(),
+    // non-English text with no lexicon hit: label 'not_applicable', confidence 0
+    notApplicable: z.string().optional(),
     emotions: z.array(z.object({
       emotion: z.string(),
       intensity: z.number()

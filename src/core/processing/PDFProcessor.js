@@ -61,6 +61,7 @@ const PDFResult = z.object({
     pdfVersion: z.string().nullable()
   }).optional(),
   pageCount: z.number(),
+  extractedPages: z.object({ start: z.number(), end: z.number(), count: z.number() }).optional(),
   extractedAt: z.string(),
   processingTime: z.number(),
   success: z.boolean(),
@@ -147,26 +148,28 @@ export class PDFProcessor {
         // normalizeWhitespace maps onto a v2 ParseParameters field (inverted).
         const disableNormalization = !processingOptions.parseOptions?.normalizeWhitespace;
 
+        // The pages this call reads (1-based, inclusive): a pageRange, else the
+        // first maxPages. `end` past the last page is clamped to it.
+        const firstPage = pageRange?.start || 1;
+        const lastPage = Math.min(pageRange?.end || processingOptions.maxPages, totalPages);
+
         // Extract text content
         if (processingOptions.extractText) {
           if (pageRange) {
-            const start = pageRange.start || 1;
             // C3: a start past the last page means the requested range
             // doesn't exist in this PDF — report that explicitly instead of
             // silently returning success:true with empty text.
-            if (start > totalPages) {
-              result.error = `Requested page range starts at page ${start}, but the PDF only has ${totalPages} page(s).`;
+            if (firstPage > totalPages) {
+              result.error = `Requested page range starts at page ${firstPage}, but the PDF only has ${totalPages} page(s).`;
               result.processingTime = Date.now() - startTime;
               return result;
             }
-            const end = Math.min(pageRange.end || processingOptions.maxPages, totalPages);
             const pageNumbers = [];
-            for (let n = start; n <= end; n++) pageNumbers.push(n);
+            for (let n = firstPage; n <= lastPage; n++) pageNumbers.push(n);
 
             const textResult = await parser.getText({ partial: pageNumbers, disableNormalization });
             const slice = textResult.pages.map(p => p.text);
             result.text = this.cleanPDFText(slice.join('\n\n'));
-            result.extractedPages = { start, end, count: slice.length };
           } else {
             const textResult = await parser.getText({ first: processingOptions.maxPages, disableNormalization });
             result.text = this.cleanPDFText(textResult.pages.map(p => p.text).join('\n\n'));
@@ -178,9 +181,13 @@ export class PDFProcessor {
         // compiled build) holds the pdfjs PDFDocumentProxy — reuse it instead
         // of parsing the buffer a second time.
         if (processingOptions.extractTables) {
-          const tableStart = pageRange?.start || 1;
-          const tableEnd = Math.min(pageRange?.end || processingOptions.maxPages, totalPages);
-          result.tables = await this.extractTablesFromDocument(parser.doc, tableStart, tableEnd);
+          result.tables = await this.extractTablesFromDocument(parser.doc, firstPage, lastPage);
+        }
+
+        // Say which pages were read: with maxPages or pageRange the text can
+        // stop short of the document, and nothing said so (R24).
+        if ((processingOptions.extractText || processingOptions.extractTables) && lastPage >= firstPage) {
+          result.extractedPages = { start: firstPage, end: lastPage, count: lastPage - firstPage + 1 };
         }
 
         // Extract metadata
@@ -555,23 +562,28 @@ export class PDFProcessor {
       return { y: row.y, segments };
     });
 
-    // 3. Collect runs of consecutive multi-cell rows with table-like spacing.
+    // 3. Collect runs of consecutive multi-cell rows with table-like spacing,
+    // per column of a two-column page (see splitColumnStreams).
     const maxRowGap = medianHeight * 2.5;
     const runs = [];
-    let run = null;
-    for (const row of segmentedRows) {
-      if (row.segments.length >= 2) {
-        const previous = run && run[run.length - 1];
-        if (previous && previous.y - row.y <= maxRowGap) {
-          run.push(row);
+    for (const stream of this.splitColumnStreams(segmentedRows)) {
+      let run = null;
+      for (const row of stream) {
+        if (row.segments.length >= 2) {
+          const previous = run && run[run.length - 1];
+          if (previous && previous.y - row.y <= maxRowGap) {
+            run.push(row);
+          } else {
+            run = [row];
+            runs.push(run);
+          }
         } else {
-          run = [row];
-          runs.push(run);
+          run = null;
         }
-      } else {
-        run = null;
       }
     }
+    // Top of the page first, whichever column a table came from.
+    runs.sort((a, b) => b[0].y - a[0].y);
 
     const tables = [];
     for (const runRows of runs) {
@@ -584,6 +596,80 @@ export class PDFProcessor {
       }
     }
     return tables;
+  }
+
+  /**
+   * Split a two-column page's rows into one stream per column, so table
+   * detection never pairs a line of the left column with whatever sits at the
+   * same height in the right one. Without this every body line of an ACL paper
+   * became a two-cell "table" row, and figure labels were fused with the prose
+   * beside them (R24).
+   *
+   * A page is two-column when some x near the middle of its text has at least
+   * five rows whose text fills most of the column on each side of it (a line
+   * of prose in each column). No share of all rows is required: a figure can
+   * fill most of a page, leaving ten such rows out of seventy. Rows are then
+   * split at that x into a left and a right stream. A row stays whole, in a
+   * third stream, when a segment crosses that x (a centred title) or when it
+   * has two or more cells on each side and neither side reads as a line of
+   * prose (a table spanning both columns).
+   * A one-column page has no such x and is returned as a single stream.
+   * @param {Array} rows - Rows of {y, segments: [{xStart, xEnd, text}]}, top first
+   * @returns {Array<Array>} - Streams of rows, each top first
+   */
+  splitColumnStreams(rows) {
+    const segments = rows.flatMap(row => row.segments);
+    if (segments.length === 0) return [rows];
+    const minX = Math.min(...segments.map(s => s.xStart));
+    const maxX = Math.max(...segments.map(s => s.xEnd));
+    const width = maxX - minX;
+
+    // A line of prose fills most of its column in at most two segments
+    // (justified text can open one cell-sized gap between words); a table's
+    // cells come in more pieces or leave most of the column empty.
+    const isProse = (list, columnWidth) => list.length >= 1 && list.length <= 2 &&
+      list.reduce((sum, s) => sum + (s.xEnd - s.xStart), 0) >= 0.6 * columnWidth;
+    const proseLinesAt = (x) => rows.filter(row => {
+      const left = row.segments.filter(s => s.xEnd <= x);
+      const right = row.segments.filter(s => s.xStart >= x);
+      return left.length + right.length === row.segments.length &&
+        isProse(left, x - minX) && isProse(right, maxX - x);
+    }).length;
+
+    let gutter = null;
+    let best = 0;
+    const tried = new Set();
+    for (const row of rows) {
+      for (let i = 1; i < row.segments.length; i++) {
+        const x = Math.round((row.segments[i - 1].xEnd + row.segments[i].xStart) / 2);
+        if (tried.has(x) || x < minX + 0.35 * width || x > minX + 0.65 * width) continue;
+        tried.add(x);
+        const count = proseLinesAt(x);
+        if (count > best) {
+          best = count;
+          gutter = x;
+        }
+      }
+    }
+    if (gutter === null || best < 5) return [rows];
+
+    const left = [];
+    const right = [];
+    const whole = [];
+    for (const row of rows) {
+      const crosses = row.segments.some(s => s.xStart < gutter && s.xEnd > gutter);
+      const leftSegments = row.segments.filter(s => (s.xStart + s.xEnd) / 2 < gutter);
+      const rightSegments = row.segments.filter(s => (s.xStart + s.xEnd) / 2 >= gutter);
+      const spansBoth = leftSegments.length >= 2 && rightSegments.length >= 2 &&
+        !isProse(leftSegments, gutter - minX) && !isProse(rightSegments, maxX - gutter);
+      if (crosses || spansBoth) {
+        whole.push(row);
+        continue;
+      }
+      if (leftSegments.length > 0) left.push({ y: row.y, segments: leftSegments });
+      if (rightSegments.length > 0) right.push({ y: row.y, segments: rightSegments });
+    }
+    return [left, right, whole];
   }
 
   /**

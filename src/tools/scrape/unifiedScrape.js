@@ -22,11 +22,11 @@ import {
   scrapeFormatSurcharge
 } from './formats.js';
 import { SCRAPE_ESCALATION_SHAPE, SCRAPE_ESCALATION_CREDITS, aBrowserMightPass } from './escalation.js';
-import { toPublicUnit, parseChosenIndexes, groundingCheck } from './_highlights.js';
+import { toPublicUnit, parseChosenIndexes, groundingCheck, headingUnits, NOT_IN_EVIDENCE } from './_highlights.js';
 import { setActualCost } from '../../server/requestContext.js';
 import { fenceUntrusted } from '../../utils/untrustedContent.js';
 import { fetchAndParse } from '../extract/_fetchAndParse.js';
-import { extractMainContent, isThinMainContent } from './_mainContent.js';
+import { extractMainContent, isThinMainContent, keepPageHeading } from './_mainContent.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 import { stripHiddenFromDom } from '../../utils/hiddenContent.js';
 import { extractBlockText } from '../basic/extractText.js';
@@ -46,6 +46,9 @@ const SCRAPE_BASE_CREDITS = 2;
 const OVERSIZED_MARKDOWN_CHARS = 40000;
 // How many extractive units a question's answer rests on.
 const QUESTION_EVIDENCE_UNITS = 5;
+// How long the json format waits for its model before failing with an error
+// that says so; MCP clients commonly give a whole call 60 s.
+export const JSON_TIMEOUT_MS = 60000;
 
 const isQueryFormat = (fmt) => Boolean(fmt) && typeof fmt === 'object' && (fmt.type === 'highlights' || fmt.type === 'question');
 
@@ -158,9 +161,12 @@ function extractMetadataFromDom($, pageUrl) {
     microdata.push(item);
   });
 
+  // The document's own <title> wins: a site-wide og:title placed ahead of the
+  // page's one made every Caddy docs page "Caddy - The Ultimate Server with
+  // Automatic HTTPS" (R24). og:title stays under og_tags.title.
   const title =
-    $('meta[property="og:title"]').attr('content') ||
     pageTitle($) ||
+    $('meta[property="og:title"]').attr('content') ||
     $('h1').first().text().trim() || '';
 
   const ogTags = {};
@@ -211,6 +217,8 @@ export class UnifiedScrapeTool {
     // The injected function owns the compliance gate (robots + blocklist) and
     // the engine-name mapping, exactly as the stealth_mode tool does.
     this._escalateScrape = options.escalateScrape || null;
+    // Overridable so a test need not wait out the real bound.
+    this._jsonTimeoutMs = options.jsonTimeoutMs ?? JSON_TIMEOUT_MS;
     this._mcpServer = null;
   }
 
@@ -258,14 +266,16 @@ export class UnifiedScrapeTool {
   async _answerQuestion(evidence, question) {
     const { text } = await this._complete(
       `${fenceUntrusted(evidence.map((unit) => unit.text).join('\n'), 'page evidence')}\nQuestion: ${question}\n` +
-      'Answer from the evidence only; if the evidence does not say, say so. Reply with the answer only.',
+      `Answer from the evidence only; if the evidence does not say, reply ${NOT_IN_EVIDENCE}. Reply with the answer only.`,
       {
         maxTokens: 256,
         systemPrompt: 'You answer a question from evidence quoted from a web page. Use only the evidence. ' +
-          'If the evidence does not contain the answer, say that it does not. Reply with the answer only, no preamble.'
+          `If the evidence does not contain the answer, reply exactly ${NOT_IN_EVIDENCE} and nothing else. Reply with the answer only, no preamble.`
       }
     );
-    return text.trim();
+    // A model may wrap the sentinel in punctuation or quotes.
+    const answer = text.trim();
+    return answer.replace(/[^A-Z_]/g, '') === NOT_IN_EVIDENCE ? NOT_IN_EVIDENCE : answer;
   }
 
   /** Lazy-load ExtractWithLlm to avoid pulling in heavy deps unless needed. */
@@ -502,6 +512,8 @@ export class UnifiedScrapeTool {
         warnings.push(
           `mainContent: main-content extraction kept ${thin.kept} of ${thin.visible} visible characters; the whole page is used instead`
         );
+      } else if (main.html) {
+        mainHtml = keepPageHeading(mainHtml, $);
       }
       return mainHtml;
     }
@@ -582,12 +594,25 @@ export class UnifiedScrapeTool {
           const text = onlyMainContent
             ? `${htmlToMarkdown(getMainHtml())}\n\n${pageText}`
             : pageText;
-          const result = await extractWithLlm.execute({
-            content: text,
-            prompt: fmt.prompt || 'Extract structured data from this page content.',
-            schema: fmt.schema,
-            provider: 'auto'
-          });
+          // A long page is up to 50,000 characters of prompt and, on an
+          // empty first reply, a second call: a 36,000-character page failed
+          // only after ~80 s (R24). The wait is bounded, and running out of
+          // it is a clear error rather than a client-side timeout.
+          let timer;
+          const result = await Promise.race([
+            extractWithLlm.execute({
+              content: text,
+              prompt: fmt.prompt || 'Extract structured data from this page content.',
+              schema: fmt.schema,
+              provider: 'auto'
+            }),
+            new Promise((_, reject) => {
+              timer = setTimeout(() => reject(new Error(
+                `extraction did not finish within ${this._jsonTimeoutMs / 1000} s on ${text.length} characters of page text; ` +
+                'ask for {type:"highlights", query} to get only the relevant part, or call extract_with_llm with a shorter excerpt as content'
+              )), this._jsonTimeoutMs);
+            })
+          ]).finally(() => clearTimeout(timer));
           content.json = result.success ? result.data : { error: result.error };
           if (!result.success) {
             warnings.push(`json: extraction failed — ${result.error}`);
@@ -642,29 +667,40 @@ export class UnifiedScrapeTool {
             content.highlights = chosen.map(toPublicUnit);
             if (chosen.length === 0) warnings.push(`highlights: no sentence, table row or code block matched "${fmt.query}"`);
           } else {
-            const evidence = rankUnits(getUnits(), fmt.question, { maxUnits: QUESTION_EVIDENCE_UNITS });
+            // Headings are candidates too: a value printed as a heading is
+            // in no sentence (3.3).
+            const candidates = [...getUnits(), ...headingUnits(getMarkdown(), getUnits())]
+              .sort((a, b) => a.offset - b.offset);
+            const evidence = rankUnits(candidates, fmt.question, { maxUnits: QUESTION_EVIDENCE_UNITS });
             const evidenceText = evidence.map((unit) => unit.text).join('\n');
             let text = evidenceText;
-            let grounded = true;
+            // An empty answer rests on nothing, so it is never grounded.
+            let grounded = evidence.length > 0;
             if (fmt.mode === 'model' && evidence.length > 0) {
               try {
                 text = await this._answerQuestion(evidence, fmt.question);
                 modelUsed = true;
-                const check = groundingCheck(text, evidenceText, fmt.question);
-                grounded = check.grounded;
-                if (!grounded) {
-                  warnings.push(`question: the model's answer has ${check.unbacked.length} token(s) not found in the evidence or the question (${check.unbacked.join(', ')}); grounded: false`);
+                if (text === NOT_IN_EVIDENCE) {
+                  text = '';
+                  grounded = false;
+                  warnings.push('question: the model found no answer in the evidence; grounded: false');
+                } else {
+                  const check = groundingCheck(text, evidenceText, fmt.question);
+                  grounded = check.grounded;
+                  if (!grounded) {
+                    warnings.push(`question: the model's answer has ${check.unbacked.length} token(s) not found in the evidence or the question (${check.unbacked.join(', ')}); grounded: false`);
+                  }
                 }
               } catch {
                 modelUnavailable('question');
               }
             }
             content.answer = { text, grounded, evidence: evidence.map(toPublicUnit) };
-            if (evidence.length === 0) warnings.push(`question: no sentence, table row or code block matched "${fmt.question}"`);
+            if (evidence.length === 0) warnings.push(`question: no sentence, table row or code block matched "${fmt.question}", nor any heading; grounded: false`);
           }
         } catch (err) {
           if (fmt.type === 'highlights') content.highlights = [];
-          else content.answer = { text: '', grounded: true, evidence: [] };
+          else content.answer = { text: '', grounded: false, evidence: [] };
           warnings.push(`${fmt.type}: ${err.message}`);
         }
         continue;
