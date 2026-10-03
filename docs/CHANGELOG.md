@@ -25,6 +25,15 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
   but the text is pretty-printed and `_cost` is added after shaping, so it ran
   about 10% over. It is now measured pretty-printed, with room held for
   `_cost`.
+- **`extract_links` and `extract_text` say what the target answered.** A
+  non-2xx failed as `HTTP <n>: <statusText>`, and a challenge page served
+  with 200 was extracted as if it were the page. The fetched body now goes
+  through the shared document verdict, as on the REST routes: a named
+  vendor's wall fails on any status as `Target answered HTTP <n>: <vendor>
+  served a challenge page … (<evidence>)`, and any other non-2xx as `Target
+  answered HTTP <n>`. An empty shell or an error placeholder on a 200 still
+  extracts as before. The `Next step:` hint for both tools now names `scrape`
+  with `escalate:true` first after a 403/429/444/challenge page.
 
 ### Added
 

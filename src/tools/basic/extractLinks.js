@@ -5,6 +5,7 @@
 
 import { load } from 'cheerio';
 import { fetchWithTimeout } from './_fetch.js';
+import { targetFailure } from './_targetFailure.js';
 
 /**
  * @param {{ url: string, filter_external?: boolean, base_url?: string,
@@ -17,9 +18,8 @@ export async function extractLinksHandler({ url, filter_external, base_url, user
       respectRobots: respect_robots,
       tool: 'extract_links'
     });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
+    const failure = targetFailure(response, url);
+    if (failure) throw new Error(failure);
 
     const html = await response.text();
     const $ = load(html);

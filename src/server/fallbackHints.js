@@ -11,8 +11,8 @@
 
 export const FALLBACK_HINTS = Object.freeze({
   fetch_url: 'For a JS-rendered page or an empty shell use scrape; after a 403/429/CAPTCHA/challenge page use stealth_mode operation:"scrape". Do not repeat the same fetch_url call.',
-  extract_text: 'Use scrape formats:["markdown"] (renders more pages); after a 403/429/challenge page use stealth_mode operation:"scrape".',
-  extract_links: 'Use scrape formats:["links"]; for a whole site use map_site.',
+  extract_text: 'Use scrape formats:["markdown"] (renders more pages); after a 403/429/444/challenge page use scrape with escalate:true, or stealth_mode operation:"scrape".',
+  extract_links: 'Use scrape formats:["links"]; for a whole site use map_site; after a 403/429/444/challenge page use scrape with escalate:true, or stealth_mode operation:"scrape".',
   extract_metadata: 'Use scrape formats:["metadata"]; after a 403/429/challenge page use stealth_mode operation:"scrape".',
   extract_content: 'Use scrape formats:["markdown"] (same clean output, renders more pages); after a 403/429/challenge page use stealth_mode operation:"scrape".',
   extract_embedded_state: 'Call again without `path` to see the top-level keys, or use scrape formats:["markdown"] if the page has no framework payload.',

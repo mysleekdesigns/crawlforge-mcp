@@ -9,6 +9,7 @@ import { load } from 'cheerio';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import { fetchWithTimeout } from './_fetch.js';
+import { targetFailure } from './_targetFailure.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 
 // Block-level elements whose boundaries should become paragraph breaks
@@ -84,9 +85,8 @@ export async function extractTextHandler({ url, remove_scripts, remove_styles, o
       respectRobots: respect_robots,
       tool: 'extract_text'
     });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
+    const failure = targetFailure(response, url);
+    if (failure) throw new Error(failure);
 
     const html = await response.text();
     const $ = load(html);
