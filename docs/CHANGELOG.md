@@ -5,6 +5,21 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Fixed
+
+- **`scrape_with_actions`: `browserOptions.timeout` now bounds the page load.**
+  The initial navigation and a retry's reload always used 30 s, so a page that
+  took longer failed at 30 s even with `timeout: 60000` (the-internet's
+  `/shadowdom`, 2026-10-03). A `navigate` action's own timeout still comes
+  first, and the default stays 30 s.
+
+### Added
+
+- **`tests/live/actions-embedded-state.live.test.js`**, the live regression
+  harness for `scrape_with_actions` and `extract_embedded_state` (fix plan
+  Phase 6): 24 cases over real MCP stdio, run by hand with
+  `CRAWLFORGE_LIVE=1`, skipped otherwise and outside CI's `tests/unit`.
+
 ## [6.17.1] - 2026-10-03
 
 ### Changed

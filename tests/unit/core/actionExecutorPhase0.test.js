@@ -138,6 +138,27 @@ describe('0.2 — chain.timeout reaches the actions', () => {
       assert.deepEqual(seen, [20000, 20000, 5000]);
     });
   });
+
+  // Phase 6 harness, 2026-10-03: a page whose load took ~30 s failed at
+  // exactly 30 s with browserOptions.timeout: 60000.
+  test('browserOptions.timeout bounds the page load; a navigate action\'s own timeout comes first', async () => {
+    const executor = new ActionExecutor({ enableLogging: false });
+    try {
+      const seen = [];
+      const page = {
+        goto: async (url, options) => { seen.push(options.timeout); throw new Error('stop after goto'); }
+      };
+      // An IP literal, so the SSRF pre-flight needs no DNS.
+      const load = (options) => executor.navigateToUrl(page, 'https://1.1.1.1/', options).catch(() => {});
+      await load({ browserOptions: { timeout: 60000 } });
+      await load({ timeout: 5000, browserOptions: { timeout: 60000 } });
+      await load({ browserOptions: {} });
+      assert.deepEqual(seen, [60000, 5000, 30000]);
+    } finally {
+      await executor.destroy().catch(() => {});
+      await executor.browserProcessor.localizationManager?.cleanup().catch(() => {});
+    }
+  });
 });
 
 describe('0.3 — chainConfig.screenshotOnError overrides the constructor default', () => {
