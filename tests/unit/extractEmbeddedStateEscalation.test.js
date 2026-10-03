@@ -30,6 +30,8 @@ const { default: authManager } = await import('../../src/core/AuthManager.js');
 const BLOCKED = fileURLToPath(new URL('../fixtures/blocked/', import.meta.url));
 const EMBEDDED = fileURLToPath(new URL('../fixtures/embedded-state/', import.meta.url));
 const TICKETMASTER = readFileSync(`${EMBEDDED}ticketmaster-next-data.html`, 'utf8');
+const YOUTUBE = readFileSync(`${EMBEDDED}youtube-watch.html`, 'utf8');
+const NUXT3 = readFileSync(`${EMBEDDED}nuxt-com-home.html`, 'utf8');
 const CLOUDFLARE = readFileSync(`${BLOCKED}cloudflare.html`, 'utf8');
 
 // A client-rendered page: nothing a reader would see, but its state is here.
@@ -331,6 +333,29 @@ describe('3.2 window_state: globals read after JavaScript ran', () => {
     assert.deepEqual(body.keys.window_state, { ytInitialData: 'object', ytInitialPlayerResponse: 'object' });
   });
 
+  // Phase 4.2: the served HTML now parses these globals itself, so the
+  // window copy must be dropped by the same `variable` match.
+  test('ytInitialData, ytInitialPlayerResponse, __remixContext, __TGT_DATA__ and __PWS_DATA__ the HTML parsed are not repeated', async () => {
+    const extra = '<script>window.__remixContext = {"url":"/r"}; window.__TGT_DATA__ = {"t":1}; window.__PWS_DATA__ = {"p":1};</script></body>';
+    const rendered = YOUTUBE.replace('</body>', extra);
+    const onWindow = {
+      ytInitialData: { a: 1 },
+      ytInitialPlayerResponse: { b: 1 },
+      __remixContext: { c: 1 },
+      __TGT_DATA__: { d: 1 },
+      __PWS_DATA__: { e: 1 },
+      __APOLLO_STATE__: { only: 'on window' }
+    };
+    const handler = createExtractEmbeddedStateHandler({ escalateFetch: fakeEscalator({ html: rendered, windowState: onWindow }) });
+    const { body } = await run(handler, { url: `${baseUrl}/cloudflare`, escalate: true });
+    assert.deepEqual(body.found.map((f) => f.variable), ['ytInitialData', 'ytInitialPlayerResponse', '__remixContext', '__TGT_DATA__', '__PWS_DATA__']);
+    assert.deepEqual(body.window_state.found.map((f) => f.name), ['__APOLLO_STATE__']);
+    assert.deepEqual(Object.keys(body.data.window_state), ['__APOLLO_STATE__']);
+    for (const name of ['ytInitialData', 'ytInitialPlayerResponse', '__remixContext', '__TGT_DATA__', '__PWS_DATA__']) {
+      assert.ok(body.warnings.some((w) => w.startsWith(`window_state: ${name} is not repeated`)), name);
+    }
+  });
+
   test('impit got the page: no browser ran, so the warnings say window_state was not read', async () => {
     const handler = createExtractEmbeddedStateHandler({ escalateFetch: fakeEscalator({ engine: 'impit' }) });
     const { body } = await run(handler, { url: `${baseUrl}/bare-403`, escalate: true });
@@ -341,6 +366,18 @@ describe('3.2 window_state: globals read after JavaScript ran', () => {
 });
 
 // The billing half end to end: the real cost table and the real withAuth.
+describe('raw reaches the escalated re-parse too', () => {
+  test('a walled Nuxt 3 page re-read with raw:true keeps the undecoded array', async () => {
+    const handler = createExtractEmbeddedStateHandler({ escalateFetch: fakeEscalator({ html: NUXT3 }) });
+    const plain = await run(handler, { url: `${baseUrl}/cloudflare`, escalate: true });
+    assert.deepEqual(plain.body.found.map((f) => f.name), ['nuxt_data', 'nuxt']);
+    const raw = await run(handler, { url: `${baseUrl}/cloudflare`, escalate: true, raw: true });
+    assert.equal(raw.body.escalated, true);
+    assert.deepEqual(raw.body.found.map((f) => f.name), ['nuxt_data', 'nuxt', 'json_scripts']);
+    assert.equal(raw.body.data.json_scripts[0].id, '__NUXT_DATA__');
+  });
+});
+
 describe('_cost through withAuth: projected 7, actual 2 or 7', () => {
   const wrap = (handler) => {
     const reportCalls = [];
@@ -389,6 +426,16 @@ describe('_cost through withAuth: projected 7, actual 2 or 7', () => {
     assert.equal(body._cost.actual, 3, 'the error rate: half of the 7 that ran');
   });
 
+  test('find with keys_only is refused before any fetch and bills nothing', async () => {
+    const escalator = fakeEscalator();
+    const { handler, reportCalls } = wrap(createExtractEmbeddedStateHandler({ escalateFetch: escalator }));
+    const result = await handler({ url: `${baseUrl}/cloudflare`, escalate: true, find: 'price', keys_only: true });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /find and keys_only cannot be combined/);
+    assert.equal(escalator.calls.length, 0);
+    assert.equal(reportCalls.length, 0);
+  });
+
   test('a refused escalation bills nothing', async () => {
     const refusing = async () => {
       markPreflightRefusal('ROBOTS_DISALLOWED');
@@ -408,12 +455,17 @@ describe('the input schema', () => {
   test('the new params, their defaults and bounds', () => {
     const parsed = schema.parse({ url: 'https://example.com/' });
     assert.equal(parsed.keys_only, false);
+    assert.equal(parsed.find, undefined);
+    assert.equal(parsed.raw, false);
+    assert.equal(schema.safeParse({ url: 'https://example.com/', find: '' }).success, false);
+    assert.equal(schema.safeParse({ url: 'https://example.com/', find: 'x'.repeat(101) }).success, false);
+    assert.equal(schema.safeParse({ url: 'https://example.com/', find: 'x'.repeat(100) }).success, true);
     assert.equal(parsed.escalate, false);
     assert.equal(parsed.escalate_engine, 'auto');
     assert.equal(parsed.wait_for, undefined);
     assert.equal(schema.safeParse({ url: 'https://example.com/', wait_for: 30001 }).success, false);
     assert.equal(schema.safeParse({ url: 'https://example.com/', escalate_engine: 'firefox' }).success, false);
-    assert.deepEqual(Object.keys(EMBEDDED_STATE_INPUT_SHAPE), ['url', 'path', 'keys_only', 'escalate', 'escalate_engine', 'wait_for']);
+    assert.deepEqual(Object.keys(EMBEDDED_STATE_INPUT_SHAPE), ['url', 'path', 'keys_only', 'find', 'raw', 'escalate', 'escalate_engine', 'wait_for']);
   });
 
   test('the escalate description states the price rule and the ordering', () => {
@@ -429,6 +481,7 @@ describe('the input schema', () => {
     const block = source.slice(start, source.indexOf('registerToolIfEnabled(', start + 10));
     assert.match(block, /projected at 7, charged 2 when the plain fetch worked/);
     assert.match(block, /keys_only:true/);
+    assert.match(block, /find:\\"<key>\\"/);
     assert.match(block, /window_state/);
     assert.match(block, /preview/);
     assert.match(block, /result_handle/);

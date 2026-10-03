@@ -8,7 +8,8 @@
  * transitive import (same setup as robotsGate.test.js).
  *
  * Item 3.2's threshold is asserted here against the Healthgrades fixture, whose
- * 71 verbatim rows parse to 83,795 bytes. The live page it was condensed from
+ * 71 verbatim rows parse to 84,679 bytes once crawlforge-extractors 1.11.0
+ * resolves the "$<id>" references between them (83,795 before). The live page it was condensed from
  * measures larger still: 2,467,703 bytes of HTML, 1,412,665 bytes of state
  * across 205 rows, scoped by
  *   path:"next_f.5.0.0.3.children.3.pageData.directoryLinks"
@@ -37,6 +38,8 @@ const PAGES = {
   '/ticketmaster': fixture('ticketmaster-next-data.html'),
   '/healthgrades': fixture('healthgrades-rsc.html'),
   '/private/healthgrades': fixture('healthgrades-rsc.html'),
+  '/youtube': fixture('youtube-watch.html'),
+  '/nuxt': fixture('nuxt-com-home.html'),
   '/plain': '<html><body><h1>no state here</h1></body></html>'
 };
 
@@ -71,8 +74,8 @@ after(async () => {
   await new Promise((resolve) => server.close(resolve));
 });
 
-async function extract(path, jsonPath) {
-  const result = await extractEmbeddedStateHandler({ url: `${baseUrl}${path}`, path: jsonPath });
+async function extract(path, jsonPath, params = {}) {
+  const result = await extractEmbeddedStateHandler({ url: `${baseUrl}${path}`, path: jsonPath, ...params });
   assert.ok(!result.isError, result.content[0].text);
   return JSON.parse(result.content[0].text);
 }
@@ -89,11 +92,20 @@ describe('3.1 — parsed objects from the page\'s own state', () => {
     );
   });
 
-  test('Healthgrades: the RSC chunks come back as parsed rows', async () => {
+  test('Healthgrades: the RSC chunks come back as parsed rows, with the data_rows index beside them', async () => {
     const payload = await extract('/healthgrades');
-    assert.deepEqual(payload.found.map((f) => f.variable), ['self.__next_f']);
+    assert.deepEqual(payload.found.map((f) => f.name), ['next_f', 'data_rows']);
+    assert.deepEqual(payload.found.map((f) => f.variable), ['self.__next_f', 'self.__next_f']);
     assert.equal(Object.keys(payload.data.next_f).length, 71);
     assert.equal(payload.data.next_f['0'].p, '/hg-provider-search-app');
+    assert.deepEqual(payload.data.data_rows.map((r) => r.id), ['0', '9']);
+  });
+
+  test('YouTube: ytInitialData and ytInitialPlayerResponse come back from a plain fetch', async () => {
+    const payload = await extract('/youtube');
+    assert.deepEqual(payload.found.map((f) => f.name), ['yt_initial_data', 'yt_initial_player_response']);
+    assert.deepEqual(payload.found.map((f) => f.variable), ['ytInitialData', 'ytInitialPlayerResponse']);
+    assert.equal(payload.data.yt_initial_player_response.videoDetails.videoId, 'dQw4w9WgXcQ');
   });
 
   test('the response reports where it ended up, not where it was asked to go', async () => {
@@ -112,9 +124,11 @@ describe('3.1 — parsed objects from the page\'s own state', () => {
 describe('3.2 — a path scopes the result instead of returning the blob', () => {
   test('the unscoped Healthgrades result is the problem being solved', async () => {
     const payload = await extract('/healthgrades');
-    // 83,795 bytes of state, plus the 11-byte {"next_f": … } envelope.
-    assert.equal(payload.found[0].bytes, 83795);
-    assert.equal(payload.bytes, 83806);
+    // 84,679 bytes of rows and 162 of data_rows index, plus the
+    // {"next_f": … ,"data_rows": … } envelope.
+    assert.equal(payload.found[0].bytes, 84679);
+    assert.equal(payload.found[1].bytes, 162);
+    assert.equal(payload.bytes, 84865);
     assert.ok(payload.bytes > 50_000, 'the whole state is over the 50 KB the plan targets');
   });
 
@@ -124,15 +138,15 @@ describe('3.2 — a path scopes the result instead of returning the blob', () =>
 
     assert.equal(scoped.path, 'next_f.0');
     assert.ok(scoped.bytes < 50_000, `scoped result was ${scoped.bytes} bytes`);
-    assert.equal(scoped.bytes, 4007);
+    assert.equal(scoped.bytes, 4496);
     assert.deepEqual(scoped.data, whole.data.next_f['0']);
     assert.equal(Buffer.byteLength(JSON.stringify(scoped.data)), scoped.bytes);
   });
 
   test('`found` still lists every source, so scoping does not hide what else is there', async () => {
     const scoped = await extract('/healthgrades', 'next_f.0');
-    assert.deepEqual(scoped.found.map((f) => f.name), ['next_f']);
-    assert.equal(scoped.found[0].bytes, 83795);
+    assert.deepEqual(scoped.found.map((f) => f.name), ['next_f', 'data_rows']);
+    assert.equal(scoped.found[0].bytes, 84679);
   });
 
   test('a path can reach a single leaf value', async () => {
@@ -189,6 +203,84 @@ describe('a bare path is resolved inside the page\'s only payload', () => {
     const result = await extract('/ticketmaster', 'next_data.props');
     assert.equal(result.path, 'next_data.props');
     assert.ok(!result.warnings.some((w) => /was read as/.test(w)));
+  });
+
+  test('data_rows is an index, not a second payload: an RSC page still resolves a bare path', async () => {
+    const bare = await extract('/healthgrades', '0.p');
+    assert.equal(bare.path, 'next_f.0.p');
+    assert.equal(bare.data, '/hg-provider-search-app');
+  });
+});
+
+// Plan Phase 4.4: find returns where a key lives instead of the data.
+describe('find: the paths where a key lives, ready to pass back as path', () => {
+  test('every match across the payloads, with a preview; no data', async () => {
+    const payload = await extract('/youtube', undefined, { find: 'videoId' });
+    assert.equal('data' in payload, false);
+    assert.deepEqual(payload.matches, [
+      { path: 'yt_initial_data.currentVideoEndpoint.watchEndpoint.videoId', preview: '"dQw4w9WgXcQ"' },
+      { path: 'yt_initial_player_response.videoDetails.videoId', preview: '"dQw4w9WgXcQ"' }
+    ]);
+    assert.equal(payload.matches_total, 2);
+    assert.equal(payload.matches_truncated, false);
+    assert.deepEqual(payload.found.map((f) => f.name), ['yt_initial_data', 'yt_initial_player_response'], 'found is kept');
+  });
+
+  test('inside a path: each match is prefixed with it, and resolves when passed back', async () => {
+    const payload = await extract('/healthgrades', 'next_f.33', { find: 'specialty' });
+    assert.deepEqual(payload.matches.map((m) => m.path), [
+      'next_f.33.2.3.children.3.children.0.0.3.specialty',
+      'next_f.33.2.3.children.3.children.0.0.3.providerData.specialty'
+    ]);
+    const back = await extract('/healthgrades', payload.matches[0].path);
+    assert.equal(back.data, 'Cardiology');
+  });
+
+  test('a bare path read inside the only payload prefixes with the path it was read as', async () => {
+    const payload = await extract('/ticketmaster', 'props.pageProps', { find: 'name' });
+    assert.equal(payload.path, 'next_data.props.pageProps');
+    assert.equal(payload.matches[0].path, 'next_data.props.pageProps.eventsJsonLD.0.0.name');
+    assert.ok(payload.matches.every((m) => m.path.startsWith('next_data.props.pageProps.')));
+  });
+
+  test('over 50 matches: the first 50, the total, and matches_truncated', async () => {
+    const payload = await extract('/healthgrades', undefined, { find: 'children' });
+    assert.equal(payload.matches.length, 50);
+    assert.equal(payload.matches_total, 163);
+    assert.equal(payload.matches_truncated, true);
+  });
+
+  test('no match is an empty list, not an error', async () => {
+    const payload = await extract('/ticketmaster', undefined, { find: 'noSuchKeyAnywhere' });
+    assert.deepEqual(payload.matches, []);
+    assert.equal(payload.matches_total, 0);
+  });
+
+  test('find with keys_only is refused before any fetch, naming both', async () => {
+    const result = await extractEmbeddedStateHandler({ url: `${baseUrl}/ticketmaster`, find: 'name', keys_only: true });
+    assert.equal(result.isError, true);
+    const text = result.content[0].text;
+    assert.match(text, /find and keys_only cannot be combined/);
+    appendFallbackHint('extract_embedded_state', result);
+    assert.equal(result.content[0].text, text, 'its own Next step, not the generic path hint');
+  });
+});
+
+// Plan Phase 4.1: Nuxt 3's devalue payload is decoded; raw keeps the array too.
+describe('raw: the undecoded __NUXT_DATA__ beside the decoded one', () => {
+  test('by default nuxt_data is decoded objects and the raw array is not repeated', async () => {
+    const payload = await extract('/nuxt');
+    assert.deepEqual(payload.found.map((f) => f.name), ['nuxt_data', 'nuxt']);
+    assert.equal(payload.data.nuxt_data.state['$scolor-mode'].preference, 'dark');
+    assert.equal('json_scripts' in payload.data, false);
+  });
+
+  test('raw:true also returns the undecoded array under json_scripts', async () => {
+    const payload = await extract('/nuxt', undefined, { raw: true });
+    assert.deepEqual(payload.found.map((f) => f.name), ['nuxt_data', 'nuxt', 'json_scripts']);
+    assert.equal(payload.data.nuxt_data.state['$scolor-mode'].preference, 'dark');
+    assert.equal(payload.data.json_scripts[0].id, '__NUXT_DATA__');
+    assert.deepEqual(payload.data.json_scripts[0].data[1], ['Reactive', 2], 'the devalue index array, undecoded');
   });
 });
 
