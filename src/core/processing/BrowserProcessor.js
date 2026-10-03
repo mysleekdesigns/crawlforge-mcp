@@ -373,6 +373,11 @@ export class BrowserProcessor {
     // createStealthContext re-validates the config it is given — so a context
     // asked for without it would relaunch on the default engine underneath.
     const engine = options.stealthMode.engine || 'chromium';
+    // The caller's own proxies (scrape_with_actions browserOptions.proxyRotation),
+    // to both calls for the same reason as the engine: camoufox takes its proxy
+    // at launch, Chromium per context. Absent unless the caller sent one, so
+    // CRAWLFORGE_STEALTH_PROXIES still applies when nobody did.
+    const proxy = options.proxyRotation ? { proxyRotation: options.proxyRotation } : {};
 
     // Launch stealth browser
     await this.stealthManager.launchStealthBrowser({
@@ -381,12 +386,14 @@ export class BrowserProcessor {
       randomizeFingerprint: options.stealthMode.randomizeFingerprint,
       hideWebDriver: options.stealthMode.hideWebDriver,
       blockWebRTC: options.stealthMode.blockWebRTC,
-      customUserAgent: options.stealthMode.customUserAgent || options.userAgent
+      customUserAgent: options.stealthMode.customUserAgent || options.userAgent,
+      ...proxy
     });
 
     // Create stealth context
     const { context, contextId } = await this.stealthManager.createStealthContext({
       engine,
+      ...proxy,
       level: options.stealthMode.level,
       customViewport: {
         width: options.viewportWidth || 1280,

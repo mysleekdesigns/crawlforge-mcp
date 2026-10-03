@@ -17,7 +17,7 @@ import path from 'path';
 import { createRequire } from 'module';
 import HumanBehaviorSimulator from '../utils/HumanBehaviorSimulator.js';
 import { BrowserContextPool } from './BrowserContextPool.js';
-import { safeGoto, assertNavigationAllowed } from '../utils/ssrfGuard.js';
+import { safeGoto, assertNavigationAllowed, assertUrlAllowed } from '../utils/ssrfGuard.js';
 import { looksLikeInterstitial, detectChallengePage } from '../utils/challengeDetection.js';
 import { guardFirefoxPageErrors } from '../utils/firefoxPageErrorGuard.js';
 import { serverStealthProxies } from '../constants/config.js';
@@ -157,6 +157,39 @@ function isChromium(page) {
   } catch {
     return false;
   }
+}
+
+/**
+ * A proxy entry with its credentials removed. Everything before the last "@"
+ * of the authority goes, with or without a scheme: parseProxyEntry accepts a
+ * bare `user:pass@host:port`, which a rule anchored on "//" left whole.
+ * @param {string} entry
+ * @returns {string}
+ */
+export function redactProxyEntry(entry) {
+  return String(entry).replace(/^([a-z][a-z0-9+.-]*:\/\/)?[^/]*@/i, '$1');
+}
+
+/**
+ * Refuse a per-call proxy list on camoufox. camoufox takes its proxy at
+ * browser launch and that one browser serves every later camoufox call, so a
+ * caller's proxy would carry other callers' traffic, on the caller's
+ * credentials, or be ignored when a browser is already up. Chromium sets the
+ * proxy per context. Called with the engine that will actually run, so an
+ * "auto" that lands on camoufox is refused too. The operator's
+ * CRAWLFORGE_STEALTH_PROXIES is not a per-call list and is not refused.
+ * @param {string} engine - the resolved engine
+ * @param {{ proxyRotation?: { enabled?: boolean, proxies?: string[] } }} config
+ * @throws {Error}
+ */
+export function assertProxyEngineAllowed(engine, config) {
+  const requested = config?.proxyRotation?.enabled ? (config.proxyRotation.proxies || []) : [];
+  if (engine !== 'camoufox' || !requested.length) return;
+  throw new Error(
+    'proxyRotation is refused on the camoufox engine: camoufox applies its proxy at browser launch ' +
+    'and shares that browser across calls, so a per-call proxy cannot be kept to this call. Use ' +
+    'engine:"chromium" (proxies are per context there), or set the operator list CRAWLFORGE_STEALTH_PROXIES.'
+  );
 }
 
 /**
@@ -422,12 +455,19 @@ export class StealthBrowserManager {
    */
   async launchStealthBrowser(config = {}) {
     const validatedConfig = StealthConfigSchema.parse({ ...this.defaultConfig, ...config });
+    // Every path to a browser comes through here, createStealthContext's
+    // included, so this is where a caller's proxy list is held to the SSRF
+    // guard before either engine is handed it.
+    await this.assertCallerProxiesAllowed(validatedConfig);
     // 'auto' has to become a concrete engine before the comparison below: an
     // unresolved 'auto' never equals _launchedEngine, so every call would park
     // a perfectly good browser and launch a second one beside it. This is the
     // call that decides the engine — every other path reaches a browser
     // through it — so it is the one that records the outcome.
     await this._resolveConfigEngine(validatedConfig, true);
+    // The tools refuse this up front; this is the backstop for every other
+    // path, decided on the engine 'auto' resolved to, before any launch.
+    assertProxyEngineAllowed(validatedConfig.engine, validatedConfig);
 
     // A Chromium that was OOM-killed or crashed doesn't error on reuse — its
     // protocol calls hang. Detect the corpse and relaunch instead.
@@ -528,7 +568,11 @@ export class StealthBrowserManager {
       // leave camoufox reporting the first proxy's city behind the second
       // proxy's exit IP, which is a worse signal than not rotating at all.
       // A rotation takes effect on the next launch, after cleanup().
-      const proxy = this.resolveProxy(validatedConfig);
+      //
+      // Only the operator's CRAWLFORGE_STEALTH_PROXIES, never a caller's list:
+      // this browser outlives the call, and every later camoufox context
+      // inherits its proxy (assertProxyEngineAllowed refuses the caller's).
+      const proxy = this.resolveProxy({ ...validatedConfig, proxyRotation: undefined });
       // The caller's locale goes to the launcher, not to the context. camoufox
       // sets language, Accept-Language and Intl together below the JS layer,
       // where a Worker reads the same answer as the document; Playwright's
@@ -2550,9 +2594,34 @@ export class StealthBrowserManager {
     return proxy;
   }
 
+  /**
+   * Refuse a caller's proxy whose host the SSRF guard would refuse as a page:
+   * a proxy on loopback, link-local or a metadata address (RFC 1918 too under
+   * SSRF_STRICT, and ALLOWED_DOMAINS exempt, as everywhere else) would have
+   * the browser send the call's traffic into this server's own network. Only
+   * the per-call list is checked — CRAWLFORGE_STEALTH_PROXIES is the
+   * operator's, who may well run a proxy on localhost. The message names the
+   * host, never the entry, which carries the password.
+   * @param {{ proxyRotation?: { enabled?: boolean, proxies?: string[] } }} config
+   * @returns {Promise<void>}
+   * @throws {Error} code SSRF_BLOCKED
+   */
+  async assertCallerProxiesAllowed(config) {
+    const requested = config.proxyRotation?.enabled ? (config.proxyRotation.proxies || []) : [];
+    for (const entry of requested) {
+      // url.host of socks4/socks5 parses the same way; the guard only takes http(s).
+      const { host } = new URL(this.parseProxyEntry(entry).server);
+      try {
+        await assertUrlAllowed(`http://${host}/`, { resolveDns: true });
+      } catch (err) {
+        throw Object.assign(new Error(`proxyRotation: proxy host ${host} refused — ${err.message}`), { code: err.code });
+      }
+    }
+  }
+
   /** A proxy entry with its credentials removed, for logs and get_stats. */
   redactProxy(entry) {
-    return String(entry).replace(/\/\/[^/@]*@/, '//');
+    return redactProxyEntry(entry);
   }
 
   /**

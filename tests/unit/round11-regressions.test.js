@@ -110,7 +110,7 @@ describe('R11.2 create_context forwards the tool-level engine', () => {
   test('server.js resolves engine for create_context the way scrape does', () => {
     const src = read('server.js');
     const createContextCall = src.match(
-      /const contextEngine = await resolveStealthEngine\(engine\);\s*const contextData = await stealthBrowserManager\.createStealthContext\(\{\s*\.\.\.\(stealthConfig \|\| \{\}\),\s*engine: contextEngine\.engine\s*\}\)/
+      /const contextEngine = await resolveStealthEngine\(engine\);\s*assertProxyEngineAllowed\(contextEngine\.engine, stealthConfig\);\s*const contextData = await stealthBrowserManager\.createStealthContext\(\{\s*\.\.\.\(stealthConfig \|\| \{\}\),\s*engine: contextEngine\.engine\s*\}\)/
     );
     assert.ok(createContextCall,
       'create_context must pass the RESOLVED engine into createStealthContext');
