@@ -139,7 +139,7 @@ CLI: `crawlforge monitor:create <url> --every 1800 --webhook <url>` (local) or
 | `stop_scheduled_monitor` | By `scheduledMonitorOptions.monitorId`: stops a local monitor, or deletes the hosted one with that id. By `url` alone: stops every local monitor on it and deletes hosted monitors whose targets are all that exact URL. |
 | `get_dashboard` | Aggregate status, recent alerts, trends. |
 | `export_history` | Export change history as `json` or `csv`. |
-| `create_alert_rule` | Conditional alerts fired from `compare` (webhook / slack; the email action is not sent by a local process — use a hosted monitor for email). |
+| `create_alert_rule` | Conditional alerts fired from `compare` (webhook / slack; the email action is not sent by a local process — use a hosted monitor for email). `alertRuleOptions.condition` is `significance <operator> <level>`, e.g. `significance >= "moderate"` (quotes optional; levels `none`, `minor`, `moderate`, `major`, `critical`); anything else is rejected. |
 | `generate_trend_report` | Trend analysis over time. |
 | `get_monitoring_templates` | List built-in monitoring presets. |
 

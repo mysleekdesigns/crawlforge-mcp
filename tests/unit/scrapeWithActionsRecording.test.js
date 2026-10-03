@@ -382,7 +382,7 @@ test('backward compat — existing calls without record/replayRecording still wo
 // (page.content()/page.url(), returned as chainResult.capturedStates) —
 // no actions are added to the chain.
 
-test('insertCaptureActions marks click/type/press for capture without adding synthetic actions', async () => {
+test('insertCaptureActions marks every action for capture without adding synthetic actions', async () => {
   const { ScrapeWithActionsTool } = await import(
     `../../src/tools/advanced/ScrapeWithActionsTool.js?t=${Date.now() + 50}`
   );
@@ -398,7 +398,7 @@ test('insertCaptureActions marks click/type/press for capture without adding syn
   assert.equal(marked.length, original.length, 'no synthetic actions should be added to the chain');
   assert.ok(!marked.some((a) => a.type === 'executeJavaScript'), 'no synthetic executeJavaScript action injected');
   assert.equal(marked[0].captureAfter, true, 'click is marked for capture');
-  assert.ok(!marked[1].captureAfter, 'wait is not a capture-triggering type');
+  assert.equal(marked[1].captureAfter, true, 'wait is marked too: "after each action" (R24 2.5)');
   assert.equal(marked[2].captureAfter, true, 'type is marked for capture');
 });
 

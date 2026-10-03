@@ -41,8 +41,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
  *
  * Three files people expect to see here need no entry and must not get one,
  * because none of them spells out a UA: ActionExecutor.js passes through
- * `browserOptions.userAgent`, cli/commands/localize.js calls
- * `mgr.generateUserAgent(...)`, and fetchIdentity.js builds the canonical
+ * `browserOptions.userAgent`, cli/commands/localize.js sends the canonical
+ * identity (R24: it used to borrow the country table's), and fetchIdentity.js builds the canonical
  * identity from the package version. A literal appearing in any of them is a
  * real regression. The second test fails on any entry that has stopped being
  * necessary, which is what keeps this list from growing silently.

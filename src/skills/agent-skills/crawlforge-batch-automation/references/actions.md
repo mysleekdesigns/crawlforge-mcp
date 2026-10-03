@@ -151,9 +151,8 @@ main frame only — elements inside iframes and shadow DOM get no refs.
 
 | Option | Default | Notes |
 |--------|---------|-------|
-| `formats` | `["json"]` | `markdown`, `html`, `json`, `text`, `screenshots`. |
-| `captureIntermediateStates` | `false` | Snapshot after each action. |
-| `captureScreenshots` | `true` | Screenshot during execution. |
+| `formats` | `["json"]` | `markdown`, `html`, `json`, `text`. For an image, add a `{"type":"screenshot"}` action. |
+| `captureIntermediateStates` | `false` | Page state after each action, in `intermediateStates[]`. |
 | `formAutoFill` | — | Declarative form fill: `fields[]` + `submitSelector`. Each field's `type` picks how it is filled: `text` (default) types, `select` picks the option by value or label, `checkbox`/`radio` check the input (a group selector such as `input[name=size]` checks the member whose value attribute equals `value`). `file` is not supported and fails that action. |
 | `browserOptions` | — | `headless`, `userAgent`, `viewportWidth/Height`, `timeout`. |
 | `continueOnActionError` | `false` | Keep going if one action fails. |

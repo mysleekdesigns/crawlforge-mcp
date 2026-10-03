@@ -216,11 +216,29 @@ function guardedConnect(baseConnect) {
   };
 }
 
+/**
+ * Takes an empty Accept-Language off the request before it is written.
+ * `outboundHeaders` (robotsGate.js) sets the header empty because fetch fills
+ * in `*` when it is missing and offers no way to leave it out; this is where
+ * it can be left out, so the wire carries no `Accept-Language:` line at all
+ * (httpbin echoed the empty one, R24). A caller's own value is not empty and
+ * passes through.
+ */
+export function dropEmptyAcceptLanguage(dispatch) {
+  return (opts, handler) => {
+    const headers = opts.headers;
+    if (!headers || Array.isArray(headers)) return dispatch(opts, handler);
+    const kept = Object.fromEntries(Object.entries(headers)
+      .filter(([name, value]) => !(name.toLowerCase() === 'accept-language' && value === '')));
+    return dispatch({ ...opts, headers: kept }, handler);
+  };
+}
+
 let _agent = null;
 function guardedDispatcher() {
   if (!_agent) {
     const baseConnect = buildConnector({ lookup: ssrfLookup });
-    _agent = new Agent({ connect: guardedConnect(baseConnect) });
+    _agent = new Agent({ connect: guardedConnect(baseConnect) }).compose(dropEmptyAcceptLanguage);
   }
   return _agent;
 }

@@ -85,7 +85,8 @@ on a Gecko engine. `locale` is applied, but at browser launch rather than per
 call — Camoufox sets language, Accept-Language and `Intl` below the JS layer,
 where a Worker matches the document — so the first locale a Camoufox browser is
 launched with holds until the browser is cleaned up, and behind a proxy the exit
-IP decides it instead. The persona's OS is the host's and is not configurable
+IP decides it (and the `timezone`) instead. Each value that was not applied is
+named in the result's `warnings`. The persona's OS is the host's and is not configurable
 (on Camoufox that is a request its current client does not honour).
 
 ## Environment

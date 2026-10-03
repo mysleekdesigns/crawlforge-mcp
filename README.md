@@ -191,7 +191,7 @@ CrawlForge requires a CrawlForge API key — **every tool is metered and consume
 | `extract_content` | 2 | Enhanced content extraction |
 | `map_site` | 2 | Discover and map website structure (optional `search=` ranks the discovered URLs) |
 | `process_document` | 2 | Multi-format document processing |
-| `localization` | 2 | Multi-language and geo-location management |
+| `localization` | 2 | Look up a country's locale settings (Accept-Language, timezone, currency) to pass to other tools; returns values, applies none |
 | `track_changes` | 3 | Monitor content changes over time |
 | `analyze_content` | 3 | Comprehensive content analysis |
 | `extract_structured` | 3 | LLM-powered schema-driven extraction (your own LLM key or local Ollama) |

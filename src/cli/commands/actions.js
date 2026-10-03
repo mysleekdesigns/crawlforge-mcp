@@ -11,7 +11,7 @@ export function register(program) {
     .command('actions <url>')
     .description('Run browser automation actions against a URL')
     .requiredOption('--script <file>', 'JSON file containing action script')
-    .option('--screenshot', 'Capture screenshots during action execution')
+    .option('--screenshot', 'Capture a screenshot after the actions')
     .addHelpText('after', '\nexecuteJavaScript actions need ALLOW_JAVASCRIPT_EXECUTION=true in the server environment; otherwise they are refused.\n')
     .action(async (url, opts, cmd) => {
       const globals = cmd.parent.opts();
@@ -26,12 +26,11 @@ export function register(program) {
       }
 
       const tool = new ScrapeWithActionsTool(getToolConfig('scrape_with_actions'));
-      // ScrapeWithActionsSchema uses captureScreenshots (no between-action wait
-      // field — insert {type:'wait'} actions in the script for that).
+      // --screenshot is a screenshot action after the script's own (there is
+      // no between-action wait field — insert {type:'wait'} actions for that).
       await runTool(tool, {
         url,
-        actions,
-        captureScreenshots: !!opts.screenshot
+        actions: opts.screenshot ? [...actions, { type: 'screenshot' }] : actions
       }, cliFlags);
     });
 }

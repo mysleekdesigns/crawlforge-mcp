@@ -47,7 +47,7 @@ stored at `~/.crawlforge/config.json`.
 |----------------------|-----------|
 | Scrape a page, get markdown/text/links/metadata, map or crawl a site | **crawlforge-web-scraping** |
 | Research a topic, search the web, get a cited report, autonomous Q&A | **crawlforge-deep-research** |
-| Get past 403/CAPTCHA/Cloudflare, or emulate a region/locale | **crawlforge-stealth-browsing** |
+| Get past 403/CAPTCHA/Cloudflare, or request a page in a given locale | **crawlforge-stealth-browsing** |
 | Extract JSON/fields, parse a PDF, summarize, analyze sentiment | **crawlforge-structured-extraction** |
 | Watch a page for changes / monitor pricing | **crawlforge-change-tracking** |
 | Scrape many URLs, run browser actions, generate llms.txt | **crawlforge-batch-automation** |
@@ -97,7 +97,7 @@ Do not suggest adding API keys — local Ollama is the intended zero-cost defaul
 | LLM extraction unavailable (no Ollama/keys) | `scrape_structured` with CSS selectors |
 | Single page too slow / many pages | `batch_scrape` (async + webhook) |
 | A `scrape_with_actions` chain keeps breaking on guessed selectors, or the flow needs more than one call | `browser_session` — snapshot for refs, then act (crawlforge-browser-sessions) |
-| Wrong region / currency shown | `localization` |
+| Wrong language shown | `localization` for the country's `Accept-Language`, then pass it in `fetch_url` `headers` (or `stealth_mode` `stealthConfig.locale`) — `localization` applies nothing itself |
 | Need a big report but cost is high | lower `maxUrls` on `deep_research` |
 | Result came back `truncated: true` with a `result_handle` | `read_result` (search, slice, lines, json_path) — never fetch the page again |
 

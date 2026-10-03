@@ -214,14 +214,6 @@ describe('scrapeWithActions tool (real module)', () => {
     await firstCall;
   });
 
-  test('shouldCaptureAfterAction is true for click/type/press only', () => {
-    assert.equal(tool.shouldCaptureAfterAction({ type: 'click' }), true);
-    assert.equal(tool.shouldCaptureAfterAction({ type: 'type' }), true);
-    assert.equal(tool.shouldCaptureAfterAction({ type: 'press' }), true);
-    assert.equal(tool.shouldCaptureAfterAction({ type: 'wait' }), false);
-    assert.equal(tool.shouldCaptureAfterAction({ type: 'scroll' }), false);
-  });
-
   test('processActionResults maps raw results to a stable public shape', () => {
     const raw = [{ id: 'a1', type: 'click', success: true, description: 'Click button', executionTime: 12, timestamp: 111, error: undefined, result: { ok: true }, recovered: false }];
     const mapped = tool.processActionResults(raw);

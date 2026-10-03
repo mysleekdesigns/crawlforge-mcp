@@ -26,7 +26,7 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
 | `extract_content` | Readability-cleaned article. |
 | `map_site` | URL discovery / sitemap. |
 | `process_document` | PDF / DOCX / TXT parsing. |
-| `localization` | Locale / geo emulation. |
+| `localization` | Look up a country's locale values (applies none). |
 
 ## 3 credits
 

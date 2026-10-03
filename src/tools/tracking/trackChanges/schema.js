@@ -37,14 +37,18 @@ export const TRACK_CHANGES_INPUT_SHAPE = {
   html: z.string().optional().describe("HTML content to compare against baseline"),
 
   trackingOptions: z.object({
-    granularity: z.enum(['page', 'section', 'element', 'text']).default('section'),
-    trackText: z.boolean().default(true),
-    trackStructure: z.boolean().default(true),
+    // No zod defaults on the options a monitoring template sets: a default
+    // filled in here is indistinguishable from a value the caller passed, so
+    // it overrode the template (R24 2.7). ChangeTracker applies these same
+    // defaults when the baseline is created.
+    granularity: z.enum(['page', 'section', 'element', 'text']).optional().describe("Default: section"),
+    trackText: z.boolean().optional().describe("Default: true"),
+    trackStructure: z.boolean().optional().describe("Default: true"),
     trackAttributes: z.boolean().default(false),
     trackImages: z.boolean().default(false),
-    trackLinks: z.boolean().default(true),
-    ignoreWhitespace: z.boolean().default(true),
-    ignoreCase: z.boolean().default(false),
+    trackLinks: z.boolean().optional().describe("Default: true"),
+    ignoreWhitespace: z.boolean().optional().describe("Default: true"),
+    ignoreCase: z.boolean().optional().describe("Default: false"),
     customSelectors: z.array(z.string()).optional(),
     excludeSelectors: z.array(z.string()).optional().default([
       'script', 'style', 'noscript', '.advertisement', '.ad', '#comments'
@@ -109,7 +113,7 @@ export const TRACK_CHANGES_INPUT_SHAPE = {
 
   scheduledMonitorOptions: z.object({
     schedule: z.string().optional().describe("Optional cron expression (power users)"),
-    templateId: z.string().optional(),
+    templateId: z.string().optional().describe("Preset from get_monitoring_templates; it sets interval, goal, notificationThreshold and trackingOptions, and any of those passed explicitly wins"),
     enabled: z.boolean().default(true),
     interval: z.number().min(60000).optional().describe("Polling interval in ms (default 1h)"),
     goal: z.string().optional().describe("Plain-English alert goal; an LLM judges whether a change matches (degrades to threshold if no LLM)"),
@@ -121,7 +125,7 @@ export const TRACK_CHANGES_INPUT_SHAPE = {
 
   alertRuleOptions: z.object({
     ruleId: z.string().optional(),
-    condition: z.string().optional(),
+    condition: z.string().optional().describe("significance <operator> <level>, e.g. significance >= \"moderate\" (default: significance === \"major\"). Operators: ===, ==, !==, !=, >=, <=, >, <. Levels: none, minor, moderate, major, critical; quotes optional. Anything else is rejected"),
     actions: z.array(z.enum(['webhook', 'email', 'slack'])).optional(),
     throttle: z.number().min(0).optional(),
     priority: z.enum(['low', 'medium', 'high']).optional()

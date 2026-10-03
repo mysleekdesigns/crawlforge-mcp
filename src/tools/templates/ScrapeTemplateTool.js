@@ -72,9 +72,6 @@ export class ScrapeTemplateTool {
         );
       }
       templateId = detected.id;
-    } else if (!url && !params) {
-      // A template named with nothing to run it against still lists, as before.
-      return this.listTemplates();
     }
 
     // Validate template exists before making network call
@@ -114,7 +111,13 @@ export class ScrapeTemplateTool {
         throw badRequest(error.message);
       }
     } else if (!url) {
-      throw badRequest(`Template "${templateId}" is reached by url, not params. Pass a url.`);
+      throw badRequest(
+        tpl.listUrl
+          ? `Template "${templateId}" needs params (or a url). Pass template:"list" to see the params it takes.`
+          : params
+            ? `Template "${templateId}" is reached by url, not params. Pass a url.`
+            : `url is required for template "${templateId}". Pass a url, or template:"list" to see every template.`
+      );
     } else {
       // A template may redirect its own fetch to a machine-readable endpoint
       // (shopify-product reads /products/<handle>.json). Same host either way,

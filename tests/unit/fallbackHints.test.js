@@ -32,7 +32,7 @@ test('every registered tool has a fallback hint, and no hint is orphaned', () =>
   assert.equal(Object.keys(FALLBACK_HINTS).length, 31);
 });
 
-const PARAM_TOKENS = new Set(['link_id', 'web_discovery', 'create_baseline', 'pdf_url', 'configure_country']);
+const PARAM_TOKENS = new Set(['link_id', 'web_discovery', 'create_baseline', 'pdf_url', 'get_supported_countries']);
 
 test('every hint names a real tool or parameter change (no dead references)', () => {
   const named = new Set(TOOLS);
@@ -43,6 +43,16 @@ test('every hint names a real tool or parameter change (no dead references)', ()
       assert.ok(named.has(ref), `${tool} hint references unknown tool "${ref}"`);
     }
   }
+});
+
+// R24 2.1: localization applies nothing to later calls, so its hint names the
+// parameters that carry the values instead of "after configure_country".
+test('the localization hint names real parameters and promises no persistence', () => {
+  assert.match(FALLBACK_HINTS.localization, /applies none/);
+  assert.match(FALLBACK_HINTS.localization, /fetch_url headers/);
+  assert.match(FALLBACK_HINTS.localization, /stealthConfig:\{locale, timezone\}/);
+  assert.doesNotMatch(FALLBACK_HINTS.localization, /after configure_country/);
+  assert.doesNotMatch(SCRAPE_ESCALATED_HINT, /set a country/);
 });
 
 test('plain-text error gets a trailing Next step line', () => {
@@ -114,7 +124,9 @@ test('an escalated scrape failure gets the second-stage hint, not stealth_mode',
   appendFallbackHint('scrape', r);
   const parsed = JSON.parse(r.content[0].text);
   assert.equal(parsed.next_step, SCRAPE_ESCALATED_HINT);
-  assert.match(parsed.next_step, /localization/);
+  // localization returns values only (R24 2.1): the hint must not send the
+  // model there to "set a country".
+  assert.match(parsed.next_step, /localization does not change/);
   assert.match(parsed.next_step, /residential proxies, which CrawlForge does not offer/);
   assert.doesNotMatch(parsed.next_step, /use stealth_mode/);
 });

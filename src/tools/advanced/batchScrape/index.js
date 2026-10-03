@@ -164,8 +164,10 @@ export class BatchScrapeTool extends EventEmitter {
       const batchResult = {
         batchId, mode: 'sync', success: true, cancelled: wasCancelled || undefined, executionTime,
         totalUrls: urlConfigs.length,
-        successfulUrls: processedResults.filter(r => r.success).length,
-        failedUrls: processedResults.filter(r => !r.success).length,
+        // Counted before includeFailed filters the list: the flag hides the
+        // failed entries, not the fact that they failed.
+        successfulUrls: rawResults.filter(r => r.success).length,
+        failedUrls: rawResults.filter(r => !r.success).length,
         results: paginateResults(processedResults, 0, validated.pageSize),
         pagination: {
           page: 1, pageSize: validated.pageSize,
@@ -416,8 +418,8 @@ export class BatchScrapeTool extends EventEmitter {
         const batchResult = {
           batchId, mode: 'async', success: true, cancelled: wasCancelled || undefined, executionTime,
           totalUrls: urlConfigs.length,
-          successfulUrls: processedResults.filter(r => r.success).length,
-          failedUrls: processedResults.filter(r => !r.success).length,
+          successfulUrls: results.filter(r => r.success).length,
+          failedUrls: results.filter(r => !r.success).length,
           results: processedResults, formats: validated.formats,
           metadata: { concurrency: validated.maxConcurrency, timestamp: Date.now(), jobId: job.id }
         };

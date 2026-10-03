@@ -211,6 +211,7 @@ export class ChangeTracker extends EventEmitter {
     // Statistics
     this.stats = {
       pagesTracked: 0,
+      comparisons: 0,
       changesDetected: 0,
       significantChanges: 0,
       structuralChanges: 0,
@@ -296,6 +297,7 @@ export class ChangeTracker extends EventEmitter {
         sections: Object.keys(contentAnalysis.hashes.sections).length,
         elements: Object.keys(contentAnalysis.hashes.elements).length,
         createdAt: baseline.timestamp,
+        options: validated.options,
         ...(contentAnalysis.warnings ? { warnings: contentAnalysis.warnings } : {})
       };
       
@@ -471,6 +473,18 @@ export class ChangeTracker extends EventEmitter {
       options.excludeSelectors?.forEach(selector => {
         $(selector).remove();
       });
+
+      // The text diff, similarity score and price scan all read
+      // analysis.originalContent, which stayed the raw input — so the
+      // <script> and <style> removed above were still diffed and a rotated
+      // inline token read as a text change (R24 2.8). Serialized the same way
+      // on both sides of a compare; a fragment is kept free of the
+      // <html>/<head>/<body> wrapper the parser adds.
+      if (options.excludeSelectors?.length && /<[a-z!]/i.test(content)) {
+        analysis.originalContent = /<html[\s>]/i.test(content)
+          ? $.html()
+          : ($('head').html() || '') + ($('body').html() || '');
+      }
 
       // Narrow the working document to customSelectors so hashing, similarity
       // and text diffs all operate on the same subtree. Previously these
@@ -1420,22 +1434,26 @@ export class ChangeTracker extends EventEmitter {
   }
   
   updateStats(changeRecord) {
-    this.stats.changesDetected++;
+    // Every compare is a comparison; only one that found a change counts as
+    // a change. changesDetected used to be incremented on every compare, so
+    // it always equalled the compare count (R24 2.8).
+    this.stats.comparisons++;
     
     if (changeRecord.significance !== 'none') {
+      this.stats.changesDetected++;
       this.stats.significantChanges++;
-    }
-    
-    if (changeRecord.changeType === 'structural') {
-      this.stats.structuralChanges++;
-    } else {
-      this.stats.contentChanges++;
+      
+      if (changeRecord.changeType === 'structural') {
+        this.stats.structuralChanges++;
+      } else {
+        this.stats.contentChanges++;
+      }
     }
     
     // Update average change score
     this.stats.averageChangeScore = 
-      (this.stats.averageChangeScore * (this.stats.changesDetected - 1) + 
-       changeRecord.details.similarity) / this.stats.changesDetected;
+      (this.stats.averageChangeScore * (this.stats.comparisons - 1) + 
+       changeRecord.details.similarity) / this.stats.comparisons;
     
     this.stats.lastAnalysis = changeRecord.timestamp;
     this.stats.processingTime += changeRecord.processingTime;
@@ -1448,8 +1466,8 @@ export class ChangeTracker extends EventEmitter {
       ...this.stats,
       monitoredUrls: this.snapshots.size,
       totalSnapshots: Array.from(this.snapshots.values()).reduce((sum, snapshots) => sum + snapshots.length, 0),
-      averageProcessingTime: this.stats.changesDetected > 0 ? 
-        this.stats.processingTime / this.stats.changesDetected : 0
+      averageProcessingTime: this.stats.comparisons > 0 ? 
+        this.stats.processingTime / this.stats.comparisons : 0
     };
   }
   
@@ -1471,6 +1489,7 @@ export class ChangeTracker extends EventEmitter {
   resetStats() {
     this.stats = {
       pagesTracked: 0,
+      comparisons: 0,
       changesDetected: 0,
       significantChanges: 0,
       structuralChanges: 0,
@@ -1748,7 +1767,7 @@ export class ChangeTracker extends EventEmitter {
     return {
       totalBaselines: this.contentHistory.size,
       totalMonitors: this.activeMonitors.size,
-      totalComparisons: this.stats.changesDetected || 0,
+      totalComparisons: this.stats.comparisons || 0,
       totalChanges: this.stats.changesDetected || 0,
       averageChangeSignificance: this.stats.averageChangeScore || 0,
       lastActivity: this.stats.lastAnalysis,
@@ -1766,14 +1785,21 @@ export class ChangeTracker extends EventEmitter {
    * Turn an alert-rule condition string into a predicate over a change record.
    * Supported: `significance === "major"`, `significance >= "moderate"` and
    * the other comparison operators against the significance ladder
-   * none < minor < moderate < major < critical. Anything else never matches.
+   * none < minor < moderate < major < critical; the level may be quoted or
+   * bare (`significance >= minor`). Anything else throws — a rule that can
+   * never fire used to be created as a success (R24 2.7).
    */
   static parseAlertCondition(conditionString = '') {
-    const match = String(conditionString).match(/significance\s*(===|==|!==|!=|>=|<=|>|<)\s*["'](\w+)["']/);
-    if (!match) return () => false;
-    const [, op, level] = match;
-    const target = SIGNIFICANCE_RANK[level];
-    if (target === undefined) return () => false;
+    const match = String(conditionString).match(/^\s*significance\s*(===|==|!==|!=|>=|<=|>|<)\s*(["']?)(\w+)\2\s*$/);
+    if (!match || !Object.hasOwn(SIGNIFICANCE_RANK, match[3])) {
+      throw new Error(
+        `Invalid alert condition "${conditionString}". Accepted form: significance <operator> <level> — ` +
+        'operator is one of ===, ==, !==, !=, >=, <=, >, <; level is one of none, minor, moderate, major, critical ' +
+        '(quotes optional). Example: significance >= "moderate"'
+      );
+    }
+    const op = match[1];
+    const target = SIGNIFICANCE_RANK[match[3]];
     return (record) => {
       const rank = SIGNIFICANCE_RANK[record?.significance];
       if (rank === undefined) return false;

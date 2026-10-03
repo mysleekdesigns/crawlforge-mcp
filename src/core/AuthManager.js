@@ -633,7 +633,7 @@ class AuthManager {
     // cost 1. An unknown or absent operation falls through to the flat 5 — the
     // published price is the ceiling, never the floor.
     if (tool === 'stealth_mode') {
-      const bookkeepingOps = new Set(['configure', 'enable', 'disable', 'get_stats', 'cleanup']);
+      const bookkeepingOps = new Set(['configure', 'get_stats', 'cleanup']);
       if (bookkeepingOps.has(params?.operation)) return 1;
     }
 
@@ -762,7 +762,7 @@ class AuthManager {
       case 'stealth_mode':
         note = projected === 1
           ? 'Bookkeeping operation — launches no browser.'
-          : 'Browser operation. configure/enable/disable/get_stats/cleanup cost 1 credit each.';
+          : 'Browser operation. configure/get_stats/cleanup cost 1 credit each.';
         break;
       case 'browser_session':
         note = `Priced per operation: open 3, read 2, snapshot/act/screenshot/close/list 1. This call bills ${projected}.`;
