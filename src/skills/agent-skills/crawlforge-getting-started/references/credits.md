@@ -22,7 +22,7 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
 |------|-------|
 | `scrape` | Unified multi-format single fetch. A `highlights` or `question` format adds 1 once per call; `mode:"model"` on one of them adds 3 once. `escalate:true` adds 5 as the projected ceiling; the actual charge drops back to the base when the plain fetch succeeded and no escalation ran. |
 | `scrape_structured` | CSS-selector extraction. |
-| `extract_embedded_state` | Embedded JS state (`__NEXT_DATA__`, RSC, Nuxt, Apollo, Redux). `escalate:true` adds 5 as the projected ceiling for the stealth re-read; the actual charge drops back to 2 when the plain fetch succeeded and no escalation ran. `keys_only` costs nothing extra. |
+| `extract_embedded_state` | Embedded JS state (`__NEXT_DATA__`, RSC, Nuxt, Apollo, Redux). `escalate:true` adds 5 as the projected ceiling for the stealth re-read; the actual charge drops back to 2 when the plain fetch succeeded and no escalation ran. `keys_only` and `find` cost nothing extra. |
 | `extract_content` | Readability-cleaned article. |
 | `map_site` | URL discovery / sitemap. |
 | `process_document` | PDF / DOCX / TXT parsing. |

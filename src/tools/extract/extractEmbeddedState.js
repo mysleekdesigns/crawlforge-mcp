@@ -1,8 +1,10 @@
 /**
  * extract_embedded_state — return the JSON state a page already ships in its
- * own HTML: __NEXT_DATA__, RSC flight chunks (self.__next_f), __NUXT__,
- * __APOLLO_STATE__, __INITIAL_STATE__, __PRELOADED_STATE__ and
- * <script type="application/json"> blocks.
+ * own HTML: __NEXT_DATA__, RSC flight chunks (self.__next_f), __NUXT__ and
+ * Nuxt 3's __NUXT_DATA__, SvelteKit, __APOLLO_STATE__, __INITIAL_STATE__,
+ * __PRELOADED_STATE__, ytInitialData, Inertia, Shopify and
+ * <script type="application/json"> blocks. `find` returns the paths where a
+ * key lives instead of the data.
  *
  * One fetch, exact values, no LLM in the extraction path — the numbers come
  * from the site's own serialized state, so they cannot be fabricated.
@@ -19,10 +21,10 @@ import { z } from 'zod';
 import { fetchAndParse } from './_fetchAndParse.js';
 // Both live in crawlforge-extractors so the REST API's extract_embedded_state
 // runs this exact reader — one RSC flight-stream parser, not two.
-import { extractEmbeddedState, selectJsonPath } from 'crawlforge-extractors';
+import { extractEmbeddedState, selectJsonPath, findJsonPaths } from 'crawlforge-extractors';
 import { stealthDocumentVerdict } from '../../utils/stealthVerdict.js';
 import { pageTitle } from '../../utils/pageTitle.js';
-import { setActualCost } from '../../server/requestContext.js';
+import { setActualCost, markPreflightRefusal } from '../../server/requestContext.js';
 import { SCRAPE_ESCALATION_SHAPE, SCRAPE_ESCALATION_CREDITS, aBrowserMightPass } from '../scrape/escalation.js';
 import { WINDOW_STATE_NOTE } from '../../core/browser/windowState.js';
 
@@ -32,8 +34,8 @@ const EMBEDDED_STATE_BASE_CREDITS = 2;
 // Above this, an unscoped result is big enough to be a problem for the caller
 // (context window, transport) rather than just large. Warn with a ready path:
 // over max_inline_chars the result comes back as a preview plus a
-// result_handle (src/server/inlineThreshold.js), and `path` or `keys_only`
-// ask for less up front.
+// result_handle (src/server/inlineThreshold.js), and `path`, `keys_only` or
+// `find` ask for less up front.
 const LARGE_RESULT_BYTES = 256_000;
 
 // A wall, as opposed to a missing page or a broken server (G4: a 404 or a 5xx
@@ -54,6 +56,8 @@ export const EMBEDDED_STATE_INPUT_SHAPE = {
   url: z.string().url().describe('The URL to read embedded state from'),
   path: z.string().optional().describe('Return only this subtree instead of the whole payload. Dotted keys and array indexes, e.g. "next_data.props.pageProps" or "next_f[0].f" — not JSONPath (no wildcards, filters or recursion). State payloads are routinely over a megabyte; scope them.'),
   keys_only: z.boolean().optional().default(false).describe('Return `keys` instead of `data`: the first two levels of keys of the selected data (after `path`), each value replaced by its type ("object", "array(<n>)", "string", "number", "boolean", "null"); an array shows its length and its first item. Cheap discovery before choosing a path. Default: false'),
+  find: z.string().min(1).max(100).optional().describe('Return `matches` instead of `data`: every property with this key name (case-insensitive) anywhere in the selected data (after `path`), in document order, each as {path, preview} with the first 200 characters of its value - at most 50, with `matches_total` and `matches_truncated`. Each match path already starts with `path`, so it can be passed straight back as `path`. Discover where a field lives without downloading the payload. Cannot be combined with keys_only'),
+  raw: z.boolean().optional().default(false).describe('Also keep the undecoded __NUXT_DATA__ devalue array under json_scripts, beside the decoded nuxt_data. Default: false'),
   escalate: z.boolean().optional().default(false).describe('When the plain fetch comes back blocked (403/429/challenge page, or an empty shell with no state), re-read the page once in the stealth browser and run the same parser on the rendered document; the browser also reads the framework globals off window (window_state). Under escalate_engine "auto" a Chrome TLS handshake with the honest CrawlForge User-Agent (impit) is tried first, and the browser runs only when that does not get the page. A 404 or 5xx never escalates. Projected at 2+5; the actual charge stays at 2 when the plain fetch succeeded. Default: false'),
   escalate_engine: SCRAPE_ESCALATION_SHAPE.escalate_engine,
   wait_for: z.number().min(0).max(30000).optional().describe('Escalated render only: extra wait after page load, in ms — for state assigned after DOMContentLoaded. Ignored without escalation')
@@ -116,8 +120,20 @@ function failed(verdict, status, gotState) {
  */
 export function createExtractEmbeddedStateHandler({ escalateFetch } = {}) {
   return async function extractEmbeddedStateHandler({
-    url, path, keys_only, escalate, escalate_engine = 'auto', wait_for, user_agent, respect_robots
+    url, path, keys_only, find, raw = false, escalate, escalate_engine = 'auto', wait_for, user_agent, respect_robots
   }) {
+    // Each replaces `data` with something else, so asking for both has no
+    // answer. Nothing was fetched, so - like a robots refusal - it costs nothing.
+    if (find !== undefined && keys_only) {
+      markPreflightRefusal('BAD_REQUEST');
+      return {
+        content: [{
+          type: 'text',
+          text: 'Failed to extract embedded state: find and keys_only cannot be combined - find returns matches, keys_only returns keys.\nNext step: Call again with only one of find or keys_only.'
+        }],
+        isError: true
+      };
+    }
     const escalating = escalate === true;
     let escalationRan = false;
     // One charge report for every return path: the projection is 2+5 when
@@ -138,7 +154,7 @@ export function createExtractEmbeddedStateHandler({ escalateFetch } = {}) {
       });
       let { html, finalUrl, status } = fetched;
       const warnings = [...fetched.warnings];
-      let state = extractEmbeddedState(html);
+      let state = extractEmbeddedState(html, { raw });
       let verdict = stealthDocumentVerdict(
         { url: finalUrl, title: pageTitle(fetched.$), text: fetched.textContent, html, status },
         { fetcher: 'a plain fetch', rendered: false, contentReturned: false }
@@ -177,7 +193,7 @@ export function createExtractEmbeddedStateHandler({ escalateFetch } = {}) {
             finalUrl = stealth.url || finalUrl;
             status = stealth.status ?? null;
             // The same parser, on the document the browser ended up with.
-            state = extractEmbeddedState(html);
+            state = extractEmbeddedState(html, { raw });
             verdict = stealthDocumentVerdict(
               { url: finalUrl, title: stealth.title || '', text: stealth.text || '', html, status },
               { waitedMs: stealth.gracedMs || 0, fetcher: 'the stealth browser', rendered: true, contentReturned: false }
@@ -254,13 +270,15 @@ export function createExtractEmbeddedStateHandler({ escalateFetch } = {}) {
       // the envelope keys, read it inside that payload and say so (R21,
       // 2026-09-09: four Next.js pages in a row failed on the bare path).
       // `window_state` is an envelope key, so a path into it is left alone.
+      // `data_rows` is an index of next_f's rows, not a payload of its own.
+      const payloads = state.found.filter((f) => f.name !== 'data_rows');
       let effectivePath = path;
-      if (path && state.found.length === 1) {
+      if (path && payloads.length === 1) {
         const root = path.split(/[.[]/)[0];
         if (root && !(root in state.data)) {
-          effectivePath = `${state.found[0].name}.${path}`;
+          effectivePath = `${payloads[0].name}.${path}`;
           warnings.push(
-            `path "${path}" was read as "${effectivePath}": "${state.found[0].name}" is the only payload on this page, so the path is resolved inside it.`
+            `path "${path}" was read as "${effectivePath}": "${payloads[0].name}" is the only payload on this page, so the path is resolved inside it.`
           );
         }
       }
@@ -268,12 +286,22 @@ export function createExtractEmbeddedStateHandler({ escalateFetch } = {}) {
       const data = effectivePath ? selectJsonPath(state.data, effectivePath) : state.data;
       const bytes = Buffer.byteLength(JSON.stringify(data) ?? '');
 
-      if (!path && !keys_only && bytes > LARGE_RESULT_BYTES) {
+      if (!path && !keys_only && find === undefined && bytes > LARGE_RESULT_BYTES) {
         const largest = state.found.reduce((a, b) => (b.bytes > a.bytes ? b : a), state.found[0] ?? null);
         if (largest) {
           warnings.push(
-            `Result is ${bytes} bytes; "${largest.name}" alone is ${largest.bytes}. Re-run with path to scope it, e.g. path:"${largest.name}.${Object.keys(state.data[largest.name])[0]}", or with keys_only:true to see its keys first.`
+            `Result is ${bytes} bytes; "${largest.name}" alone is ${largest.bytes}. Re-run with path to scope it, e.g. path:"${largest.name}.${Object.keys(state.data[largest.name])[0]}", with keys_only:true to see its keys first, or with find:"<key>" to get the paths where a field of that name lives.`
           );
+        }
+      }
+
+      // Match paths are relative to the selected data; prefixed with the path
+      // that selected it, each one can be passed straight back as `path`.
+      let search;
+      if (find !== undefined) {
+        search = findJsonPaths(data, find);
+        if (effectivePath) {
+          for (const match of search.matches) match.path = `${effectivePath}.${match.path}`;
         }
       }
 
@@ -288,7 +316,9 @@ export function createExtractEmbeddedStateHandler({ escalateFetch } = {}) {
             bytes,
             ...escalationFields,
             ...(windowFound.length > 0 ? { window_state: { note: WINDOW_STATE_NOTE, found: windowFound } } : {}),
-            ...(keys_only ? { keys: describeKeys(data, 2) } : { data }),
+            ...(search
+              ? { matches: search.matches, matches_total: search.total, matches_truncated: search.truncated }
+              : (keys_only ? { keys: describeKeys(data, 2) } : { data })),
             warnings
           }, null, 2)
         }]

@@ -5,6 +5,49 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.16.0] - 2026-10-03
+
+Phase 4 of the actions + embedded-state plan: `extract_embedded_state` decodes
+what the plain fetch already brought back. Requires `crawlforge-extractors`
+1.11.0, which holds the parser the website's REST route shares. The price is
+unchanged at 2; `escalate:true` still projects 7 and charges 2 when the plain
+fetch gets the page.
+
+### Added
+
+- **New sources, read from the served HTML with no browser** (all in
+  `crawlforge-extractors` 1.11.0): Nuxt 3's `__NUXT_DATA__` devalue payload
+  decoded into objects as `nuxt_data` (it used to come back as the index array
+  under `json_scripts`); SvelteKit's `kit.start` data as `sveltekit_data`;
+  `ytInitialData` and `ytInitialPlayerResponse` (a YouTube watch page now
+  returns `videoDetails` from a plain fetch), `__remixContext`, `__TGT_DATA__`,
+  `__PWS_DATA__`, `__SERVER_DATA__`, `__APP_STATE__`, `__STATE__` and
+  `__data__`, including `var`/`let`/`const` declarations; Inertia's
+  `data-page` as `inertia_page`; Shopify's `ShopifyAnalytics.meta` and product
+  JSON as `shopify` (meta prices are integer minor units); JSON `data-*`
+  attributes of 2 KB or more as `json_attributes`; and `<script type="text/json">`.
+  A global assigned a JavaScript literal rather than JSON (Nuxt 2's
+  single-return IIFE included) is read by a static evaluator; no page code runs.
+- **`find: "<key>"`** returns `matches`, `matches_total` and
+  `matches_truncated` instead of `data`: every property with that key name
+  (case-insensitive) in the selected data, in document order, each as
+  `{path, preview}` with the value's first 200 characters, at most 50. Inside
+  a `path` each match path starts with that path, so it can be passed straight
+  back as `path`. `find` with `keys_only` is refused before any fetch, at no
+  charge.
+- **`raw: true`** also keeps the undecoded `__NUXT_DATA__` array under
+  `json_scripts`, beside `nuxt_data`. Default false; applies to the escalated
+  re-read too.
+
+### Changed
+
+- **RSC rows have their `$<id>` references to other rows resolved in place**,
+  and `found` lists a `data_rows` entry: an index (`{id, bytes, keys, length}`,
+  largest first) of the `next_f` rows that carry data rather than markup, read
+  with `path:"next_f.<id>"`. `data_rows` is not a payload of its own, so a bare
+  path on an RSC page still resolves inside `next_f`.
+- The large-result warning also suggests `find`.
+
 ### Fixed
 
 - **A Web Bot Auth signature is now made per redirect hop.** The gate signed

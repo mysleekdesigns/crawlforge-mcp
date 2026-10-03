@@ -888,16 +888,25 @@ already, exact and typed — that beats asking a model to read them off the rend
 { "tool": "extract_embedded_state", "params": { "url": "https://www.ticketmaster.com/discover/concerts", "path": "next_data.props.pageProps" } }
 ```
 
-Finds `__NEXT_DATA__`, `self.__next_f` (React Server Component payloads),
-`window.__NUXT__`, `__APOLLO_STATE__`, `__INITIAL_STATE__`, `__PRELOADED_STATE__`
-and `<script type="application/json">` blocks, keyed by source name. No LLM in
-the path, so values are exact rather than inferred.
+Finds `__NEXT_DATA__`, `self.__next_f` (React Server Component payloads, with
+`$<id>` references between rows resolved and a `data_rows` index of the rows
+carrying data), `window.__NUXT__` and Nuxt 3's `__NUXT_DATA__` (decoded as
+`nuxt_data`; `raw: true` also keeps the undecoded array), SvelteKit `kit.start`
+data, `__APOLLO_STATE__`, `__INITIAL_STATE__`, `__PRELOADED_STATE__`,
+`ytInitialData`, `ytInitialPlayerResponse`, Inertia `data-page`, Shopify meta and
+product JSON, JSON `data-*` attributes and `<script type="application/json">`
+blocks, keyed by source name. No LLM in the path, so values are exact rather
+than inferred.
 
 These payloads are routinely over a megabyte — pass `path` (dotted keys and
 array indexes, e.g. `next_data.props.pageProps` or `next_f[0].f`) to return one
 subtree, or `keys_only: true` first to see the first two levels of keys (types,
-no values) before choosing one. A result over `max_inline_chars` comes back as a
-`preview` (whole lines of the JSON), `data_keys` and a `result_handle`: read the
+no values) before choosing one. When you know a field's name but not where it
+is, `find: "<key>"` returns every path holding it (case-insensitive, up to 50,
+each with a 200-character preview) instead of the data; each path can be passed
+straight back as `path`. `find` and `keys_only` cannot be combined. A result
+over `max_inline_chars` comes back as a `preview` (whole lines of the JSON),
+`data_keys` and a `result_handle`: read the
 rest with `read_result` operation `json_path` (e.g. path `data.next_data.props`)
 instead of fetching again.
 
