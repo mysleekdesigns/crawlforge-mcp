@@ -36,7 +36,10 @@ const { fetchAndParse } = await import('../../src/tools/extract/_fetchAndParse.j
 const { getHostBlock, getHostBackoffMs, _resetHostRateLimiter } = await import('../../src/utils/hostRateLimiter.js');
 
 const FIXTURES = fileURLToPath(new URL('../fixtures/blocked/', import.meta.url));
-const VENDORS = ['cloudflare', 'amazon', 'datadome', 'perimeterx', 'akamai', 'vercel'];
+// fastly is the lemonde.fr client challenge (R24 1.8): a condensed live
+// capture, and the one vendor here whose table entry needs the
+// crawlforge-extractors release after 1.14.0.
+const VENDORS = ['cloudflare', 'amazon', 'datadome', 'perimeterx', 'akamai', 'vercel', 'fastly'];
 
 const NORMAL_PAGE = `<!doctype html><html><head><title>A real page</title></head>
 <body><main><h1>A real page</h1><p>${'Ordinary prose that a reader would see. '.repeat(20)}</p></main></body></html>`;
