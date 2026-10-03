@@ -261,19 +261,30 @@ export class CrawlDeepTool {
         });
         const duration = Date.now() - startTime;
 
+        // The counters, each defined once: a URL the crawl tried either
+        // produced a page (results) or an error (errors), so
+        // pages_attempted = pages_crawled + error_count. pages_crawled used to
+        // count attempts, which read "3 crawled, 1 found, 2 errors" (R24).
+        const succeeded = results.results.length;
+        const failed = results.errors.length;
+
         // Process and format results
         const response = {
           url: validated.url,
           crawl_depth: effectiveMaxDepth,
-          pages_crawled: results.urls.length,
-          pages_found: results.results.length,
-          error_count: results.errors.length,
+          pages_attempted: succeeded + failed,
+          pages_crawled: succeeded,
+          pages_found: succeeded,
+          error_count: failed,
           duration_ms: duration,
-          pages_per_second: results.urls.length / (duration / 1000),
+          // A seed refused before any I/O finishes in 0 ms; x / 0 is Infinity,
+          // which the output schema rejects as "expected number".
+          pages_per_second: succeeded / (Math.max(duration, 1) / 1000),
           results: this.formatResults(results.results, validated.extract_content, validated.content_max_length),
           errors: results.errors,
           stats: results.stats,
-          site_structure: this.analyzeSiteStructure(results.urls, results.results),
+          // Pages only: a URL that failed is in errors[], not in the site's structure.
+          site_structure: this.analyzeSiteStructure(results.results.map(page => page.url), results.results),
           domain_filter_config: domainFilter ? domainFilter.exportConfig() : null,
           link_analysis: results.linkAnalysis,
           session: sessionContext

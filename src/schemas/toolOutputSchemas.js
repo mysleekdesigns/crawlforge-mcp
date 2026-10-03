@@ -181,6 +181,7 @@ const mapSiteShape = {
     url: z.string().optional(),
     score: z.number().optional()
   }).passthrough()).optional().describe('Present only when the `search` param was set'),
+  warnings: z.array(z.string()).optional().describe('Present when the map is partial, e.g. the start page could not be read and the URLs come from the sitemap only'),
   _cost: costShape
 };
 
@@ -378,16 +379,17 @@ const crawlDeepShape = {
   error: z.string().optional(),
   url: z.string().optional(),
   crawl_depth: z.number().optional(),
-  pages_crawled: z.number().optional(),
-  pages_found: z.number().optional(),
-  error_count: z.number().optional(),
+  pages_attempted: z.number().optional().describe('URLs the crawl tried: pages_crawled + error_count'),
+  pages_crawled: z.number().optional().describe('Pages fetched and returned in results'),
+  pages_found: z.number().optional().describe('Same as pages_crawled; kept for existing clients'),
+  error_count: z.number().optional().describe('URLs that failed; one entry each in errors[]'),
   duration_ms: z.number().optional(),
   pages_per_second: z.number().optional(),
   results: z.array(crawlDeepPageShape).optional(),
   errors: z.array(z.unknown()).optional(),
   stats: z.unknown().optional(),
   site_structure: z.object({
-    total_pages: z.number().optional(),
+    total_pages: z.number().optional().describe('Equals pages_crawled; failed URLs are not counted'),
     depth_distribution: z.record(z.number()).optional()
       .describe('Pages per crawl depth (links from the start URL)'),
     path_depth_distribution: z.record(z.number()).optional()

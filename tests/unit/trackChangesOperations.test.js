@@ -180,6 +180,59 @@ describe('track_changes — monitoring templates', () => {
   });
 });
 
+// R24 1.9: monitoringOptions.enabled:false started a monitor anyway, and the
+// polling monitor showed only in get_dashboard — list_scheduled_monitors did
+// not list it and stop_scheduled_monitor could not stop it.
+describe('track_changes — polling monitor can be turned off, listed and stopped', () => {
+  // Port 9 on loopback: the monitor's first check fails without leaving the machine.
+  const POLL_URL = 'http://127.0.0.1:9/r24-poll';
+  const polling = async () => (await tool.execute({ operation: 'list_scheduled_monitors' })).monitors.filter((m) => m.kind === 'polling');
+
+  test('monitoringOptions.enabled:false starts nothing', async () => {
+    const r = await tool.execute({ url: POLL_URL, operation: 'monitor', monitoringOptions: { enabled: false } });
+    ok(r, 'monitor enabled:false');
+    assert.deepEqual(r.monitoring, { enabled: false, stopped: false });
+    assert.equal(tool.activeMonitors.size, 0);
+    assert.deepEqual(await polling(), []);
+  });
+
+  test('a polling monitor is listed, and enabled:false turns it off', async () => {
+    const started = await tool.execute({ url: POLL_URL, operation: 'monitor' });
+    ok(started, 'monitor');
+    assert.equal(started.monitoring.enabled, true);
+    const listed = await polling();
+    assert.equal(listed.length, 1);
+    assert.equal(listed[0].id, `poll:${POLL_URL}`);
+    assert.equal(listed[0].url, POLL_URL);
+    assert.equal(listed[0].hosted, false);
+
+    const off = await tool.execute({ url: POLL_URL, operation: 'monitor', monitoringOptions: { enabled: false } });
+    assert.deepEqual(off.monitoring, { enabled: false, stopped: true });
+    assert.deepEqual(await polling(), []);
+  });
+
+  test('stop_scheduled_monitor stops a polling monitor by url and by its poll: id', async () => {
+    ok(await tool.execute({ url: POLL_URL, operation: 'monitor' }), 'monitor');
+    const byUrl = await tool.execute({ url: POLL_URL, operation: 'stop_scheduled_monitor' });
+    ok(byUrl, 'stop by url');
+    assert.equal(byUrl.stoppedPolling, 1);
+    assert.equal(tool.activeMonitors.size, 0);
+
+    ok(await tool.execute({ url: POLL_URL, operation: 'monitor' }), 'monitor');
+    const id = `poll:${POLL_URL}`;
+    const byId = await tool.execute({ operation: 'stop_scheduled_monitor', scheduledMonitorOptions: { monitorId: id } });
+    ok(byId, 'stop by id');
+    assert.equal(byId.stopped, true);
+    assert.equal(tool.activeMonitors.size, 0);
+    const dashboard = await tool.execute({ operation: 'get_dashboard' });
+    assert.deepEqual(dashboard.dashboard.monitors.filter((m) => m.kind === 'polling'), []);
+
+    const again = await tool.execute({ operation: 'stop_scheduled_monitor', scheduledMonitorOptions: { monitorId: id } });
+    assert.equal(again.success, false);
+    assert.equal(again.stopped, false);
+  });
+});
+
 describe('ChangeTracker.parseAlertCondition', () => {
   const rec = (significance) => ({ significance });
   test('supports equality and the ordered comparisons on the significance ladder', () => {

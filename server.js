@@ -1031,7 +1031,7 @@ registerToolIfEnabled("scrape_with_actions", {
       fields: z.array(z.object({
         selector: z.string(),
         value: z.string(),
-        type: z.enum(['text', 'select', 'checkbox', 'radio', 'file']).default('text'),
+        type: z.enum(['text', 'select', 'checkbox', 'radio', 'file']).default('text').describe("How the field is filled: text types the value, select picks the option by value or label, checkbox/radio check the input (a selector matching a group checks the member whose value attribute equals value; a checkbox with value \"false\" is unchecked). file is not supported and fails that action"),
         waitAfter: z.number().min(0).max(5000).default(100)
       })),
       submitSelector: z.string().optional(),

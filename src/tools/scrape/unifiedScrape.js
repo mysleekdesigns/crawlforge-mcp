@@ -699,16 +699,19 @@ export class UnifiedScrapeTool {
         case 'text':
           try {
             const { load } = await import('cheerio');
+            // cheerio parses a <noscript> body as raw text, so left in it
+            // reaches `text` as literal tags (lemonde.fr's challenge page,
+            // 2026-10-03); extract_text and the markdown format drop it too.
             if (onlyMainContent) {
               // Plain text from Readability main content via cheerio
               const $main = load(getMainHtml());
-              $main('script, style').remove();
+              $main('script, style, noscript').remove();
               content.text = extractBlockText($main);
             } else {
               // Strip script/style on a clone, not the shared $, so other
               // formats reading $ later aren't affected by format ordering.
               const $clone = load($.html());
-              $clone('script, style').remove();
+              $clone('script, style, noscript').remove();
               content.text = extractBlockText($clone);
             }
           } catch (err) {
@@ -789,6 +792,15 @@ export class UnifiedScrapeTool {
     const queryScoped = formats.some(isQueryFormat);
     if (queryScoped && !formats.includes('markdown')) {
       warnings.push('offsets index the "markdown" format of this call (same onlyMainContent); add "markdown" to formats to quote with a locator');
+    }
+    // A success with nothing in it must say so: the caller otherwise cannot
+    // tell an empty page from a scrape that lost the content.
+    if (typeof content.markdown === 'string' && content.markdown.trim() === '' && !warnings.some((w) => w.startsWith('markdown:'))) {
+      warnings.push(
+        'markdown: the page produced no markdown' +
+        (onlyMainContent ? '; retry with onlyMainContent:false if main-content extraction dropped it, or' : ';') +
+        ' use escalate:true if the page is rendered by JavaScript'
+      );
     }
     if (!queryScoped && typeof content.markdown === 'string' && content.markdown.length > OVERSIZED_MARKDOWN_CHARS) {
       warnings.push(`markdown: ${content.markdown.length} characters; ask for {type:"highlights", query} (1 extra credit, no model) to get only the matching sentences, table rows and code blocks`);

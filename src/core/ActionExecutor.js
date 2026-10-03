@@ -129,6 +129,17 @@ const SelectActionSchema = BaseActionSchema.extend({
   message: 'Select action requires value or values'
 });
 
+// Not on any tool's public action list: scrape_with_actions' formAutoFill emits
+// it for a field declared `type: "checkbox"` or `type: "radio"`. `fieldType`
+// is a plain string so that a field type nothing here can fill ("file")
+// arrives as an action that fails, instead of being typed into as text.
+const CheckActionSchema = BaseActionSchema.extend({
+  type: z.literal('check'),
+  selector: z.string(),
+  value: z.string(),
+  fieldType: z.string()
+});
+
 const HoverActionSchema = BaseActionSchema.extend({
   type: z.literal('hover'),
   selector: z.string(),
@@ -175,6 +186,7 @@ const ActionSchema = z.union([
   PressActionSchema,
   ScrollActionSchema,
   SelectActionSchema,
+  CheckActionSchema,
   HoverActionSchema,
   NavigateActionSchema,
   ScreenshotActionSchema,
@@ -1029,6 +1041,8 @@ export class ActionExecutor extends EventEmitter {
         return await this.executeScrollAction(page, action);
       case 'select':
         return await this.executeSelectAction(page, action);
+      case 'check':
+        return await this.executeCheckAction(page, action);
       case 'hover':
         return await this.executeHoverAction(page, action);
       case 'navigate':
@@ -1306,6 +1320,45 @@ export class ActionExecutor extends EventEmitter {
       selector: action.selector,
       requested: values,
       selected
+    };
+  }
+
+  /**
+   * Execute check action — a formAutoFill checkbox or radio field.
+   *
+   * A selector that names a whole group (`input[name="size"]`) is narrowed to
+   * the member whose `value` attribute is the field's value, the way the form
+   * itself pairs name and value; `.first()` would check whichever came first.
+   * A selector that names one input checks that input, except a checkbox with
+   * value "false", which is unchecked.
+   * @param {Page} page - Playwright page
+   * @param {Object} action - Check action
+   * @returns {Promise<Object>} Check result
+   */
+  async executeCheckAction(page, action) {
+    if (action.fieldType !== 'checkbox' && action.fieldType !== 'radio') {
+      throw new Error(
+        `formAutoFill field type "${action.fieldType}" is not supported ` +
+        '(supported: text, select, checkbox, radio)'
+      );
+    }
+
+    const timeout = this.actionTimeout(action);
+    const matches = page.locator(this.resolveSelector(page, action.selector));
+    await matches.first().waitFor({ state: 'attached', timeout });
+
+    const isGroup = (await matches.count()) > 1;
+    const target = isGroup
+      ? matches.and(page.locator(`[value=${JSON.stringify(action.value)}]`)).first()
+      : matches.first();
+    const checked = isGroup || action.fieldType === 'radio' || action.value !== 'false';
+
+    await target.setChecked(checked, { timeout });
+
+    return {
+      selector: action.selector,
+      value: action.value,
+      checked
     };
   }
 

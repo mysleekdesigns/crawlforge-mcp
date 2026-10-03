@@ -14,6 +14,7 @@ import { fetchResigned } from '../../../utils/resignedFetch.js';
 import { htmlToMarkdown } from '../../../utils/htmlToMarkdown.js';
 import { elementText } from '../../../utils/elementText.js';
 import { pageTitle } from '../../../utils/pageTitle.js';
+import { classifyContentType, unsupportedContentTypeError } from '../../extract/_fetchAndParse.js';
 
 /**
  * Fetch a URL with AbortController timeout (SSRF-guarded + per-host throttled).
@@ -40,6 +41,13 @@ export async function fetchUrl(url, options = {}) {
     });
     if (response.status === 429 || response.status === 503) {
       noteRetryAfter(url, response.headers?.get?.('retry-after'));
+    }
+    // A PDF decoded as text came back success:true with "%PDF-1.4 …" as the
+    // page (R24 1.5). Refused before the body is read, with the wording
+    // `scrape` gives the same URL; an error status keeps its own message.
+    const contentType = response.headers?.get?.('content-type') || null;
+    if (response.ok && classifyContentType(contentType) === 'binary') {
+      throw unsupportedContentTypeError(contentType);
     }
     // crawlforge-extractors' readBody: same size cap, but decoded with the
     // body's real charset — the local reader this replaces decoded everything

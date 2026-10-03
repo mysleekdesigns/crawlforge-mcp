@@ -317,3 +317,76 @@ describe('crawlDeep — max_pages confirmation gate (real module)', () => {
     assert.ok(result.pages_crawled >= 1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// R24 Phase 1 — a refused seed and the counters
+// ---------------------------------------------------------------------------
+
+describe('crawlDeep tool — refused seed and counters (R24 1.1, 1.3)', () => {
+  let server;
+  let baseUrl;
+
+  before(async () => {
+    const pages = {
+      '/': '<html><body><a href="/ok1">1</a><a href="/ok2">2</a><a href="/gone1">3</a><a href="/gone2">4</a></body></html>',
+      '/ok1': '<html><body>One</body></html>',
+      '/ok2': '<html><body>Two</body></html>'
+    };
+    server = http.createServer((req, res) => {
+      const body = pages[req.url];
+      if (body) {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(body);
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    baseUrl = `http://127.0.0.1:${server.address().port}`;
+  });
+
+  after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  test('an SSRF-refused seed returns one errors[] entry and finite numbers, even at 0 ms', async (t) => {
+    // The refusal needs no I/O, so the crawl can start and end in the same
+    // millisecond; pages / 0 s was Infinity, which the MCP output schema
+    // rejected ("pages_per_second: expected number, received number").
+    t.mock.method(Date, 'now', () => 1_700_000_000_000);
+    const realTool = new CrawlDeepTool({ cacheEnabled: false, timeout: 5000 });
+    const result = await realTool.execute({ url: 'http://169.254.169.254/latest/meta-data/', max_pages: 2 });
+
+    assert.equal(result.duration_ms, 0);
+    assert.ok(Number.isFinite(result.pages_per_second), `pages_per_second is ${result.pages_per_second}`);
+    assert.equal(result.errors.length, 1);
+    assert.match(result.errors[0].error, /SSRF Protection/);
+    assert.equal(result.errors[0].code, 'SSRF_BLOCKED');
+    assert.equal(result.pages_crawled, 0);
+    assert.equal(result.error_count, 1);
+    assert.equal(result.pages_attempted, 1);
+    assert.equal(result.site_structure.total_pages, 0);
+  });
+
+  test('attempted = crawled + errors, and site_structure counts the crawled pages only', async () => {
+    const realTool = new CrawlDeepTool({ cacheEnabled: false, timeout: 5000 });
+    const result = await realTool.execute({
+      url: baseUrl,
+      max_depth: 1,
+      max_pages: 10,
+      respect_robots: false,
+      enable_link_analysis: false
+    });
+
+    assert.equal(result.pages_crawled, 3, 'the seed and the two pages that answered 200');
+    assert.equal(result.error_count, 2, 'the two 404s');
+    assert.equal(result.pages_attempted, 5);
+    assert.equal(result.results.length, result.pages_crawled);
+    assert.equal(result.pages_found, result.pages_crawled);
+    assert.equal(result.site_structure.total_pages, result.pages_crawled);
+    assert.deepEqual(result.site_structure.depth_distribution, { 0: 1, 1: 2 });
+    const pathDepthTotal = Object.values(result.site_structure.path_depth_distribution).reduce((a, b) => a + b, 0);
+    assert.equal(pathDepthTotal, result.pages_crawled);
+  });
+});

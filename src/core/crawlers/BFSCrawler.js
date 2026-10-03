@@ -219,6 +219,12 @@ export class BFSCrawler {
       return;
     }
     this.visited.set(normalizedUrl, url);
+    // Budget spent: drop what is still waiting. Each of those tasks would only
+    // return at the cap check above, but the queue releases 10 a second, so a
+    // seed with 2,290 links held a max_pages:3 crawl open for 232 s (R24).
+    if (this.visited.size >= this.maxPages) {
+      this.queue.clear();
+    }
 
     try {
       // Check cache first
@@ -318,6 +324,7 @@ export class BFSCrawler {
         url,
         depth,
         error: error.message,
+        ...(error.code ? { code: error.code } : {}),
         timestamp: new Date().toISOString()
       });
     }

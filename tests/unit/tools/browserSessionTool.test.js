@@ -556,6 +556,41 @@ describe('browser_session act result shape', { skip: !browser && 'Chromium not i
   });
 });
 
+describe('browser_session act keeps screenshot bytes out of the action result', { skip: !browser && 'Chromium not installed' }, () => {
+  // R24 (2026-10-03): a screenshot action's base64 came back twice — in
+  // `screenshots[]`, which server.js publishes as a resource and strips, and in
+  // actionResults[].result.data, which nothing stripped. The image is carried
+  // once, by `screenshots[]`; the action result points at the same resource.
+  test('a screenshot action reports the resource URI, not the image', async () => {
+    const store = new BrowserSessionStore();
+    const tool = makeTool(store);
+
+    const opened = await tool.execute({ operation: 'open', url: `${BASE}/click` });
+    try {
+      const acted = await tool.execute({
+        operation: 'act',
+        session_id: opened.sessionId,
+        actions: [{ type: 'screenshot', format: 'jpeg', quality: 5 }]
+      });
+
+      assert.equal(acted.success, true, acted.error);
+      const [result] = acted.actionResults;
+      assert.equal(result.result.data, undefined, 'no base64 in the action result');
+      assert.equal(result.result.format, 'jpeg');
+      assert.equal(result.result.resourceUri, `crawlforge://screenshot/${result.id}`);
+
+      // The one copy left is the one server.js publishes under that same id.
+      assert.equal(acted.screenshots.length, 1);
+      assert.equal(acted.screenshots[0].actionId, result.id);
+      assert.ok(acted.screenshots[0].data.length > 0);
+      const { screenshots, ...rest } = acted;
+      assert.doesNotMatch(JSON.stringify(rest), /\/9j\/[A-Za-z0-9+/=]{200,}/);
+    } finally {
+      await store.destroy();
+    }
+  });
+});
+
 describe('browser_session against a real page', { skip: !browser && 'Chromium not installed' }, () => {
   test('refs survive across two separate act calls on the same session', async () => {
     const store = new BrowserSessionStore();

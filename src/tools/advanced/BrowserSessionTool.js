@@ -185,6 +185,18 @@ function withJsResult(result) {
 }
 
 /**
+ * A screenshot action's image travels once, in `screenshots[]`, which the
+ * server publishes as crawlforge://screenshot/{actionId} — the action's id.
+ * Its copy in the action result is replaced by that URI, as scrape_with_actions
+ * does: left in, the same base64 came back inline beside the resource (R24).
+ */
+function withoutScreenshotData(result) {
+  if (result?.type !== 'screenshot' || typeof result.result?.data !== 'string') return result;
+  const { data, ...rest } = result.result;
+  return { ...result, result: { ...rest, resourceUri: `crawlforge://screenshot/${result.id}` } };
+}
+
+/**
  * The gate's warnings — a respect_robots override, a crawl-delay note — are
  * what the shared parameter description promises the caller gets back
  * ("returns a warning in the response"). `scrape` publishes them through
@@ -517,7 +529,7 @@ export class BrowserSessionTool {
         : {}),
       ...gateWarningFields(session.page),
       error: result.error,
-      actionResults: result.results.map(withJsResult),
+      actionResults: result.results.map(withJsResult).map(withoutScreenshotData),
       screenshots: result.screenshots,
       ...(result.capturedStates.length > 0 ? { capturedStates: result.capturedStates } : {}),
       stats: result.stats

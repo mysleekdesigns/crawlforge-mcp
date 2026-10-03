@@ -593,7 +593,10 @@ export class ScrapeWithActionsTool extends EventEmitter {
       actionResults,
       attempt: chainResult.attempt ?? attempts.length,
       attempts,
-      totalActions: params.actions.length,
+      // The chain that was run — the caller's actions plus the fills, waits
+      // and submit formAutoFill adds — so it is the denominator of the three
+      // counts below; counting only the caller's own read "1 of 11".
+      totalActions: actionChain.length,
       successfulActions: actionResults.filter(r => r.success).length,
       failedActions: actionResults.filter(r => !r.success).length,
       actionsExecuted: actionResults.length, // Total executed (for validation)
@@ -635,10 +638,18 @@ export class ScrapeWithActionsTool extends EventEmitter {
     if (Array.isArray(formAutoFill.fields)) {
       // Structured shape: { fields: [{selector, value, type, waitAfter}], submitSelector, waitAfterSubmit }
       for (const field of formAutoFill.fields) {
+        // Each field type is filled the way that control is: typing into a
+        // radio, a checkbox or a <select> "succeeds" and changes nothing, so
+        // the form was posted without them and nothing failed (R24). `check`
+        // also carries the types nothing can fill ("file"), which it refuses.
+        const fill = field.type === 'text'
+          ? { type: 'type', text: field.value }
+          : field.type === 'select'
+            ? { type: 'select', value: field.value }
+            : { type: 'check', value: field.value, fieldType: field.type };
         fillActions.push({
-          type: 'type',
+          ...fill,
           selector: field.selector,
-          text: field.value,
           description: `Auto-fill field: ${field.selector}`,
           continueOnError: true,
           retries: 1

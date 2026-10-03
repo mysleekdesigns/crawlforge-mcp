@@ -154,7 +154,7 @@ main frame only — elements inside iframes and shadow DOM get no refs.
 | `formats` | `["json"]` | `markdown`, `html`, `json`, `text`, `screenshots`. |
 | `captureIntermediateStates` | `false` | Snapshot after each action. |
 | `captureScreenshots` | `true` | Screenshot during execution. |
-| `formAutoFill` | — | Declarative form fill: `fields[]` + `submitSelector`. |
+| `formAutoFill` | — | Declarative form fill: `fields[]` + `submitSelector`. Each field's `type` picks how it is filled: `text` (default) types, `select` picks the option by value or label, `checkbox`/`radio` check the input (a group selector such as `input[name=size]` checks the member whose value attribute equals `value`). `file` is not supported and fails that action. |
 | `browserOptions` | — | `headless`, `userAgent`, `viewportWidth/Height`, `timeout`. |
 | `continueOnActionError` | `false` | Keep going if one action fails. |
 | `maxRetries` | `0` | 0–3 whole-chain retries on failure. A retry re-navigates to the starting URL and replays every action; each run is reported under `attempts[]`. |
