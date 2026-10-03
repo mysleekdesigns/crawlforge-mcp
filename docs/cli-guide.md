@@ -279,15 +279,17 @@ Examples:
 
 ### localize
 
-Fetch a URL with locale/geo-aware settings.
+Fetch a URL with a country's `Accept-Language` header. That header is the only
+thing sent: there is no proxy, so the request still leaves from your own IP, and
+the timezone and currency in the output are reported, not applied.
 
 ```bash
 crawlforge localize <url> [options]
 
 Options:
   --locale <locale>    Locale code (default: en-US)
-  --country <code>     Country code for geo-targeting (e.g. US, FR)
-  --currency <code>    Currency code (e.g. USD, EUR)
+  --country <code>     Country whose settings to look up (e.g. US, FR); defaults to the locale's region
+  --currency <code>    Currency code to report in the output (e.g. USD, EUR); not sent
 
 Examples:
   crawlforge localize https://example.com --locale fr-FR --country FR

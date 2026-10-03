@@ -36,8 +36,14 @@ const SUPPORTED_COUNTRIES = {
   'TH': { timezone: 'Asia/Bangkok', currency: 'THB', language: 'th-TH', searchDomain: 'google.co.th', isRTL: false, proxyRegion: 'asia-pacific', countryName: 'Thailand' },
   'SG': { timezone: 'Asia/Singapore', currency: 'SGD', language: 'en-SG', searchDomain: 'google.com.sg', isRTL: false, proxyRegion: 'asia-pacific', countryName: 'Singapore' },
   'PL': { timezone: 'Europe/Warsaw', currency: 'PLN', language: 'pl-PL', searchDomain: 'google.pl', isRTL: false, proxyRegion: 'eu-central', countryName: 'Poland' },
-  'ZA': { timezone: 'Africa/Johannesburg', currency: 'ZAR', language: 'en-ZA', searchDomain: 'google.co.za', isRTL: false, proxyRegion: 'africa', countryName: 'South Africa' }
+  'ZA': { timezone: 'Africa/Johannesburg', currency: 'ZAR', language: 'en-ZA', searchDomain: 'google.co.za', isRTL: false, proxyRegion: 'africa', countryName: 'South Africa' },
+  'CH': { timezone: 'Europe/Zurich', currency: 'CHF', language: 'de-CH', searchDomain: 'google.ch', isRTL: false, proxyRegion: 'eu-central', countryName: 'Switzerland' }
 };
+
+// A language tag the tool can build an Accept-Language header from: a 2-3
+// letter language, then an optional script and region ("de", "de-CH",
+// "zh-Hans-CN"). "klingon" used to come back as "klingon-DE" (R24).
+const LANGUAGE_TAG = /^[a-z]{2,3}(-[a-z]{4})?(-([a-z]{2}|\d{3}))?$/i;
 
 // Common language mappings for Accept-Language headers with cultural preferences
 const LANGUAGE_MAPPINGS = {
@@ -175,7 +181,6 @@ export class LocalizationManager extends EventEmitter {
     };
     this.localeCache = makeLRUMap(MAX_CACHE);
     this.geoLocationCache = makeLRUMap(MAX_CACHE);
-    this.timezoneCache = makeLRUMap(MAX_CACHE);
     this.proxyCache = makeLRUMap(MAX_CACHE);
     this.translationCache = makeLRUMap(MAX_CACHE);
     
@@ -215,9 +220,6 @@ export class LocalizationManager extends EventEmitter {
   
   async initialize() {
     try {
-      // Pre-populate timezone mappings
-      await this.loadTimezoneData();
-
       // Initialize geo-location data
       await this.loadGeoLocationData();
 
@@ -244,13 +246,18 @@ export class LocalizationManager extends EventEmitter {
    * @returns {Object} - Complete localization configuration
    */
   async configureCountry(countryCode, options = {}) {
+    // The upper-cased code goes last: the tool passes its whole params object
+    // as `options`, whose own lower-case countryCode used to win (R24).
     const validatedInput = LocalizationSchema.parse({
-      countryCode: countryCode.toUpperCase(),
-      ...options
+      ...options,
+      countryCode: countryCode.toUpperCase()
     });
     
     if (!SUPPORTED_COUNTRIES[validatedInput.countryCode]) {
       throw new Error(`Unsupported country code: ${validatedInput.countryCode}`);
+    }
+    if (validatedInput.language && !LANGUAGE_TAG.test(validatedInput.language)) {
+      throw new Error(`Unsupported language: ${validatedInput.language} - use a language code such as "de" or "de-CH"`);
     }
     
     const countryData = SUPPORTED_COUNTRIES[validatedInput.countryCode];
@@ -262,7 +269,8 @@ export class LocalizationManager extends EventEmitter {
       timezone: validatedInput.timezone || countryData.timezone,
       currency: validatedInput.currency || countryData.currency,
       searchDomain: countryData.searchDomain,
-      acceptLanguage: this.buildAcceptLanguageHeader(validatedInput.language || countryData.language, validatedInput.countryCode),
+      acceptLanguage: validatedInput.acceptLanguage
+        || this.buildAcceptLanguageHeader(validatedInput.language || countryData.language, validatedInput.countryCode),
       customHeaders: validatedInput.customHeaders || {},
       geoLocation: validatedInput.geoLocation,
       proxySettings: validatedInput.proxySettings,
@@ -340,7 +348,7 @@ export class LocalizationManager extends EventEmitter {
    * @returns {Object} - Localized search parameters
    */
   async localizeSearchQuery(searchParams, countryCode = null) {
-    const targetCountry = countryCode || this.currentSettings.countryCode;
+    const targetCountry = (countryCode || this.currentSettings.countryCode).toUpperCase();
     const config = await this.getLocalizationConfig(targetCountry);
     
     const localizedParams = {
@@ -378,7 +386,7 @@ export class LocalizationManager extends EventEmitter {
    * @returns {Object} - Localized browser options
    */
   async localizeBrowserContext(browserOptions, countryCode = null) {
-    const targetCountry = countryCode || this.currentSettings.countryCode;
+    const targetCountry = (countryCode || this.currentSettings.countryCode).toUpperCase();
     const config = await this.getLocalizationConfig(targetCountry);
     
     const localizedOptions = {
@@ -389,7 +397,7 @@ export class LocalizationManager extends EventEmitter {
       timezoneId: config.timezone,
       
       // Configure geolocation
-      geolocation: config.geoLocation || await this.getDefaultGeoLocation(targetCountry),
+      geolocation: config.geoLocation || this.getCountryCoordinates(targetCountry) || undefined,
       
       // Set HTTP headers
       extraHTTPHeaders: {
@@ -401,9 +409,10 @@ export class LocalizationManager extends EventEmitter {
         ...browserOptions.extraHTTPHeaders
       },
       
-      // Configure user agent
-      userAgent: config.userAgent || this.generateUserAgent(targetCountry),
-      
+      // The caller's userAgent, when one was given, rides through in the
+      // spread above. None is invented: the country table held Chrome 91
+      // strings from 2021, which replaced even a supplied one (R24).
+
       // Proxy configuration
       proxy: config.proxySettings?.enabled ? {
         server: `${config.proxySettings.server}:${config.proxySettings.port}`,
@@ -429,7 +438,7 @@ export class LocalizationManager extends EventEmitter {
    * @returns {string} - JavaScript injection code
    */
   async generateTimezoneSpoof(countryCode = null, timezone = null) {
-    const targetCountry = countryCode || this.currentSettings.countryCode;
+    const targetCountry = (countryCode || this.currentSettings.countryCode).toUpperCase();
     let config = await this.getLocalizationConfig(targetCountry);
     // An explicit IANA timezone wins over the country default: the tool
     // accepted `timezone` and silently answered with the configured country's
@@ -616,22 +625,6 @@ export class LocalizationManager extends EventEmitter {
     return LANGUAGE_MAPPINGS[langCode] || `${language},${langCode};q=0.9,en;q=0.8`;
   }
   
-  async loadTimezoneData() {
-    // Pre-populate common timezone offsets
-    const timezones = {
-      'America/New_York': -300, // EST offset in minutes
-      'Europe/London': 0,
-      'Europe/Berlin': 60,
-      'Asia/Tokyo': 540,
-      'Australia/Sydney': 600,
-      // Add more as needed
-    };
-    
-    for (const [tz, offset] of Object.entries(timezones)) {
-      this.timezoneCache.set(tz, offset);
-    }
-  }
-  
   async loadGeoLocationData() {
     // Pre-populate major city coordinates
     const geoData = {
@@ -640,7 +633,28 @@ export class LocalizationManager extends EventEmitter {
       'DE': { latitude: 52.5200, longitude: 13.4050 },  // Berlin
       'FR': { latitude: 48.8566, longitude: 2.3522 },   // Paris
       'JP': { latitude: 35.6762, longitude: 139.6503 }, // Tokyo
-      'AU': { latitude: -33.8688, longitude: 151.2093 } // Sydney
+      'AU': { latitude: -33.8688, longitude: 151.2093 }, // Sydney
+      'CN': { latitude: 39.9042, longitude: 116.4074 }, // Beijing
+      'CA': { latitude: 43.6532, longitude: -79.3832 }, // Toronto
+      'IT': { latitude: 41.9028, longitude: 12.4964 },  // Rome
+      'ES': { latitude: 40.4168, longitude: -3.7038 },  // Madrid
+      'RU': { latitude: 55.7558, longitude: 37.6173 },  // Moscow
+      'BR': { latitude: -23.5505, longitude: -46.6333 }, // Sao Paulo
+      'IN': { latitude: 28.6139, longitude: 77.2090 },  // New Delhi
+      'KR': { latitude: 37.5665, longitude: 126.9780 }, // Seoul
+      'MX': { latitude: 19.4326, longitude: -99.1332 }, // Mexico City
+      'NL': { latitude: 52.3676, longitude: 4.9041 },   // Amsterdam
+      'SE': { latitude: 59.3293, longitude: 18.0686 },  // Stockholm
+      'NO': { latitude: 59.9139, longitude: 10.7522 },  // Oslo
+      'SA': { latitude: 24.7136, longitude: 46.6753 },  // Riyadh
+      'AE': { latitude: 25.2048, longitude: 55.2708 },  // Dubai
+      'TR': { latitude: 41.0082, longitude: 28.9784 },  // Istanbul
+      'IL': { latitude: 31.7683, longitude: 35.2137 },  // Jerusalem
+      'TH': { latitude: 13.7563, longitude: 100.5018 }, // Bangkok
+      'SG': { latitude: 1.3521, longitude: 103.8198 },  // Singapore
+      'PL': { latitude: 52.2297, longitude: 21.0122 },  // Warsaw
+      'ZA': { latitude: -26.2041, longitude: 28.0473 }, // Johannesburg
+      'CH': { latitude: 47.3769, longitude: 8.5417 }    // Zurich
     };
     
     for (const [country, coords] of Object.entries(geoData)) {
@@ -684,27 +698,20 @@ export class LocalizationManager extends EventEmitter {
     return this.geoLocationCache.get(countryCode) || null;
   }
 
-  getTimezoneOffset(timezone) {
-    if (this.timezoneCache.has(timezone)) {
-      return this.timezoneCache.get(timezone);
-    }
-    
-    // Calculate dynamically if not cached. Compare the target zone against
-    // UTC, never against the host zone: the old form added the host offset
-    // once more, so America/Sao_Paulo came out as -420 from a UTC-4 host
-    // (R17, 2026-09-04). Both wall-clock strings are parsed the same way, so
-    // the difference is the zone's current offset in minutes.
-    const now = new Date();
+  /**
+   * The zone's UTC offset in minutes at `now`. Computed on every call: a table
+   * of fixed offsets answered -300 for New York in October, when daylight
+   * time makes it -240 (R24), and a cached answer goes stale the same way at
+   * the next clock change in a long-lived server.
+   */
+  getTimezoneOffset(timezone, now = new Date()) {
+    // Compare the target zone against UTC, never against the host zone: the
+    // old form added the host offset once more, so America/Sao_Paulo came out
+    // as -420 from a UTC-4 host (R17, 2026-09-04). Both wall-clock strings are
+    // parsed the same way, so the difference is the zone's offset in minutes.
     const asTarget = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
     const asUtc = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
-    const offset = Math.round((asTarget.getTime() - asUtc.getTime()) / 60000);
-    
-    this.timezoneCache.set(timezone, offset);
-    return offset;
-  }
-  
-  async getDefaultGeoLocation(countryCode) {
-    return this.geoLocationCache.get(countryCode) || { latitude: 0, longitude: 0 };
+    return Math.round((asTarget.getTime() - asUtc.getTime()) / 60000);
   }
   
   generateUserAgent(countryCode) {
@@ -748,7 +755,8 @@ export class LocalizationManager extends EventEmitter {
       'TH': 'DD/MM/YYYY',
       'SG': 'DD/MM/YYYY',
       'PL': 'DD.MM.YYYY',
-      'ZA': 'YYYY/MM/DD'
+      'ZA': 'YYYY/MM/DD',
+      'CH': 'DD.MM.YYYY'
     };
 
     return formats[countryCode] || 'DD/MM/YYYY';
@@ -1552,7 +1560,6 @@ export class LocalizationManager extends EventEmitter {
   clearCache() {
     this.localeCache.clear();
     this.geoLocationCache.clear();
-    this.timezoneCache.clear();
     this.proxyCache.clear();
     this.translationCache.clear();
     this.emit('cacheCleared');

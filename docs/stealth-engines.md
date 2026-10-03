@@ -253,10 +253,10 @@ in the URL, percent-encoded if the password contains `@`, `:` or `/`:
 
 `CRAWLFORGE_STEALTH_PROXIES` is unrelated to the `PROXY_ROTATION_ENABLED` /
 `PROXY_ROTATION_INTERVAL` / `PROXY_ROTATION_STRATEGY` family in
-`src/constants/config.js`. Those live under `localization.proxy` and belong to
-the `localization` tool, whose job is to *be* in a country — the proxy is how a
-German price list is fetched from a German address, and rotation there is about
-spreading load across a pool.
+`src/constants/config.js`. Those live under `localization.proxy`, in the
+`localization` tool's configuration, and no request is routed through them:
+`localization` returns a country's locale values (Accept-Language, timezone,
+currency) for the caller to pass to another tool, and fetches nothing itself.
 
 The stealth variable answers a different question: what exit IP a **blocked**
 page is retried from. It is one list, applied at the browser context, and it
@@ -364,7 +364,7 @@ language, Accept-Language and `Intl` together in its own engine, where a worker
 reads the same answer as the document — so `stealthConfig.locale` is handed to
 the **launcher** instead of to the context. Like the proxy, that fixes it for the
 life of the browser: a later call asking for a different locale gets the launched
-one until `cleanup()`. With a proxy, `geoip` decides it from the exit IP and the
+one until `cleanup()`, and its result says so in `warnings`. With a proxy, `geoip` decides it from the exit IP and the
 caller's locale is not sent at all, because a persona naming a country the
 address contradicts is worse than no persona.
 

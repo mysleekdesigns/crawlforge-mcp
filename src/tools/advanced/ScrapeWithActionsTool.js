@@ -181,11 +181,10 @@ const ScrapeWithActionsSchema = z.object({
   actions: z.array(ActionSchema).min(1).max(20).optional(),
 
   // Output formats
-  formats: z.array(z.enum(['markdown', 'html', 'json', 'text', 'screenshots'])).default(['json']),
+  formats: z.array(z.enum(['markdown', 'html', 'json', 'text'])).default(['json']),
 
   // Intermediate state capture
   captureIntermediateStates: z.boolean().default(false),
-  captureScreenshots: z.boolean().default(true),
 
   // Form auto-fill — structured shape ({fields:[{selector,value,...}], submitSelector, waitAfterSubmit}).
   // A flat z.record(string) of selector→value is still accepted for backward compatibility.
@@ -551,8 +550,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
     // Generate different formats
     const content = this.generateFormats(finalContent, params.formats, {
       actionResults,
-      intermediateStates,
-      screenshots: sessionContext.screenshots
+      intermediateStates
     });
 
     const executionTime = Date.now() - sessionContext.startTime;
@@ -573,6 +571,9 @@ export class ScrapeWithActionsTool extends EventEmitter {
       success: chainResult.success && verdict.success,
       sessionId: sessionContext.id,
       url: params.url,
+      // Where the chain ended: a click, a form submit or a redirect moves the
+      // page without a navigate action, and `url` stays the one asked for.
+      finalUrl: chainResult.finalUrl || chainResult.navigations?.at(-1)?.finalUrl || params.url,
       executionTime,
 
       // Include error message if action chain failed
@@ -587,7 +588,8 @@ export class ScrapeWithActionsTool extends EventEmitter {
       // its result. Absent when consent handling is off.
       ...(chainResult.consent ? { consent: chainResult.consent } : {}),
       // Every navigation of the reported attempt — [0] the initial load, then
-      // each navigate action — with its status and any wall it reached.
+      // each navigate action and each action that moved the page (`trigger`
+      // names its type) — with its status and any wall it reached.
       navigations: chainResult.navigations || [],
 
       actionResults,
@@ -604,7 +606,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
       content,
 
       intermediateStates: params.captureIntermediateStates ? intermediateStates : undefined,
-      screenshots: params.captureScreenshots ? sessionContext.screenshots : undefined,
+      screenshots: sessionContext.screenshots,
 
       // Form auto-fill flag (for tests/validation)
       formAutoFillApplied: !!params.formAutoFill,
@@ -714,18 +716,10 @@ export class ScrapeWithActionsTool extends EventEmitter {
     // ActionExecutor) instead of injecting synthetic executeJavaScript
     // actions — avoids depending on ALLOW_JAVASCRIPT_EXECUTION (off by
     // default) and keeps action/failure counts matching the user's own
-    // actions rather than being inflated by injected steps.
-    return actions.map(action => {
-      if (this.shouldCaptureAfterAction(action) || action.captureAfter) {
-        return { ...action, captureAfter: true };
-      }
-      return action;
-    });
-  }
-
-  shouldCaptureAfterAction(action) {
-    const captureAfterTypes = ['click', 'type', 'press'];
-    return captureAfterTypes.includes(action.type);
+    // actions rather than being inflated by injected steps. Every action is
+    // marked: capturing only after click/type/press returned 3 states for a
+    // 9-action chain against a flag documented as "after each action" (R24).
+    return actions.map(action => ({ ...action, captureAfter: true }));
   }
 
   processActionResults(rawResults) {
@@ -905,10 +899,6 @@ export class ScrapeWithActionsTool extends EventEmitter {
 
     if (formats.includes('markdown')) {
       content.markdown = finalContent.content?.markdown || 'Content not available in markdown format';
-    }
-
-    if (formats.includes('screenshots')) {
-      content.screenshots = additionalData.screenshots || [];
     }
 
     return content;

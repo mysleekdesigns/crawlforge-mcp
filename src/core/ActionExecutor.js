@@ -45,6 +45,8 @@ const NAVIGATION_WALL_POLL_MS = 500;
 // rejected outright with "expected one of (attached|detached|visible|hidden)".
 const SELECTOR_WAIT_STATES = new Set(['attached', 'detached', 'visible', 'hidden']);
 
+const withoutHash = (url) => url.split('#')[0];
+
 // Action schemas
 const BaseActionSchema = z.object({
   type: z.string(),
@@ -796,8 +798,21 @@ export class ActionExecutor extends EventEmitter {
     const browserOptions = executionContext?.browserOptions;
     // A navigate leaves the page it is on and gates the URL it is sent to.
     if (action.type !== 'navigate') await this.assertPageAllowed(page, browserOptions);
+    const urlBefore = page.url();
     const actionResult = await this.executeActionInternal(page, action, executionContext);
     await this.assertPageAllowed(page, browserOptions);
+    // A click that followed a link or a submit that posted a form is a
+    // navigation nobody asked for by name. It has just passed the gate above;
+    // it gets the same wall check and the same `navigations` entry a navigate
+    // action's does, with `trigger` naming the action that caused it (R24: the
+    // chain reported only its start URL). A fragment change is the same document.
+    if (action.type !== 'navigate' && executionContext?.navigations &&
+        withoutHash(page.url()) !== withoutHash(urlBefore)) {
+      executionContext.navigations.push({
+        ...await this.checkNavigation(page, page.url(), browserOptions),
+        trigger: action.type
+      });
+    }
     return actionResult;
   }
 
@@ -1714,6 +1729,15 @@ export class ActionExecutor extends EventEmitter {
     // Stamped on the page for the same reason __crawlforgeNavigation is: the
     // caller's result is assembled a layer up, and the gate ran a layer down.
     page.__crawlforgeGateWarnings = gateWarnings;
+
+    // A click or a form post loads a document no goto() returns a response
+    // for, so its status is taken off the wire: last main-frame navigation
+    // wins, the rule navigateToUrl's own stamp follows.
+    page.on?.('response', (response) => {
+      if (response.request().isNavigationRequest() && response.frame() === page.mainFrame()) {
+        page.__crawlforgeNavigation = { url: response.url(), status: response.status() };
+      }
+    });
 
     try {
       // Apply CloudFlare and reCAPTCHA detection if stealth mode is enabled

@@ -24,6 +24,7 @@
  */
 
 import { z } from 'zod';
+import { load } from 'cheerio';
 import { createHash } from 'node:crypto';
 
 import ActionExecutor from '../../core/ActionExecutor.js';
@@ -127,6 +128,10 @@ const BrowserSessionSchema = z.object({
 
   // read
   formats: z.array(z.enum(['markdown', 'html', 'text', 'json'])).default(['markdown']),
+  // false (the default here, unlike `scrape`) reads the whole page. A session
+  // is opened on app pages, listings and results, where Readability's single
+  // "main" block left out a whole quote and an author name (R24).
+  onlyMainContent: z.boolean().default(false),
 
   // screenshot
   full_page: z.boolean().default(false),
@@ -553,9 +558,18 @@ export class BrowserSessionTool {
     // point of having one.
     const extracted = await this.extractContentTool.execute({ url, html, options });
 
+    // The whole page unless main content was asked for: the body's text with
+    // what is never rendered removed — the same strip scrape_with_actions does.
+    let text = extracted.content?.text || '';
+    if (!params.onlyMainContent) {
+      const $ = load(html);
+      $('script, style, noscript, template').remove();
+      text = $('body').text().replace(/\s+/g, ' ').trim();
+    }
+
     const content = {};
     if (params.formats.includes('text')) {
-      content.text = extracted.content?.text || '';
+      content.text = text;
     }
     if (params.formats.includes('html')) {
       content.html = extracted.content?.html || html;
@@ -564,7 +578,7 @@ export class BrowserSessionTool {
       // Readability finds no article on most app pages, and then no markdown is
       // produced at all (R20, 2026-09-07). Convert the DOM we hold instead of
       // handing back a placeholder.
-      content.markdown = extracted.content?.markdown || htmlToMarkdown(html);
+      content.markdown = (params.onlyMainContent && extracted.content?.markdown) || htmlToMarkdown(html);
     }
     if (params.formats.includes('json')) {
       content.json = {
@@ -581,7 +595,7 @@ export class BrowserSessionTool {
     const verdict = await this.pageVerdict(session.page, {
       stealth: session.stealth,
       title: extracted.title ?? '',
-      text: extracted.content?.text || '',
+      text,
       html
     });
 
@@ -593,7 +607,7 @@ export class BrowserSessionTool {
       ...verdictFields(verdict),
       ...(verdict.error ? { error: verdict.error } : {}),
       title: extracted.title ?? null,
-      extractionMethod: extracted.extractionMethod,
+      extractionMethod: params.onlyMainContent ? extracted.extractionMethod : 'full_page',
       content
     };
   }

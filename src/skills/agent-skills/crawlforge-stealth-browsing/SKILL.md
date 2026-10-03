@@ -1,6 +1,6 @@
 ---
 name: crawlforge-stealth-browsing
-description: "Bypasses bot detection and geo-restrictions with CrawlForge's stealth_mode and localization tools. Use when a site returns 403 or 429, CAPTCHAs, 'please enable JavaScript', or empty content, or is protected by Cloudflare, DataDome, or PerimeterX, or when the user needs region-specific pricing, geo-blocked content, or a specific locale, timezone, or currency. stealth_mode runs a stealth browser (engine auto by default: camoufox/Firefox for advanced fingerprinting, playwright/Chromium when pinned for speed) and can screenshot; localization emulates a country and language. Explains when to escalate from a normal scrape to stealth, and why a hard block needs a residential proxy."
+description: "Bypasses bot detection with CrawlForge's stealth_mode tool and looks up a country's locale settings with localization. Use when a site returns 403 or 429, CAPTCHAs, 'please enable JavaScript', or empty content, or is protected by Cloudflare, DataDome, or PerimeterX, or when the user needs a page in a specific locale, language, or timezone. stealth_mode runs a stealth browser (engine auto by default: camoufox/Firefox for advanced fingerprinting, playwright/Chromium when pinned for speed) and can screenshot; localization returns a country's Accept-Language, timezone and currency for you to pass to fetch_url or stealth_mode - it applies nothing itself and uses no proxy. Explains when to escalate from a normal scrape to stealth, and why a hard block needs a residential proxy."
 metadata:
   version: 5.6.6
   source: crawlforge-mcp-server
@@ -8,9 +8,10 @@ metadata:
 
 # CrawlForge Stealth Browsing
 
-Get past bot-detection systems and geo-blocks. Use `stealth_mode` when a normal
-scrape is blocked, and `localization` when you need region-specific content,
-pricing, or locale emulation.
+Get past bot-detection systems, and request pages in a given locale. Use
+`stealth_mode` when a normal scrape is blocked, and `localization` to look up
+the locale values (Accept-Language, timezone, currency) of a country, which you
+then pass to `fetch_url` or `stealth_mode` yourself.
 
 ## When to escalate to stealth_mode
 
@@ -53,9 +54,17 @@ Then use the returned `contextId`:
 }
 ```
 
-Operations: `configure`, `enable`, `disable`, `create_context`, `create_page`,
+Operations: `scrape`, `configure`, `create_context`, `create_page`,
 `get_stats`, `cleanup`. `stealthConfig.level` is `basic` / `medium` (default) /
 `advanced`. Always run `cleanup` when done to release the browser.
+
+`stealthConfig` applies to the call it is passed on and is not remembered.
+`configure` only validates a `stealthConfig` and returns it with the defaults
+filled in; it stores nothing, so pass `stealthConfig` again on each `scrape` or
+`create_context` call that should use it. Whatever the browser did not take
+from it (on `camoufox`: `customUserAgent`, `customViewport`, a `locale` that
+differs from the one the browser was launched with) is named in the result's
+`warnings`.
 
 ### Engine: auto, playwright, camoufox
 
@@ -134,8 +143,11 @@ The CLI exposes a one-shot form (`--engine`, `--wait <ms>`, `--screenshot`).
 
 ## localization (cost: 2)
 
-Emulate a country/language/timezone/currency for region-specific content and
-geo-blocked pages.
+Look up a country's locale settings: language, `Accept-Language` header,
+timezone, currency, search domain, date and number formats. It **returns
+values and applies none**. No later `fetch_url`, `scrape` or `stealth_mode` call
+picks them up, and it routes nothing through a proxy, so it does not change the
+IP a site sees and cannot lift a geo-block on its own.
 
 ```json
 {
@@ -146,17 +158,51 @@ geo-blocked pages.
 
 Operations: `configure_country`, `localize_search`, `localize_browser`,
 `generate_timezone_spoof`, `handle_geo_blocking`, `auto_detect`, `get_stats`,
-`get_supported_countries`. `countryCode` is ISO 3166-1 alpha-2; `currency` is
-ISO 4217. Supports proxy routing and GPS geolocation emulation.
+`get_supported_countries`. `countryCode` is ISO 3166-1 alpha-2 (either case);
+`currency` is ISO 4217. `localize_search` is the one operation that makes a
+request: it runs `search_web` for `searchParams.query` in the country and its
+language. `localize_browser` returns Playwright-style context options,
+`generate_timezone_spoof` returns a JavaScript snippet, and
+`handle_geo_blocking` classifies a response you supply — none of them launches,
+injects or fetches anything.
 
-CLI: `crawlforge localize https://shop.example.com --locale en-GB --country GB --currency GBP`.
+Pass the returned values to the tool that makes the request:
+
+```json
+{
+  "tool": "fetch_url",
+  "params": { "url": "https://shop.example.com", "headers": { "Accept-Language": "de-DE,de;q=0.9,en;q=0.8" } }
+}
+```
+
+```json
+{
+  "tool": "stealth_mode",
+  "params": {
+    "operation": "scrape",
+    "url": "https://shop.example.com",
+    "stealthConfig": { "locale": "de-DE", "timezone": "Europe/Berlin" }
+  }
+}
+```
+
+`search_web` takes `localization: { countryCode, language }`. `scrape` has no
+locale parameter.
+
+CLI: `crawlforge localize https://shop.example.com --locale en-GB --country GB --currency GBP`
+fetches the URL with that country's `Accept-Language` header (nothing else is
+sent; the currency is only reported).
 
 ## stealth_mode vs localization
 
 - **Blocked / bot-detected** → `stealth_mode`.
-- **Wrong region / language / currency, but not blocked** → `localization`.
-- **Geo-blocked AND bot-protected** → `localization` to set region context, then
-  `stealth_mode` for the actual fetch.
+- **Wrong language shown, but not blocked** → `localization` for the country's
+  `Accept-Language`, then `fetch_url` with it in `headers`.
+- **Wrong language AND bot-protected** → `stealth_mode` with
+  `stealthConfig.locale` / `stealthConfig.timezone` (look the values up with
+  `localization` if you do not know them).
+- **Geo-blocked by IP** → only an exit IP in that region helps: your own proxy
+  on `stealthConfig.proxyRotation`. Neither tool supplies one.
 
 ## Cost note
 

@@ -29,6 +29,18 @@ const AnalyzeContentSchema = z.object({
   }).optional().prefault({})
 });
 
+/**
+ * `includeSentiment` is the name the tool description and the skill examples
+ * use for `analyzeSentiment`; the schema dropped it as an unknown key, so
+ * `includeSentiment: false` still returned sentiment. The canonical name wins
+ * when both are passed.
+ */
+function withSentimentAlias(params) {
+  const options = params?.options;
+  if (typeof options?.includeSentiment !== 'boolean' || options.analyzeSentiment !== undefined) return params;
+  return { ...params, options: { ...options, analyzeSentiment: options.includeSentiment } };
+}
+
 const AnalyzeContentResult = z.object({
   text: z.string(),
   language: z.object({
@@ -142,7 +154,7 @@ export class AnalyzeContentTool {
     const startTime = Date.now();
     
     try {
-      const validated = AnalyzeContentSchema.parse(params);
+      const validated = AnalyzeContentSchema.parse(withSentimentAlias(params));
       const { text, options } = validated;
 
       const result = {

@@ -243,8 +243,9 @@ describe('ChangeTracker.parseAlertCondition', () => {
     assert.equal(ChangeTracker.parseAlertCondition('significance < "moderate"')(rec('minor')), true);
     assert.equal(ChangeTracker.parseAlertCondition('significance != "none"')(rec('none')), false);
   });
-  test('an unparseable condition never matches instead of throwing', () => {
-    assert.equal(ChangeTracker.parseAlertCondition('not a condition at all')(rec('critical')), false);
-    assert.equal(ChangeTracker.parseAlertCondition('significance === "huge"')(rec('critical')), false);
+  // R24 2.7: these used to parse into a rule that could never fire.
+  test('an unparseable condition is rejected', () => {
+    assert.throws(() => ChangeTracker.parseAlertCondition('not a condition at all'), /Invalid alert condition/);
+    assert.throws(() => ChangeTracker.parseAlertCondition('significance === "huge"'), /Invalid alert condition/);
   });
 });

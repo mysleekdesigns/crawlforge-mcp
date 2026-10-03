@@ -111,7 +111,10 @@ export async function fetchContent(url, options = {}) {
 
 /**
  * Merge change-tracker history entries with snapshot history entries.
- * Deduplicates by timestamp proximity (within 60 s).
+ * A snapshot is written right after the compare that found the change, so it
+ * belongs to the latest changed compare at or before it (within 60 s) that
+ * has no snapshot yet. Matching the first entry within 60 s instead hung
+ * every snapshot of a busy minute on the newest entry (R24 2.8).
  */
 export function mergeHistoryData(changeHistory, snapshotHistory) {
   const merged = [];
@@ -121,7 +124,10 @@ export function mergeHistoryData(changeHistory, snapshotHistory) {
   });
 
   snapshotHistory.forEach(entry => {
-    const existing = merged.find(m => Math.abs(m.timestamp - entry.timestamp) < 60000);
+    const existing = merged
+      .filter(m => m.source === 'change_tracker' && !m.hasSnapshot && m.significance !== 'none' &&
+        m.timestamp <= entry.timestamp && entry.timestamp - m.timestamp < 60000)
+      .sort((a, b) => b.timestamp - a.timestamp)[0];
     if (existing) {
       existing.hasSnapshot = true;
       existing.snapshotId = entry.snapshotId;

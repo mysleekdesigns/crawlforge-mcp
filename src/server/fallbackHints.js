@@ -39,7 +39,7 @@ export const FALLBACK_HINTS = Object.freeze({
   track_changes: 'compare needs an existing baseline - run operation:"create_baseline" for this URL first; for a one-off read use scrape.',
   generate_llms_txt: 'Run map_site first to confirm the site is crawlable.',
   stealth_mode: 'Use scrape_with_actions with browserOptions.stealth:true for a click/scroll/wait chain. Do not retry the same URL with fetch_url or scrape - they are weaker.',
-  localization: 'Use stealth_mode operation:"scrape" after configure_country, or set an Accept-Language header via fetch_url headers.',
+  localization: 'localization returns settings and applies none - pass them yourself: fetch_url headers:{"Accept-Language": ...}, or stealth_mode operation:"scrape" with stealthConfig:{locale, timezone}. countryCode must be one of the codes operation:"get_supported_countries" lists.',
   scrape_template: 'Use template:"list" to see valid template ids, template:"auto" to pick from the URL, or scrape for a site without a template.'
 });
 
@@ -47,13 +47,14 @@ export const FALLBACK_HINTS = Object.freeze({
  * The second-stage hint (Phase 3, 3.4). A `scrape` or `extract_embedded_state`
  * that came back `escalated: true` has ALREADY run the stealth browser on this URL, so the
  * ordinary hint would send the model back to a tool that has just failed.
- * What is left is a region-specific block, which `localization` can change,
- * or a block that is final: an Akamai-style TLS-level wall is beaten with
+ * What is left is final for CrawlForge: a region-specific block answers to the
+ * exit IP, which `localization` does not change (it returns locale values and
+ * routes nothing), and an Akamai-style TLS-level wall is beaten with
  * residential proxies, which CrawlForge does not offer.
  */
 export const SCRAPE_ESCALATED_HINT =
   'The stealth browser has already run on this URL (escalate:true) - do not call stealth_mode or repeat this call. ' +
-  'If the block is regional, set a country with localization and try once more; otherwise the block is final - ' +
+  'The block is final here: a regional block follows the exit IP, which localization does not change, and ' +
   'a TLS-level wall needs residential proxies, which CrawlForge does not offer. Get the content from another source.';
 
 /** The tools whose escalate:true runs the stealth stage itself (Phase 3; extract_embedded_state since plan Phase 3.2; extract_text and extract_links since Phase E2). */

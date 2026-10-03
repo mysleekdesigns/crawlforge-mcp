@@ -193,6 +193,53 @@ export function assertProxyEngineAllowed(engine, config) {
 }
 
 /**
+ * What a camoufox context does not take from the caller's stealthConfig, said
+ * out loud. Chromium applies customUserAgent, locale and timezone per context;
+ * camoufox keeps its own Firefox identity, fixes its locale when the browser
+ * launches, and behind a proxy derives locale and timezone from the exit IP.
+ * Each of those is deliberate (see createStealthContext) and each used to be
+ * silent, so a caller asking for de-DE read a ja-JP page with nothing to say
+ * why (R24).
+ * @param {{ customUserAgent?: string, customViewport?: object, locale?: string, timezone?: string }} config
+ *   the stealthConfig as validated for this call
+ * @param {{ launchedLocale: string|null, proxied: boolean }} browser
+ *   the locale the running camoufox was launched with (null behind a proxy)
+ * @returns {string[]}
+ */
+export function camoufoxConfigWarnings(config, { launchedLocale, proxied }) {
+  const warnings = [];
+  if (config.customUserAgent) {
+    warnings.push(
+      'stealthConfig.customUserAgent is not applied on camoufox: it presents its own Firefox identity, ' +
+      'and another User-Agent on top would contradict the rest of its fingerprint. Use engine:"chromium" to set one.'
+    );
+  }
+  if (config.customViewport) {
+    warnings.push(
+      'stealthConfig.customViewport is not applied on camoufox: it generates its own screen and window. Use engine:"chromium" to set one.'
+    );
+  }
+  if (proxied) {
+    if (config.locale && config.locale !== 'en-US') {
+      warnings.push(
+        `stealthConfig.locale "${config.locale}" is not applied on camoufox behind a proxy: the locale is derived from the proxy's exit IP.`
+      );
+    }
+    if (config.timezone) {
+      warnings.push(
+        `stealthConfig.timezone "${config.timezone}" is not applied on camoufox behind a proxy: the timezone is derived from the proxy's exit IP.`
+      );
+    }
+  } else if (config.locale && launchedLocale && config.locale !== launchedLocale) {
+    warnings.push(
+      `stealthConfig.locale "${config.locale}" is not applied: camoufox takes its locale at browser launch and this browser ` +
+      `was launched with "${launchedLocale}". Run operation:"cleanup" and call again, or use engine:"chromium", which sets the locale per call.`
+    );
+  }
+  return warnings;
+}
+
+/**
  * Resolve a requested engine to the one that will actually launch.
  *
  * Camoufox is the engine that gets past the walls a stealth call is made for —
@@ -843,7 +890,12 @@ export class StealthBrowserManager {
         })
       : null;
 
+    let configWarnings = [];
     if (this._launchedEngine === 'camoufox') {
+      configWarnings = camoufoxConfigWarnings(validatedConfig, {
+        launchedLocale: this.browser[CAMOUFOX_LOCALE] ?? null,
+        proxied: !!proxy
+      });
       // camoufox's Firefox build predates the Browser.setDefaultViewport fields
       // playwright-core 1.62 sends (screenSize, isMobile, ...) and rejects
       // unknown properties, so any fixed viewport fails. viewport:null skips
@@ -923,7 +975,8 @@ export class StealthBrowserManager {
     // instance: the instance fields follow the browser, which the next call
     // may switch, and the caller of THIS context still has to be able to say
     // which browser it got.
-    return { context, contextId, fingerprint, engine: validatedConfig.engine, engineFallbackWarning };
+    // `configWarnings` names what camoufox did not take from the stealthConfig.
+    return { context, contextId, fingerprint, engine: validatedConfig.engine, engineFallbackWarning, configWarnings };
   }
 
   /**
@@ -2940,12 +2993,12 @@ export class StealthBrowserManager {
   async scrapeWithStealth({ url, engine, wait_for = 0, screenshot = false, stealthConfig = {}, readWindowState: wantWindowState = false, onRedirect } = {}) {
     if (!url) throw new Error('scrapeWithStealth requires a url');
 
-    const { contextId, engineFallbackWarning = null } = await this.createStealthContext({ ...stealthConfig, engine });
+    const { contextId, engineFallbackWarning = null, configWarnings = [] } = await this.createStealthContext({ ...stealthConfig, engine });
     // What ran, not what was asked for: 'auto' becomes chromium when camoufox
     // is absent, and a result that says the stealth browser did not get the
     // page has to name the browser that tried.
     const engineUsed = this._launchedEngine ?? null;
-    const warnings = engineFallbackWarning ? [engineFallbackWarning] : [];
+    const warnings = engineFallbackWarning ? [engineFallbackWarning, ...configWarnings] : [...configWarnings];
     try {
       const page = await this.createStealthPage(contextId);
       let crashed = false;
@@ -3425,14 +3478,11 @@ export class StealthBrowserManager {
       totalFingerprintsSaved: this.fingerprints.size,
       browserRunning: !!this.browser,
       humanBehaviorActive: !!this.humanBehaviorSimulator,
-      performanceMetrics: this.performanceMetrics,
       proxyStatus: {
         enabled: this.proxyManager.activeProxies.length > 0,
         currentProxy: this.proxyManager.currentProxy,
         totalProxies: this.proxyManager.activeProxies.length
-      },
-      bypassCacheSize: this.bypassCache.size,
-      canvasCacheSize: this.canvasCache.size
+      }
     };
   }
 
@@ -3470,23 +3520,6 @@ export class StealthBrowserManager {
     this.bypassCache.clear();
   }
 
-  /**
-   * Enable stealth mode with specified level
-   */
-  enableStealthMode(level = 'medium') {
-    this.defaultConfig.level = level;
-    this.defaultConfig.randomizeFingerprint = true;
-    this.defaultConfig.simulateHumanBehavior = true;
-  }
-
-  /**
-   * Disable stealth mode
-   */
-  disableStealthMode() {
-    this.defaultConfig.level = 'basic';
-    this.defaultConfig.randomizeFingerprint = false;
-    this.defaultConfig.simulateHumanBehavior = false;
-  }
 }
 
 

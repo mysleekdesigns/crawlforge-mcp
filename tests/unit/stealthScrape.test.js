@@ -115,7 +115,7 @@ describe('1.7 — stealth_mode is priced per operation', () => {
     for (const operation of ['scrape', 'create_context', 'create_page']) {
       assert.equal(authManager.getToolCost('stealth_mode', { operation }), 5, `${operation} costs 5`);
     }
-    for (const operation of ['configure', 'enable', 'disable', 'get_stats', 'cleanup']) {
+    for (const operation of ['configure', 'get_stats', 'cleanup']) {
       assert.equal(authManager.getToolCost('stealth_mode', { operation }), 1, `${operation} costs 1`);
     }
     // No operation, or one this table has never heard of, pays the published

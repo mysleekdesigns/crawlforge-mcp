@@ -169,7 +169,7 @@ server.registerPrompt("getting-started", {
           "- scrape with escalate:true (projected 7): when a site is known to block, one call that reads the page and only falls back to the stealth browser if the plain fetch is walled - charged 2 when it is not. Still never stealth_mode first.\n" +
           "- scrape_with_actions (5): click, log in, scroll or wait, then scrape.\n" +
           "- browser_session (open 3, every later operation 1-2): a page that stays open across calls - open, snapshot to list the interactive elements as @e refs, act on a ref, read, close. Use it when you must see the page before choosing what to click, when the flow spans several calls, or when a login must hold across later reads; one fixed action chain on one page is scrape_with_actions.\n" +
-          "- localization (2): country and locale context for geo-specific content.\n" +
+          "- localization (2): looks up a country's locale values (Accept-Language, timezone, currency) for you to pass to fetch_url headers or stealth_mode stealthConfig; it applies nothing to other calls.\n" +
           "\n" +
           "Structured data\n" +
           "- scrape_structured (2): known CSS selectors. scrape_template (1): known sites and platform APIs (template:\"list\" shows them).\n" +
@@ -917,7 +917,7 @@ registerToolIfEnabled("batch_scrape", {
     maxConcurrency: z.number().min(1).max(20).default(10).describe("Maximum concurrent scraping requests"),
     delayBetweenRequests: z.number().min(0).max(10000).default(100).describe("Delay in milliseconds between requests"),
     includeMetadata: z.boolean().default(true).describe("Include page metadata in results"),
-    includeFailed: z.boolean().default(true).describe("Include failed URLs in results"),
+    includeFailed: z.boolean().default(true).describe("List failed URLs in results. false hides the entries; failedUrls still counts them"),
     pageSize: z.number().min(1).max(100).default(25).describe("Number of results per page"),
     jobOptions: z.object({
       priority: z.number().default(0),
@@ -971,7 +971,7 @@ registerToolIfEnabled("read_result", {
 
 // Tool: scrape_with_actions
 registerToolIfEnabled("scrape_with_actions", {
-  description: "Use this when you must interact with a page before scraping - login, click buttons, fill forms, scroll, or wait for dynamic content to load - for SPAs, login-gated content, or multi-step flows. Actions: snapshot, wait, click, type, press, scroll, screenshot, executeJavaScript (disabled unless the server runs with ALLOW_JAVASCRIPT_EXECUTION=true; refused on the hosted API), select (dropdowns), hover, navigate. Start a chain with {type:\"snapshot\"} to list the page's interactive elements, including those in open shadow roots and iframes, with stable refs (@e1, @e2 ... in document order), then target those refs in later actions instead of guessing CSS selectors; navigation invalidates refs, so snapshot again after one. Set browserOptions.consent:\"reject\" (or \"accept\") to answer a cookie/consent banner before the first action; it is off by default. Set browserOptions.stealth:true to run the chain in the stealth browser, and browserOptions.engine to pick its engine (\"auto\" by default - camoufox when it is installed, Chromium otherwise, and the result says which ran). robots.txt is respected on every navigation, and each navigation is checked: a bot wall is reported as `blocked` with the vendor named, per navigation in `navigations` and for the final page at the top level. browserOptions.proxyRotation routes a stealth chain through your own proxies. Screenshots from this tool are stored as crawlforge://screenshot/{actionId} resources. Not for pages that render without interaction (scrape) and not as the first attempt on a blocked site (stealth_mode operation:\"scrape\"). Cost: 5 credits. Example: scrape_with_actions({url: \"https://app.com/dashboard\", actions: [{type:\"snapshot\"},{type:\"type\",selector:\"@e2\",text:\"user@a.com\"},{type:\"click\",selector:\"@e4\"}]})",
+  description: "Use this when you must interact with a page before scraping - login, click buttons, fill forms, scroll, or wait for dynamic content to load - for SPAs, login-gated content, or multi-step flows. Actions: snapshot, wait, click, type, press, scroll, screenshot, executeJavaScript (disabled unless the server runs with ALLOW_JAVASCRIPT_EXECUTION=true; refused on the hosted API), select (dropdowns), hover, navigate. Start a chain with {type:\"snapshot\"} to list the page's interactive elements, including those in open shadow roots and iframes, with stable refs (@e1, @e2 ... in document order), then target those refs in later actions instead of guessing CSS selectors; navigation invalidates refs, so snapshot again after one. Set browserOptions.consent:\"reject\" (or \"accept\") to answer a cookie/consent banner before the first action; it is off by default. Set browserOptions.stealth:true to run the chain in the stealth browser, and browserOptions.engine to pick its engine (\"auto\" by default - camoufox when it is installed, Chromium otherwise, and the result says which ran). robots.txt is respected on every navigation, and each navigation is checked: a bot wall is reported as `blocked` with the vendor named, per navigation in `navigations` and for the final page at the top level. A click or form submit that loads another page is a navigation too: it gets its own `navigations` entry (`trigger` names the action type), and `finalUrl` is where the chain ended. browserOptions.proxyRotation routes a stealth chain through your own proxies. Screenshots are taken by {type:\"screenshot\"} actions (and on error) and stored as crawlforge://screenshot/{actionId} resources. Not for pages that render without interaction (scrape) and not as the first attempt on a blocked site (stealth_mode operation:\"scrape\"). Cost: 5 credits. Example: scrape_with_actions({url: \"https://app.com/dashboard\", actions: [{type:\"snapshot\"},{type:\"type\",selector:\"@e2\",text:\"user@a.com\"},{type:\"click\",selector:\"@e4\"}]})",
   annotations: { title: "Scrape with Browser Actions", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to scrape"),
@@ -1024,9 +1024,8 @@ registerToolIfEnabled("scrape_with_actions", {
       url: z.string().url().optional().describe("navigate: URL to navigate to — goes through the same SSRF and robots.txt gate as the initial URL"),
       waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle', 'commit']).optional().describe("navigate: when to consider navigation complete")
     })).min(1).max(20).describe("Browser actions to perform before scraping"),
-    formats: z.array(z.enum(['markdown', 'html', 'json', 'text', 'screenshots'])).default(['json']).describe("Output formats for scraped content"),
-    captureIntermediateStates: z.boolean().default(false).describe("Capture page state after each action"),
-    captureScreenshots: z.boolean().default(true).describe("Take screenshots during action execution"),
+    formats: z.array(z.enum(['markdown', 'html', 'json', 'text'])).default(['json']).describe("Output formats for scraped content. For an image, add a {type:\"screenshot\"} action where you want it taken."),
+    captureIntermediateStates: z.boolean().default(false).describe("Capture page state after each action: intermediateStates[] gets one entry per action (capturePoint is the action's 1-based position) with the url, title and the requested formats at that point"),
     formAutoFill: z.object({
       fields: z.array(z.object({
         selector: z.string(),
@@ -1090,7 +1089,7 @@ registerToolIfEnabled("scrape_with_actions", {
 
 // Tool: browser_session
 registerToolIfEnabled("browser_session", {
-  description: "Use this to drive a browser across several calls, keeping the page, its cookies and its login in between. The loop is: open a session on a URL, snapshot it to list the interactive elements with stable refs (@e1, @e2 ..., including elements inside open shadow roots and iframes), act on those refs, read the content, close. Because the page stays open you can look before each step instead of committing to a whole chain up front, so a wrong selector costs one call rather than all of them. Operations: open (url, stealth, engine, ttl, activity_ttl, viewport), snapshot, act (the same action array as scrape_with_actions), read (formats), screenshot, close, list. Navigation invalidates refs, so snapshot again after one. robots.txt is respected on every navigation, and screenshots are stored as crawlforge://screenshot/{actionId} resources. A session expires 600s after it opens or 300s after its last use, whichever comes first, so close it when you are done. Not for a page that renders without interaction (scrape), and not for an interaction you can write out in advance - that is one scrape_with_actions call for 5. Cost: 3 credits to open; read 2; snapshot, act, screenshot, close and list 1 each. Example: browser_session({operation:\"open\", url:\"https://app.com/login\"}), then browser_session({operation:\"snapshot\", session_id:\"...\"})",
+  description: "Use this to drive a browser across several calls, keeping the page, its cookies and its login in between. The loop is: open a session on a URL, snapshot it to list the interactive elements with stable refs (@e1, @e2 ..., including elements inside open shadow roots and iframes), act on those refs, read the content, close. Because the page stays open you can look before each step instead of committing to a whole chain up front, so a wrong selector costs one call rather than all of them. Operations: open (url, stealth, engine, ttl, activity_ttl, viewport), snapshot, act (the same action array as scrape_with_actions), read (formats; the whole page by default, onlyMainContent:true for the main article block alone), screenshot, close, list. Navigation invalidates refs, so snapshot again after one. robots.txt is respected on every navigation, and screenshots are stored as crawlforge://screenshot/{actionId} resources. A session expires 600s after it opens or 300s after its last use, whichever comes first, so close it when you are done. Not for a page that renders without interaction (scrape), and not for an interaction you can write out in advance - that is one scrape_with_actions call for 5. Cost: 3 credits to open; read 2; snapshot, act, screenshot, close and list 1 each. Example: browser_session({operation:\"open\", url:\"https://app.com/login\"}), then browser_session({operation:\"snapshot\", session_id:\"...\"})",
   annotations: { title: "Browser Session", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     operation: z.enum(["open", "snapshot", "act", "read", "screenshot", "close", "list"]).describe("open a session, observe it, act on it, read it, or close it"),
@@ -1111,6 +1110,7 @@ registerToolIfEnabled("browser_session", {
     actions: z.array(z.object({ type: z.string() }).passthrough()).min(1).max(20).optional().describe("act: the action array, same shape as scrape_with_actions. Target refs like \"@e2\" in `selector`"),
     continue_on_error: z.boolean().default(false).describe("act: keep going past a failed action"),
     formats: z.array(z.enum(["markdown", "html", "text", "json"])).default(["markdown"]).describe("read: output formats"),
+    onlyMainContent: z.boolean().default(false).describe("read: false (default) returns the whole page as markdown/text (markdown leaves out nav, footer and aside elements, as scrape's does; text leaves out nothing); true keeps only the main article block via Readability, which drops navigation and footers but can also drop list items on listing and app pages. The result's extractionMethod says which ran (\"full_page\" for the whole page)"),
     full_page: z.boolean().default(false).describe("screenshot: capture the full scrollable page"),
     format: z.enum(["png", "jpeg"]).default("png").describe("screenshot: image format"),
     quality: z.number().min(0).max(100).default(80).describe("screenshot: JPEG quality"),
@@ -1414,10 +1414,10 @@ function stealthScrapeFormats(formats, scraped) {
 
 // Tool: stealth_mode
 registerToolIfEnabled("stealth_mode", {
-  description: "Use this when a site blocks normal scraping - Cloudflare, Datadome, or other bot-detection systems. Renders in a real browser with randomized fingerprints, human behavior simulation, WebRTC/canvas spoofing - Camoufox (Firefox) when it is installed, Chromium otherwise, and the result names the one that ran. operation:\"scrape\" is the one-shot path: it creates a context, navigates, returns the requested formats and tears down. The create_context -> create_page -> cleanup operations remain for multi-step work. robots.txt is respected on every navigation. Not a first choice: try scrape first and switch here after a 403/429/CAPTCHA/challenge page or an empty shell. Cost: 5 credits per browser operation; configure, enable, disable, get_stats and cleanup cost 1. Example: stealth_mode({operation:\"scrape\", url:\"https://example.com\", formats:[\"markdown\",\"links\"]})",
+  description: "Use this when a site blocks normal scraping - Cloudflare, Datadome, or other bot-detection systems. Renders in a real browser with randomized fingerprints, human behavior simulation, WebRTC/canvas spoofing - Camoufox (Firefox) when it is installed, Chromium otherwise, and the result names the one that ran. operation:\"scrape\" is the one-shot path: it creates a context, navigates, returns the requested formats and tears down. The create_context -> create_page -> cleanup operations remain for multi-step work. operation:\"configure\" only validates a stealthConfig and returns it with the defaults filled in - it stores nothing, so pass stealthConfig on each scrape or create_context call that should use it. robots.txt is respected on every navigation. Not a first choice: try scrape first and switch here after a 403/429/CAPTCHA/challenge page or an empty shell. Cost: 5 credits per browser operation; configure, get_stats and cleanup cost 1. Example: stealth_mode({operation:\"scrape\", url:\"https://example.com\", formats:[\"markdown\",\"links\"]})",
   annotations: { title: "Stealth Mode", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
-    operation: z.enum(['scrape', 'configure', 'enable', 'disable', 'create_context', 'create_page', 'get_stats', 'cleanup']).default('configure').describe("Stealth operation to perform"),
+    operation: z.enum(['scrape', 'configure', 'create_context', 'create_page', 'get_stats', 'cleanup']).default('configure').describe("Stealth operation to perform. scrape: render one URL and return the formats. configure: validate stealthConfig and return it with defaults filled in; nothing is stored. create_context / create_page: a context to open pages in. get_stats: this server process's open contexts, browser and proxy state. cleanup: close the browser and every context."),
     stealthConfig: z.object({
       level: z.enum(['basic', 'medium', 'advanced']).default('medium'),
       randomizeFingerprint: z.boolean().default(true),
@@ -1455,7 +1455,7 @@ registerToolIfEnabled("stealth_mode", {
         fontSpoofing: z.boolean().default(true),
         hardwareSpoofing: z.boolean().default(true)
       }).optional()
-    }).optional().describe("Stealth browser configuration with anti-detection settings"),
+    }).optional().describe("Stealth browser configuration with anti-detection settings. Applies to the call it is passed on and is not remembered. Chromium applies customUserAgent, customViewport, locale and timezone per call. On camoufox customUserAgent and customViewport are not applied, locale is fixed when the browser launches (run operation:\"cleanup\" first to change it), and behind a proxy locale and timezone come from the exit IP; each of these is reported in `warnings`."),
     engine: z.enum(["auto", "chromium", "camoufox", "playwright"]).optional().default("auto").describe("Browser engine: \"auto\" (default — camoufox when it is installed, Chromium otherwise, and the result says which), \"camoufox\" (Firefox-based, higher anti-detect score; fails if not installed), or \"chromium\" (\"playwright\" is the same engine under its old name)"),
     contextId: z.string().optional().describe("Browser context ID for page operations"),
     urlToTest: z.string().url().optional().describe("URL to navigate to when creating a page"),
@@ -1524,24 +1524,25 @@ registerToolIfEnabled("stealth_mode", {
           result.content.screenshot = { resourceUri: `crawlforge://screenshot/${screenshotId}` };
         }
 
+        // What the browser did not take from stealthConfig (camoufox). The
+        // fallback warning is already in the list from the resolver above.
+        for (const warning of scraped.warnings || []) {
+          if (!warnings.includes(warning)) warnings.push(warning);
+        }
         if (warnings.length > 0) result.warnings = warnings;
         break;
       }
       case 'configure':
         if (stealthConfig) {
           const validated = stealthBrowserManager.validateConfig(stealthConfig);
-          result = { configured: true, config: validated };
+          result = {
+            configured: true,
+            config: validated,
+            note: 'Validated only - nothing is stored. Pass this stealthConfig on each operation:"scrape" or "create_context" call that should use it.'
+          };
         } else {
           result = { error: 'stealthConfig is required for configure operation' };
         }
-        break;
-      case 'enable':
-        stealthBrowserManager.enableStealthMode(stealthConfig?.level || 'medium');
-        result = { enabled: true, level: stealthConfig?.level || 'medium' };
-        break;
-      case 'disable':
-        stealthBrowserManager.disableStealthMode();
-        result = { disabled: true };
         break;
       case 'create_context': {
         // Forward the tool-level engine the same way operation:"scrape" does —
@@ -1562,11 +1563,16 @@ registerToolIfEnabled("stealth_mode", {
           // Which engine the context is on, and why, when "auto" had to fall
           // back: every page made from it inherits that engine.
           engine: contextEngine.engine,
-          ...(contextEngine.fallbackWarning ? { warnings: [contextEngine.fallbackWarning] } : {}),
           fingerprint: verbose
             ? contextData.fingerprint
             : stealthBrowserManager.summarizeFingerprint(contextData.fingerprint)
         };
+        // The fallback, and what camoufox did not take from stealthConfig.
+        const contextWarnings = [
+          ...(contextEngine.fallbackWarning ? [contextEngine.fallbackWarning] : []),
+          ...(contextData.configWarnings || [])
+        ];
+        if (contextWarnings.length > 0) result.warnings = contextWarnings;
         break;
       }
       case 'create_page': {
@@ -1636,22 +1642,22 @@ registerToolIfEnabled("stealth_mode", {
 
 // Tool: localization
 registerToolIfEnabled("localization", {
-  description: "Use this to scrape geo-restricted content or emulate a specific locale/timezone - region-specific pricing, geo-blocks, searching in another language. Use operation:\"configure_country\" to set country context for the scraping calls that follow. Not for an ordinary page read (scrape). Cost: 2 credits. Example: localization({operation:\"configure_country\", countryCode:\"DE\", language:\"de\"})",
+  description: "Use this to look up the locale settings of a country - language, Accept-Language header, timezone, currency, search domain, date and number formats - or to run a search targeted at a country (operation:\"localize_search\"). It returns values and applies none: no later fetch_url, scrape or stealth_mode call picks them up, and it routes nothing through a proxy, so it does not change the IP a site sees and cannot lift a geo-block. Pass the returned values to the tool that makes the request: fetch_url headers:{\"Accept-Language\": acceptLanguage}; stealth_mode stealthConfig:{locale: language, timezone: timezone}; search_web localization:{countryCode, language}. scrape has no locale parameter. Not for an ordinary page read (scrape). Cost: 2 credits. Example: localization({operation:\"configure_country\", countryCode:\"DE\", language:\"de\"})",
   annotations: { title: "Localization", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
-    operation: z.enum(['configure_country', 'localize_search', 'localize_browser', 'generate_timezone_spoof', 'handle_geo_blocking', 'auto_detect', 'get_stats', 'get_supported_countries']).default('configure_country').describe("Localization operation to perform"),
-    countryCode: z.string().length(2).optional().describe("ISO 3166-1 alpha-2 country code"),
-    language: z.string().optional().describe("Language code (e.g. 'en', 'fr', 'de')"),
-    timezone: z.string().optional().describe("IANA timezone identifier (e.g. 'America/New_York')"),
-    currency: z.string().length(3).optional().describe("ISO 4217 currency code (e.g. 'USD', 'EUR')"),
-    customHeaders: z.record(z.string()).optional().describe("Custom HTTP headers for localized requests"),
-    userAgent: z.string().optional().describe("Custom user agent string"),
-    acceptLanguage: z.string().optional().describe("Accept-Language header value"),
+    operation: z.enum(['configure_country', 'localize_search', 'localize_browser', 'generate_timezone_spoof', 'handle_geo_blocking', 'auto_detect', 'get_stats', 'get_supported_countries']).default('configure_country').describe("Localization operation to perform. Every operation returns data; none changes how another tool behaves. configure_country: the country's settings (language, acceptLanguage, timezone, currency, searchDomain, browserLocale). localize_search: runs search_web for searchParams.query in the country and its language. localize_browser: Playwright-style context options for the country (locale, timezoneId, geolocation, extraHTTPHeaders) - no browser is launched. generate_timezone_spoof: a JavaScript snippet that overrides Date and Intl for the timezone - nothing is injected. handle_geo_blocking: classifies a response you supply (url + response) and lists suggestions - nothing is fetched or bypassed. auto_detect: language and country detected in content you supply. get_stats: counters for this server process. get_supported_countries: the accepted country codes."),
+    countryCode: z.string().length(2).optional().describe("ISO 3166-1 alpha-2 country code, upper or lower case; operation:\"get_supported_countries\" lists the accepted ones. When omitted, the other operations use the country of the last configure_country call in this server process (US at start) - pass it on every call"),
+    language: z.string().optional().describe("Language code (e.g. 'en', 'fr', 'de-CH') - configure_country only; other values are refused"),
+    timezone: z.string().optional().describe("IANA timezone identifier (e.g. 'America/New_York') - configure_country and generate_timezone_spoof"),
+    currency: z.string().length(3).optional().describe("ISO 4217 currency code (e.g. 'USD', 'EUR') - configure_country only"),
+    customHeaders: z.record(z.string()).optional().describe("Headers echoed back in the configure_country result; nothing is sent"),
+    userAgent: z.string().optional().describe("Not used by any operation. To carry a user agent through localize_browser, set browserOptions.userAgent"),
+    acceptLanguage: z.string().optional().describe("Accept-Language value to return from configure_country in place of the one built from the language and country"),
     geoLocation: z.object({
       latitude: z.number().min(-90).max(90),
       longitude: z.number().min(-180).max(180),
       accuracy: z.number().min(1).max(100).optional()
-    }).optional().describe("GPS coordinates for geolocation emulation"),
+    }).optional().describe("Coordinates echoed back in the configure_country result; nothing is emulated"),
     proxySettings: z.object({
       enabled: z.boolean().default(false),
       region: z.string().optional(),
@@ -1670,7 +1676,7 @@ registerToolIfEnabled("localization", {
         maxRetries: z.number().default(3),
         timeout: z.number().default(10000)
       }).optional()
-    }).optional().describe("Proxy configuration for geo-targeted requests"),
+    }).optional().describe("Echoed back in the configure_country result. No request is routed through it: CrawlForge supplies no proxies, and your own go on stealth_mode stealthConfig.proxyRotation"),
     searchParams: z.object({
       query: z.string().optional(),
       limit: z.number().optional(),
@@ -1682,7 +1688,7 @@ registerToolIfEnabled("localization", {
       timezoneId: z.string().optional(),
       extraHTTPHeaders: z.record(z.string()).optional(),
       userAgent: z.string().optional()
-    }).optional().describe("Browser context options for locale emulation"),
+    }).optional().describe("Browser context options for localize_browser to build on: returned with the country's locale, timezoneId, geolocation and Accept-Language set, and your userAgent and other extraHTTPHeaders kept"),
     content: z.string().optional().describe("Page content (HTML or plain text) to analyze — required for auto_detect; no fetching is performed"),
     url: z.string().url().optional().describe("URL — required for handle_geo_blocking; for auto_detect it is optional metadata used only as a TLD country hint (the page is never fetched)"),
     response: z.object({
@@ -1698,7 +1704,12 @@ registerToolIfEnabled("localization", {
     switch (operation) {
       case 'configure_country':
         if (!params.countryCode) throw new Error('countryCode is required for configure_country operation');
-        result = await localizationManager.configureCountry(params.countryCode, params);
+        result = {
+          ...await localizationManager.configureCountry(params.countryCode, params),
+          note: 'These values are returned, not applied: no later fetch_url, scrape or stealth_mode call uses them. ' +
+            'Pass them yourself - fetch_url headers:{"Accept-Language": acceptLanguage}; ' +
+            'stealth_mode stealthConfig:{locale: language, timezone: timezone}; search_web localization:{countryCode, language}.'
+        };
         break;
       case 'localize_search': {
         if (!params.searchParams) throw new Error('searchParams is required for localize_search operation');
@@ -1735,8 +1746,7 @@ registerToolIfEnabled("localization", {
         };
         break;
       case 'handle_geo_blocking':
-      case 'detect_geo_blocking':
-        if (!params.url || !params.response) throw new Error('url and response are required for detect_geo_blocking operation');
+        if (!params.url || !params.response) throw new Error('url and response are required for handle_geo_blocking operation');
         result = await localizationManager.detectGeoBlocking(params.url, params.response);
         break;
       case 'auto_detect':

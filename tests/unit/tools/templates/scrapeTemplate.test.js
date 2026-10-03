@@ -484,10 +484,9 @@ describe('ScrapeTemplateTool (real module, real fetch against a local server)', 
     assert.equal(result.templates.find((t) => t.id === 'greenhouse-jobs').mode, 'list');
   });
 
-  test('missing url triggers list mode', async () => {
+  test('a template id with no url is an error, not the list', async () => {
     const tool = new ScrapeTemplateTool();
-    const result = await tool.execute({ template: 'github-repo' });
-    assert.ok(Array.isArray(result.templates));
+    await assert.rejects(() => tool.execute({ template: 'github-repo' }), /url is required for template "github-repo"/);
   });
 
   test('unknown template throws before any network call', async () => {

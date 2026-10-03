@@ -256,8 +256,11 @@ function hopGate(options, reached) {
  * rides along — `*`, en-US, de-DE, a full browser list — and serves the page
  * when the header is absent (R14, bisected header by header with curl, then
  * reproduced with Node's fetch). fetch offers no way to leave the header out,
- * but an empty value is sent as-is instead of `*`, and Amazon treats empty as
- * absent. The identity stays honest; no language preference is claimed.
+ * but an empty value stops it adding `*`, and the guarded dispatcher then
+ * drops the empty header before the request is written (ssrfGuard.js
+ * `dropEmptyAcceptLanguage`), so none is sent. With the SSRF guard switched
+ * off the empty header goes out as-is, which Amazon treats as absent. The
+ * identity stays honest; no language preference is claimed.
  * @param {string} [userAgent]
  * @param {Record<string,string>} [signature]
  * @returns {Record<string,string>}

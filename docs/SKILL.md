@@ -443,7 +443,7 @@ CLI: `crawlforge monitor:create <url> --every 1800 --webhook <url>` (local) or
 | `stop_scheduled_monitor` | By `scheduledMonitorOptions.monitorId`: stops a local monitor, or deletes the hosted one with that id. By `url` alone: stops every local monitor on it and deletes hosted monitors whose targets are all that exact URL. |
 | `get_dashboard` | Aggregate status, recent alerts, trends. |
 | `export_history` | Export change history as `json` or `csv`. |
-| `create_alert_rule` | Conditional alerts fired from `compare` (webhook / slack; the email action is not sent by a local process — use a hosted monitor for email). |
+| `create_alert_rule` | Conditional alerts fired from `compare` (webhook / slack; the email action is not sent by a local process — use a hosted monitor for email). `alertRuleOptions.condition` is `significance <operator> <level>`, e.g. `significance >= "moderate"` (quotes optional; levels `none`, `minor`, `moderate`, `major`, `critical`); anything else is rejected. |
 | `generate_trend_report` | Trend analysis over time. |
 | `get_monitoring_templates` | List built-in monitoring presets. |
 
@@ -634,7 +634,7 @@ stored at `~/.crawlforge/config.json`.
 |----------------------|-----------|
 | Scrape a page, get markdown/text/links/metadata, map or crawl a site | **crawlforge-web-scraping** |
 | Research a topic, search the web, get a cited report, autonomous Q&A | **crawlforge-deep-research** |
-| Get past 403/CAPTCHA/Cloudflare, or emulate a region/locale | **crawlforge-stealth-browsing** |
+| Get past 403/CAPTCHA/Cloudflare, or request a page in a given locale | **crawlforge-stealth-browsing** |
 | Extract JSON/fields, parse a PDF, summarize, analyze sentiment | **crawlforge-structured-extraction** |
 | Watch a page for changes / monitor pricing | **crawlforge-change-tracking** |
 | Scrape many URLs, run browser actions, generate llms.txt | **crawlforge-batch-automation** |
@@ -684,7 +684,7 @@ Do not suggest adding API keys — local Ollama is the intended zero-cost defaul
 | LLM extraction unavailable (no Ollama/keys) | `scrape_structured` with CSS selectors |
 | Single page too slow / many pages | `batch_scrape` (async + webhook) |
 | A `scrape_with_actions` chain keeps breaking on guessed selectors, or the flow needs more than one call | `browser_session` — snapshot for refs, then act (crawlforge-browser-sessions) |
-| Wrong region / currency shown | `localization` |
+| Wrong language shown | `localization` for the country's `Accept-Language`, then pass it in `fetch_url` `headers` (or `stealth_mode` `stealthConfig.locale`) — `localization` applies nothing itself |
 | Need a big report but cost is high | lower `maxUrls` on `deep_research` |
 | Result came back `truncated: true` with a `result_handle` | `read_result` (search, slice, lines, json_path) — never fetch the page again |
 
@@ -700,9 +700,10 @@ parameters.
 
 # CrawlForge Stealth Browsing
 
-Get past bot-detection systems and geo-blocks. Use `stealth_mode` when a normal
-scrape is blocked, and `localization` when you need region-specific content,
-pricing, or locale emulation.
+Get past bot-detection systems, and request pages in a given locale. Use
+`stealth_mode` when a normal scrape is blocked, and `localization` to look up
+the locale values (Accept-Language, timezone, currency) of a country, which you
+then pass to `fetch_url` or `stealth_mode` yourself.
 
 ## When to escalate to stealth_mode
 
@@ -745,9 +746,17 @@ Then use the returned `contextId`:
 }
 ```
 
-Operations: `configure`, `enable`, `disable`, `create_context`, `create_page`,
+Operations: `scrape`, `configure`, `create_context`, `create_page`,
 `get_stats`, `cleanup`. `stealthConfig.level` is `basic` / `medium` (default) /
 `advanced`. Always run `cleanup` when done to release the browser.
+
+`stealthConfig` applies to the call it is passed on and is not remembered.
+`configure` only validates a `stealthConfig` and returns it with the defaults
+filled in; it stores nothing, so pass `stealthConfig` again on each `scrape` or
+`create_context` call that should use it. Whatever the browser did not take
+from it (on `camoufox`: `customUserAgent`, `customViewport`, a `locale` that
+differs from the one the browser was launched with) is named in the result's
+`warnings`.
 
 ### Engine: auto, playwright, camoufox
 
@@ -826,8 +835,11 @@ The CLI exposes a one-shot form (`--engine`, `--wait <ms>`, `--screenshot`).
 
 ## localization (cost: 2)
 
-Emulate a country/language/timezone/currency for region-specific content and
-geo-blocked pages.
+Look up a country's locale settings: language, `Accept-Language` header,
+timezone, currency, search domain, date and number formats. It **returns
+values and applies none**. No later `fetch_url`, `scrape` or `stealth_mode` call
+picks them up, and it routes nothing through a proxy, so it does not change the
+IP a site sees and cannot lift a geo-block on its own.
 
 ```json
 {
@@ -838,17 +850,51 @@ geo-blocked pages.
 
 Operations: `configure_country`, `localize_search`, `localize_browser`,
 `generate_timezone_spoof`, `handle_geo_blocking`, `auto_detect`, `get_stats`,
-`get_supported_countries`. `countryCode` is ISO 3166-1 alpha-2; `currency` is
-ISO 4217. Supports proxy routing and GPS geolocation emulation.
+`get_supported_countries`. `countryCode` is ISO 3166-1 alpha-2 (either case);
+`currency` is ISO 4217. `localize_search` is the one operation that makes a
+request: it runs `search_web` for `searchParams.query` in the country and its
+language. `localize_browser` returns Playwright-style context options,
+`generate_timezone_spoof` returns a JavaScript snippet, and
+`handle_geo_blocking` classifies a response you supply — none of them launches,
+injects or fetches anything.
 
-CLI: `crawlforge localize https://shop.example.com --locale en-GB --country GB --currency GBP`.
+Pass the returned values to the tool that makes the request:
+
+```json
+{
+  "tool": "fetch_url",
+  "params": { "url": "https://shop.example.com", "headers": { "Accept-Language": "de-DE,de;q=0.9,en;q=0.8" } }
+}
+```
+
+```json
+{
+  "tool": "stealth_mode",
+  "params": {
+    "operation": "scrape",
+    "url": "https://shop.example.com",
+    "stealthConfig": { "locale": "de-DE", "timezone": "Europe/Berlin" }
+  }
+}
+```
+
+`search_web` takes `localization: { countryCode, language }`. `scrape` has no
+locale parameter.
+
+CLI: `crawlforge localize https://shop.example.com --locale en-GB --country GB --currency GBP`
+fetches the URL with that country's `Accept-Language` header (nothing else is
+sent; the currency is only reported).
 
 ## stealth_mode vs localization
 
 - **Blocked / bot-detected** → `stealth_mode`.
-- **Wrong region / language / currency, but not blocked** → `localization`.
-- **Geo-blocked AND bot-protected** → `localization` to set region context, then
-  `stealth_mode` for the actual fetch.
+- **Wrong language shown, but not blocked** → `localization` for the country's
+  `Accept-Language`, then `fetch_url` with it in `headers`.
+- **Wrong language AND bot-protected** → `stealth_mode` with
+  `stealthConfig.locale` / `stealthConfig.timezone` (look the values up with
+  `localization` if you do not know them).
+- **Geo-blocked by IP** → only an exit IP in that region helps: your own proxy
+  on `stealthConfig.proxyRotation`. Neither tool supplies one.
 
 ## Cost note
 

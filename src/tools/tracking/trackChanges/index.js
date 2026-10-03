@@ -228,7 +228,9 @@ export class TrackChangesTool extends EventEmitter {
         sections: baseline.sections,
         elements: baseline.elements,
         createdAt: baseline.createdAt,
-        options: trackingOptions
+        // The options as applied: the tracker fills the defaults the input
+        // schema leaves unset.
+        options: baseline.options
       },
       ...(warnings.length ? { warnings } : {}),
       snapshot: snapshotInfo, timestamp: Date.now()
@@ -381,11 +383,14 @@ export class TrackChangesTool extends EventEmitter {
       try {
         const changeHistory = this.changeTracker.getChangeHistory(url, 100);
         const snapshotHistory = await this.snapshotManager.querySnapshots({ url, limit: 100, includeContent: false });
+        // The history holds one record per compare, changed or not.
+        const changes = changeHistory.filter(r => r.significance !== 'none');
         urlStats = {
-          totalChanges: changeHistory.length,
+          totalCompares: changeHistory.length,
+          totalChanges: changes.length,
           totalSnapshots: snapshotHistory.snapshots.length,
-          lastChange: changeHistory.length > 0 ? changeHistory[0].timestamp : null,
-          averageChangeInterval: calculateAverageInterval(changeHistory),
+          lastChange: changes.length > 0 ? changes[0].timestamp : null,
+          averageChangeInterval: calculateAverageInterval(changes),
           significanceDistribution: calculateSignificanceDistribution(changeHistory),
           isBeingMonitored: this.activeMonitors.has(url)
         };

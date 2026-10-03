@@ -1,7 +1,9 @@
 /**
- * localize command — fetch a URL with locale/geo-aware request headers.
- * Builds a localization config (Accept-Language, User-Agent) for the target
- * country via LocalizationManager, then fetches the URL with those headers.
+ * localize command — fetch a URL with a country's Accept-Language header.
+ * Looks up the country's settings via LocalizationManager and passes its
+ * Accept-Language to the fetch. That header is the only thing sent: the
+ * request leaves from this machine's IP under the CrawlForge identity, and
+ * the timezone and currency are reported, not applied.
  */
 import { LocalizationManager } from '../../core/LocalizationManager.js';
 import { fetchUrlHandler } from '../../tools/basic/fetchUrl.js';
@@ -18,10 +20,10 @@ function resolveCountry(country, locale) {
 export function register(program) {
   program
     .command('localize <url>')
-    .description('Fetch URL with locale/geo-aware request headers')
+    .description("Fetch URL with a country's Accept-Language header (no proxy: the request IP does not change)")
     .option('--locale <locale>', 'Locale code (e.g. en-US, fr-FR)', 'en-US')
-    .option('--country <code>', 'Country code for geo-targeting (e.g. US, FR)')
-    .option('--currency <code>', 'Currency code (e.g. USD, EUR)')
+    .option('--country <code>', 'Country whose settings to look up (e.g. US, FR); defaults to the locale\'s region')
+    .option('--currency <code>', 'Currency code to report in the output (e.g. USD, EUR); not sent')
     .action(async (url, opts, cmd) => {
       const globals = cmd.parent.opts();
       const cliFlags = { json: globals.json, pretty: globals.pretty, quiet: globals.quiet };
@@ -40,7 +42,6 @@ export function register(program) {
 
           const headers = {
             'Accept-Language': config.acceptLanguage,
-            'User-Agent': mgr.generateUserAgent(countryCode),
             ...(config.customHeaders || {})
           };
 
