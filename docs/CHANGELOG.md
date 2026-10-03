@@ -5,6 +5,16 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.18.0] - 2026-10-03
+
+extract_text and extract_links get scrape's fetch ladder, truthful errors and
+the REST routes' output shape (fix plan Phases E1–E3), plus three Phase 6
+fixes. Requires `crawlforge-extractors` ^1.13.0.
+
+**Upgrade note:** `extract_links` records no longer carry `is_external`; read
+`type` (`internal` / `external` / `other`) instead. `extract_text` text mode
+separates blocks with one newline, not a blank line.
+
 ### Fixed
 
 - **`scrape_with_actions`: `browserOptions.timeout` now bounds the page load.**
