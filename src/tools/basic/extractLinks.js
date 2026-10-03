@@ -4,27 +4,48 @@
  */
 
 import { load } from 'cheerio';
-import { fetchWithTimeout } from './_fetch.js';
-import { targetFailure } from './_targetFailure.js';
+import { fetchLadder, ladderErrorResult, isJsonType } from '../../utils/fetchLadder.js';
 
 /**
  * @param {{ url: string, filter_external?: boolean, base_url?: string,
- *   user_agent?: string, respect_robots?: boolean }} params
+ *   user_agent?: string, respect_robots?: boolean,
+ *   escalate?: boolean, escalate_engine?: string }} params
+ * @param {Function} [escalateFetch] the stealth escalation stage
  */
-export async function extractLinksHandler({ url, filter_external, base_url, user_agent, respect_robots }) {
+async function extractLinks({ url, filter_external, base_url, user_agent, respect_robots, escalate, escalate_engine }, escalateFetch) {
   try {
-    const response = await fetchWithTimeout(url, {
+    const ladder = await fetchLadder(url, {
+      tool: 'extract_links',
       userAgent: user_agent,
       respectRobots: respect_robots,
-      tool: 'extract_links'
+      escalate: escalate === true,
+      escalateEngine: escalate_engine,
+      escalateFetch
     });
-    const failure = targetFailure(response, url);
-    if (failure) throw new Error(failure);
+    if (ladder.html === undefined) return ladderErrorResult('extract_links', 'Failed to extract links: ', ladder);
 
-    const html = await response.text();
+    // A JSON body carries no <a href>.
+    if (isJsonType(ladder.type)) {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            links: [],
+            total_count: 0,
+            internal_count: 0,
+            external_count: 0,
+            base_url: base_url || ladder.url,
+            ...ladder.fields,
+            warnings: [...ladder.warnings, 'the target returned application/json; it has no HTML links']
+          }, null, 2)
+        }]
+      };
+    }
+
+    const html = ladder.html;
     const $ = load(html);
 
-    const finalUrl = response.url || url;
+    const finalUrl = ladder.url;
     const pageUrl = new URL(finalUrl);
 
     // <base href>, if present, overrides the page URL as the resolution base
@@ -70,7 +91,9 @@ export async function extractLinksHandler({ url, filter_external, base_url, user
           total_count: uniqueLinks.length,
           internal_count: uniqueLinks.filter(l => !l.is_external).length,
           external_count: uniqueLinks.filter(l => l.is_external).length,
-          base_url: baseUrl
+          base_url: baseUrl,
+          ...ladder.fields,
+          ...(ladder.warnings.length > 0 ? { warnings: ladder.warnings } : {})
         }, null, 2)
       }]
     };
@@ -81,3 +104,15 @@ export async function extractLinksHandler({ url, filter_external, base_url, user
     };
   }
 }
+
+/**
+ * @param {{ escalateFetch?: (args: { url: string, engine: string, respectRobots?: boolean }) => Promise<object> }} [deps]
+ *   the stealth escalation stage (server.js `stealthEscalation`); without it
+ *   an escalation that would run is reported as unavailable
+ */
+export function createExtractLinksHandler({ escalateFetch } = {}) {
+  return (params) => extractLinks(params, escalateFetch);
+}
+
+/** The handler with no escalation stage wired (tests; server.js wires its own). */
+export const extractLinksHandler = createExtractLinksHandler();

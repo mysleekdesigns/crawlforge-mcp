@@ -11,8 +11,8 @@
 
 export const FALLBACK_HINTS = Object.freeze({
   fetch_url: 'For a JS-rendered page or an empty shell use scrape; after a 403/429/CAPTCHA/challenge page use stealth_mode operation:"scrape". Do not repeat the same fetch_url call.',
-  extract_text: 'Use scrape formats:["markdown"] (renders more pages); after a 403/429/444/challenge page use scrape with escalate:true, or stealth_mode operation:"scrape".',
-  extract_links: 'Use scrape formats:["links"]; for a whole site use map_site; after a 403/429/444/challenge page use scrape with escalate:true, or stealth_mode operation:"scrape".',
+  extract_text: 'After a 403/429/444/challenge page call extract_text again with escalate:true (projected 6, charged 1 if the plain fetch gets through); for a JS-rendered page use scrape formats:["markdown"]; for a PDF use process_document.',
+  extract_links: 'After a 403/429/444/challenge page call extract_links again with escalate:true (projected 6, charged 1 if the plain fetch gets through); for a JS-rendered page use scrape formats:["links"]; for a whole site use map_site.',
   extract_metadata: 'Use scrape formats:["metadata"]; after a 403/429/challenge page use stealth_mode operation:"scrape".',
   extract_content: 'Use scrape formats:["markdown"] (same clean output, renders more pages); after a 403/429/challenge page use stealth_mode operation:"scrape".',
   extract_embedded_state: 'Call again without `path` to see the top-level keys, or use scrape formats:["markdown"] if the page has no framework payload.',
@@ -56,8 +56,8 @@ export const SCRAPE_ESCALATED_HINT =
   'If the block is regional, set a country with localization and try once more; otherwise the block is final - ' +
   'a TLS-level wall needs residential proxies, which CrawlForge does not offer. Get the content from another source.';
 
-/** The tools whose escalate:true runs the stealth stage itself (Phase 3; extract_embedded_state since plan Phase 3.2). */
-const ESCALATING_TOOLS = new Set(['scrape', 'extract_embedded_state']);
+/** The tools whose escalate:true runs the stealth stage itself (Phase 3; extract_embedded_state since plan Phase 3.2; extract_text and extract_links since Phase E2). */
+const ESCALATING_TOOLS = new Set(['scrape', 'extract_embedded_state', 'extract_text', 'extract_links']);
 
 /** The hint for this result: the tool's, unless the call already escalated. */
 function hintFor(toolName, parsed) {

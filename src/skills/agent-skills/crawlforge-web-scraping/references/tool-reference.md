@@ -34,6 +34,10 @@ your provider).
 | `remove_scripts` | boolean | `true` | Strip `script` tags. |
 | `remove_styles` | boolean | `true` | Strip `style` tags. |
 | `output_format` | enum | `text` | `text` or `markdown` (use markdown for RAG). |
+| `escalate` | boolean | `false` | When the plain fetch is blocked (403/429/444/challenge page/empty shell), re-read the page once in the stealth browser (impit first under `auto`). A 404 or 5xx never escalates. Projected 6, charged 1 when the plain fetch worked. |
+| `escalate_engine` | enum | `auto` | `auto`, `playwright` (Chromium) or `camoufox`. |
+
+A PDF or other binary body fails with `UNSUPPORTED_CONTENT_TYPE` (use `process_document`). An empty client-rendered shell succeeds with `rendered:false` and the warning `page renders client-side; use scrape`.
 
 ## extract_links (cost: 1)
 
@@ -42,6 +46,10 @@ your provider).
 | `url` | string (URL) | — | Required. |
 | `filter_external` | boolean | `false` | Only return outbound links. |
 | `base_url` | string (URL) | — | Resolve relative links against this. |
+| `escalate` | boolean | `false` | When the plain fetch is blocked (403/429/444/challenge page/empty shell), re-read the page once in the stealth browser (impit first under `auto`). A 404 or 5xx never escalates. Projected 6, charged 1 when the plain fetch worked. |
+| `escalate_engine` | enum | `auto` | `auto`, `playwright` (Chromium) or `camoufox`. |
+
+A PDF or other binary body fails with `UNSUPPORTED_CONTENT_TYPE` (use `process_document`). An empty client-rendered shell succeeds with `rendered:false` and the warning `page renders client-side; use scrape`.
 
 ## extract_metadata (cost: 1)
 

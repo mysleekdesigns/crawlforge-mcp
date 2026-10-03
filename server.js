@@ -52,8 +52,9 @@ import { createOAuthProvider } from "./src/server/auth/oauth.js";
 import { createMetricsRegistry } from "./src/observability/metrics.js";
 // Basic tool handlers (extracted from server.js)
 import { fetchUrlHandler } from "./src/tools/basic/fetchUrl.js";
-import { extractTextHandler } from "./src/tools/basic/extractText.js";
-import { extractLinksHandler } from "./src/tools/basic/extractLinks.js";
+import { createExtractTextHandler } from "./src/tools/basic/extractText.js";
+import { createExtractLinksHandler } from "./src/tools/basic/extractLinks.js";
+import { EXTRACT_ESCALATION_SHAPE } from "./src/utils/fetchLadder.js";
 import { extractMetadataHandler } from "./src/tools/basic/extractMetadata.js";
 import { scrapeStructuredHandler } from "./src/tools/basic/scrapeStructured.js";
 import { createExtractEmbeddedStateHandler, EMBEDDED_STATE_INPUT_SHAPE } from "./src/tools/extract/extractEmbeddedState.js";
@@ -439,29 +440,35 @@ registerToolIfEnabled("fetch_url", {
 
 // Tool: extract_text
 registerToolIfEnabled("extract_text", {
-  description: "Use this for a page's plain text or markdown with tags, scripts and styles removed - the cheapest read of a static HTML page. Use output_format:\"markdown\" for RAG. Not for article pages (extract_content strips nav and boilerplate), JS-rendered pages (scrape), or when you also want links or metadata (scrape with several formats, one fetch). Cost: 1 credit. Example: extract_text({url: \"https://example.com/article\", output_format:\"markdown\"})",
+  description: "Use this for a page's plain text or markdown with tags, scripts and styles removed - the cheapest read of a static HTML page. Use output_format:\"markdown\" for RAG. Not for article pages (extract_content strips nav and boilerplate), JS-rendered pages (scrape), or when you also want links or metadata (scrape with several formats, one fetch). A PDF or other binary is refused (process_document reads documents); an empty client-rendered shell succeeds with rendered:false and a warning. Set escalate:true when the site is known to block: the plain fetch still runs first, and only if it is walled does the stealth browser re-read the page - projected at 6, charged 1 when the plain fetch worked. Cost: 1 credit. Example: extract_text({url: \"https://example.com/article\", output_format:\"markdown\"})",
   annotations: { title: "Extract Text", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to extract text from"),
     remove_scripts: z.boolean().optional().default(true).describe("Remove script tags before extraction"),
     remove_styles: z.boolean().optional().default(true).describe("Remove style tags before extraction"),
     output_format: z.enum(["text", "markdown"]).optional().default("text").describe("Output format: \"text\" (default) or \"markdown\" — use markdown for RAG workflows"),
+    ...EXTRACT_ESCALATION_SHAPE,
     ...COMPLIANCE_PARAMS,
     ...REDACT_PII_PARAM
   }
-}, withAuth("extract_text", extractTextHandler));
+}, withAuth("extract_text", createExtractTextHandler({
+  escalateFetch: (args) => stealthEscalation({ ...args, tool: 'extract_text' })
+})));
 
 // Tool: extract_links
 registerToolIfEnabled("extract_links", {
-  description: "Use this to list the hyperlinks on one page - a crawl seed list, a broken-link audit, related resources. filter_external:true returns only outbound links. Not for a whole site (map_site), and not alongside a scrape of the same URL: scrape formats:[\"markdown\",\"links\"] returns both in one fetch. Cost: 1 credit. Example: extract_links({url: \"https://example.com\", filter_external: true})",
+  description: "Use this to list the hyperlinks on one page - a crawl seed list, a broken-link audit, related resources. filter_external:true returns only outbound links. Not for a whole site (map_site), and not alongside a scrape of the same URL: scrape formats:[\"markdown\",\"links\"] returns both in one fetch. A PDF or other binary is refused (process_document reads documents); an empty client-rendered shell succeeds with rendered:false and a warning. Set escalate:true when the site is known to block: the plain fetch still runs first, and only if it is walled does the stealth browser re-read the page - projected at 6, charged 1 when the plain fetch worked. Cost: 1 credit. Example: extract_links({url: \"https://example.com\", filter_external: true})",
   annotations: { title: "Extract Links", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to extract links from"),
     filter_external: z.boolean().optional().default(false).describe("Only return external links"),
     base_url: z.string().url().optional().describe("Base URL for resolving relative links"),
+    ...EXTRACT_ESCALATION_SHAPE,
     ...COMPLIANCE_PARAMS
   }
-}, withAuth("extract_links", extractLinksHandler));
+}, withAuth("extract_links", createExtractLinksHandler({
+  escalateFetch: (args) => stealthEscalation({ ...args, tool: 'extract_links' })
+})));
 
 // Tool: extract_metadata
 registerToolIfEnabled("extract_metadata", {

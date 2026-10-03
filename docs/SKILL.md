@@ -1168,6 +1168,10 @@ Returns headers + body. Good for JSON/XML APIs or as a first step before
 `extract_text` (cost 1) = faster, strips tags; pass `output_format:"markdown"`
 for RAG-friendly output.
 
+`extract_text` and `extract_links` take `escalate:true` for a site known to
+block: the plain fetch runs first and the stealth browser re-reads the page
+only if it is walled (projected 6, charged 1 when the plain fetch worked).
+
 ## extract_links / extract_metadata (cost: 1 each)
 
 ```json

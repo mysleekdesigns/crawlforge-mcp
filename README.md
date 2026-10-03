@@ -178,8 +178,8 @@ CrawlForge requires a CrawlForge API key — **every tool is metered and consume
 | Tool | Credits | What it does |
 |------|---------|--------------|
 | `fetch_url` | 1 | Fetch content from any URL |
-| `extract_text` | 1 | Extract clean text from web pages |
-| `extract_links` | 1 | Get all links from a page |
+| `extract_text` | 1 (6 projected with `escalate: true`, charged 1 when the plain fetch works) | Extract clean text from web pages |
+| `extract_links` | 1 (6 projected with `escalate: true`, charged 1 when the plain fetch works) | Get all links from a page |
 | `extract_metadata` | 1 | Extract page metadata (title, OG tags, schema.org) |
 | `scrape_template` | 1 | Structured data from well-known sites (Amazon, GitHub, LinkedIn, YouTube, Reddit, Hacker News, npm, and more) without writing selectors |
 | `list_ollama_models` | 1 | List the Ollama models installed locally (helps you pick a `model` for `extract_with_llm`) |

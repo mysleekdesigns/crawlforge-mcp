@@ -8,8 +8,8 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
 | Tool | Notes |
 |------|-------|
 | `fetch_url` | Raw HTTP fetch. |
-| `extract_text` | Tag-stripped text/markdown. |
-| `extract_links` | All links on a page. |
+| `extract_text` | Tag-stripped text/markdown. `escalate:true` adds 5 as the projected ceiling for the stealth re-read; the actual charge drops back to 1 when the plain fetch succeeded and no escalation ran. |
+| `extract_links` | All links on a page. `escalate:true` adds 5 as the projected ceiling for the stealth re-read; the actual charge drops back to 1 when the plain fetch succeeded and no escalation ran. |
 | `extract_metadata` | Title / meta / OG / schema.org. |
 | `scrape_template` | Pre-built site extractor. |
 | `list_ollama_models` | List local LLMs. |

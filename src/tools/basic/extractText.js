@@ -8,8 +8,7 @@
 import { load } from 'cheerio';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
-import { fetchWithTimeout } from './_fetch.js';
-import { targetFailure } from './_targetFailure.js';
+import { fetchLadder, ladderErrorResult, isJsonType } from '../../utils/fetchLadder.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 
 // Block-level elements whose boundaries should become paragraph breaks
@@ -76,19 +75,48 @@ export function readabilityToMarkdown(html, pageUrl) {
 
 /**
  * @param {{ url: string, remove_scripts?: boolean, remove_styles?: boolean,
- *   output_format?: "text"|"markdown", user_agent?: string, respect_robots?: boolean }} params
+ *   output_format?: "text"|"markdown", user_agent?: string, respect_robots?: boolean,
+ *   escalate?: boolean, escalate_engine?: string }} params
+ * @param {Function} [escalateFetch] the stealth escalation stage
  */
-export async function extractTextHandler({ url, remove_scripts, remove_styles, output_format, user_agent, respect_robots }) {
+async function extractText({ url, remove_scripts, remove_styles, output_format, user_agent, respect_robots, escalate, escalate_engine }, escalateFetch) {
   try {
-    const response = await fetchWithTimeout(url, {
+    const ladder = await fetchLadder(url, {
+      tool: 'extract_text',
       userAgent: user_agent,
       respectRobots: respect_robots,
-      tool: 'extract_text'
+      escalate: escalate === true,
+      escalateEngine: escalate_engine,
+      escalateFetch
     });
-    const failure = targetFailure(response, url);
-    if (failure) throw new Error(failure);
+    if (ladder.html === undefined) return ladderErrorResult('extract_text', 'Failed to extract text: ', ladder);
 
-    const html = await response.text();
+    const extras = {
+      ...ladder.fields,
+      ...(ladder.warnings.length > 0 ? { warnings: ladder.warnings } : {})
+    };
+
+    // A JSON body has no markup to strip: it is returned as it came.
+    if (isJsonType(ladder.type)) {
+      const body = ladder.html;
+      const format = output_format === 'markdown' ? 'markdown' : 'text';
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            url: ladder.url,
+            [format]: body,
+            output_format: format,
+            word_count: body.split(/\s+/).filter(w => w.length > 0).length,
+            char_count: body.length,
+            ...ladder.fields,
+            warnings: [...ladder.warnings, 'the target returned application/json; its body is returned as text']
+          }, null, 2)
+        }]
+      };
+    }
+
+    const html = ladder.html;
     const $ = load(html);
 
     if (remove_scripts !== false) $('script').remove();
@@ -104,12 +132,12 @@ export async function extractTextHandler({ url, remove_scripts, remove_styles, o
     $('nav, header, footer, aside, .advertisement, .ad, .sidebar').remove();
 
     const result = {
-      url: response.url
+      url: ladder.url
     };
 
     if (output_format === 'markdown') {
       // Run Readability first to get main content, then convert to GFM markdown
-      result.markdown = readabilityToMarkdown(html, response.url);
+      result.markdown = readabilityToMarkdown(html, ladder.url);
       result.output_format = 'markdown';
       const plainText = result.markdown.replace(/[#*`_\[\]]/g, '').replace(/\s+/g, ' ').trim();
       result.word_count = plainText.split(/\s+/).filter(w => w.length > 0).length;
@@ -125,7 +153,7 @@ export async function extractTextHandler({ url, remove_scripts, remove_styles, o
     return {
       content: [{
         type: 'text',
-        text: JSON.stringify(result, null, 2)
+        text: JSON.stringify({ ...result, ...extras }, null, 2)
       }]
     };
   } catch (error) {
@@ -135,3 +163,15 @@ export async function extractTextHandler({ url, remove_scripts, remove_styles, o
     };
   }
 }
+
+/**
+ * @param {{ escalateFetch?: (args: { url: string, engine: string, respectRobots?: boolean }) => Promise<object> }} [deps]
+ *   the stealth escalation stage (server.js `stealthEscalation`); without it
+ *   an escalation that would run is reported as unavailable
+ */
+export function createExtractTextHandler({ escalateFetch } = {}) {
+  return (params) => extractText(params, escalateFetch);
+}
+
+/** The handler with no escalation stage wired (tests; server.js wires its own). */
+export const extractTextHandler = createExtractTextHandler();
