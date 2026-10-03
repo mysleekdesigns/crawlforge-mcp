@@ -12,6 +12,7 @@ import { browserPreflight, redirectGate, pageMoveGate, gateRefusalCode } from '.
 import { isRef, resolveRef, captureSnapshot } from './browser/snapshot.js';
 import { settlePage } from './browser/settle.js';
 import { handleConsent } from './browser/consent.js';
+import { stealthDocumentVerdict } from '../utils/stealthVerdict.js';
 
 // executeJavaScript hardening limits (only relevant when the deploy-time flag
 // ALLOW_JAVASCRIPT_EXECUTION=true is set; JS execution stays off by default).
@@ -30,6 +31,13 @@ const ACTION_TIMEOUT_GRACE_MS = 2000;
 // giving each strategy another full deadline made a chain that was never going
 // to work cost several times its stated timeout.
 const RECOVERY_TIMEOUT_MS = 3000;
+
+// How long a navigation whose document reads as a wall is watched for the wall
+// replacing itself before it is reported, re-read every NAVIGATION_WALL_POLL_MS.
+// AWS WAF's interstitial reloads into amazon.com's homepage about 0.4 s after
+// domcontentloaded (measured 2026-10-03); nothing here acts on the page.
+const NAVIGATION_WALL_GRACE_MS = 3000;
+const NAVIGATION_WALL_POLL_MS = 500;
 
 // The only states locator.waitFor()/page.waitForSelector() accept. The rest of
 // the wait-action enum (enabled/disabled/stable) are ElementHandle states and
@@ -312,6 +320,10 @@ export class ActionExecutor extends EventEmitter {
           executionContext.consent = await handleConsent(page, browserOptions.consent);
         }
 
+        // navigations[0] is the initial load; each `navigate` action appends
+        // its own (executeNavigateAction).
+        executionContext.navigations = [await this.checkNavigation(page, url, browserOptions)];
+
         // Execute chain with potential retries
         chainResult = await this.executeChainWithRetries(executionContext);
 
@@ -419,6 +431,7 @@ export class ActionExecutor extends EventEmitter {
         finalUrl: executionContext.finalUrl || url,
         finalHtml: executionContext.finalHtml,
         navigationStatus: executionContext.page?.__crawlforgeNavigation?.status ?? null,
+        navigations: executionContext.navigations || [],
         consent: executionContext.consent,
         executionTime: Date.now() - startTime,
         results: executionContext.results,
@@ -446,6 +459,7 @@ export class ActionExecutor extends EventEmitter {
         // results, the error screenshot, and any intermediate-state
         // captures) instead of discarding them.
         results: executionContext?.results || [],
+        navigations: executionContext?.navigations || [],
         attempt: executionContext?.attempt ?? 0,
         attempts: executionContext?.attempts || [],
         screenshots: executionContext?.screenshots || [],
@@ -478,6 +492,11 @@ export class ActionExecutor extends EventEmitter {
           await this.navigateToUrl(page, executionContext.url, {
             browserOptions: executionContext.browserOptions
           });
+          // Only the last attempt's navigations are reported, so the reload
+          // that starts this one is navigations[0].
+          executionContext.navigations = [
+            await this.checkNavigation(page, executionContext.url, executionContext.browserOptions)
+          ];
         }
 
         // Execute actions in sequence
@@ -1346,11 +1365,67 @@ export class ActionExecutor extends EventEmitter {
       ? await handleConsent(page, consentMode, { timeout: Math.min(2000, timeout - (Date.now() - startedAt)) })
       : undefined;
 
+    // Reporting only: the navigation happened, so the action succeeds whether
+    // or not the document it reached is a wall. The wait for a wall to clear
+    // gets what is left of the deadline, like consent above.
+    const navigation = await this.checkNavigation(page, action.url, executionContext?.browserOptions, {
+      graceMs: Math.min(NAVIGATION_WALL_GRACE_MS, timeout - (Date.now() - startedAt))
+    });
+    executionContext?.navigations?.push(navigation);
+
     return {
       url: action.url,
-      finalUrl: page.url(),
+      finalUrl: navigation.finalUrl,
       waitUntil: action.waitUntil || 'domcontentloaded',
+      httpStatus: navigation.httpStatus,
+      ...(navigation.blocked ? { blocked: navigation.blocked } : {}),
       ...(consent ? { consent } : {})
+    };
+  }
+
+  /**
+   * What the navigation that just finished reached: the page, or a wall. The
+   * same verdict the chain's final document gets, run on this document with
+   * the status of this navigation. A document that reads as a wall is re-read
+   * for up to `graceMs` first, because some walls replace themselves (AWS WAF's
+   * interstitial reloads into the page); one that cannot be read at all is
+   * reported without a verdict rather than as a wall.
+   * @param {Page} page - Playwright page, just navigated
+   * @param {string} url - the URL the navigation was sent to
+   * @param {Object} [browserOptions] - Browser options (`respectRobots` for the read's gate)
+   * @param {{ graceMs?: number }} [options]
+   * @returns {Promise<{ url: string, finalUrl: string, httpStatus: number|null, blocked?: { vendor: string, evidence: string } }>}
+   */
+  async checkNavigation(page, url, browserOptions, { graceMs = NAVIGATION_WALL_GRACE_MS } = {}) {
+    const httpStatus = page.__crawlforgeNavigation?.status ?? null;
+    const read = () => this.readGated(page, browserOptions, async () => {
+      try {
+        const [title, html, text] = await Promise.all([
+          page.title(),
+          page.content(),
+          page.evaluate(() => (document.body ? document.body.innerText : ''))
+        ]);
+        return stealthDocumentVerdict({ url: page.url(), title, html, text, status: httpStatus }, { allowEmpty: true });
+      } catch {
+        return null; // mid-navigation, or a page that cannot be read
+      }
+    });
+
+    let verdict = await read();
+    const deadline = Date.now() + graceMs;
+    while (verdict?.blocked && Date.now() + NAVIGATION_WALL_POLL_MS <= deadline) {
+      await this.delay(NAVIGATION_WALL_POLL_MS);
+      const next = await read();
+      // A read that fails mid-reload says nothing yet; keep the wall until a
+      // document answers.
+      if (next) verdict = next;
+    }
+
+    return {
+      url,
+      finalUrl: page.url(),
+      httpStatus,
+      ...(verdict?.blocked ? { blocked: verdict.blocked } : {})
     };
   }
 

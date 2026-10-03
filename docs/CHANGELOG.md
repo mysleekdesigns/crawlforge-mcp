@@ -5,6 +5,56 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.17.0] - 2026-10-03
+
+Phase 5 of the actions + embedded-state plan (bot walls): a
+`scrape_with_actions` chain names every wall it meets, and a stealth chain can
+go out through the caller's own proxies. Nothing here passes a challenge.
+
+### Added
+
+- **`scrape_with_actions` checks every navigation.** The initial load (after
+  the stealth challenge wait and consent) and each `navigate` action get the
+  same verdict as the final page, and the result lists them as `navigations`:
+  `[{url, finalUrl, httpStatus, blocked?}]`, `[0]` the initial load. A
+  `navigate` action's `result` gains `httpStatus` and, on a wall,
+  `blocked: {vendor, evidence}`; the action still succeeds, because the
+  navigation happened. A wall that replaces itself is re-read for up to 3 s
+  before it is reported. Top-level `blocked` and `success` are still decided
+  by the final page. With `maxRetries`, `navigations` is the last attempt's.
+- **`browserOptions.proxyRotation` on `scrape_with_actions`**: `{enabled,
+  proxies, rotationInterval}`, the shape and parsing of `stealth_mode`'s
+  `stealthConfig.proxyRotation`. Requires `stealth:true` and the Chromium
+  engine; refused without stealth and on Camoufox. CrawlForge supplies no
+  proxies. `metadata.browserOptions` echoes the
+  entries with their credentials removed.
+- **AWS WAF's challenge interstitial is named** (`blocked.vendor: "aws-waf"`)
+  by every stealth-verdict caller. amazon.com answers a headless browser with
+  HTTP 202 and a 2 KB page carrying `window.gokuProps` and a `token.awswaf.com`
+  `challenge.js`, which reloads into the homepage about 0.4 s later. A real
+  page answered 202 is not flagged.
+
+### Security
+
+- **A caller's proxy is held to the SSRF guard.** A per-call `proxyRotation`
+  entry (`stealth_mode` and `scrape_with_actions`) whose host is loopback,
+  link-local or a cloud metadata address (RFC 1918 too under `SSRF_STRICT`) is
+  refused before a browser launches; `ALLOWED_DOMAINS` exempts a host as it
+  does for pages. The operator's `CRAWLFORGE_STEALTH_PROXIES` is not checked.
+- **A per-call proxy is refused on Camoufox, closing cross-call proxy reuse.**
+  Camoufox applies its proxy at browser launch and every later Camoufox call
+  shares that browser, so a caller's `proxyRotation` carried other callers'
+  traffic on the caller's credentials, or was silently ignored when a browser
+  was already up. `stealth_mode` and `scrape_with_actions` now refuse a
+  non-empty per-call list on Camoufox, `"auto"` resolving to it included,
+  before any launch; use `engine:"chromium"` (proxies are per context there)
+  or the operator list `CRAWLFORGE_STEALTH_PROXIES`, which is now the only
+  source of Camoufox's launch proxy.
+- **Proxy credentials are kept out of results and usage reports.** A bare
+  `user:pass@host:port` entry kept its password in `get_stats` and error
+  messages, because the redaction only matched after `//`; and the usage report
+  sent `proxyRotation.proxies` to the backend unmasked.
+
 ## [6.16.0] - 2026-10-03
 
 Phase 4 of the actions + embedded-state plan: `extract_embedded_state` decodes

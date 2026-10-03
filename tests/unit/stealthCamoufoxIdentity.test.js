@@ -29,8 +29,16 @@ import path from 'node:path';
 
 import { StealthBrowserManager, CamoufoxAdapter, resolveStealthEngine } from '../../src/core/StealthBrowserManager.js';
 
-const PROXIED = {
-  proxyRotation: { enabled: true, proxies: ['http://alice:s3cret@proxy.example.com:8080'], rotationInterval: 300000 }
+// camoufox takes a proxy only from the operator's CRAWLFORGE_STEALTH_PROXIES —
+// a per-call list is refused on this engine, whose one launch-time proxy every
+// later call shares — so "behind a proxy" is set up there.
+const behindOperatorProxy = (t) => {
+  const previous = process.env.CRAWLFORGE_STEALTH_PROXIES;
+  process.env.CRAWLFORGE_STEALTH_PROXIES = 'http://alice:s3cret@proxy.example.com:8080';
+  t.after(() => {
+    if (previous === undefined) delete process.env.CRAWLFORGE_STEALTH_PROXIES;
+    else process.env.CRAWLFORGE_STEALTH_PROXIES = previous;
+  });
 };
 
 const fakeContext = () => {
@@ -111,8 +119,9 @@ describe('camoufox keeps its own browser identity', () => {
 
   test('behind a proxy, geoip owns the locale, timezone and geolocation', async (t) => {
     stubCamoufox(t);
+    behindOperatorProxy(t);
     const manager = new StealthBrowserManager();
-    await manager.createStealthContext({ engine: 'camoufox', ...PROXIED });
+    await manager.createStealthContext({ engine: 'camoufox' });
 
     const options = manager.browser.newContextOptions[0];
     for (const key of ['locale', 'timezoneId', 'geolocation']) {
@@ -141,8 +150,9 @@ describe('camoufox keeps its own browser identity', () => {
 
   test('behind a proxy the locale is geoip\'s, so the caller\'s is not passed either', async (t) => {
     const launches = stubCamoufox(t);
+    behindOperatorProxy(t);
     const manager = new StealthBrowserManager();
-    await manager.createStealthContext({ engine: 'camoufox', locale: 'de-DE', ...PROXIED });
+    await manager.createStealthContext({ engine: 'camoufox', locale: 'de-DE' });
 
     // A de-DE persona behind a US exit IP is the contradiction geoip exists to
     // avoid, so the exit IP wins — the same precedence the timezone and
@@ -156,8 +166,9 @@ describe('camoufox keeps its own browser identity', () => {
 describe('the fingerprint we report matches what is applied', () => {
   test('camoufox reports null for the fields its engine owns', async (t) => {
     stubCamoufox(t);
+    behindOperatorProxy(t);
     const manager = new StealthBrowserManager();
-    const { fingerprint } = await manager.createStealthContext({ engine: 'camoufox', ...PROXIED });
+    const { fingerprint } = await manager.createStealthContext({ engine: 'camoufox' });
 
     const summary = manager.summarizeFingerprint(fingerprint);
     assert.deepEqual(summary, {

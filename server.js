@@ -29,7 +29,7 @@ import { GenerateLLMsTxtTool } from "./src/tools/llmstxt/generateLLMsTxt.js";
 import { ScrapeTemplateTool } from "./src/tools/templates/ScrapeTemplateTool.js"; // D3.3
 import { UnifiedScrapeTool, SCRAPE_INPUT_SHAPE } from "./src/tools/scrape/unifiedScrape.js"; // D4 D1
 import { AgentTool } from "./src/tools/agent/agent.js"; // D4 D2
-import { StealthBrowserManager, resolveStealthEngine } from "./src/core/StealthBrowserManager.js";
+import { StealthBrowserManager, resolveStealthEngine, assertProxyEngineAllowed } from "./src/core/StealthBrowserManager.js";
 import { LocalizationManager } from "./src/core/LocalizationManager.js";
 // Stealth scrape: format conversion + the pre-fetch compliance gate (G5/G6/G7)
 import * as cheerio from "cheerio";
@@ -112,7 +112,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "6.16.0",
+  version: "6.17.0",
   description: "Production-ready MCP server with 31 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, stateful browser sessions with element refs, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -962,7 +962,7 @@ registerToolIfEnabled("read_result", {
 
 // Tool: scrape_with_actions
 registerToolIfEnabled("scrape_with_actions", {
-  description: "Use this when you must interact with a page before scraping - login, click buttons, fill forms, scroll, or wait for dynamic content to load - for SPAs, login-gated content, or multi-step flows. Actions: snapshot, wait, click, type, press, scroll, screenshot, executeJavaScript (disabled unless the server runs with ALLOW_JAVASCRIPT_EXECUTION=true; refused on the hosted API), select (dropdowns), hover, navigate. Start a chain with {type:\"snapshot\"} to list the page's interactive elements, including those in open shadow roots and iframes, with stable refs (@e1, @e2 ... in document order), then target those refs in later actions instead of guessing CSS selectors; navigation invalidates refs, so snapshot again after one. Set browserOptions.consent:\"reject\" (or \"accept\") to answer a cookie/consent banner before the first action; it is off by default. Set browserOptions.stealth:true to run the chain in the stealth browser, and browserOptions.engine to pick its engine (\"auto\" by default - camoufox when it is installed, Chromium otherwise, and the result says which ran). robots.txt is respected on every navigation. Screenshots from this tool are stored as crawlforge://screenshot/{actionId} resources. Not for pages that render without interaction (scrape) and not as the first attempt on a blocked site (stealth_mode operation:\"scrape\"). Cost: 5 credits. Example: scrape_with_actions({url: \"https://app.com/dashboard\", actions: [{type:\"snapshot\"},{type:\"type\",selector:\"@e2\",text:\"user@a.com\"},{type:\"click\",selector:\"@e4\"}]})",
+  description: "Use this when you must interact with a page before scraping - login, click buttons, fill forms, scroll, or wait for dynamic content to load - for SPAs, login-gated content, or multi-step flows. Actions: snapshot, wait, click, type, press, scroll, screenshot, executeJavaScript (disabled unless the server runs with ALLOW_JAVASCRIPT_EXECUTION=true; refused on the hosted API), select (dropdowns), hover, navigate. Start a chain with {type:\"snapshot\"} to list the page's interactive elements, including those in open shadow roots and iframes, with stable refs (@e1, @e2 ... in document order), then target those refs in later actions instead of guessing CSS selectors; navigation invalidates refs, so snapshot again after one. Set browserOptions.consent:\"reject\" (or \"accept\") to answer a cookie/consent banner before the first action; it is off by default. Set browserOptions.stealth:true to run the chain in the stealth browser, and browserOptions.engine to pick its engine (\"auto\" by default - camoufox when it is installed, Chromium otherwise, and the result says which ran). robots.txt is respected on every navigation, and each navigation is checked: a bot wall is reported as `blocked` with the vendor named, per navigation in `navigations` and for the final page at the top level. browserOptions.proxyRotation routes a stealth chain through your own proxies. Screenshots from this tool are stored as crawlforge://screenshot/{actionId} resources. Not for pages that render without interaction (scrape) and not as the first attempt on a blocked site (stealth_mode operation:\"scrape\"). Cost: 5 credits. Example: scrape_with_actions({url: \"https://app.com/dashboard\", actions: [{type:\"snapshot\"},{type:\"type\",selector:\"@e2\",text:\"user@a.com\"},{type:\"click\",selector:\"@e4\"}]})",
   annotations: { title: "Scrape with Browser Actions", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to scrape"),
@@ -1036,7 +1036,12 @@ registerToolIfEnabled("scrape_with_actions", {
       timeout: z.number().min(10000).max(120000).default(30000),
       stealth: z.boolean().default(false).describe("Run the action chain in the stealth browser (randomized fingerprint, WebRTC/canvas spoofing) instead of the standard browser pool. Renders JavaScript; it does not solve challenges."),
       engine: z.enum(["auto", "chromium", "camoufox", "playwright"]).default("auto").describe("Stealth engine for the chain, with stealth:true. \"auto\" (default) runs camoufox when it is installed and Chromium otherwise; the result's `engine` says which ran. \"camoufox\" is Firefox-based with a higher anti-detect score; \"chromium\" (= \"playwright\") forces Chromium. Refused without stealth:true, where the browser is always Chromium."),
-      consent: z.enum(["off", "reject", "accept"]).default("off").describe("Cookie/consent banner handling, using DuckDuckGo autoconsent's rules for known consent platforms (OneTrust, Sourcepoint, Didomi ...). \"reject\" declines non-essential cookies and \"accept\" accepts them, once after the initial page load and again after each navigate action, for at most 2s each; the result's `consent` ({cmp, action, ms}) and each navigate result say what was found and done. A banner no rule matches is left in place (action \"none\") and never fails the chain. Default \"off\": the page is left as it loads, so a chain that clicks the banner itself works unchanged.")
+      consent: z.enum(["off", "reject", "accept"]).default("off").describe("Cookie/consent banner handling, using DuckDuckGo autoconsent's rules for known consent platforms (OneTrust, Sourcepoint, Didomi ...). \"reject\" declines non-essential cookies and \"accept\" accepts them, once after the initial page load and again after each navigate action, for at most 2s each; the result's `consent` ({cmp, action, ms}) and each navigate result say what was found and done. A banner no rule matches is left in place (action \"none\") and never fails the chain. Default \"off\": the page is left as it loads, so a chain that clicks the banner itself works unchanged."),
+      proxyRotation: z.object({
+        enabled: z.boolean().default(false),
+        proxies: z.array(z.string()).optional(),
+        rotationInterval: z.number().default(300000)
+      }).optional().describe("Route a stealth chain through your own proxies; requires stealth:true and the Chromium engine, and is refused without stealth or on camoufox (including \"auto\" when it resolves to camoufox), which shares one launch-time proxy across calls. Each entry is a proxy URL — \"http://user:pass@host:port\" (percent-encode a password containing @ : or /), or a bare \"host:port\" for an unauthenticated HTTP proxy; http, https, socks4 and socks5 are accepted. rotationInterval is the minimum ms on one proxy before the list advances. A proxy on a loopback, link-local or cloud-metadata address is refused, and credentials are removed from the result. Cloudflare scores the IP before it serves a challenge, so a residential proxy is what gets past a block that no fingerprint fixes. CrawlForge supplies no proxies.")
     }).optional().describe("Browser configuration options"),
     extractionOptions: z.object({
       selectors: z.record(z.string()).optional(),
@@ -1426,7 +1431,7 @@ registerToolIfEnabled("stealth_mode", {
         enabled: z.boolean().default(false),
         proxies: z.array(z.string()).optional(),
         rotationInterval: z.number().default(300000)
-      }).optional().describe("Route the browser through your own proxies. Each entry is a proxy URL — \"http://user:pass@host:port\" (percent-encode a password containing @ : or /), or a bare \"host:port\" for an unauthenticated HTTP proxy; http, https, socks4 and socks5 are accepted. rotationInterval is the minimum ms on one proxy before the list advances. Cloudflare scores the IP before it serves a challenge, so a residential proxy is what gets past a block that no fingerprint fixes. CrawlForge supplies no proxies."),
+      }).optional().describe("Route the browser through your own proxies. Each entry is a proxy URL — \"http://user:pass@host:port\" (percent-encode a password containing @ : or /), or a bare \"host:port\" for an unauthenticated HTTP proxy; http, https, socks4 and socks5 are accepted. rotationInterval is the minimum ms on one proxy before the list advances. Cloudflare scores the IP before it serves a challenge, so a residential proxy is what gets past a block that no fingerprint fixes. Requires the Chromium engine: refused on camoufox (including \"auto\" when it resolves to camoufox), which shares one launch-time proxy across calls. CrawlForge supplies no proxies."),
       antiDetection: z.object({
         cloudflareBypass: z.boolean().default(true),
         recaptchaHandling: z.boolean().default(true),
@@ -1466,6 +1471,7 @@ registerToolIfEnabled("stealth_mode", {
         // is missing; "playwright" is this tool's old public name for chromium.
         // The resolver owns both, and reports a fallback the caller can see.
         const resolvedEngine = await resolveStealthEngine(engine);
+        assertProxyEngineAllowed(resolvedEngine.engine, stealthConfig);
         if (resolvedEngine.fallbackWarning) warnings.push(resolvedEngine.fallbackWarning);
 
         recordStealthEscalation({
@@ -1533,6 +1539,7 @@ registerToolIfEnabled("stealth_mode", {
         // without it, create_context always ran on chromium whatever the caller
         // asked for. Resolved, so "auto" reaches the manager as a real engine.
         const contextEngine = await resolveStealthEngine(engine);
+        assertProxyEngineAllowed(contextEngine.engine, stealthConfig);
         const contextData = await stealthBrowserManager.createStealthContext({
           ...(stealthConfig || {}),
           engine: contextEngine.engine

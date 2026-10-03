@@ -14,7 +14,7 @@ import { stealthDocumentVerdict } from '../../utils/stealthVerdict.js';
 import { elementText } from '../../utils/elementText.js';
 import { pageTitle } from '../../utils/pageTitle.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
-import { resolveStealthEngine } from '../../core/StealthBrowserManager.js';
+import { resolveStealthEngine, redactProxyEntry, assertProxyEngineAllowed } from '../../core/StealthBrowserManager.js';
 import { actionQueue as sharedActionQueue } from '../../core/browser/actionQueue.js';
 
 // Recording / replay helpers
@@ -26,6 +26,20 @@ import {
   buildRecordedEntry,
   recordedEntryToAction
 } from './scrapeWithActions/recorder.js';
+
+// metadata.browserOptions echoes the merged options, and a proxy entry carries
+// its password.
+function redactProxyCredentials(browserOptions) {
+  const proxies = browserOptions.proxyRotation?.proxies;
+  if (!proxies) return browserOptions;
+  return {
+    ...browserOptions,
+    proxyRotation: {
+      ...browserOptions.proxyRotation,
+      proxies: proxies.map(redactProxyEntry)
+    }
+  };
+}
 
 // Action schemas (re-using from ActionExecutor but with tool-specific additions)
 const BaseActionSchema = z.object({
@@ -203,7 +217,15 @@ const ScrapeWithActionsSchema = z.object({
     // Answer a cookie/consent wall (autoconsent) after the initial load and
     // after each navigate action: "reject" opts out, "accept" opts in. Off by
     // default so a chain that clicks the banner itself keeps working.
-    consent: z.enum(['off', 'reject', 'accept']).default('off')
+    consent: z.enum(['off', 'reject', 'accept']).default('off'),
+    // The caller's own proxies for a stealth chain — the shape and parsing of
+    // stealth_mode's stealthConfig.proxyRotation. Refused without stealth:true
+    // (see executeSession); CrawlForge supplies none.
+    proxyRotation: z.object({
+      enabled: z.boolean().default(false),
+      proxies: z.array(z.string()).optional(),
+      rotationInterval: z.number().default(300000)
+    }).optional()
   }).optional(),
 
   // Content extraction options
@@ -425,6 +447,8 @@ export class ScrapeWithActionsTool extends EventEmitter {
     const warnings = [];
     if (browserOptions.stealth) {
       const resolved = await resolveStealthEngine(browserOptions.engine);
+      // Refused on the engine that will run, before the chain starts.
+      assertProxyEngineAllowed(resolved.engine, browserOptions);
       browserOptions.stealthMode = { enabled: true, engine: resolved.engine };
       if (resolved.fallbackWarning) warnings.push(resolved.fallbackWarning);
     } else if (browserOptions.engine === 'camoufox') {
@@ -437,6 +461,15 @@ export class ScrapeWithActionsTool extends EventEmitter {
         'browserOptions.engine:"camoufox" requires browserOptions.stealth:true — the Firefox ' +
         'anti-detect engine exists only on the stealth path. Set stealth:true, or drop engine ' +
         'to use the standard Chromium browser.'
+      );
+    }
+    if (browserOptions.proxyRotation?.enabled && !browserOptions.stealth) {
+      // Only the stealth browser takes a proxy; the standard pool would run
+      // the chain from this server's own address while the caller believes
+      // it is proxied.
+      throw new Error(
+        'browserOptions.proxyRotation requires browserOptions.stealth:true — only the stealth ' +
+        'browser routes through a proxy. Set stealth:true, or drop proxyRotation.'
       );
     }
 
@@ -553,6 +586,9 @@ export class ScrapeWithActionsTool extends EventEmitter {
       // The landing page's consent result; each navigate action's own is on
       // its result. Absent when consent handling is off.
       ...(chainResult.consent ? { consent: chainResult.consent } : {}),
+      // Every navigation of the reported attempt — [0] the initial load, then
+      // each navigate action — with its status and any wall it reached.
+      navigations: chainResult.navigations || [],
 
       actionResults,
       attempt: chainResult.attempt ?? attempts.length,
@@ -576,7 +612,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
       replayedFrom: params.replayRecording || undefined,
 
       metadata: {
-        browserOptions,
+        browserOptions: redactProxyCredentials(browserOptions),
         formAutoFillApplied: !!params.formAutoFill,
         intermediateStatesCount: intermediateStates.length,
         screenshotsCount: sessionContext.screenshots.length,

@@ -11,7 +11,7 @@
 
 import { redactPii } from 'crawlforge-extractors';
 
-const SECRET_KEYS_RE = /api[_-]?key|apikey|x-api-key|password|passwd|secret|token|authorization|auth|credential|login|formautofill|private[_-]?key|access[_-]?key|proxy_url|proxyurl|cookie/i;
+const SECRET_KEYS_RE = /api[_-]?key|apikey|x-api-key|password|passwd|secret|token|authorization|auth|credential|login|formautofill|private[_-]?key|access[_-]?key|proxy_url|proxyurl|^proxies$|cookie/i;
 
 const MASK = '[REDACTED]';
 const PARTIAL_MASK_LEN = 4; // show last N chars of long secrets

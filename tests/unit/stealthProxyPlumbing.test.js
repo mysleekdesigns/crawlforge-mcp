@@ -31,6 +31,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 
 import { StealthBrowserManager, CamoufoxAdapter } from '../../src/core/StealthBrowserManager.js';
+import { config } from '../../src/constants/config.js';
 
 const rotation = (proxies, rotationInterval = 300000) => ({
   proxyRotation: { enabled: true, proxies, rotationInterval }
@@ -176,6 +177,17 @@ const stubLaunch = (manager) => {
 const PARSED = { server: 'http://proxy.example.com:8080', username: 'alice', password: 's3cret' };
 const ENTRY = 'http://alice:s3cret@proxy.example.com:8080';
 
+// camoufox's proxy comes only from the operator's CRAWLFORGE_STEALTH_PROXIES;
+// a per-call list is refused on that engine (see the describe block below).
+const operatorProxies = (t, list) => {
+  const previous = process.env.CRAWLFORGE_STEALTH_PROXIES;
+  process.env.CRAWLFORGE_STEALTH_PROXIES = list;
+  t.after(() => {
+    if (previous === undefined) delete process.env.CRAWLFORGE_STEALTH_PROXIES;
+    else process.env.CRAWLFORGE_STEALTH_PROXIES = previous;
+  });
+};
+
 /**
  * Replace the camoufox launcher, leaving _doLaunchStealthBrowser's real camoufox
  * branch in play — that branch is where the proxy and the engine's own options
@@ -216,8 +228,9 @@ describe('the proxy reaches the browser context on both engines', () => {
 
   test('camoufox contexts get the proxy its browser was launched with', async (t) => {
     const launches = stubCamoufox(t);
+    operatorProxies(t, ENTRY);
     const manager = new StealthBrowserManager();
-    await manager.createStealthContext({ engine: 'camoufox', ...rotation([ENTRY]) });
+    await manager.createStealthContext({ engine: 'camoufox' });
 
     assert.deepEqual(launches[0].proxy, PARSED, 'the launcher is told about the proxy');
     assert.deepEqual(manager.browser.newContextOptions[0].proxy, PARSED,
@@ -230,12 +243,12 @@ describe('the proxy reaches the browser context on both engines', () => {
     // was launched with. Rotating underneath it would put the first proxy's
     // city behind the second proxy's exit IP.
     stubCamoufox(t);
+    operatorProxies(t, `${ENTRY},http://second.example:2`);
     const manager = new StealthBrowserManager();
-    const config = rotation([ENTRY, 'http://second.example:2'], 60000);
-    await manager.createStealthContext({ engine: 'camoufox', ...config });
+    await manager.createStealthContext({ engine: 'camoufox' });
 
-    manager.proxyManager.lastRotation = Date.now() - 61000;
-    await manager.createStealthContext({ engine: 'camoufox', ...config });
+    manager.proxyManager.lastRotation = Date.now() - 301000;
+    await manager.createStealthContext({ engine: 'camoufox' });
 
     assert.deepEqual(manager.browser.newContextOptions[1].proxy, PARSED);
     await manager.cleanup();
@@ -271,8 +284,9 @@ describe('camoufox is launched with its own features turned on', () => {
     assert.equal(launches[0].geoip, false, 'no proxy, nothing to derive a location from');
     await manager.cleanup();
 
+    operatorProxies(t, ENTRY);
     const proxied = new StealthBrowserManager();
-    await proxied.launchStealthBrowser({ engine: 'camoufox', ...rotation([ENTRY]) });
+    await proxied.launchStealthBrowser({ engine: 'camoufox' });
     assert.equal(launches[1].geoip, true);
     await proxied.cleanup();
   });
@@ -358,8 +372,15 @@ describe('a real chromium context authenticates against a real proxy', () => {
     await new Promise((resolve) => proxy.listen(0, '127.0.0.1', resolve));
     const port = proxy.address().port;
 
+    // A caller's proxy on loopback is refused by the SSRF guard unless the
+    // host is in ALLOWED_DOMAINS, which is how this local proxy gets through.
+    const ssrf = config.security.ssrfProtection;
+    const allowedDomains = ssrf.allowedDomains;
+    ssrf.allowedDomains = [...allowedDomains, '127.0.0.1'];
+
     const manager = new StealthBrowserManager();
     t.after(async () => {
+      ssrf.allowedDomains = allowedDomains;
       await manager.cleanup().catch(() => {});
       await new Promise((resolve) => proxy.close(resolve));
     });
