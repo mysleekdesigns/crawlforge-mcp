@@ -148,8 +148,7 @@
     "@modelcontextprotocol/client": "^2.0.0",
     "c8": "^11.0.0",
     "cross-env": "^10.0.0",
-    "jest": "^30.3.0",
-    "shx": "^0.4.0"
+    "jest": "^30.3.0"
   },
   "overrides": {
     "undici": "^7.24.0",
