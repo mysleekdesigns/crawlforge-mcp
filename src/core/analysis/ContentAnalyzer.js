@@ -12,6 +12,7 @@ import {
 import nlp from 'compromise';
 import { z } from 'zod';
 import { splitSentences } from './sentenceUtils.js';
+import { LANGUAGE_STOP_WORDS } from './languageStopWords.js';
 
 const ContentAnalyzerSchema = z.object({
   text: z.string().min(1),
@@ -1176,29 +1177,5 @@ const STOP_WORDS = new Set([
   'разве', 'три', 'эту', 'моя', 'впрочем', 'свою', 'этой', 'перед', 'иногда', 'лучше',
   'чуть', 'том', 'нельзя', 'такой', 'им', 'более', 'всегда', 'конечно', 'всю', 'между'
 ]);
-
-/**
- * Stop words applied only when the text is detected as that language. German
- * keywords came back as "die, ist, und, der, ein, für, das" (R24). They are
- * kept out of STOP_WORDS because several are English content words — "war",
- * "hat", "die", "man" — that an English article must still be able to rank.
- */
-const LANGUAGE_STOP_WORDS = {
-  deu: new Set([
-    'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einer', 'eines', 'einem', 'einen',
-    'und', 'oder', 'aber', 'doch', 'sondern', 'denn', 'weil', 'dass', 'daß', 'wenn', 'als', 'wie',
-    'ob', 'ist', 'sind', 'war', 'waren', 'wird', 'werden', 'wurde', 'wurden', 'worden', 'sein',
-    'seine', 'seinen', 'seiner', 'seinem', 'seines', 'ihre', 'ihren', 'ihrer', 'ihrem', 'ihr',
-    'hat', 'haben', 'hatte', 'hatten', 'habe', 'kann', 'können', 'konnte', 'muss', 'müssen',
-    'soll', 'sollen', 'will', 'wollen', 'mit', 'von', 'vom', 'zum', 'zur', 'bei', 'beim', 'aus',
-    'nach', 'auf', 'für', 'über', 'unter', 'vor', 'durch', 'gegen', 'ohne', 'um', 'bis', 'seit',
-    'zwischen', 'auch', 'nur', 'noch', 'schon', 'sehr', 'mehr', 'nicht', 'kein', 'keine', 'keinen',
-    'sich', 'sie', 'ich', 'du', 'er', 'es', 'wir', 'ihn', 'ihm', 'uns', 'euch', 'man', 'mich',
-    'dir', 'mir', 'dich', 'dies', 'diese', 'dieser', 'dieses', 'diesem', 'diesen', 'jede',
-    'jeder', 'jedes', 'alle', 'allen', 'aller', 'alles', 'damit', 'dann', 'da', 'hier', 'dort',
-    'so', 'im', 'ins', 'am', 'an', 'in', 'zu', 'was', 'wer', 'wo', 'etwa', 'immer',
-    'bereits', 'sowie', 'zwei', 'drei', 'viele', 'einige', 'andere', 'anderen', 'unser', 'unsere'
-  ])
-};
 
 export default ContentAnalyzer;

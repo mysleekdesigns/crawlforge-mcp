@@ -19,7 +19,7 @@ const RESULTS_LIMIT = 10;
 
 const SerpRankSchema = z.object({
   keyword: z.string().min(1),
-  target: z.string().min(1), // domain or URL to locate in the SERP
+  target: z.string().min(1), // domain or URL; matched by host (subdomains included), never by exact URL
   location_name: z.string().optional().default('United States'),
   location_code: z.number().int().optional(),
   language_code: z.string().optional().default('en'),
@@ -30,15 +30,17 @@ const SerpRankSchema = z.object({
   depth: z.number().int().min(10).max(200).optional().default(20),
 });
 
-/** Reduce a domain or URL to a bare, comparable host: "https://www.Example.com/x" → "example.com". */
+/** Reduce a domain or URL to a bare, comparable host: "https://www.Example.com/x" → "example.com".
+ * Path, query, fragment, userinfo and port go too, as the REST route's URL-hostname parse drops them. */
 function toBareDomain(value) {
   return String(value)
     .trim()
     .toLowerCase()
     .replace(/^https?:\/\//, '')
-    .replace(/^www\./, '')
-    .split('/')[0]
-    .split('?')[0];
+    .split(/[/?#]/)[0]
+    .replace(/^.*@/, '')
+    .replace(/:\d*$/, '')
+    .replace(/^www\./, '');
 }
 
 /** True when a SERP result's domain is the target domain (or a subdomain of it). */

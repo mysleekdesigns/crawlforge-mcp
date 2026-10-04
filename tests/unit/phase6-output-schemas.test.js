@@ -198,6 +198,7 @@ describe('OUTPUT_SCHEMAS — realistic samples parse', () => {
       post: posts.results[0],
       comments: [{ id: 'p2zcr74', body: 'nice', replies: [{ more_count: 5, more_ids: ['aaa'] }] }],
       comment_count: 1,
+      comments_collapsed: 5,
       fallback_used: 'primary source failed (arctic_shift: HTTP 500), fell back to pullpush',
       notes: [],
       checkedAt: new Date().toISOString()

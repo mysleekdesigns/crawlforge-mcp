@@ -93,3 +93,27 @@ export function normalizeTreeNodes(nodes) {
     return { ...normalizeComment(data), replies: normalizeTreeNodes(children) };
   });
 }
+
+/**
+ * Thread-mode counters over a normalized tree. `comment_count` is every
+ * comment in the tree at any depth; `comments_collapsed` sums the
+ * {more_count} stubs, each of which counts the comments hidden behind it,
+ * replies included. Their sum is what the source holds for the thread, which
+ * is not the post's num_comments: that is Reddit's figure from whenever the
+ * post was read, so it counts deleted comments and misses later ones.
+ */
+export function countTree(nodes) {
+  let comments = 0;
+  let collapsed = 0;
+  for (const node of nodes) {
+    if ('more_count' in node) {
+      collapsed += node.more_count ?? 0;
+    } else {
+      comments += 1;
+      const inner = countTree(node.replies);
+      comments += inner.comment_count;
+      collapsed += inner.comments_collapsed;
+    }
+  }
+  return { comment_count: comments, comments_collapsed: collapsed };
+}

@@ -588,11 +588,11 @@ registerToolIfEnabled("search_web", {
 
 // Tool: serp_rank — REAL Google organic rank for a target domain (via DataForSEO)
 registerToolIfEnabled("serp_rank", {
-  description: "Use this to check where a domain ranks in Google's ORGANIC results for a keyword - real SERP position, not Custom Search order. Returns the target's organic rank, the ranking URL, and every position it holds. Not for general search (search_web). Requires DataForSEO credentials and returns configured:false without them - do not retry in that case. Cost: 5 credits (0 when unconfigured). Example: serp_rank({keyword: \"managed wordpress hosting\", target: \"dashboardhosting.com\", location_name: \"United States\"})",
+  description: "Use this to check where a domain ranks in Google's ORGANIC results for a keyword - real SERP position, not Custom Search order. Returns the target's organic rank, the ranking URL, and every position it holds. Not for general search (search_web). One lookup is one sample: Google can return a different result set for the same query minutes apart (seResultsCount tells them apart), so compare several before reading a rank change. Requires DataForSEO credentials and returns configured:false without them - do not retry in that case. Cost: 5 credits (0 when unconfigured). Example: serp_rank({keyword: \"managed wordpress hosting\", target: \"dashboardhosting.com\", location_name: \"United States\"})",
   annotations: { title: "SERP Rank Check", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     keyword: z.string().describe("The search query to check ranking for"),
-    target: z.string().describe("Domain or URL to locate in the results (e.g. 'example.com')"),
+    target: z.string().describe("Domain or URL to locate in the results (e.g. 'example.com'). Matched by host, not exact URL: any page on that host or its subdomains counts"),
     location_name: z.string().optional().describe("Location, e.g. 'United States' or 'London,England,United Kingdom'"),
     location_code: z.number().optional().describe("Numeric DataForSEO location code (overrides location_name)"),
     language_code: z.string().optional().describe("Language code (e.g. 'en')"),

@@ -39,6 +39,7 @@ import {
   normalizePost,
   normalizeComment,
   normalizeTreeNodes,
+  countTree,
   stripIdPrefix,
   stripNamePrefix,
 } from './redditNormalize.js';
@@ -342,7 +343,7 @@ export class RedditSearchTool {
       const comments = normalizeTreeNodes(treeData.data);
       return {
         source: 'arctic_shift', mode: 'thread', link_id: id,
-        post, comments, comment_count: comments.length,
+        post, comments, ...countTree(comments),
         notes, checkedAt: new Date().toISOString(),
       };
     }
