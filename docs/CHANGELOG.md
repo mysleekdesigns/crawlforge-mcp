@@ -5,6 +5,118 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.19.0] - 2026-10-04
+
+The rest of the live test of 2026-10-03 (fix plan Phases 2–4 and the
+investigation list): parameters and operations that did nothing, output
+quality across the text and extraction tools, error hints, size caps and
+payload trims, and a stealth fix that let Cloudflare's challenge load.
+Requires `crawlforge-extractors` ^1.17.0.
+
+**Upgrade note:**
+- Removed: `stealth_mode` operations `enable`/`disable` (they changed
+  process-wide defaults for every caller), `scrape_with_actions`
+  `captureScreenshots` and `formats:["screenshots"]` (use a `screenshot`
+  action).
+- `localization` `configure_country` and `stealth_mode` `configure` return
+  settings and store nothing; pass the values to `fetch_url` `headers`,
+  `stealth_mode` `stealthConfig` or `search_web` `localization`.
+- `browser_session` `read` returns the whole page; `onlyMainContent:true` is the
+  old output.
+- Output trims: `extract_content` drops `readability.content`,
+  `readability.textContent` and `images[].srcset`; `search_web` drops
+  `provider.capabilities`; `map_site` `site_map` holds counts (`urls` is the one
+  list); `scrape_with_actions` `attempts[]` has no `results`.
+- `reddit_search` thread `comment_count` counts every returned comment at any
+  depth (it was the top-level length, "more" stubs included).
+- `scrape` `metadata.title` is the page's `<title>` (og:title stays in
+  `og_tags.title`).
+
+### Added
+
+- **`max_inline_chars`** on `extract_links`, `extract_metadata`, `search_web`,
+  `scrape_template`, `map_site`, `agent`, `generate_llms_txt` and
+  `track_changes` (list-heavy operations).
+- **`scrape_with_actions` reports click- and submit-driven navigation**: a
+  `navigations[]` entry with its `trigger`, the wall check on the new page, and
+  a top-level `finalUrl`.
+- **`reddit_search` `comments_collapsed`**: the comments the archive holds that
+  the response leaves out (the sum of the stubs' `more_count`).
+- `extract_metadata` `redirected`/`requested_url`; `process_document`
+  `pagesRead` on PDFs; `extract_structured` reports `provider` and `model`;
+  `extract_text` `truncated`; `scrape_template` `github-repo` `readme_summary`;
+  `localization` accepts lowercase codes and `CH`.
+
+### Changed
+
+- **Error hints are keyed on the error class** (robots, blocklisted host,
+  SSRF, 404, timeout, validation naming the parameter), not one generic hint
+  per tool; a `success:false` body gets one too.
+- **A fetch of exactly `/robots.txt` always passes the robots gate**
+  (RFC 9309); the blocklist, crawl-delay and redirect-hop checks still apply.
+- **Non-stealth browser headers**: the bundled Chrome's UA with
+  `HeadlessChrome` → `Chrome` and `CrawlForge/<version>` appended,
+  `Accept-Language` sent, no CSP request header.
+- **One text flattener**: `extract_content`, `batch_scrape`, `crawl_deep`,
+  `scrape_with_actions`, `process_document` (HTML), `deep_research` and the
+  selector readers (`scrape_structured`, `batch_scrape`, `scrape_with_actions`)
+  no longer weld block elements together ("July 2023If you…").
+- **`extract_text` tables** are a uniform grid (stacked headers joined,
+  rowspans repeated) and image/link URLs are absolute — now from
+  `crawlforge-extractors` 1.17.0, shared with the REST API.
+- `extract_with_llm` with an `extraction` role prefers gemma3:12b over 4b.
+- `serp_rank`: a target matches by host (subdomains count), never the exact
+  URL, as the description now says; port, fragment and userinfo are dropped
+  from a target. The description says one lookup is one sample.
+- `analyze_content`/`summarize_content`: stop words for es, fr, it, pt, nl, sv,
+  da, no, pl and id/ms besides German, each applied only to text in that
+  language; non-English sentiment is `not_applicable`; CJK sentences keep
+  their terminator; abstractive summaries are in the text's language.
+- Error text is normalised: no ANSI codes, Playwright call logs or stack
+  frames, no doubled "X failed:" prefixes.
+
+### Fixed
+
+- **`stealth_mode` (chromium) broke Cloudflare's challenge itself.** Forced
+  `Accept`, `Cache-Control` and `Upgrade-Insecure-Requests` headers made every
+  cross-origin CORS fetch preflight, and challenges.cloudflare.com refused
+  Turnstile's `api.js`; the page read "could not reach challenges.cloudflare.com".
+  The three are no longer forced, and the page is reported `blocked: cloudflare`.
+- `fetch_url` and `scrape` no longer send an empty `Accept-Language`.
+- `stealth_mode` on camoufox warns about `stealthConfig` it cannot apply
+  (`customUserAgent`, `customViewport`, `locale`, and `timezone` behind a proxy).
+- `scrape_with_actions` `captureIntermediateStates` captures after every action.
+- `track_changes`: alert conditions are validated at creation; a template's
+  settings are no longer overridden by schema defaults; `get_stats`
+  `changesDetected` counts changed compares only; `get_history` snapshot ids
+  sit on the right entry; the text diff ignores `<script>`/`<style>` and
+  excluded selectors.
+- `localization`: `generate_timezone_spoof` honours DST; `localize_browser`
+  keeps the supplied user agent; unknown languages are refused; the geo-blocking
+  error names a real operation.
+- `batch_scrape` `includeFailed:false` still counts `failedUrls`;
+  `analyze_content` honours `includeSentiment:false`; `scrape_template` with a
+  template and no `url` is an error.
+- `scrape` `question`: headings count as evidence; `grounded` is false when
+  nothing matched. The `json` step is bounded at 60 s and the bound aborts the
+  model request.
+- `extract_structured`: version- and identifier-named strings that cannot be
+  one are nulled; the CSS fallback validates types; confidence is no longer
+  constant.
+- `search_web`: no page overlap with ranking on (`next_offset`), non-negative
+  BM25, the 5-credit price in the text, query expansion only on an empty result.
+- `scrape_template` `github-repo` counts are exact integers; `auto` matches
+  `youtu.be` and `/tree/` URLs; `list` shows connector params; a wrong
+  subreddit is a warning.
+- `extract_metadata` no longer repeats a nested JSON-LD match on its own.
+- `generate_llms_txt` reports robots.txt status truthfully, drops disallowed
+  URLs and duplicates.
+- `deep_research` keeps findings with topic relevance ≥ 0.5 and reports
+  conflicts only between on-topic claims from different sources.
+- `process_document` splits two-column PDFs before table detection.
+- Result handles: startup cleanup never deletes result files younger than an
+  hour, and `read_result`/`get_batch_results` say why a handle is gone.
+
 ## [6.18.1] - 2026-10-03
 
 Fixes from the live test of 2026-10-03 (fix plan Phase 1): one crash, several
