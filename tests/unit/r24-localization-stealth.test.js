@@ -122,6 +122,26 @@ describe('2.9 — LocalizationManager', () => {
     }
   });
 
+  test('localize_browser headers never make a cross-origin request preflighted', async () => {
+    // extraHTTPHeaders go on every request. A forced Cache-Control turned each
+    // CORS fetch into a preflighted one, which a server answering no OPTIONS
+    // (challenges.cloudflare.com) refuses — the stealth headers' R24 bug.
+    // Forbidden names (Fetch standard) are never counted; Accept-Language is
+    // safelisted when its value is.
+    const FORBIDDEN = new Set(['accept-encoding', 'dnt']);
+    const LANGUAGE_VALUE = /^[0-9A-Za-z *,\-.;=]*$/;
+    for (const code of manager.getSupportedCountries()) {
+      const { extraHTTPHeaders } = await manager.localizeBrowserContext({}, code);
+      for (const [name, value] of Object.entries(extraHTTPHeaders)) {
+        const key = name.toLowerCase();
+        const safe = FORBIDDEN.has(key) ||
+          (key === 'accept-language' && value.length <= 128 && LANGUAGE_VALUE.test(value));
+        assert.ok(safe, `${code}: ${name}: ${value} would preflight every cross-origin CORS fetch`);
+      }
+    }
+    assert.equal('Cache-Control' in manager.generateLocalizedHeaders('JP'), false);
+  });
+
   test('configure_country refuses a language that is not a language code', async () => {
     await assert.rejects(() => manager.configureCountry('DE', { language: 'klingon' }), /Unsupported language: klingon/);
     for (const language of ['de', 'de-CH', 'zh-Hans-CN', 'EN-gb']) {

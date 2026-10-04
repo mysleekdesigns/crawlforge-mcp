@@ -399,11 +399,15 @@ export class LocalizationManager extends EventEmitter {
       // Configure geolocation
       geolocation: config.geoLocation || this.getCountryCoordinates(targetCountry) || undefined,
       
-      // Set HTTP headers
+      // Set HTTP headers. A context's extraHTTPHeaders go on every request, so
+      // each must be one CORS ignores (a forbidden name: Accept-Encoding, DNT)
+      // or safelisted (Accept-Language). Cache-Control is neither: it turned
+      // every cross-origin CORS fetch into a preflighted one, which a server
+      // answering no OPTIONS refuses — the stealth headers broke Cloudflare's
+      // Turnstile the same way (R24).
       extraHTTPHeaders: {
         'Accept-Language': config.acceptLanguage,
         'Accept-Encoding': 'gzip, deflate, br',
-        'Cache-Control': 'no-cache',
         'DNT': '1',
         ...config.customHeaders,
         ...browserOptions.extraHTTPHeaders
@@ -963,7 +967,6 @@ export class LocalizationManager extends EventEmitter {
     return {
       "Accept-Language": this.generateAcceptLanguageHeader(config.language),
       "Accept-Encoding": "gzip, deflate, br",
-      "Cache-Control": "no-cache",
       "DNT": "1"
     };
   }
