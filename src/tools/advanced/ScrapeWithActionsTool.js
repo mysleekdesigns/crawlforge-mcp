@@ -536,11 +536,17 @@ export class ScrapeWithActionsTool extends EventEmitter {
     // Process action results
     const actionResults = this.processActionResults(chainResult.results);
     // Every attempt the executor made (retryChain > 0 replays the whole
-    // chain), in the same shape as actionResults; `attempt` is the one whose
-    // results are reported above.
+    // chain), as a summary; `attempt` is the one whose results are reported
+    // in actionResults. Each attempt used to carry its own copy of the action
+    // results, so the reported attempt's came back twice (R24 4.4).
     const attempts = (chainResult.attempts || [
       { attempt: 1, success: chainResult.success, error: chainResult.error, results: chainResult.results }
-    ]).map((a) => ({ ...a, results: this.processActionResults(a.results || []) }));
+    ]).map(({ results = [], ...a }) => ({
+      ...a,
+      actionsExecuted: results.length,
+      successfulActions: results.filter((r) => r.success).length,
+      failedActions: results.filter((r) => !r.success).length
+    }));
     const intermediateStates = params.captureIntermediateStates ?
       await this.extractIntermediateStates(chainResult.capturedStates || [], params) : [];
 

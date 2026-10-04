@@ -872,7 +872,7 @@ export class GenerateLLMsTxtTool {
     if (robots?.status === 'disallowed') {
       warnings.push({
         type: 'robots',
-        message: `robots.txt on ${host} disallows CrawlForge, including /robots.txt itself, so the site was not analysed. ` +
+        message: `robots.txt on ${host} disallows CrawlForge for the whole site, so the site was not analysed. ` +
           'Pass analysisOptions.respectRobots: false to analyse it anyway — that override is recorded against your API key and is your decision to make.'
       });
     } else if (robots?.status === 'unreachable') {

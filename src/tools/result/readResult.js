@@ -32,6 +32,31 @@ export const READ_RESULT_INPUT_SHAPE = {
 };
 
 const fail = (text) => ({ content: [{ type: 'text', text }], isError: true });
+
+const duration = (ms) => (ms % 3600000 === 0 ? `${ms / 3600000} hour${ms === 3600000 ? '' : 's'}`
+  : ms % 60000 === 0 ? `${ms / 60000} minutes` : `${ms / 1000} seconds`);
+const megabytes = (bytes) => (bytes >= 1048576 ? `${Math.round(bytes / 1048576)} MB` : `${bytes} bytes`);
+
+/** Why a handle the store does not have is gone, from the store's tombstone. */
+export function goneMessage(store, handle) {
+  const gone = store.tombstone(handle);
+  if (!gone) {
+    return 'Unknown result handle: this server process never issued it. Handles are per process - a handle '
+      + 'from before a server restart, or issued by a different server process, cannot be read here.';
+  }
+  const at = new Date(gone.at).toISOString();
+  switch (gone.reason) {
+    case 'expired':
+      return `Result handle expired: results are kept ${duration(store.ttlMs)} (found expired at ${at}).`;
+    case 'evicted':
+      return `Result handle evicted at ${at}: the result store keeps at most ${megabytes(store.maxBytes)} per `
+        + 'server process and drops the least recently read results first.';
+    case 'unreadable':
+      return `Result handle unreadable: its stored file could not be read (${gone.detail}) and the entry was dropped at ${at}.`;
+    default:
+      return `Result handle deleted by the server at ${at}.`;
+  }
+}
 // read_result declares an outputSchema, so a success carries structuredContent too.
 const ok = (object) => dualOutput(object);
 
@@ -40,8 +65,9 @@ const ok = (object) => dualOutput(object);
  */
 export async function readResultHandler(params) {
   const { handle, operation } = params;
-  const entry = getResultStore().get(handle);
-  if (!entry) return fail('Unknown or expired result handle (results are kept 1 hour)');
+  const store = getResultStore();
+  const entry = store.get(handle);
+  if (!entry) return fail(goneMessage(store, handle));
 
   const maxChars = resolveMaxInlineChars(params);
   const { view, view_path, text } = resultTextView(entry.payload, entry.meta?.view_path ? [entry.meta.view_path] : []);

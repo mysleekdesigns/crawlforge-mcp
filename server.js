@@ -466,7 +466,8 @@ registerToolIfEnabled("extract_links", {
     filter_external: z.boolean().optional().default(false).describe("Drop internal (same-host) links"),
     base_url: z.string().url().optional().describe("Base URL for resolving relative links"),
     ...EXTRACT_ESCALATION_SHAPE,
-    ...COMPLIANCE_PARAMS
+    ...COMPLIANCE_PARAMS,
+    ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("extract_links", createExtractLinksHandler({
   escalateFetch: (args) => stealthEscalation({ ...args, tool: 'extract_links' })
@@ -479,7 +480,8 @@ registerToolIfEnabled("extract_metadata", {
   inputSchema: {
     url: z.string().url().describe("The URL to extract metadata from"),
     json_ld_types: z.array(z.string()).optional().describe("Filter the returned JSON-LD to nodes of these schema.org types, e.g. [\"Product\",\"Offer\"]. Subtypes match their parent: \"Event\" returns MusicEvent, \"Offer\" returns AggregateOffer, \"ItemList\" returns BreadcrumbList. Nodes are found at any depth, including inside @graph and nested inside a parent node; a match nested inside another returned node comes back inside it, not again on its own. When set, json_ld carries only the matching nodes instead of the raw dump, and json_ld_type_counts reports how many matched per requested type, nested ones included. Documented types: ItemList, Product, Offer, Event, JobPosting, RealEstateListing — any other schema.org type is matched exactly."),
-    ...COMPLIANCE_PARAMS
+    ...COMPLIANCE_PARAMS,
+    ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("extract_metadata", extractMetadataHandler));
 
@@ -562,6 +564,7 @@ registerToolIfEnabled("search_web", {
         longitude: z.number().min(-180).max(180)
       }).optional()
     }).optional().describe("Geo/locale targeting for results"),
+    ...MAX_INLINE_CHARS_PARAM,
     ...REDACT_PII_PARAM
   },
   outputSchema: OUTPUT_SCHEMAS.search_web
@@ -710,7 +713,8 @@ registerToolIfEnabled("map_site", {
     }).optional().describe("Per-domain allow/deny lists and URL include/exclude patterns"),
     import_filter_config: z.string().optional().describe("JSON string of a previously exported domain-filter config"),
     search: z.string().optional().describe("When set, rank discovered URLs by relevance to this string and emit ranked_urls:[{url,score}]"),
-    ...COMPLIANCE_PARAMS
+    ...COMPLIANCE_PARAMS,
+    ...MAX_INLINE_CHARS_PARAM
   },
   outputSchema: OUTPUT_SCHEMAS.map_site
 }, withAuth("map_site", async (params) => {
@@ -1275,7 +1279,8 @@ registerToolIfEnabled("agent", {
     schema: z.record(z.any()).optional().describe("Optional JSON schema for structured output"),
     model: z.enum(["default", "pro"]).optional().default("default").describe("\"default\" = SamplingClient loop (no keys needed); \"pro\" = full ResearchOrchestrator"),
     maxSteps: z.number().min(1).max(10).optional().default(5).describe("Max fetch iterations (hard cap: 10)"),
-    maxUrls: z.number().min(1).max(20).optional().default(10).describe("Max URLs to fetch (hard cap: 20)")
+    maxUrls: z.number().min(1).max(20).optional().default(10).describe("Max URLs to fetch (hard cap: 20)"),
+    ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("agent", async (params, ctx) => {
     try {
@@ -1294,7 +1299,8 @@ registerToolIfEnabled("track_changes", {
   // The tool module owns the schema (G5); this is the same shape it validates with.
   inputSchema: {
     ...TRACK_CHANGES_INPUT_SHAPE,
-    ...COMPLIANCE_PARAMS
+    ...COMPLIANCE_PARAMS,
+    ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("track_changes", async (params) => {
   try {
@@ -1330,7 +1336,8 @@ registerToolIfEnabled("generate_llms_txt", {
       robotsStyle: z.boolean().optional().default(false)
     }).optional().describe("Output customization and organization details"),
     complianceLevel: z.enum(['basic', 'standard', 'strict']).optional().default('standard').describe("Compliance level for generated guidelines"),
-    format: z.enum(['both', 'llms-txt', 'llms-full-txt']).optional().default('both').describe("Output format: llms.txt, llms-full.txt, or both")
+    format: z.enum(['both', 'llms-txt', 'llms-full-txt']).optional().default('both').describe("Output format: llms.txt, llms-full.txt, or both"),
+    ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("generate_llms_txt", async (params) => {
   try {
@@ -1781,7 +1788,8 @@ registerToolIfEnabled("scrape_template", {
     url: z.string().url().optional().describe("URL to scrape — required unless template is list, or params drive a list connector"),
     params: z.record(z.any()).optional().describe("Parameters for a list connector, e.g. {company:\"stripe\"} for greenhouse-jobs or {store:\"www.allbirds.com\", collection:\"mens\"} for shopify-collection. Use template:\"list\" to see which templates take params"),
     timeout: z.number().min(5000).max(60000).optional().default(15000).describe("Request timeout in milliseconds"),
-    ...COMPLIANCE_PARAMS
+    ...COMPLIANCE_PARAMS,
+    ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("scrape_template", async (params) => {
   try {

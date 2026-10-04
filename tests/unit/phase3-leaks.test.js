@@ -198,7 +198,8 @@ describe('BatchScrapeTool cached-result bounding (src/tools/advanced/batchScrape
       tool._cacheBatchResult(batchId, [{ url: 'https://example.com/expired', success: true }], 'sync');
       await new Promise((r) => setTimeout(r, 60));
 
-      await assert.rejects(() => tool.getBatchResults(batchId), /not found/i);
+      // R24 4.7: the error says why the batch is gone.
+      await assert.rejects(() => tool.getBatchResults(batchId), /not found\. Result handle expired/);
       assert.equal(
         resultStore.has(batchId),
         false,

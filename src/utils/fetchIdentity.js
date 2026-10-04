@@ -40,6 +40,18 @@ export function serviceUserAgent(role) {
 }
 
 /**
+ * Identity for the non-stealth browser: the bundled Chromium's own User-Agent
+ * with "HeadlessChrome" spelled "Chrome", and the canonical product token and
+ * contact URL appended — so the page sees a real browser and a site can still
+ * tell it is us (G4). The stealth paths keep their own fingerprint identity.
+ * @param {string} baseUa - the browser's default User-Agent (Browser.getVersion)
+ * @returns {string}
+ */
+export function browserUserAgent(baseUa) {
+  return `${String(baseUa).replace(/HeadlessChrome\//g, 'Chrome/')} ${CRAWLFORGE_USER_AGENT}`;
+}
+
+/**
  * Resolve the User-Agent for a request: a non-empty override wins, otherwise
  * the canonical identity (optionally role-suffixed).
  * @param {string} [override]

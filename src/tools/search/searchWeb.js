@@ -401,16 +401,16 @@ export class SearchWebTool {
         next_offset: nextOffset,
         cached: false,
         
-        // Add provider information
+        // Add provider information. The provider's static capabilities list
+        // is not repeated here: it is the same on every call, and a
+        // queries:[...] batch carried one copy per query (R24 4.4).
         provider: this.isCreatorModeFallback ? {
           name: 'google',
           backend: 'Google Custom Search API (Creator Mode)',
-          note: 'Using Google Search API directly. Production users use CrawlForge API.',
-          capabilities: SearchProviderFactory.getProviderCapabilities('google')
+          note: 'Using Google Search API directly. Production users use CrawlForge API.'
         } : {
           name: 'crawlforge',
-          backend: 'Google Search',
-          capabilities: SearchProviderFactory.getProviderCapabilities('crawlforge')
+          backend: 'Google Search'
         },
         
         // Add localization information
@@ -446,7 +446,9 @@ export class SearchWebTool {
       
       return response;
     } catch (error) {
-      throw new Error(`Search failed: ${error.message}`);
+      // No "Search failed: " here: server.js prefixes it once, and this copy
+      // made it read "Search failed: Search failed: …" (R24 4.5).
+      throw error;
     }
   }
 
@@ -537,13 +539,7 @@ export class SearchWebTool {
       provider: {
         name: 'searxng',
         backend: 'SearXNG (self-hosted)',
-        instanceUrl: process.env.CRAWLFORGE_SEARXNG_URL || null,
-        capabilities: {
-          requiresApiKey: false,
-          supportsPagination: true,
-          supportsLanguageFilter: true,
-          supportsSafeSearch: true
-        }
+        instanceUrl: process.env.CRAWLFORGE_SEARXNG_URL || null
       },
       localization: null,
       processing: {

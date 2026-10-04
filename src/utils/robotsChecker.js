@@ -34,6 +34,12 @@ export class RobotsChecker {
     return `${urlObj.protocol}//${urlObj.host}/robots.txt`;
   }
 
+  /** True for a host's own robots.txt: path exactly /robots.txt, no query. */
+  static isRobotsFile(url) {
+    const urlObj = new URL(url);
+    return urlObj.pathname === '/robots.txt' && urlObj.search === '';
+  }
+
   /**
    * Parsed robots.txt for a URL's host, served from cache while it is fresh.
    * Concurrent callers share one in-flight fetch rather than each starting one.
@@ -59,7 +65,13 @@ export class RobotsChecker {
   }
 
   async canFetch(url) {
+    // robots.txt itself is never subject to robots.txt: it is the file a
+    // site publishes for crawlers to read, and a disallow-all file (lobste.rs,
+    // imdb.com) otherwise refused the one request that shows the caller why
+    // (R24). Exactly the root /robots.txt with no query — any other path,
+    // including where a redirect from it lands, is still decided below.
     try {
+      if (RobotsChecker.isRobotsFile(url)) return true;
       const robots = await this.getRobots(url);
       // robots-parser returns undefined when it has no opinion — that is "allowed".
       // The legacy token is consulted as a source of disallow only: unifying on

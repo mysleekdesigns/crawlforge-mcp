@@ -24,6 +24,7 @@ import { isInputRequiredResult } from '@modelcontextprotocol/server';
 import { recordToolInvocation } from '../observability/tracing.js';
 import { isInternalRequest, preflightRefusal, reportedActualCost, requestContext } from './requestContext.js';
 import { appendFallbackHint } from './fallbackHints.js';
+import { normalizeErrorResult } from './errorText.js';
 import { INLINE_THRESHOLD_TOOLS, applyInlineThreshold } from './inlineThreshold.js';
 import { REDACTION_TOOLS, redactionSurcharge, runRedactionStage } from './redaction.js';
 import { getResultStore } from '../core/ResultStore.js';
@@ -226,10 +227,15 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
           // Cost injection must never break the request path
         }
 
-        // Selection hint: tell the model what to try instead of the same call.
-        if (isErrorResult) {
-          try { appendFallbackHint(toolName, result); } catch { /* never break the request path */ }
-        }
+        // Selection hint: tell the model what to try instead of the same call,
+        // after stripping ANSI codes, call logs and doubled prefixes from the
+        // error text (R24 4.5). Both act on isError results and on a JSON body
+        // with success:false, which several tools return without the flag
+        // (R24 4.1). Neither touches the charge, settled above.
+        try {
+          normalizeErrorResult(result);
+          appendFallbackHint(toolName, result);
+        } catch { /* never break the request path */ }
 
         // creditCost === 0 means a genuinely free call (e.g. serp_rank when
         // DataForSEO is unconfigured — a no-op). Emit NO usage event at all so

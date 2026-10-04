@@ -52,6 +52,7 @@ A PDF or other binary body fails with `UNSUPPORTED_CONTENT_TYPE` (use `process_d
 | `base_url` | string (URL) | — | Resolve relative links against this. Without it, the page's `<base href>`, else the page URL. |
 | `escalate` | boolean | `false` | When the plain fetch is blocked (403/429/444/challenge page/empty shell), re-read the page once in the stealth browser (impit first under `auto`). A 404 or 5xx never escalates. Projected 6, charged 1 when the plain fetch worked. |
 | `escalate_engine` | enum | `auto` | `auto`, `playwright` (Chromium) or `camoufox`. |
+| `max_inline_chars` | number | `40000` | 1,000–10,000,000. A larger result returns `preview` + `result_handle` for `read_result` (below). |
 
 Each link is `{ href, text, type, domain, rel, original_href }` (plus `title` when the link has one). `type` is `internal` (same host as the page), `external` or `other` (`mailto:`, `tel:`, `javascript:` and other non-web schemes; only `mailto:`/`tel:` keep an `href`, the rest are `null`). `#fragment`-only links are skipped, and links are deduplicated on the URL without its fragment or trailing slash. Counts: `total_count`, `internal_count`, `external_count`, `other_count`. The REST route returns the same records.
 
@@ -62,6 +63,7 @@ A PDF or other binary body fails with `UNSUPPORTED_CONTENT_TYPE` (use `process_d
 | Param | Type | Notes |
 |-------|------|-------|
 | `url` | string (URL) | Required. Returns title, description, OG tags, canonical, schema.org. |
+| `max_inline_chars` | number | Default 40000 (1,000–10,000,000). A larger result returns `preview` + `result_handle` for `read_result` (below). |
 
 ## extract_content (cost: 2)
 
@@ -82,6 +84,9 @@ A PDF or other binary body fails with `UNSUPPORTED_CONTENT_TYPE` (use `process_d
 | `include_metadata` | boolean | — | Per-URL metadata. |
 | `domain_filter` | object | — | `whitelist`, `blacklist`, `include_patterns`, `exclude_patterns`. |
 | `search` | string | — | Rank URLs by relevance; emits `ranked_urls:[{url,score}]`. |
+| `max_inline_chars` | number | `40000` | 1,000–10,000,000. A larger result returns `preview` + `result_handle` for `read_result` (below). |
+
+`urls` is the one list of URLs; `site_map` gives the site's shape as counts (`root`, `sections.<segment>.count` and `.subsections`, `depth_levels`).
 
 ## crawl_deep (cost: 4, scales with max_pages)
 
@@ -107,7 +112,7 @@ trigger an elicitation confirmation.
 ## read_result (cost: 1)
 
 Reads a result a tool returned with `truncated: true` and a `result_handle`
-(kept 1 hour, on the local machine; an unknown or expired handle is an error).
+(kept 1 hour, on the local machine; a handle that is gone is an error that says why — expired, evicted, unreadable, or unknown to this server process).
 
 | Param | Type | Default | Notes |
 |-------|------|---------|-------|

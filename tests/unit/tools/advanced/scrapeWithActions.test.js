@@ -505,7 +505,7 @@ describe('Phase 0 — retries off by default, screenshotOnError forwarded, attem
     assert.equal(chain().screenshotOnError, false);
   });
 
-  test('attempt and attempts pass through, each attempt shaped like actionResults', async () => {
+  test('attempt and attempts pass through, each attempt as a summary', async () => {
     const now = Date.now();
     const first = [{ id: 'a1', type: 'wait', success: false, error: 'timeout', executionTime: 5, timestamp: now, result: { raw: true } }];
     const second = [{ id: 'a2', type: 'wait', success: true, executionTime: 5, timestamp: now + 1, result: {} }];
@@ -520,17 +520,20 @@ describe('Phase 0 — retries off by default, screenshotOnError forwarded, attem
     const result = await tool.execute({ url: 'https://example.com', actions: [WAIT_ACTION], captureScreenshots: false, maxRetries: 1 });
     assert.equal(result.attempt, 2);
     assert.equal(result.attempts.length, 2);
-    assert.equal(result.attempts[0].error, 'timeout');
-    assert.deepEqual(Object.keys(result.attempts[0].results[0]), Object.keys(result.actionResults[0]),
-      'attempt results go through processActionResults');
-    assert.equal(result.attempts[1].results[0].id, 'a2');
+    assert.deepEqual(result.attempts[0], { attempt: 1, success: false, error: 'timeout', actionsExecuted: 1, successfulActions: 0, failedActions: 1 });
+    assert.deepEqual(result.attempts[1], { attempt: 2, success: true, actionsExecuted: 1, successfulActions: 1, failedActions: 0 });
+    assert.equal(result.actionResults[0].id, 'a2', 'the reported attempt\'s action results are in actionResults');
   });
 
-  test('an executor that reports no attempts still yields one entry', async () => {
+  // R24 4.4: every attempt carried a copy of its action results, so the
+  // reported attempt's came back twice — once here, once in actionResults.
+  test('action results appear once, in actionResults, never again under attempts', async () => {
     const { tool } = captureChain();
     const result = await tool.execute({ url: 'https://example.com', actions: [WAIT_ACTION], captureScreenshots: false });
     assert.equal(result.attempt, 1);
     assert.equal(result.attempts.length, 1);
-    assert.equal(result.attempts[0].results.length, 1);
+    assert.equal('results' in result.attempts[0], false);
+    assert.equal(result.attempts[0].actionsExecuted, 1);
+    assert.equal(result.actionResults.length, 1);
   });
 });

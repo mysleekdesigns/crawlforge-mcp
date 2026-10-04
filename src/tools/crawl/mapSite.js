@@ -432,9 +432,14 @@ export class MapSiteTool {
     return grouped;
   }
 
+  /**
+   * The shape of the site as counts. `urls` is the one list of the URLs;
+   * this used to list each of them again by section, by subsection and by
+   * depth, four copies of every URL in one response (R24 4.4).
+   */
   generateSiteMap(urls) {
     const siteMap = {
-      root: [],
+      root: 0,
       sections: {},
       depth_levels: {}
     };
@@ -445,32 +450,21 @@ export class MapSiteTool {
         const pathSegments = urlObj.pathname.split('/').filter(s => s);
         const depth = pathSegments.length;
 
-        // Add to depth levels
-        if (!siteMap.depth_levels[depth]) {
-          siteMap.depth_levels[depth] = [];
-        }
-        siteMap.depth_levels[depth].push(url);
+        siteMap.depth_levels[depth] = (siteMap.depth_levels[depth] || 0) + 1;
 
-        // Add to sections
         if (depth === 0) {
-          siteMap.root.push(url);
+          siteMap.root++;
         } else {
           const section = pathSegments[0];
           if (!siteMap.sections[section]) {
-            siteMap.sections[section] = {
-              urls: [],
-              subsections: {}
-            };
+            siteMap.sections[section] = { count: 0, subsections: {} };
           }
-          siteMap.sections[section].urls.push(url);
+          siteMap.sections[section].count++;
 
-          // Add subsections
           if (depth > 1) {
             const subsection = pathSegments[1];
-            if (!siteMap.sections[section].subsections[subsection]) {
-              siteMap.sections[section].subsections[subsection] = [];
-            }
-            siteMap.sections[section].subsections[subsection].push(url);
+            const subsections = siteMap.sections[section].subsections;
+            subsections[subsection] = (subsections[subsection] || 0) + 1;
           }
         }
       } catch {

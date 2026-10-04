@@ -22,11 +22,21 @@ export const MAX_INLINE_CHARS_PARAM = {
  * holding a string becomes the text view the preview and read_result work
  * on. An empty list means the pretty-printed JSON is the view. `keep` names
  * top-level fields carried inline past the scalar filter (keepNamedFields).
- * `when` gates on params. extract_embedded_state has a shape of its own (shapeEmbeddedState
- * below).
+ * `contentKey` names the object whose small fields other than the view stay
+ * inline (keepSmallContentFields; default `content`, where every text path is
+ * left out). `when` gates on params.
+ * extract_embedded_state has a shape of its own (shapeEmbeddedState below).
  */
 /** The browser_session operations that hand back content worth shaping. */
 const BROWSER_SESSION_CONTENT_OPERATIONS = new Set(['snapshot', 'act', 'read']);
+
+/**
+ * The track_changes operations that return a list or a report; the others
+ * return one baseline, one diff or one monitor's id and stay whole.
+ */
+const TRACK_CHANGES_LIST_OPERATIONS = new Set([
+  'get_history', 'export_history', 'list_scheduled_monitors', 'get_dashboard', 'generate_trend_report'
+]);
 
 export const INLINE_THRESHOLD_TOOLS = Object.freeze({
   scrape: { textPaths: ['content.markdown', 'content.text', 'content.html', 'content.rawHtml'], truncate: true },
@@ -64,7 +74,33 @@ export const INLINE_THRESHOLD_TOOLS = Object.freeze({
   // Truncated since plan Phase 3.1: returned whole, producthunt.com and
   // zappos.com overflowed the client. Shaped by shapeEmbeddedState, which never
   // cuts inside a JSON value.
-  extract_embedded_state: { textPaths: [], truncate: true }
+  extract_embedded_state: { textPaths: [], truncate: true },
+  // The eight below had no cap at all (R24 4.3): a Shopify collection came
+  // back from scrape_template as 124 KB inline. Each keeps the small reports
+  // that say what the result is; the list itself is read with json_path.
+  extract_links: { textPaths: [], truncate: true, keep: ['blocked', 'stealth'] },
+  extract_metadata: { textPaths: [], truncate: true, keep: ['keywords', 'og_tags', 'twitter_tags', 'json_ld_type_counts'] },
+  search_web: { textPaths: [], truncate: true, keep: ['queries', 'provider'] },
+  scrape_template: { textPaths: [], truncate: true },
+  map_site: { textPaths: [], truncate: true, keep: ['site_map', 'statistics'] },
+  // A prose answer is the text view; a structured or missing one leaves the
+  // JSON view, and the sources stay inline when they fit.
+  agent: { textPaths: ['answer'], truncate: true, keep: ['evidence', 'search_results', 'provenance'] },
+  // llms-full.txt is the large file and the view; llms.txt stays inline under
+  // `files` when it fits. Neither key can be named in a json_path (the "."),
+  // so the view is the way to read the long one.
+  generate_llms_txt: {
+    textPaths: ['files.llms-full.txt', 'files.llms.txt'],
+    truncate: true,
+    contentKey: 'files',
+    keep: ['analysisStats', 'recommendations']
+  },
+  track_changes: {
+    textPaths: ['export.csv'],
+    truncate: true,
+    keep: ['pagination', 'timespan'],
+    when: (params) => TRACK_CHANGES_LIST_OPERATIONS.has(params?.operation)
+  }
 });
 
 /** param -> env (an int of at least 1,000) -> default. */
@@ -76,12 +112,21 @@ export function resolveMaxInlineChars(params, env = process.env) {
   return DEFAULT_MAX_INLINE_CHARS;
 }
 
-/** Read a dotted path ("content.markdown") off an object; undefined when absent. */
+/**
+ * Read a dotted path ("content.markdown") off an object; undefined when absent.
+ * A key may hold dots itself ("files.llms.txt" is files["llms.txt"]): at each
+ * level the longest run of segments that names an own key is taken.
+ */
 export function readDottedPath(object, dotted) {
+  const segments = dotted.split('.');
   let current = object;
-  for (const key of dotted.split('.')) {
+  let i = 0;
+  while (i < segments.length) {
     if (current === null || typeof current !== 'object') return undefined;
-    current = current[key];
+    let j = segments.length;
+    while (j > i + 1 && !Object.hasOwn(current, segments.slice(i, j).join('.'))) j--;
+    current = current[segments.slice(i, j).join('.')];
+    i = j;
   }
   return current;
 }
@@ -102,12 +147,14 @@ export function resultTextView(resultObject, textPaths = []) {
 /**
  * The non-text fields of `content` small enough to stay inline: everything
  * except the text views (markdown, text, html, …) up to a quarter of the
- * inline budget each. Null when there is nothing to keep.
+ * inline budget each. Null when there is nothing to keep. `contentKey` is the
+ * name `content` has in the result (generate_llms_txt's is `files`).
  */
-export function keepSmallContentFields(content, textPaths = [], maxInline = DEFAULT_MAX_INLINE_CHARS) {
+export function keepSmallContentFields(content, textPaths = [], maxInline = DEFAULT_MAX_INLINE_CHARS, contentKey = 'content') {
   if (!content || typeof content !== 'object' || Array.isArray(content)) return null;
+  const prefix = `${contentKey}.`;
   const textLeaves = new Set(
-    textPaths.filter((p) => p.startsWith('content.')).map((p) => p.slice('content.'.length))
+    textPaths.filter((p) => p.startsWith(prefix)).map((p) => p.slice(prefix.length))
   );
   const cap = Math.max(1000, Math.floor(maxInline / 4));
   const kept = {};
@@ -156,8 +203,11 @@ export function keepNamedFields(resultObject, keys = [], maxInline = DEFAULT_MAX
   return { kept: Object.keys(kept).length > 0 ? kept : null, partial, dropped };
 }
 
+// generate_llms_txt's warnings are {type, message} objects; they are kept too.
 function warningsOf(resultObject) {
-  return Array.isArray(resultObject.warnings) ? resultObject.warnings.filter((w) => typeof w === 'string') : [];
+  return Array.isArray(resultObject.warnings)
+    ? resultObject.warnings.filter((w) => typeof w === 'string' || (w !== null && typeof w === 'object'))
+    : [];
 }
 
 /**
@@ -200,11 +250,15 @@ export function applyInlineThreshold(toolName, resultObject, params, { store, en
   }
 
   const preview = text.slice(0, maxInline);
-  const keptFields = keepSmallContentFields(resultObject.content, config.textPaths, maxInline);
+  // Under `content` every text format is left to read_result; under a named
+  // contentKey (generate_llms_txt's `files`) only the view is, so the short
+  // llms.txt stays inline beside a preview of llms-full.txt.
+  const contentKey = config.contentKey ?? 'content';
+  const keptFields = keepSmallContentFields(resultObject[contentKey], config.contentKey ? [view_path] : config.textPaths, maxInline, contentKey);
   const named = keepNamedFields(resultObject, config.keep, maxInline);
   const keptNames = [
     ...(named.kept ? Object.keys(named.kept).filter((key) => !named.partial.includes(key)) : []),
-    ...(keptFields ? Object.keys(keptFields).map((key) => `content.${key}`) : [])
+    ...(keptFields ? Object.keys(keptFields).map((key) => `${contentKey}.${key}`) : [])
   ];
   const keptDesc = [
     keptNames.length > 0 ? `; ${keptNames.join(', ')} kept inline` : '',
@@ -232,7 +286,7 @@ export function applyInlineThreshold(toolName, resultObject, params, { store, en
   // them: an nhs.uk scrape with highlights and a question came back as a
   // markdown preview and nothing else (R21, 2026-09-09). Keep every
   // non-text `content` field that fits a quarter of the inline budget.
-  if (keptFields) shaped.content = keptFields;
+  if (keptFields) shaped[contentKey] = keptFields;
   Object.assign(shaped, {
     preview,
     result_handle: handle,

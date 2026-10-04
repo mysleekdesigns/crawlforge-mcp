@@ -22,6 +22,9 @@ import { randomUUID } from 'node:crypto';
 
 export const RESULT_HANDLE_PATTERN = /^(res|batch)_[A-Za-z0-9_-]{1,80}$/;
 const KEY_PATTERN = /^[A-Za-z0-9_-]{4,80}$/;
+const DEFAULT_TTL_MS = 60 * 60 * 1000;
+// How many removed handles remember why they went (read_result reports it).
+const MAX_TOMBSTONES = 1000;
 
 export class ResultStore {
   /**
@@ -35,7 +38,7 @@ export class ResultStore {
   constructor({
     baseDir,
     maxBytes = 200 * 1024 * 1024,
-    ttlMs = 60 * 60 * 1000,
+    ttlMs = DEFAULT_TTL_MS,
     sweepIntervalMs = 5 * 60 * 1000,
     logger = null
   } = {}) {
@@ -46,6 +49,9 @@ export class ResultStore {
     // Insertion order is LRU order: get() re-inserts the entry it read.
     this.index = new Map();
     this.totalBytes = 0;
+    // handle → { reason: 'expired'|'evicted'|'unreadable'|'deleted', at, detail? }
+    // for entries this process removed; bounded, oldest dropped first.
+    this.tombstones = new Map();
 
     this._cleanupStaleFiles();
 
@@ -94,6 +100,7 @@ export class ResultStore {
     }
 
     this.index.set(handle, entry);
+    this.tombstones.delete(handle);
     this.totalBytes += bytes;
     this._evict(handle);
     return handle;
@@ -111,9 +118,9 @@ export class ResultStore {
     try {
       const json = entry.inMemory ? entry.json : fs.readFileSync(this._file(handle), 'utf8');
       payload = JSON.parse(json);
-    } catch {
+    } catch (error) {
       // A missing or corrupt file is treated as gone, never thrown.
-      this.delete(handle);
+      this.delete(handle, 'unreadable', error.code === 'ENOENT' ? 'file missing' : `file unreadable: ${error.message}`);
       return null;
     }
 
@@ -130,16 +137,30 @@ export class ResultStore {
     return this._live(handle) !== null;
   }
 
-  delete(handle) {
+  /**
+   * @param {string} handle
+   * @param {string} [reason] — recorded as the tombstone reason
+   * @param {string} [detail]
+   */
+  delete(handle, reason = 'deleted', detail) {
     if (!RESULT_HANDLE_PATTERN.test(handle)) return false;
     const entry = this.index.get(handle);
     if (!entry) return false;
     this.index.delete(handle);
+    this._tombstone(handle, reason, detail);
     this.totalBytes -= entry.bytes;
     if (!entry.inMemory) {
       try { fs.unlinkSync(this._file(handle)); } catch { /* already gone */ }
     }
     return true;
+  }
+
+  /**
+   * Why a handle this process issued is gone: `{ reason, at, detail? }`, or
+   * null when this process never issued it (or forgot it past MAX_TOMBSTONES).
+   */
+  tombstone(handle) {
+    return this.tombstones.get(handle) ?? null;
   }
 
   /** Index entries without payloads. */
@@ -153,7 +174,7 @@ export class ResultStore {
   sweep() {
     const now = Date.now();
     for (const [handle, entry] of this.index) {
-      if (entry.expiresAt <= now) this.delete(handle);
+      if (entry.expiresAt <= now) this.delete(handle, 'expired');
     }
   }
 
@@ -176,7 +197,7 @@ export class ResultStore {
     const entry = this.index.get(handle);
     if (!entry) return null;
     if (entry.expiresAt <= Date.now()) {
-      this.delete(handle);
+      this.delete(handle, 'expired');
       return null;
     }
     return entry;
@@ -187,18 +208,28 @@ export class ResultStore {
     for (const handle of this.index.keys()) {
       if (this.totalBytes <= this.maxBytes) return;
       if (handle === keep) return;
-      this.delete(handle);
+      this.delete(handle, 'evicted');
+    }
+  }
+
+  _tombstone(handle, reason, detail) {
+    this.tombstones.delete(handle);
+    this.tombstones.set(handle, detail ? { reason, at: Date.now(), detail } : { reason, at: Date.now() });
+    if (this.tombstones.size > MAX_TOMBSTONES) {
+      this.tombstones.delete(this.tombstones.keys().next().value);
     }
   }
 
   /**
    * Best-effort removal of result files older than the TTL. Other server
    * processes may share the directory, so a file younger than the TTL is
-   * never touched here even though this process did not write it.
+   * never touched here even though this process did not write it. The
+   * cutoff is never shorter than the default TTL: a store with a short TTL
+   * (a test run) would otherwise delete a live server's results.
    */
   _cleanupStaleFiles() {
     try {
-      const cutoff = Date.now() - this.ttlMs;
+      const cutoff = Date.now() - Math.max(this.ttlMs, DEFAULT_TTL_MS);
       for (const name of fs.readdirSync(this.baseDir)) {
         if (!name.endsWith('.json') || !RESULT_HANDLE_PATTERN.test(name.slice(0, -5))) continue;
         const file = path.join(this.baseDir, name);

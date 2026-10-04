@@ -98,7 +98,7 @@ describe('OUTPUT_SCHEMAS — realistic samples parse', () => {
       total_urls: 2,
       urls: { '/': ['https://example.com/'], '/about': ['https://example.com/about'] },
       metadata: {},
-      site_map: { root: [], sections: {}, depth_levels: {} },
+      site_map: { root: 1, sections: { about: { count: 1, subsections: {} } }, depth_levels: { 0: 1, 1: 1 } },
       statistics: {
         total_urls: 2,
         unique_paths: 2,
@@ -251,7 +251,7 @@ describe('OUTPUT_SCHEMAS — realistic samples parse', () => {
       offset: 0,
       limit: 10,
       cached: false,
-      provider: { name: 'crawlforge', backend: 'Google Search', capabilities: {} },
+      provider: { name: 'crawlforge', backend: 'Google Search' },
       localization: null,
       processing: { ranking: null, deduplication: null, query_expansion: null, localization_applied: false }
     };
