@@ -5,6 +5,18 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.19.2] - 2026-10-04
+
+**Upgrade note:** `serp_rank` scans 30 results by default. A target ranked
+below 30 is reported `found: false` unless the call passes a larger `depth`
+(up to 200).
+
+### Changed
+
+- **`serp_rank` default `depth` is 30** (was 20 here, 100 on the REST API;
+  both surfaces now agree). Credits stay at 5 at any depth; DataForSEO bills
+  about $0.002 per 10 results scanned, so the default costs $0.006 a lookup.
+
 ## [6.19.1] - 2026-10-04
 
 ### Fixed
