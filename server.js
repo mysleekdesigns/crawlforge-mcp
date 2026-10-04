@@ -113,7 +113,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "6.19.1",
+  version: "6.19.2",
   description: "Production-ready MCP server with 31 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, stateful browser sessions with element refs, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -597,7 +597,7 @@ registerToolIfEnabled("serp_rank", {
     location_code: z.number().optional().describe("Numeric DataForSEO location code (overrides location_name)"),
     language_code: z.string().optional().describe("Language code (e.g. 'en')"),
     device: z.enum(["desktop", "mobile"]).optional().describe("Device to emulate"),
-    depth: z.number().min(10).max(200).optional().describe("How many results to scan, 10-200 (default 20; DataForSEO bills ~$0.002 per 10 and gets slower the deeper it goes)")
+    depth: z.number().min(10).max(200).optional().describe("How many results to scan, 10-200 (default 30; DataForSEO bills ~$0.002 per 10 and gets slower the deeper it goes)")
   },
   outputSchema: OUTPUT_SCHEMAS.serp_rank
 }, withAuth("serp_rank", async ({ keyword, target, location_name, location_code, language_code, device, depth }) => {

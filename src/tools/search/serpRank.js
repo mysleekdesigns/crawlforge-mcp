@@ -27,7 +27,7 @@ const SerpRankSchema = z.object({
   // DataForSEO bills per 10 results scanned and gets slower the deeper it goes,
   // so the default stays shallow: 20 covers Google's first two pages for $0.004.
   // Raise it (max 200, their cap) when a deeper position is worth the spend.
-  depth: z.number().int().min(10).max(200).optional().default(20),
+  depth: z.number().int().min(10).max(200).optional().default(30),
 });
 
 /** Reduce a domain or URL to a bare, comparable host: "https://www.Example.com/x" → "example.com".
