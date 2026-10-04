@@ -5,6 +5,18 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.19.1] - 2026-10-04
+
+### Fixed
+
+- **Localized browser contexts no longer force `Cache-Control: no-cache`.**
+  A context's extra headers go on every request, and `Cache-Control` is not
+  CORS-safelisted, so each cross-origin CORS fetch on a localized page was
+  preflighted and a server answering no OPTIONS refused it — the bug 6.19.0
+  fixed in the stealth headers, which had blocked Cloudflare's Turnstile. The
+  headers left (`Accept-Language`, `Accept-Encoding`, `DNT`) never trigger a
+  preflight.
+
 ## [6.19.0] - 2026-10-04
 
 The rest of the live test of 2026-10-03 (fix plan Phases 2–4 and the
