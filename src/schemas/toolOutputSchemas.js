@@ -157,10 +157,13 @@ const mapSiteShape = {
   ]).optional().describe('Flat array of URLs, or grouped-by-path object when group_by_path=true (default)'),
   metadata: z.record(z.unknown()).optional().describe('Per-URL metadata when include_metadata=true'),
   site_map: z.object({
-    root: z.array(z.string()).optional(),
-    sections: z.record(z.unknown()).optional(),
-    depth_levels: z.record(z.unknown()).optional()
-  }).passthrough().optional(),
+    root: z.number().optional().describe('How many URLs are the site root itself'),
+    sections: z.record(z.object({
+      count: z.number().optional().describe('URLs under this first path segment'),
+      subsections: z.record(z.number()).optional().describe('URLs per second path segment')
+    }).passthrough()).optional().describe('Counts by first path segment; the URLs themselves are in `urls`'),
+    depth_levels: z.record(z.number()).optional().describe('URLs per path depth')
+  }).passthrough().optional().describe('The shape of the site as counts; `urls` is the one list of URLs'),
   statistics: z.object({
     total_urls: z.number().optional(),
     unique_paths: z.number().optional(),
@@ -181,7 +184,8 @@ const mapSiteShape = {
     url: z.string().optional(),
     score: z.number().optional()
   }).passthrough()).optional().describe('Present only when the `search` param was set'),
-  warnings: z.array(z.string()).optional().describe('Present when the map is partial, e.g. the start page could not be read and the URLs come from the sitemap only'),
+  warnings: z.array(z.string()).optional().describe('Present when the map is partial, e.g. the start page could not be read and the URLs come from the sitemap only, or when the result is over max_inline_chars'),
+  ...resultHandleShape,
   _cost: costShape
 };
 
@@ -311,8 +315,7 @@ const searchWebShape = {
     name: z.string().optional(),
     backend: z.string().optional(),
     note: z.string().optional(),
-    instanceUrl: z.string().nullable().optional(),
-    capabilities: z.record(z.unknown()).optional()
+    instanceUrl: z.string().nullable().optional()
   }).passthrough().optional(),
   localization: z.object({
     applied: z.boolean().optional(),
@@ -328,6 +331,8 @@ const searchWebShape = {
     localization_applied: z.boolean().optional()
   }).passthrough().optional(),
   redaction: redactionShape,
+  warnings: z.array(z.string()).optional().describe('Notes on this result; over max_inline_chars, where the full result is kept and how to read it'),
+  ...resultHandleShape,
   _cost: costShape
 };
 

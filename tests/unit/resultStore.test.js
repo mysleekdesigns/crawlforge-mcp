@@ -202,3 +202,72 @@ test('getResultStore is a lazy singleton honouring CRAWLFORGE_RESULTS_DIR, and t
     else process.env.CRAWLFORGE_RESULTS_DIR = previous;
   }
 });
+
+// ── Tombstones: why a handle is gone (R24 4.7) ───────────────────────────────
+
+test('tombstones record why an entry went: expired, evicted, unreadable, deleted; unknown is null', async () => {
+  const store = makeStore({ maxBytes: 2500, ttlMs: 30, sweepIntervalMs: 60 * 60 * 1000 });
+  const expired = store.put('scrape', { a: 1 });
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(store.get(expired), null);
+  assert.equal(store.tombstone(expired).reason, 'expired');
+
+  const roomy = makeStore({ maxBytes: 2500 });
+  const big = 'x'.repeat(1000);
+  const evicted = roomy.put('scrape', { big });
+  roomy.put('scrape', { big });
+  roomy.put('scrape', { big }); // over 2500: the first goes
+  assert.equal(roomy.get(evicted), null);
+  assert.equal(roomy.tombstone(evicted).reason, 'evicted');
+
+  const missing = roomy.put('scrape', { ok: true });
+  fs.unlinkSync(path.join(roomy.baseDir, `${missing}.json`));
+  assert.equal(roomy.get(missing), null);
+  assert.deepEqual({ ...roomy.tombstone(missing), at: 0 }, { reason: 'unreadable', at: 0, detail: 'file missing' });
+
+  const corrupt = roomy.put('scrape', { ok: true });
+  fs.writeFileSync(path.join(roomy.baseDir, `${corrupt}.json`), '{not json');
+  assert.equal(roomy.get(corrupt), null);
+  assert.equal(roomy.tombstone(corrupt).reason, 'unreadable');
+  assert.match(roomy.tombstone(corrupt).detail, /^file unreadable: /);
+
+  const deleted = roomy.put('scrape', { ok: true });
+  roomy.delete(deleted);
+  assert.equal(roomy.tombstone(deleted).reason, 'deleted');
+
+  assert.equal(roomy.tombstone('res_never-issued'), null, 'a handle this store never issued has no tombstone');
+});
+
+test('a re-put clears the tombstone, and tombstones are bounded at 1,000, oldest dropped first', () => {
+  const store = makeStore();
+  const key = 'batch_1700000000000_tomb';
+  store.put('batch_scrape', { results: [] }, { key });
+  store.put('batch_scrape', { results: [1] }, { key }); // re-put deletes then re-adds
+  assert.equal(store.tombstone(key), null, 'a live entry has no tombstone');
+  store.delete(key);
+  store.put('batch_scrape', { results: [2] }, { key });
+  assert.equal(store.tombstone(key), null, 'putting a gone key again clears its tombstone');
+
+  const first = store.put('scrape', { n: 0 });
+  store.delete(first);
+  for (let i = 1; i <= 1000; i++) store.delete(store.put('scrape', { n: i }));
+  assert.equal(store.tombstones.size, 1000);
+  assert.equal(store.tombstone(first), null, 'the oldest tombstone was dropped');
+});
+
+test('a short-TTL store sharing the directory never deletes a live server\'s results younger than the default TTL', () => {
+  // R24 4.7: tests/unit/redactPii.test.js built a 60 s-TTL store in the real
+  // ~/.crawlforge/results; its startup cleanup deleted every live result
+  // older than 60 s, and the server then read those handles as gone.
+  const dir = tempDir();
+  const server = new ResultStore({ baseDir: dir });
+  stores.push(server);
+  const handle = server.put('scrape', { big: 'x'.repeat(1000) });
+  const ninetySecondsAgo = new Date(Date.now() - 90 * 1000);
+  fs.utimesSync(path.join(dir, `${handle}.json`), ninetySecondsAgo, ninetySecondsAgo);
+
+  stores.push(new ResultStore({ baseDir: dir, ttlMs: 60000 }));
+
+  assert.equal(fs.existsSync(path.join(dir, `${handle}.json`)), true, 'the 90 s-old live file survives');
+  assert.deepEqual(server.get(handle).payload, { big: 'x'.repeat(1000) });
+});

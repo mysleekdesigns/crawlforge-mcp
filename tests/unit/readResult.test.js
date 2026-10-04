@@ -69,10 +69,63 @@ test('input schema: handle must match the pattern, operation is an enum, max_mat
   assert.equal(schema.safeParse({ handle: 'batch_1700000000000_abc123def', operation: 'json_path', path: 'results' }).success, true);
 });
 
-test('unknown, expired or malformed handle is an error result with the documented text', async () => {
+test('a handle this process never issued is an error that says handles are per process', async () => {
   const { result } = await call({ handle: 'res_does-not-exist', operation: 'slice' });
   assert.equal(result.isError, true);
-  assert.equal(result.content[0].text, 'Unknown or expired result handle (results are kept 1 hour)');
+  assert.equal(result.content[0].text,
+    'Unknown result handle: this server process never issued it. Handles are per process - a handle '
+    + 'from before a server restart, or issued by a different server process, cannot be read here.');
+});
+
+test('a gone handle says which: expired (with the TTL), evicted (with the budget), unreadable, deleted', async () => {
+  const gone = (handle) => readResultHandler({ handle, operation: 'slice' }).then((r) => {
+    assert.equal(r.isError, true);
+    return r.content[0].text;
+  });
+  const shortDir = fs.mkdtempSync(path.join(os.tmpdir(), 'crawlforge-read-result-gone-'));
+  const short = new ResultStore({ baseDir: shortDir, ttlMs: 30, maxBytes: 2500, sweepIntervalMs: 60 * 60 * 1000 });
+  setResultStoreForTests(short);
+  try {
+    const expired = short.put('scrape', { a: 1 });
+    await new Promise((r) => setTimeout(r, 60));
+    assert.match(await gone(expired), /^Result handle expired: results are kept 0\.03 seconds \(found expired at \d{4}-/);
+
+    short.ttlMs = 60 * 60 * 1000;
+    const big = 'x'.repeat(1000);
+    const evicted = short.put('scrape', { big });
+    short.put('scrape', { big });
+    short.put('scrape', { big });
+    assert.match(await gone(evicted), /^Result handle evicted at \d{4}-.*keeps at most 2500 bytes per server process/);
+
+    const missing = short.put('scrape', { ok: true });
+    fs.unlinkSync(path.join(shortDir, `${missing}.json`));
+    assert.match(await gone(missing), /^Result handle unreadable: its stored file could not be read \(file missing\)/);
+
+    const deleted = short.put('scrape', { ok: true });
+    short.delete(deleted);
+    assert.match(await gone(deleted), /^Result handle deleted by the server at /);
+  } finally {
+    setResultStoreForTests(store);
+    short.close();
+    fs.rmSync(shortDir, { recursive: true, force: true });
+  }
+});
+
+test('the default store reports its real budget and TTL: 200 MB and 1 hour', async () => {
+  const defaultsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'crawlforge-read-result-defaults-'));
+  const defaults = new ResultStore({ baseDir: defaultsDir });
+  setResultStoreForTests(defaults);
+  try {
+    defaults._tombstone('res_was-evicted', 'evicted');
+    defaults._tombstone('res_was-expired', 'expired');
+    const text = async (handle) => (await readResultHandler({ handle, operation: 'slice' })).content[0].text;
+    assert.match(await text('res_was-evicted'), /keeps at most 200 MB per server process/);
+    assert.match(await text('res_was-expired'), /results are kept 1 hour \(/);
+  } finally {
+    setResultStoreForTests(store);
+    defaults.close();
+    fs.rmSync(defaultsDir, { recursive: true, force: true });
+  }
 });
 
 test('common fields on every success, and a structuredContent copy for the output schema', async () => {

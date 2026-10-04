@@ -159,8 +159,9 @@ describe('createToolFilter — union + dependency rule', () => {
   });
 
   test('read_result is not force-enabled by a tool that never truncates', () => {
-    const filter = createToolFilter({ CRAWLFORGE_TOOLS: 'search_web, serp_rank' });
-    assert.equal(filter.isEnabled('search_web'), true);
+    // search_web truncates since R24 4.3; serp_rank and reddit_search never do.
+    const filter = createToolFilter({ CRAWLFORGE_TOOLS: 'serp_rank, reddit_search' });
+    assert.equal(filter.isEnabled('serp_rank'), true);
     assert.equal(filter.isEnabled('read_result'), false);
   });
 });

@@ -12,6 +12,9 @@
  */
 
 import { test } from 'node:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import { REGEX_ENTITIES, MODEL_ONLY_ENTITIES } from 'crawlforge-extractors';
 
@@ -406,7 +409,9 @@ test('withAuth never charges the surcharge for the free regex pass', async () =>
 // ── the ordering that matters ────────────────────────────────────────────────
 
 test('the stored result is redacted, so read_result cannot serve the PII back', async () => {
-  const store = new ResultStore({ ttlMs: 60000, maxEntries: 10 });
+  // Its own directory: a store on the real ~/.crawlforge/results would delete a
+  // running server's result files older than its TTL at construction (R24 4.7).
+  const store = new ResultStore({ baseDir: fs.mkdtempSync(path.join(os.tmpdir(), 'redact-pii-store-')), ttlMs: 60000 });
   setResultStoreForTests(store);
   try {
     const auth = makeFakeAuth({ toolCost: 2 });

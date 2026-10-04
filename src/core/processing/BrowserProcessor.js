@@ -10,6 +10,7 @@ import StealthBrowserManager from '../StealthBrowserManager.js';
 import HumanBehaviorSimulator from '../../utils/HumanBehaviorSimulator.js';
 import LocalizationManager from '../LocalizationManager.js';
 import { safeGoto, assertNavigationAllowed } from '../../utils/ssrfGuard.js';
+import { browserUserAgent } from '../../utils/fetchIdentity.js';
 
 const BrowserProcessorSchema = z.object({
   url: z.string().url(),
@@ -280,7 +281,19 @@ export class BrowserProcessor {
           '--disable-backgrounding-occluded-windows',
           '--disable-renderer-backgrounding'
         ]
-      }).then((browser) => {
+      }).then(async (browser) => {
+        // The binary's own User-Agent, read once per launch: createPage builds
+        // the context identity from it (browserUserAgent) so the platform
+        // token and the Sec-Ch-Ua-Platform Chromium derives stay in step.
+        // A failed read closes the browser rather than leaving it running orphaned.
+        try {
+          const cdp = await browser.newBrowserCDPSession();
+          this._browserUserAgent = (await cdp.send('Browser.getVersion')).userAgent;
+          await cdp.detach();
+        } catch (error) {
+          await browser.close().catch(() => {});
+          throw error;
+        }
         // Drop the handle when Chromium dies so the next call relaunches
         // instead of reusing a corpse.
         browser.on('disconnected', () => {
@@ -577,13 +590,28 @@ export class BrowserProcessor {
         width: options.viewportWidth || 1280,
         height: options.viewportHeight || 720
       },
-      userAgent: options.userAgent,
-      extraHTTPHeaders: options.extraHeaders,
+      // A caller's own userAgent wins; otherwise the honest browser identity
+      // (no "HeadlessChrome", CrawlForge token appended — fetchIdentity.js).
+      userAgent: options.userAgent || browserUserAgent(this._browserUserAgent),
+      // Chromium sends no Accept-Language unless a locale is set; a localized
+      // context (options.locale) gets its own from the locale and the
+      // LocalizationManager headers. The caller's headers still win.
+      extraHTTPHeaders: options.locale
+        ? options.extraHeaders
+        : { 'Accept-Language': 'en-US,en;q=0.9', ...options.extraHeaders },
       deviceScaleFactor: options.mobileEmulation ? 2 : 1,
       isMobile: options.mobileEmulation,
       hasTouch: options.mobileEmulation
     };
-    
+
+    // enableJavaScript:false turns scripts off in the browser itself. It used
+    // to be sent as a Content-Security-Policy REQUEST header, which no server
+    // reads and which went out on every non-stealth page (the check was
+    // `!options.enableJavaScript`, and ActionExecutor never sets it) — R24.
+    if (options.enableJavaScript === false) {
+      contextOptions.javaScriptEnabled = false;
+    }
+
     // Add localization-specific context options
     if (options.locale) {
       contextOptions.locale = options.locale;
@@ -627,13 +655,6 @@ export class BrowserProcessor {
     if (!options.enableImages) {
       await page.route('**/*.{jpg,jpeg,png,gif,webp,svg}', (route) => {
         route.abort();
-      });
-    }
-
-    // Disable JavaScript if requested
-    if (!options.enableJavaScript) {
-      await context.setExtraHTTPHeaders({
-        'Content-Security-Policy': 'script-src \'none\''
       });
     }
 

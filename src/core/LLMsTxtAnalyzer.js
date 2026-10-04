@@ -516,7 +516,12 @@ export class LLMsTxtAnalyzer {
     try {
       const response = await this.fetchWithTimeout(`${baseUrl}/robots.txt`);
       if (response.ok) {
-        return { status: 'found', text: await readBody(response) };
+        const text = await readBody(response);
+        // /robots.txt itself always passes the gate (R24 4.2), so a file that
+        // refuses CrawlForge the whole site is told apart by asking the gate
+        // about the site root.
+        const root = await robotsPreflight(`${baseUrl}/`, { respectRobots: true, userAgent: this.options.userAgent });
+        return { status: root.allowed ? 'found' : 'disallowed', text };
       }
       return { status: 'not_found', text: null };
     } catch (error) {

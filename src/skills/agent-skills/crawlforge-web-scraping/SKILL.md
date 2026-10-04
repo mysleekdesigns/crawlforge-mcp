@@ -209,8 +209,10 @@ prompt (elicitation). CLI: `crawlforge crawl https://docs.example.com --depth 3 
 
 ## Large results — `max_inline_chars` and `read_result` (cost: 1)
 
-`scrape`, `fetch_url`, `extract_content` and `crawl_deep` accept
-`max_inline_chars` (default 40,000). A larger result comes back as its scalar
+`scrape`, `fetch_url`, `extract_content`, `extract_links`, `extract_metadata`,
+`map_site` and `crawl_deep` accept `max_inline_chars` (default 40,000), as do
+`search_web`, `scrape_template`, `agent`, `generate_llms_txt` and the list
+operations of `track_changes`. A larger result comes back as its scalar
 fields plus `preview` (the first `max_inline_chars` characters of its text
 view), `result_handle`, `total_chars`, `truncated: true` and `expires_at`; the
 full result stays 1 hour on the local machine, never uploaded. Read it with

@@ -111,8 +111,6 @@ const ExtractContentResult = z.object({
   }).optional(),
   readability: z.object({
     title: z.string().nullable(),
-    content: z.string(),
-    textContent: z.string(),
     length: z.number(),
     excerpt: z.string().nullable(),
     byline: z.string().nullable(),
@@ -276,7 +274,11 @@ export class ExtractContentTool {
         processingResult.fallback_content = this.contentProcessor.extractFallbackContent(html);
       }
       if (processingResult.readability && !thin) {
-        result.readability = processingResult.readability;
+        // Readability's article HTML and its textContent are a second and a
+        // third copy of content.text (R24 4.4: about five times the text in
+        // all). The HTML is still there on request, as includeCleanedHTML.
+        const { content: _articleHtml, textContent: _articleText, ...readability } = processingResult.readability;
+        result.readability = readability;
         result.content = {
           text: blockText(load(processingResult.readability.content)),
         };
@@ -342,9 +344,10 @@ export class ExtractContentTool {
         result.structuredData = processingResult.structured_data;
       }
 
-      // Step 7: Add image information
+      // Step 7: Add image information. srcset lists every rendition of an
+      // image; src and alt say what it is.
       if (processingResult.images) {
-        result.images = processingResult.images;
+        result.images = processingResult.images.map(({ srcset: _srcset, ...image }) => image);
       }
 
       // Step 8: Assess content quality

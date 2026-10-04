@@ -57,11 +57,13 @@ test('MAX_INLINE_CHARS_PARAM is one optional int in [1000, 10,000,000]', () => {
   assert.equal(schema.safeParse({ max_inline_chars: 10_000_001 }).success, false);
 });
 
-test('the twelve large-output tools are configured and all of them truncate', () => {
+test('the twenty large-output tools are configured and all of them truncate', () => {
+  // R24 4.3 added the last eight: none had a cap.
   assert.deepEqual(Object.keys(INLINE_THRESHOLD_TOOLS).sort(), [
-    'batch_scrape', 'browser_session', 'crawl_deep', 'deep_research', 'extract_content',
-    'extract_embedded_state', 'fetch_url', 'get_batch_results', 'process_document', 'scrape',
-    'scrape_with_actions', 'stealth_mode'
+    'agent', 'batch_scrape', 'browser_session', 'crawl_deep', 'deep_research', 'extract_content',
+    'extract_embedded_state', 'extract_links', 'extract_metadata', 'fetch_url', 'generate_llms_txt',
+    'get_batch_results', 'map_site', 'process_document', 'scrape', 'scrape_template',
+    'scrape_with_actions', 'search_web', 'stealth_mode', 'track_changes'
   ]);
   // extract_embedded_state was returned whole until plan Phase 3.1.
   for (const [name, cfg] of Object.entries(INLINE_THRESHOLD_TOOLS)) {
@@ -106,7 +108,7 @@ test('under the threshold the result is returned unchanged and nothing is stored
 
 test('a tool outside the config is never shaped', () => {
   const result = { rows: 'x'.repeat(50_000) };
-  const out = applyInlineThreshold('search_web', result, {}, { store, env });
+  const out = applyInlineThreshold('serp_rank', result, {}, { store, env });
   assert.equal(out.stored, false);
   assert.equal(out.result, result);
 });

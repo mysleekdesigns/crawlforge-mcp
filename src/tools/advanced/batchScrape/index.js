@@ -19,6 +19,7 @@ import { ElicitationHelper } from '../../../core/ElicitationHelper.js'; // D1.4
 import JobManager from '../../../core/JobManager.js';
 import WebhookDispatcher from '../../../core/WebhookDispatcher.js';
 import { getResultStore } from '../../../core/ResultStore.js';
+import { goneMessage } from '../../result/readResult.js';
 import { BatchScrapeSchema } from './schema.js';
 import { scrapeUrlsBatch, processResults, paginateResults } from './queue.js';
 import { sendWebhookNotification } from './reporter.js';
@@ -289,6 +290,10 @@ export class BatchScrapeTool extends EventEmitter {
       };
     }
 
+    // A batch the store held and dropped says why (expired, evicted, unreadable).
+    if (this.resultStore.tombstone?.(batchId)) {
+      throw new Error(`Batch ${batchId} not found. ${goneMessage(this.resultStore, batchId)}`);
+    }
     throw new Error(`Batch ${batchId} not found`);
   }
 
