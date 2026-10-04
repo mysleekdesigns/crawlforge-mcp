@@ -106,7 +106,7 @@ describe('DataForSEOSearchAdapter', () => {
     assert.equal(lastRequest.body[0].keyword, 'managed hosting');
     assert.equal(lastRequest.body[0].location_name, 'United States'); // default
     assert.equal(lastRequest.body[0].device, 'desktop');              // default
-    assert.equal(lastRequest.body[0].depth, 20);                      // default
+    assert.equal(lastRequest.body[0].depth, 30);                      // default
     assert.equal(lastRequest.body[0].language_code, 'en');            // default
   });
 

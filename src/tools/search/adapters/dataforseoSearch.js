@@ -12,8 +12,8 @@
  *   POST https://api.dataforseo.com/v3/serp/google/organic/live/advanced
  *
  * Cost: US$0.002 per 10 results of `depth` on Live Advanced — measured live,
- * not estimated: depth 10 bills $0.002, the depth 20 default bills $0.004, and
- * depth 100 bills $0.02. Deeper scans are also slower (see the timeout note
+ * not estimated: depth 10 bills $0.002, depth 20 bills $0.004, and depth 100
+ * bills $0.02, so the depth 30 default is $0.006. Deeper scans are also slower (see the timeout note
  * below), so raise `depth` only when a rank below the default is worth paying
  * for. For high-volume scheduled tracking, DataForSEO's task-based "Standard"
  * queue (task_post → tasks_ready → task_get) is cheaper; swap the endpoint +
@@ -51,7 +51,7 @@ export class DataForSEOSearchAdapter {
    * @param {number} [params.locationCode] - Numeric DataForSEO location code (overrides locationName)
    * @param {string} [params.languageCode='en'] - Language code
    * @param {('desktop'|'mobile')} [params.device='desktop'] - Device to emulate
-   * @param {number} [params.depth=20] - How many results to scan (billed per 10)
+   * @param {number} [params.depth=30] - How many results to scan (billed per 10)
    * @returns {Promise<{items: Array<Object>, meta: Object}>} Normalized organic results + metadata
    */
   async search(params) {
@@ -61,7 +61,7 @@ export class DataForSEOSearchAdapter {
       locationCode,
       languageCode = 'en',
       device = 'desktop',
-      depth = 20,
+      depth = 30,
     } = params;
 
     if (!keyword) {
