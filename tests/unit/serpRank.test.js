@@ -368,6 +368,33 @@ describe('SerpRankTool', () => {
     assert.equal(res.target, 'target.com'); // scheme + query stripped, lowercased
   });
 
+  test('a URL target matches by host, not by exact URL — any page on the host counts', async () => {
+    stubFetch(() => okResponse(envelope(SAMPLE_ITEMS)));
+    const tool = new SerpRankTool({ login: 'l', password: 'p' });
+    // This exact page is nowhere on the SERP; target.com/hosting and blog.target.com still match.
+    const res = await tool.execute({ keyword: 'kw', target: 'https://target.com/not-on-the-serp' });
+    assert.equal(res.found, true);
+    assert.equal(res.url, 'https://target.com/hosting');
+    assert.deepEqual(res.allPositions.map((m) => m.url), ['https://target.com/hosting', 'https://blog.target.com/guide']);
+  });
+
+  test('a subdomain target narrows the match to that subdomain', async () => {
+    stubFetch(() => okResponse(envelope(SAMPLE_ITEMS)));
+    const tool = new SerpRankTool({ login: 'l', password: 'p' });
+    const res = await tool.execute({ keyword: 'kw', target: 'blog.target.com' });
+    assert.deepEqual(res.allPositions.map((m) => m.position), [3]);
+  });
+
+  test('port, fragment and userinfo are dropped from the target, as the REST route does', async () => {
+    stubFetch(() => okResponse(envelope(SAMPLE_ITEMS)));
+    const tool = new SerpRankTool({ login: 'l', password: 'p' });
+    for (const target of ['target.com:443', 'https://target.com:8443/x', 'https://target.com#top', 'http://user@www.target.com/x']) {
+      const res = await tool.execute({ keyword: 'kw', target });
+      assert.equal(res.target, 'target.com', target);
+      assert.equal(res.found, true, target);
+    }
+  });
+
   test('schema validation — rejects with a ZodError on bad input', async () => {
     const tool = new SerpRankTool({ login: 'l', password: 'p' });
     const isZod = (err) => err?.name === 'ZodError';

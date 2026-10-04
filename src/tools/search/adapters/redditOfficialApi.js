@@ -21,7 +21,7 @@
  * the caller falls back to the archives, which do support them.
  */
 
-import { normalizePost, normalizeTreeNodes, stripIdPrefix, stripNamePrefix } from '../redditNormalize.js';
+import { normalizePost, normalizeTreeNodes, countTree, stripIdPrefix, stripNamePrefix } from '../redditNormalize.js';
 import { identityHeaders, resolveUserAgent } from '../../../utils/fetchIdentity.js';
 
 const TOKEN_URL = 'https://www.reddit.com/api/v1/access_token';
@@ -188,7 +188,7 @@ export class RedditOfficialApiAdapter {
     const comments = normalizeTreeNodes(data?.[1]?.data?.children);
     return {
       source: 'reddit_api', mode: 'thread', link_id: id,
-      post, comments, comment_count: comments.length,
+      post, comments, ...countTree(comments),
       notes: this.#notes(), checkedAt: new Date().toISOString(),
     };
   }

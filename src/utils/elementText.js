@@ -8,11 +8,16 @@
  * (2026-09-04). Here a table, a row group or a row renders one line per row
  * with cells joined by " | " (the convention _mainContent.js uses for the text
  * of a recovered table), an element that wraps a table renders each table that
- * way in place, and anything else is .text().trim(), unchanged.
+ * way in place, and anything else is read one line per block element through
+ * crawlforge-extractors' flattenText, where .text() welded
+ * "<h2>Title</h2><p>Body</p>" into "TitleBody" (R24 3.1). A cell's blocks are
+ * joined by a space, so a row stays on one line.
  *
  * batch_scrape's selector extraction (batchScrape/worker.js) and
  * scrape_structured read matched elements through this helper too (5.6.6).
  */
+
+import { flattenText } from 'crawlforge-extractors';
 
 const ROW_GROUPS = new Set(['table', 'thead', 'tbody', 'tfoot']);
 
@@ -21,7 +26,7 @@ function tagOf(el) {
 }
 
 function cellText($, cell) {
-  return $(cell).text().replace(/\s+/g, ' ').trim();
+  return flattenText($, $(cell)).replace(/\s+/g, ' ');
 }
 
 function rowText($, row) {
@@ -53,18 +58,20 @@ export function elementText($, el) {
   if (ROW_GROUPS.has(tag)) return tableText($, el);
 
   const $el = $(el);
-  if ($el.find('table').length === 0) return $el.text().trim();
+  if ($el.find('table').length === 0) return flattenText($, $el);
 
-  // A wrapper around one or more tables: swap each outermost table for its
-  // line-per-row text (as a text node, so cell content is never re-parsed as
-  // markup), then read the wrapper as lines.
+  // A wrapper around one or more tables: swap each outermost table for one
+  // block per row line (set as text, so cell content is never re-parsed as
+  // markup), then read the wrapper one line per block.
   const $clone = $el.clone();
   $clone.find('table')
     .filter((_, table) => $(table).parents('table').length === 0)
     .each((_, table) => {
-      $(table).replaceWith($('<div></div>').text(`\n${tableText($, table)}\n`));
+      const $rows = $('<div></div>');
+      for (const line of tableText($, table).split('\n')) $rows.append($('<div></div>').text(line));
+      $(table).replaceWith($rows);
     });
-  return $clone.text().split('\n').map((line) => line.trim()).filter(Boolean).join('\n');
+  return flattenText($, $clone);
 }
 
 export default elementText;

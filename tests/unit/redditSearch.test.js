@@ -9,6 +9,7 @@
 
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { RedditSearchTool } from '../../src/tools/search/redditSearch.js';
 
 // ---------------------------------------------------------------------------
@@ -304,7 +305,8 @@ describe('RedditSearchTool — thread mode', () => {
 
     assert.equal(res.mode, 'thread');
     assert.equal(res.post.title, RAW_POST.title);
-    assert.equal(res.comment_count, 1);
+    assert.equal(res.comment_count, 2);       // the top comment and its reply
+    assert.equal(res.comments_collapsed, 5);  // the stub's count, not its 2 ids
     const top = res.comments[0];
     assert.equal(top.body, RAW_COMMENT.body);
     assert.equal(top.replies.length, 2);
@@ -321,6 +323,27 @@ describe('RedditSearchTool — thread mode', () => {
     const res = await tool.execute({ mode: 'thread', link_id: 'zzzzzz' });
     assert.equal(res.post, null);
     assert.equal(res.comment_count, 0);
+    assert.equal(res.comments_collapsed, 0);
+  });
+
+  // A live thread read (2026-10-04, 1w80olh, limit 100) reported
+  // comment_count 19 — the top-level node count, one of them a stub — against
+  // 100 comments returned. The fixture keeps three of those top-level nodes.
+  test('counts every returned comment at every depth, and the comments the stubs hide (real capture)', async () => {
+    const fx = JSON.parse(readFileSync(new URL('../fixtures/reddit/arctic-shift-thread-1w80olh.json', import.meta.url), 'utf8'));
+    stubFetch((url) => String(url).includes('/api/posts/ids')
+      ? okResponse({ data: [fx.post] })
+      : okResponse(fx.tree));
+    const res = await new RedditSearchTool().execute({ mode: 'thread', link_id: '1w80olh', limit: 100 });
+
+    assert.equal(res.comments.length, 3);      // two comments and the root stub
+    assert.equal(res.comment_count, 6);        // 5 in the first branch + 1
+    assert.equal(res.comments_collapsed, 57);  // nested stub 4 + root stub 53
+    const rootStub = res.comments[2];
+    assert.equal(rootStub.more_count, 53);
+    assert.equal(rootStub.more_ids.length, 36); // direct replies only
+    // The post's own total is a separate figure the counters do not try to match.
+    assert.equal(res.post.num_comments, 208);
   });
 });
 
@@ -503,7 +526,8 @@ describe('RedditSearchTool — official API path', () => {
     const call = requests.find((r) => isOauth(r.url));
     assert.match(call.url.pathname, /\/comments\/1twm1zh$/); // t3_ stripped
     assert.equal(res.post.title, RAW_POST.title);
-    assert.equal(res.comment_count, 1);
+    assert.equal(res.comment_count, 2);
+    assert.equal(res.comments_collapsed, 3);
     assert.equal(res.comments[0].replies[0].body, 'nested');
     assert.deepEqual(res.comments[0].replies[1], { more_count: 3, more_ids: ['aaa'] });
   });

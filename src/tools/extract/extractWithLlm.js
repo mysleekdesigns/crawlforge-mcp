@@ -239,9 +239,20 @@ function hasNoExtractableData(parsed) {
   return Object.values(parsed).every(hasNoExtractableData);
 }
 
+/**
+ * The fetch signal for one model call: its own 120 s bound, plus the caller's
+ * signal when there is one. scrape's json format gives up after 60 s, and
+ * without the caller's signal its request kept the model busy until the 120 s
+ * bound.
+ */
+function requestSignal(signal) {
+  const timeout = AbortSignal.timeout(120_000);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
 // ── OpenAI call ───────────────────────────────────────────────────────────────
 
-async function callOpenAI({ apiKey, model, systemMessage, userMessage, maxTokens }) {
+async function callOpenAI({ apiKey, model, systemMessage, userMessage, maxTokens, signal }) {
   const url = `${openaiBaseUrl()}/v1/chat/completions`;
   const body = {
     model,
@@ -260,7 +271,7 @@ async function callOpenAI({ apiKey, model, systemMessage, userMessage, maxTokens
       'Authorization': `Bearer ${apiKey}`
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(120_000)
+    signal: requestSignal(signal)
   });
 
   if (!response.ok) {
@@ -279,7 +290,7 @@ async function callOpenAI({ apiKey, model, systemMessage, userMessage, maxTokens
 
 // ── Anthropic call ────────────────────────────────────────────────────────────
 
-async function callAnthropic({ apiKey, model, systemMessage, userMessage, maxTokens, schema }) {
+async function callAnthropic({ apiKey, model, systemMessage, userMessage, maxTokens, schema, signal }) {
   const url = `${anthropicBaseUrl()}/v1/messages`;
   const useToolUse = schema && Object.keys(schema).length > 0;
 
@@ -310,7 +321,7 @@ async function callAnthropic({ apiKey, model, systemMessage, userMessage, maxTok
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(120_000)
+    signal: requestSignal(signal)
   });
 
   if (!response.ok) {
@@ -339,7 +350,7 @@ async function callAnthropic({ apiKey, model, systemMessage, userMessage, maxTok
 
 // ── Ollama call ───────────────────────────────────────────────────────────────
 
-async function callOllama({ model, systemMessage, userMessage, maxTokens, schema }) {
+async function callOllama({ model, systemMessage, userMessage, maxTokens, schema, signal }) {
   const url = `${ollamaBaseUrl()}/api/chat`;
   const body = {
     model,
@@ -360,7 +371,7 @@ async function callOllama({ model, systemMessage, userMessage, maxTokens, schema
       method: 'POST',
       headers: ollamaHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120_000)
+      signal: requestSignal(signal)
     });
   } catch (err) {
     const code = err?.cause?.code;
@@ -394,14 +405,14 @@ async function callOllama({ model, systemMessage, userMessage, maxTokens, schema
 
 // ── LLM dispatch ─────────────────────────────────────────────────────────────
 
-async function callLLM({ provider, apiKey, model, systemMessage, userMessage, maxTokens, schema }) {
+async function callLLM({ provider, apiKey, model, systemMessage, userMessage, maxTokens, schema, signal }) {
   if (provider === 'openai') {
-    return callOpenAI({ apiKey, model, systemMessage, userMessage, maxTokens });
+    return callOpenAI({ apiKey, model, systemMessage, userMessage, maxTokens, signal });
   }
   if (provider === 'ollama') {
-    return callOllama({ model, systemMessage, userMessage, maxTokens, schema });
+    return callOllama({ model, systemMessage, userMessage, maxTokens, schema, signal });
   }
-  return callAnthropic({ apiKey, model, systemMessage, userMessage, maxTokens, schema });
+  return callAnthropic({ apiKey, model, systemMessage, userMessage, maxTokens, schema, signal });
 }
 
 // ── Tool class ────────────────────────────────────────────────────────────────
@@ -430,6 +441,8 @@ export class ExtractWithLlm {
    * @param {boolean} [params.respect_robots] - Per-request robots.txt override
    * @param {string}  [params.user_agent]     - Per-request identity override
    * @param {boolean} [params.verify_numbers] - Numeric provenance guard (default true)
+   * @param {AbortSignal} [params.signal] - Aborts the model request(s); an aborted
+   *   call skips the retry and the sampling fallback
    * @returns {Promise<Object>}
    */
   async execute(params) {
@@ -443,7 +456,8 @@ export class ExtractWithLlm {
       maxTokens = 4096,
       respect_robots,
       user_agent,
-      verify_numbers = true
+      verify_numbers = true,
+      signal
     } = params;
 
     // Validate: exactly one of url or content must be provided
@@ -511,9 +525,10 @@ export class ExtractWithLlm {
     let rawText, usage, resolvedModel = model;
     try {
       ({ rawText, usage } = await callLLM({
-        provider, apiKey, model, systemMessage, userMessage, maxTokens, schema
+        provider, apiKey, model, systemMessage, userMessage, maxTokens, schema, signal
       }));
     } catch (llmErr) {
+      if (signal?.aborted) return { success: false, error: `LLM call aborted: ${llmErr.message}` };
       // D1.3: If provider is 'auto'/'ollama' and it failed, try MCP sampling as final fallback
       if (providerParam === 'auto' || providerParam === 'ollama') {
         try {
@@ -562,7 +577,7 @@ export class ExtractWithLlm {
       try {
         ({ rawText: retryRaw, usage: retryUsage } = await callLLM({
           provider, apiKey, model, systemMessage,
-          userMessage: retryUserMessage, maxTokens, schema
+          userMessage: retryUserMessage, maxTokens, schema, signal
         }));
         // Merge usage
         usage = {

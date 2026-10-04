@@ -597,20 +597,27 @@ export class UnifiedScrapeTool {
           // A long page is up to 50,000 characters of prompt and, on an
           // empty first reply, a second call: a 36,000-character page failed
           // only after ~80 s (R24). The wait is bounded, and running out of
-          // it is a clear error rather than a client-side timeout.
+          // it is a clear error rather than a client-side timeout. Running out
+          // also aborts the model request, which otherwise kept Ollama busy
+          // until its own 120 s bound.
           let timer;
+          const controller = new AbortController();
           const result = await Promise.race([
             extractWithLlm.execute({
               content: text,
               prompt: fmt.prompt || 'Extract structured data from this page content.',
               schema: fmt.schema,
-              provider: 'auto'
+              provider: 'auto',
+              signal: controller.signal
             }),
             new Promise((_, reject) => {
-              timer = setTimeout(() => reject(new Error(
-                `extraction did not finish within ${this._jsonTimeoutMs / 1000} s on ${text.length} characters of page text; ` +
-                'ask for {type:"highlights", query} to get only the relevant part, or call extract_with_llm with a shorter excerpt as content'
-              )), this._jsonTimeoutMs);
+              timer = setTimeout(() => {
+                reject(new Error(
+                  `extraction did not finish within ${this._jsonTimeoutMs / 1000} s on ${text.length} characters of page text; ` +
+                  'ask for {type:"highlights", query} to get only the relevant part, or call extract_with_llm with a shorter excerpt as content'
+                ));
+                controller.abort();
+              }, this._jsonTimeoutMs);
             })
           ]).finally(() => clearTimeout(timer));
           content.json = result.success ? result.data : { error: result.error };

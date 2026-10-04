@@ -1284,16 +1284,25 @@ export class StealthBrowserManager {
 
     const headers = {
       'Accept-Language': `${persona.locale},${language};q=0.9`,
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
       'Accept-Encoding': 'gzip, deflate, br',
-      'Cache-Control': 'max-age=0',
-      'Upgrade-Insecure-Requests': '1',
       // No Sec-Fetch-* here. They are per-request values the browser computes
       // itself (a stylesheet is Sec-Fetch-Dest: style, not document), and
       // forcing navigation values onto every request through
       // setExtraHTTPHeaders made Chromium reject each subresource with
       // ERR_INVALID_ARGUMENT — jQuery never loaded, so a JS-rendered page came
       // back as a title and an empty body.
+      //
+      // No Accept, Cache-Control or Upgrade-Insecure-Requests either, for the
+      // same reason and a worse effect. Chromium sends all three on a
+      // navigation by itself, and none of them is CORS-safelisted (Accept
+      // because this value is over 128 bytes). Added to every request, they
+      // turned each cross-origin CORS fetch into a preflighted one, and a
+      // server that answers no OPTIONS refuses it. Cloudflare's Turnstile
+      // api.js is loaded that way, so the challenge could never load and the
+      // interstitial reported "Incompatible browser extension or network
+      // configuration" (R24, scrapingcourse.com/cloudflare-challenge). Every
+      // header left here is either safelisted or a forbidden name, which the
+      // CORS check never counts.
       'sec-ch-ua-mobile': '?0',
       'sec-ch-ua-platform': this.generateSecChUaPlatform(selectedOS)
     };

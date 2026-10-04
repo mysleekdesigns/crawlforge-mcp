@@ -1,0 +1,199 @@
+{
+  "_comment": "Condensed from a live Arctic Shift capture 2026-10-04 (reddit_search thread mode, link_id 1w80olh, limit 100): the post row from /api/posts/ids and three of the 19 top-level nodes of /api/comments/tree, unchanged except for dropped fields. Returned comments 6, more stubs 2 (count 4 + 53), post num_comments 208.",
+  "post": {
+    "id": "1w80olh",
+    "title": ".gitignore everything by default",
+    "author": "der_gopher",
+    "subreddit": "programming",
+    "created_utc": 1788614629,
+    "score": 311,
+    "num_comments": 208,
+    "upvote_ratio": 0.79,
+    "link_flair_text": null,
+    "over_18": false,
+    "selftext": "",
+    "url": "https://packagemain.tech/p/gitignore-everything-by-default",
+    "permalink": "/r/programming/comments/1w80olh/gitignore_everything_by_default/"
+  },
+  "tree": {
+    "data": [
+      {
+        "kind": "t1",
+        "data": {
+          "id": "p7yy1gn",
+          "author": "smoke-bubble",
+          "subreddit": "programming",
+          "created_utc": 1788615188,
+          "score": 4,
+          "body": "No light theme? ",
+          "link_id": "t3_1w80olh",
+          "parent_id": "t3_1w80olh",
+          "permalink": "/r/programming/comments/1w80olh/gitignore_everything_by_default/p7yy1gn/",
+          "replies": {
+            "kind": "Listing",
+            "data": {
+              "children": [
+                {
+                  "kind": "t1",
+                  "data": {
+                    "id": "p7yyxws",
+                    "author": "der_gopher",
+                    "subreddit": "programming",
+                    "created_utc": 1788615475,
+                    "score": -16,
+                    "body": "On Substack? Why you need a light theme? Are you a Java developer?",
+                    "link_id": "t3_1w80olh",
+                    "parent_id": "t1_p7yy1gn",
+                    "permalink": "/r/programming/comments/1w80olh/gitignore_everything_by_default/p7yyxws/",
+                    "replies": {
+                      "kind": "Listing",
+                      "data": {
+                        "children": [
+                          {
+                            "kind": "t1",
+                            "data": {
+                              "id": "p7yzr04",
+                              "author": "smoke-bubble",
+                              "subreddit": "programming",
+                              "created_utc": 1788615731,
+                              "score": 11,
+                              "body": "I care for my eyes. ",
+                              "link_id": "t3_1w80olh",
+                              "parent_id": "t1_p7yyxws",
+                              "permalink": "/r/programming/comments/1w80olh/gitignore_everything_by_default/p7yzr04/",
+                              "replies": {
+                                "kind": "Listing",
+                                "data": {
+                                  "children": [
+                                    {
+                                      "kind": "t1",
+                                      "data": {
+                                        "id": "p7z0mnp",
+                                        "author": "der_gopher",
+                                        "subreddit": "programming",
+                                        "created_utc": 1788616009,
+                                        "score": -4,
+                                        "body": "but in the dark env, dark mode is better no?",
+                                        "link_id": "t3_1w80olh",
+                                        "parent_id": "t1_p7yzr04",
+                                        "permalink": "/r/programming/comments/1w80olh/gitignore_everything_by_default/p7z0mnp/",
+                                        "replies": {
+                                          "kind": "Listing",
+                                          "data": {
+                                            "children": [
+                                              {
+                                                "kind": "t1",
+                                                "data": {
+                                                  "id": "p7z1je9",
+                                                  "author": "smoke-bubble",
+                                                  "subreddit": "programming",
+                                                  "created_utc": 1788616295,
+                                                  "score": 6,
+                                                  "body": "Our eyes are not made for looking at dark themes. The pupils need to widen to let more light in which makes it for the eye harder to focus. ",
+                                                  "link_id": "t3_1w80olh",
+                                                  "parent_id": "t1_p7z0mnp",
+                                                  "permalink": "/r/programming/comments/1w80olh/gitignore_everything_by_default/p7z1je9/",
+                                                  "replies": ""
+                                                }
+                                              },
+                                              {
+                                                "kind": "more",
+                                                "data": {
+                                                  "count": 4,
+                                                  "id": "p7z1lkh",
+                                                  "name": "t1_p7z1lkh",
+                                                  "parent_id": "t1_p7z0mnp",
+                                                  "depth": 1,
+                                                  "children": [
+                                                    "p7z1lkh",
+                                                    "p7z9rjw",
+                                                    "p7zbtoq"
+                                                  ]
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "kind": "t1",
+        "data": {
+          "id": "p7yzgj7",
+          "author": "rtkit",
+          "subreddit": "programming",
+          "created_utc": 1788615639,
+          "score": 6,
+          "body": "What?!",
+          "link_id": "t3_1w80olh",
+          "parent_id": "t3_1w80olh",
+          "permalink": "/r/programming/comments/1w80olh/gitignore_everything_by_default/p7yzgj7/",
+          "replies": ""
+        }
+      },
+      {
+        "kind": "more",
+        "data": {
+          "count": 53,
+          "id": "p7znyw5",
+          "name": "t1_p7znyw5",
+          "parent_id": "t3_1w80olh",
+          "depth": 1,
+          "children": [
+            "p7znyw5",
+            "p7zoqk9",
+            "p7zsaah",
+            "p7ztkq2",
+            "p7zvvn5",
+            "p803opx",
+            "p803x68",
+            "p8049hj",
+            "p80n67w",
+            "p80wqrq",
+            "p80wten",
+            "p8112ti",
+            "p814nvn",
+            "p819ofu",
+            "p81ocx9",
+            "p81sspv",
+            "p81ur4l",
+            "p81x8gs",
+            "p82fwid",
+            "p835vd5",
+            "p83c0l8",
+            "p850wnc",
+            "p851647",
+            "p858q1q",
+            "p85amb2",
+            "p85cuc0",
+            "p86fdm7",
+            "p86ping",
+            "p8bwswa",
+            "p8cwxk2",
+            "p8dn5yg",
+            "p8h13yi",
+            "p8rlx8r",
+            "p8t81pz",
+            "p992tdw",
+            "paurw2c"
+          ]
+        }
+      }
+    ]
+  }
+}
