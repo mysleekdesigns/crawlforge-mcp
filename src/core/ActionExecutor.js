@@ -8,11 +8,15 @@ import BrowserProcessor from './processing/BrowserProcessor.js';
 import { EventEmitter } from 'events';
 import { createHash } from 'node:crypto';
 import { assertUrlAllowed, assertNavigationAllowed } from '../utils/ssrfGuard.js';
-import { browserPreflight, redirectGate, pageMoveGate, gateRefusalCode } from '../utils/robotsGate.js';
+import { browserPreflight, redirectGate, pageMoveGate, gateRefusalCode, paceBrowserAction } from '../utils/robotsGate.js';
 import { isRef, resolveRef, captureSnapshot } from './browser/snapshot.js';
 import { settlePage } from './browser/settle.js';
 import { handleConsent } from './browser/consent.js';
 import { stealthDocumentVerdict } from '../utils/stealthVerdict.js';
+
+// Actions that can make the page send a request (follow a link, submit a form,
+// trigger a load): each waits out the page host's Crawl-delay first.
+const REQUESTING_ACTION_TYPES = new Set(['click', 'press', 'select', 'check']);
 
 // executeJavaScript hardening limits (only relevant when the deploy-time flag
 // ALLOW_JAVASCRIPT_EXECUTION=true is set; JS execution stays off by default).
@@ -799,6 +803,9 @@ export class ActionExecutor extends EventEmitter {
     // A navigate leaves the page it is on and gates the URL it is sent to.
     if (action.type !== 'navigate') await this.assertPageAllowed(page, browserOptions);
     const urlBefore = page.url();
+    // A navigate waits its turn in its own pre-flight; these can send the page
+    // somewhere too, and the request goes out before anything can ask.
+    if (REQUESTING_ACTION_TYPES.has(action.type)) await paceBrowserAction(urlBefore);
     const actionResult = await this.executeActionInternal(page, action, executionContext);
     await this.assertPageAllowed(page, browserOptions);
     // A click that followed a link or a submit that posted a form is a

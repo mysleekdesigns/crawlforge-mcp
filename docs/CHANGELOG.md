@@ -5,6 +5,8 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.20.0] - 2026-10-06
+
 ### Changed
 - **`scrape` takes at most one `highlights` and one `question` format per
   call.** The result has one `highlights` list and one `answer`, so a second
@@ -13,6 +15,13 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
   charged nothing; make another call for another query.
 
 ### Fixed
+- **Browser clicks wait out Crawl-delay.** In `scrape_with_actions` and
+  `browser_session`, a `navigate` and the first load were spaced by the host's
+  robots.txt `Crawl-delay`, but a `click`, `press`, `select` or `check` was
+  not: those can follow a link or submit a form, the browser sends that
+  request the moment the action runs, and the gate only saw where it led
+  afterwards. Each now waits its turn on the current page's host first. An
+  action that turns out to send nothing still takes the slot.
 - **A local file path no longer reaches crawlforge.dev in the usage report.**
   `process_document` with `sourceType: "file"` or `"pdf_file"` reads `source`
   from disk, and the usage report sent that path as written
