@@ -5,6 +5,8 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.20.0] - 2026-10-06
+
 ### Changed
 - **`scrape` takes at most one `highlights` and one `question` format per
   call.** The result has one `highlights` list and one `answer`, so a second
