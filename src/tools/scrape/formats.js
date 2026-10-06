@@ -52,6 +52,23 @@ export const FormatSchema = z.union([
 const QUERY_FORMATS = new Set(['highlights', 'question']);
 
 /**
+ * True when `formats` holds at most one `highlights` and one `question`. The
+ * result has one slot of each, so a second entry overwrote the first while
+ * the add-on still charged; the schema refuses it instead.
+ *
+ * @param {Array<unknown>} formats
+ * @returns {boolean}
+ */
+export function oneOfEachQueryFormat(formats) {
+  return [...QUERY_FORMATS].every(
+    (type) => formats.filter((fmt) => fmt && typeof fmt === 'object' && fmt.type === type).length <= 1
+  );
+}
+
+export const ONE_OF_EACH_QUERY_FORMAT_MESSAGE =
+  "At most one 'highlights' and one 'question' format per call; make another call for another query";
+
+/**
  * What the query-scoped formats add to `scrape`'s base price: 1 credit once
  * per call when any `highlights` or `question` format is present, 3 more
  * once when any of them asks for `mode: "model"`. Reads the raw params

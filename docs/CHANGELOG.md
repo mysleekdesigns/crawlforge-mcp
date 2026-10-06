@@ -5,6 +5,13 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Changed
+- **`scrape` takes at most one `highlights` and one `question` format per
+  call.** The result has one `highlights` list and one `answer`, so a second
+  entry of either type overwrote the first while the +1 add-on was still
+  charged, and nothing said so. A second entry is now a validation error,
+  charged nothing; make another call for another query.
+
 ### Fixed
 - **A local file path no longer reaches crawlforge.dev in the usage report.**
   `process_document` with `sourceType: "file"` or `"pdf_file"` reads `source`

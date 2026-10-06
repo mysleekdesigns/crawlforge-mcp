@@ -19,6 +19,7 @@ import { segmentUnits, rankUnits } from 'crawlforge-extractors';
 import { stealthDocumentVerdict as documentVerdict } from '../../utils/stealthVerdict.js';
 import {
   SCRAPE_STRING_FORMATS, JsonFormatSchema, HighlightsFormatSchema, QuestionFormatSchema, FormatSchema,
+  oneOfEachQueryFormat, ONE_OF_EACH_QUERY_FORMAT_MESSAGE,
   scrapeFormatSurcharge
 } from './formats.js';
 import { SCRAPE_ESCALATION_SHAPE, SCRAPE_ESCALATION_CREDITS, aBrowserMightPass } from './escalation.js';
@@ -57,7 +58,9 @@ const isQueryFormat = (fmt) => Boolean(fmt) && typeof fmt === 'object' && (fmt.t
 // keeping its own copy (Phase 0, 0.3).
 export const SCRAPE_INPUT_SHAPE = {
   url: z.string().url().describe('The URL to scrape'),
-  formats: z.array(FormatSchema).min(1).optional().default(['markdown']).describe('Formats to return (default: ["markdown"])'),
+  formats: z.array(FormatSchema).min(1)
+    .refine(oneOfEachQueryFormat, ONE_OF_EACH_QUERY_FORMAT_MESSAGE)
+    .optional().default(['markdown']).describe('Formats to return (default: ["markdown"]); at most one highlights and one question format per call'),
   onlyMainContent: z.boolean().optional().default(true).describe('Strip boilerplate via Readability (default: true)'),
   // Pass-through to fetchAndParse
   timeoutMs: z.number().min(1000).max(60000).optional().default(15000).describe('Fetch timeout in ms'),

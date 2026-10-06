@@ -14,7 +14,7 @@
         "default": [
           "markdown"
         ],
-        "description": "Formats to return (default: [\"markdown\"])",
+        "description": "Formats to return (default: [\"markdown\"]); at most one highlights and one question format per call",
         "minItems": 1,
         "type": "array",
         "items": {
