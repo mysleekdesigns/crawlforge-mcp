@@ -175,9 +175,11 @@ export async function throttleHost(url, options = {}) {
       waits.push(state.lastRequestAt + crawlDelayMs - Date.now());
     }
     const wait = Math.max(0, ...waits);
+    // Recorded before the sleep, as the time this request will go out: a
+    // concurrent caller then queues a delay behind it instead of reading the
+    // same lastRequestAt and waking at the same moment.
+    state.lastRequestAt = Date.now() + wait;
     if (wait > 0) await sleep(wait);
-
-    state.lastRequestAt = Date.now();
   }
 
   if (config.rateLimit.perDomain === false) return; // our own throttle disabled
