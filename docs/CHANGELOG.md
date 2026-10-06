@@ -6,6 +6,14 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **A local file path no longer reaches crawlforge.dev in the usage report.**
+  `process_document` with `sourceType: "file"` or `"pdf_file"` reads `source`
+  from disk, and the usage report sent that path as written
+  (`/Users/jane/Clients/AcmeCorp/contract.pdf`): the secret mask matched key
+  names and never saw it. The report now carries `[local file].pdf`, and any
+  value shaped like a local path (`~/`, `file://`, `C:\`, a UNC share, or an
+  absolute path under `/Users`, `/home` and similar) is reduced the same way.
+  Local logs keep the path.
 - **Concurrent requests to a Crawl-delay host now queue a delay apart.** Each
   caller read the host's last request time, slept, and only then recorded its
   own, so every caller that arrived during one wait woke at the same moment: a

@@ -81,6 +81,43 @@ export function maskSecrets(obj, depth = 0) {
   return obj;
 }
 
+// A string that names a place on the customer's disk: home-relative, a file
+// URL, a Windows drive or UNC share, or an absolute POSIX path under a root
+// that holds user files. A bare "/" or a URL path like "/pricing" is not one.
+const LOCAL_PATH_RE = /^(?:~[\\/]|file:\/\/|[A-Za-z]:[\\/]|\\\\|\/(?:Users|home|root|tmp|private|var|mnt|Volumes|media|opt|srv)\/)/;
+// process_document reads `source` from disk for these, relative paths included.
+const LOCAL_SOURCE_TYPES = new Set(['file', 'pdf_file']);
+
+/** "[local file]" plus the extension, so usage stays countable by file type. */
+function maskPath(value) {
+  const ext = /\.([A-Za-z0-9]{1,8})$/.exec(value.split(/[\\/]/).pop() || '');
+  return ext ? `[local file].${ext[1].toLowerCase()}` : '[local file]';
+}
+
+/**
+ * Deep-clone obj with every local file path reduced to its extension. For the
+ * usage report, which leaves the machine: a path names the customer's clients
+ * and folders, and maskSecrets matches key names, so it never saw one. Local
+ * logs keep the path. Does NOT mutate the original.
+ * @param {*} obj
+ * @param {number} depth - internal recursion guard
+ * @returns {*}
+ */
+export function maskLocalPaths(obj, depth = 0) {
+  if (depth > 10) return obj;
+  if (typeof obj === 'string') return LOCAL_PATH_RE.test(obj) ? maskPath(obj) : obj;
+  if (Array.isArray(obj)) return obj.map(item => maskLocalPaths(item, depth + 1));
+  if (obj !== null && typeof obj === 'object') {
+    const localSource = LOCAL_SOURCE_TYPES.has(obj.sourceType) && typeof obj.source === 'string';
+    const result = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = key === 'source' && localSource ? maskPath(value) : maskLocalPaths(value, depth + 1);
+    }
+    return result;
+  }
+  return obj;
+}
+
 /**
  * Redact secrets from an Error's message and stack.
  * Returns a new plain-object representation safe for logging.

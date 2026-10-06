@@ -11,7 +11,7 @@ import { randomUUID } from 'crypto';
 import { isCreatorModeVerified } from './creatorMode.js';
 import { resolveApiEndpoint } from './endpointGuard.js';
 import { logger } from '../utils/Logger.js';
-import { maskSecrets } from '../utils/secretMask.js';
+import { maskSecrets, maskLocalPaths } from '../utils/secretMask.js';
 import { scrapeFormatSurcharge } from '../tools/scrape/formats.js';
 import { scrapeEscalationSurcharge } from '../tools/scrape/escalation.js';
 import { agentEscalationSurcharge } from '../tools/agent/escalation.js';
@@ -385,7 +385,8 @@ class AuthManager {
       creditsUsed,
       // Never send raw tool params to the backend — they can carry third-party
       // API keys, auth headers, or webhook secrets. Mask before it leaves the process.
-      requestData: maskSecrets(requestData),
+      // Local file paths too: they name the customer's clients and folders.
+      requestData: maskLocalPaths(maskSecrets(requestData)),
       responseStatus,
       processingTime,
       timestamp: new Date().toISOString(),
