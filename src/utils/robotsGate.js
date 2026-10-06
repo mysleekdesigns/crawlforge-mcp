@@ -362,6 +362,33 @@ export async function browserPreflight(url, options = {}) {
   return [...decision.warnings, ...crawlDelayWarning(url, decision.crawlDelayMs)];
 }
 
+/**
+ * Wait the page's host out before a browser action that can send a request:
+ * a click on a link, a submit, an Enter press, a select or checkbox wired to
+ * a load. The browser makes that request the moment the action runs and the
+ * gate only sees where it led afterwards (`alreadyRequested`), so the wait
+ * has to come first. Spaced by the CURRENT page's host — where the action will
+ * lead is not known until it has run.
+ *
+ * Reads Crawl-delay from the cached robots.txt with no allow/deny decision
+ * and no audit row: the page itself already passed the gate, and an override
+ * is recorded once per URL, not once per click. An action that sends nothing
+ * still takes a slot; overspacing a polite crawl is the safe way to be wrong.
+ *
+ * @param {string} url the page's current URL
+ * @returns {Promise<void>}
+ */
+export async function paceBrowserAction(url) {
+  if (!/^https?:/i.test(url || '')) return;
+  let crawlDelayMs = 0;
+  try {
+    crawlDelayMs = (await checkerFor(resolveUserAgent()).fetchCrawlDelay(url)) * 1000;
+  } catch {
+    // Unreadable robots.txt asks for no delay (see robotsPreflight).
+  }
+  await throttleHost(url, { crawlDelayMs });
+}
+
 /** Test/diagnostic hook: drop every cached robots.txt. */
 export function _resetRobotsGate() {
   checkers.clear();
