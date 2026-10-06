@@ -161,6 +161,26 @@ describe('robots.txt Crawl-delay is honoured (0.7)', () => {
   });
 });
 
+describe('concurrent requests to one Crawl-delay host queue, one delay apart', () => {
+  test('three callers at once start a delay apart, not two of them together', async () => {
+    // Each caller read lastRequestAt, slept, and only then recorded its own
+    // request, so every caller that arrived during one wait woke together.
+    _resetHostRateLimiter();
+    const url = 'https://queue.example/page';
+    await throttleHost(url, { crawlDelayMs: 300 }); // the host was just requested
+    const started = [];
+    await Promise.all([1, 2, 3].map(async () => {
+      await throttleHost(url, { crawlDelayMs: 300 });
+      started.push(Date.now());
+    }));
+    started.sort((a, b) => a - b);
+    for (let i = 1; i < started.length; i++) {
+      const gap = started[i] - started[i - 1];
+      assert.ok(gap >= 280, `expected callers >=300ms apart, got ${gap}ms`);
+    }
+  });
+});
+
 describe('a redirect hop waits out Crawl-delay like any other request', () => {
   beforeEach(() => _resetRobotsGate());
 

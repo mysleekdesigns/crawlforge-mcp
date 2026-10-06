@@ -5,6 +5,14 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Fixed
+- **Concurrent requests to a Crawl-delay host now queue a delay apart.** Each
+  caller read the host's last request time, slept, and only then recorded its
+  own, so every caller that arrived during one wait woke at the same moment: a
+  `batch_scrape` pool on a host asking for 10 s sent several requests together
+  at 10 s. The request is now recorded before the wait, so the next caller
+  queues behind it.
+
 ## [6.19.2] - 2026-10-04
 
 **Upgrade note:** `serp_rank` scans 30 results by default. A target ranked
