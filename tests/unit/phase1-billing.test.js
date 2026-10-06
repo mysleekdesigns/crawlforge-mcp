@@ -124,6 +124,64 @@ test('reportUsage: telemetry payload masks llmConfig apiKey, headers.Authorizati
   }
 });
 
+test('reportUsage: a local file path never reaches the backend, only its extension', async (t) => {
+  if (skipIfCreatorMode(t)) return;
+  const tempHome = await makeTempHome();
+  resetSingleton(tempHome, 'phase1-path-user');
+
+  let capturedBody = null;
+  global.fetch = async (url, opts) => {
+    if (opts?.body) capturedBody = opts.body;
+    return { ok: true, json: async () => ({}) };
+  };
+
+  try {
+    // process_document reads local files; the path names the customer's
+    // client and folder structure, which is not ours to log.
+    await authManager.reportUsage('process_document', 2, {
+      source: '/Users/jane/Clients/AcmeCorp/contract.pdf',
+      sourceType: 'pdf_file'
+    });
+    let parsed = JSON.parse(capturedBody);
+    assert.ok(!capturedBody.includes('/Users/') && !capturedBody.includes('AcmeCorp') && !capturedBody.includes('contract'), capturedBody);
+    assert.equal(parsed.requestData.source, '[local file].pdf');
+    assert.equal(parsed.requestData.sourceType, 'pdf_file');
+
+    await authManager.reportUsage('process_document', 2, {
+      source: 'C:\\Users\\jane\\Clients\\notes.md',
+      sourceType: 'file'
+    });
+    parsed = JSON.parse(capturedBody);
+    assert.equal(parsed.requestData.source, '[local file].md');
+
+    // Path-shaped values under any key, wherever they sit.
+    await authManager.reportUsage('some_tool', 1, {
+      save: { path: '~/Clients/Acme/pricing.csv' },
+      out: 'file:///home/jane/x.json',
+      share: '\\\\fileserver\\clients\\acme.xlsx'
+    });
+    parsed = JSON.parse(capturedBody);
+    assert.deepEqual(
+      [parsed.requestData.save.path, parsed.requestData.out, parsed.requestData.share],
+      ['[local file].csv', '[local file].json', '[local file].xlsx']
+    );
+
+    // A URL source, and URL-ish or JSON paths, are left alone.
+    await authManager.reportUsage('process_document', 2, {
+      source: 'https://example.com/Users/report.pdf',
+      sourceType: 'pdf_url',
+      path: 'next_data.props.pageProps',
+      urlPath: '/'
+    });
+    parsed = JSON.parse(capturedBody);
+    assert.equal(parsed.requestData.source, 'https://example.com/Users/report.pdf');
+    assert.equal(parsed.requestData.path, 'next_data.props.pageProps');
+    assert.equal(parsed.requestData.urlPath, '/');
+  } finally {
+    await removeTempHome(tempHome);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // 2. A credit-check failure bills zero credits (handler never ran)
 // ---------------------------------------------------------------------------
