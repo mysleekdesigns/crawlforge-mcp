@@ -50,6 +50,36 @@ jobs:
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
 
+      # The runner is linux-x64, so `npm ci` installs only the linux-x64-gnu
+      # native packages, but manifest.json declares darwin and win32 too. Without
+      # this step the bundle loads no @napi-rs/canvas binding on macOS or
+      # Windows and process_document fails every PDF with "DOMMatrix is not
+      # defined" (every .mcpb from 6.0.0 to 6.20.1 shipped that way); impit, the
+      # Chrome-TLS escalation fetch, is missing there too. `npm install --force`
+      # would rewrite the tree, so each platform package is fetched with
+      # `npm pack` and extracted beside the Linux one, at the version the parent
+      # package has installed.
+      - name: Add macOS and Windows native binaries
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/native-pkgs
+          for parent in @napi-rs/canvas impit; do
+            version=$(jq -r '.version' "node_modules/${parent}/package.json")
+            for platform in darwin-arm64 darwin-x64 win32-x64-msvc; do
+              pkg="${parent}-${platform}"
+              tarball=$(npm pack "${pkg}@${version}" --pack-destination /tmp/native-pkgs --silent)
+              mkdir -p "node_modules/${pkg}"
+              tar -xzf "/tmp/native-pkgs/${tarball}" -C "node_modules/${pkg}" --strip-components=1
+            done
+          done
+          for platform in linux-x64-gnu darwin-arm64 darwin-x64 win32-x64-msvc; do
+            for parent in @napi-rs/canvas impit; do
+              ls "node_modules/${parent}-${platform}/"*.node >/dev/null \
+                || { echo "::error::${parent}-${platform} has no .node binary"; exit 1; }
+            done
+          done
+          ls -lh node_modules/@napi-rs/canvas-*/*.node node_modules/impit-*/*.node
+
       - name: Pack the bundle
         run: |
           VERSION=$(jq -r '.version' manifest.json)
