@@ -8,7 +8,7 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **Last Updated:** 2026-10-11
 
-**Dependency audit fix (2026-10-11, no version bump).** The nightly Security Scan failed `npm audit --audit-level=moderate` on three new advisories.
+**Dependency audit fix (2026-10-11, released in v6.20.1).** The nightly Security Scan failed `npm audit --audit-level=moderate` on three new advisories.
 - `@modelcontextprotocol/client` 2.0.0 → 2.3.1 (GHSA-6qxp-vccf-f47h, high; devDependency only) and `source-map-js` 1.2.1 → 1.2.2 (GHSA-68fv-2mgg-jv7q, high; via `jsdom → css-tree`), lockfile-only.
 - `sprintf-js` (GHSA-hp3w-g68c-fv3c, moderate) has no patched release. It came only through `argparse@1`, which `mammoth` and `js-yaml@3` load only from their CLI bins. A new `"argparse": "^2.0.1"` override removes `sprintf-js` from the tree; `mammoth`'s library path is unaffected.
 - `.gitignore`: `.env.creator` was never ignored, because Git has no inline comments and the rule matched the whole line. The comment now sits on its own line.
