@@ -111,9 +111,11 @@ function extractLinksFromDom($, pageUrl, docBaseUrl) {
     const href = $(el).attr('href');
     const text = $(el).text().trim();
     if (!href) return;
-    if (href.startsWith('#') || href.startsWith('javascript:')) return;
+    if (href.startsWith('#')) return;
     try {
-      const absoluteUrl = new URL(href, resolveBase).toString();
+      const resolved = new URL(href, resolveBase);
+      if (['javascript:', 'data:', 'vbscript:'].includes(resolved.protocol)) return;
+      const absoluteUrl = resolved.toString();
       const isExternal = new URL(absoluteUrl).origin !== pageOrigin;
       if (!seen.has(absoluteUrl)) {
         seen.add(absoluteUrl);

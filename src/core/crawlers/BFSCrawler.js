@@ -444,7 +444,7 @@ export class BFSCrawler {
     const links = [];
     $('a[href]').each((_, element) => {
       const href = $(element).attr('href');
-      if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
+      if (href && !href.startsWith('#') && !/^\s*(javascript|data|vbscript):/i.test(href)) {
         links.push(href);
       }
     });

@@ -1395,9 +1395,11 @@ function stealthScrapeFormats(formats, scraped) {
     const links = [];
     $('a[href]').each((_, el) => {
       const href = $(el).attr('href');
-      if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+      if (!href || href.startsWith('#')) return;
       try {
-        const absolute = new URL(href, scraped.url).toString();
+        const resolved = new URL(href, scraped.url);
+        if (['javascript:', 'data:', 'vbscript:'].includes(resolved.protocol)) return;
+        const absolute = resolved.toString();
         if (seen.has(absolute)) return;
         seen.add(absolute);
         links.push({ href: absolute, text: $(el).text().trim() });

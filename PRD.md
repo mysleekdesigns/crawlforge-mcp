@@ -8,6 +8,12 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **Last Updated:** 2026-10-11
 
+**CodeQL alert triage (2026-10-11, no version bump).** The code-scanning page showed 70 open alerts: 33 orphaned by retired analysis configurations, 16 in tests/scripts, 21 in production code (mostly false positives: SHA-256 over high-entropy API keys, `Math.random()` for fingerprint jitter and log IDs).
+- Link extraction in `scrape` (plain and stealth-escalated `links` format), `map_site`, `crawl_deep` and `urlNormalizer.extractLinks` skipped only `javascript:`; it now also drops `data:` and `vbscript:` (checked on the resolved protocol). `mailto:`/`tel:` links are still reported.
+- Deleted `src/utils/inputValidation.js` and `src/utils/securityMiddleware.js` — imported nowhere; the former held the flagged ReDoS/tag-filter regexes. `isomorphic-dompurify`, used only there, is removed.
+- CodeQL (`security.yml`) now ignores `tests/` and `scripts/`.
+- Unit 3094/3093 passed/0 failed; MCP 100%.
+
 **Dependency audit fix (2026-10-11, released in v6.20.1).** The nightly Security Scan failed `npm audit --audit-level=moderate` on three new advisories.
 - `@modelcontextprotocol/client` 2.0.0 → 2.3.1 (GHSA-6qxp-vccf-f47h, high; devDependency only) and `source-map-js` 1.2.1 → 1.2.2 (GHSA-68fv-2mgg-jv7q, high; via `jsdom → css-tree`), lockfile-only.
 - `sprintf-js` (GHSA-hp3w-g68c-fv3c, moderate) has no patched release. It came only through `argparse@1`, which `mammoth` and `js-yaml@3` load only from their CLI bins. A new `"argparse": "^2.0.1"` override removes `sprintf-js` from the tree; `mammoth`'s library path is unaffected.

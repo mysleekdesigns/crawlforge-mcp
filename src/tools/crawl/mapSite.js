@@ -333,9 +333,10 @@ export class MapSiteTool {
     // Extract all links
     $('a[href]').each((_, element) => {
       const href = $(element).attr('href');
-      if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
+      if (href && !href.startsWith('#')) {
         try {
           const absoluteUrl = new URL(href, url);
+          if (['javascript:', 'data:', 'vbscript:'].includes(absoluteUrl.protocol)) return;
           // Only include URLs from the same domain
           if (absoluteUrl.origin === new URL(baseUrl).origin) {
             const urlString = absoluteUrl.toString();
