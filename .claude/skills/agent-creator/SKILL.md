@@ -283,6 +283,13 @@ pays:
 - Give it a place to write lessons (a Markdown file) and tell it to consult that file.
 - Don't surface remaining-token countdowns -- they trigger premature wrap-up.
 
+Avoid these defaults: `CRITICAL:`, `You MUST` or `ALWAYS` on an instruction that is not
+a real constraint; `If in doubt, use [tool]`; "double-check" or "re-verify" steps;
+"show your thinking" or "explain your reasoning step by step"; remaining-token
+countdowns; `effort: high` copied onto every agent; "delegate more" carried over from an
+older prompt; generic identifiers like `helper` or `assistant`. When a generated agent
+lands on a default that isn't listed, add it to this list.
+
 ## Quality Checklist
 
 Before writing the agent file, verify:
@@ -296,9 +303,7 @@ Before writing the agent file, verify:
 - [ ] Edge cases are addressed
 - [ ] Output format is defined
 - [ ] Aligns with project patterns from CLAUDE.md
-- [ ] No verification / double-check scaffolding
-- [ ] No `CRITICAL:` / `MUST` / `ALWAYS` pressure language (except real constraints, with reasons)
-- [ ] No instruction to show or explain its own reasoning
+- [ ] None of the defaults in "Avoid these defaults" above
 - [ ] Conciseness and scope stated if the agent is user-facing
 - [ ] Delegation is capped if the agent can spawn subagents
 
