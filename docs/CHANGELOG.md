@@ -5,6 +5,25 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Documentation
+- **`reddit_search`'s optional official-API path is now documented.** It
+  shipped in 5.2.0 without a changelog entry. With your own Reddit app
+  credentials (`REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET`, optional
+  `REDDIT_USER_AGENT`), posts searches and thread reads try Reddit's official
+  Data API first (live scores, complete comment trees, your own free 100-QPM
+  quota), then fall back to the community archives. `source:"reddit_api"`
+  forces it. Comment full-text search and date ranges always use the archives.
+  Unset, which is the default, the tool never touches reddit.com. Same 5
+  credits. Reddit stopped issuing new credentials without an approval ticket on
+  2025-11-11; see `docs/reddit-access-and-oauth.md`. The README, `.env.example`
+  and that doc no longer call the path a prototype.
+
+### Fixed
+- **`source:"reddit_api"` without credentials no longer gives a dead
+  instruction.** The error told users to create an app at
+  reddit.com/prefs/apps, which has refused new apps since 2025-11-11. It now
+  points to the approval route and to dropping `source` for the archives.
+
 ## [6.20.1] - 2026-10-11
 
 ### Security
