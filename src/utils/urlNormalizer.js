@@ -94,9 +94,10 @@ export function extractLinks(html, baseUrl) {
   while ((match = hrefRegex.exec(html)) !== null) {
     const href = match[1];
     
-    if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
+    if (href && !href.startsWith('#')) {
       try {
         const absoluteUrl = new URL(href, baseUrl);
+        if (['javascript:', 'data:', 'vbscript:'].includes(absoluteUrl.protocol)) continue;
         links.add(absoluteUrl.toString());
       } catch {
         // Invalid URL, skip it

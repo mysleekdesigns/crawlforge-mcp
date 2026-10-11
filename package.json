@@ -125,7 +125,6 @@
     "diff": "^9.0.0",
     "dotenv": "^17.2.1",
     "franc": "^6.2.0",
-    "isomorphic-dompurify": "^3.9.0",
     "jsdom": "^29.0.2",
     "lru-cache": "^11.1.0",
     "mammoth": "^1.12.2",
