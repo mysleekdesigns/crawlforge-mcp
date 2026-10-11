@@ -51,6 +51,15 @@ test('all 31 tools are registered with a description under the cap', () => {
   }
 });
 
+test('manifest.json lists exactly the registered tools', () => {
+  // The .mcpb manifest's tools array is what Smithery and Claude Desktop show
+  // before the server runs; a stale list advertised 20 tools for months.
+  const manifest = JSON.parse(readFileSync(new URL('../../manifest.json', import.meta.url), 'utf8'));
+  const listed = manifest.tools.map((t) => t.name).sort();
+  assert.deepEqual(listed, Object.keys(registrations()).sort());
+  for (const t of manifest.tools) assert.ok(t.description, `${t.name} has no manifest description`);
+});
+
 test('every description states a cost that matches the biller', () => {
   for (const [name, desc] of Object.entries(registrations())) {
     const m = desc.match(/Cost: (\d+) credits?/);
