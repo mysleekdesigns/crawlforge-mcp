@@ -5,6 +5,21 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.20.1] - 2026-10-11
+
+### Security
+
+- **`npm audit` is clean again.** Three advisories published since 6.20.0
+  failed the nightly audit:
+  - `source-map-js` 1.2.1 → 1.2.2 (GHSA-68fv-2mgg-jv7q, high), reached
+    through `jsdom` → `css-tree`.
+  - `@modelcontextprotocol/client` 2.0.0 → 2.3.1 (GHSA-6qxp-vccf-f47h,
+    high). Test-only; not installed with the package.
+  - `sprintf-js` (GHSA-hp3w-g68c-fv3c, moderate) has no patched release. It
+    came only through `argparse@1`, which `mammoth` loads from its CLI and
+    never from the library `process_document` uses. An `argparse` `^2.0.1`
+    override removes it.
+
 ## [6.20.0] - 2026-10-06
 
 ### Changed
