@@ -71,8 +71,8 @@ differs from the one the browser was launched with) is named in the result's
 - `engine:"auto"` (default) — Camoufox when its binary is installed, Chromium
   with a warning when it is not. Leave it alone unless you have a reason.
 - `engine:"camoufox"` — Firefox-based with native anti-detection (no patches).
-  The only engine that cleared Cloudflare Turnstile (indeed.com) and Akamai
-  (harrods.com) in the 2026-09-21 benchmark. Pin it to require that engine: it
+  The engine that gets past Cloudflare Turnstile and Akamai where Chromium is
+  blocked (e.g. indeed.com, harrods.com). Pin it to require that engine: it
   errors rather than falling back. Costs roughly +0.8 s and +400 MB per call
   against Chromium.
 - `engine:"playwright"` — Chromium with stealth patches. Pin it for speed on

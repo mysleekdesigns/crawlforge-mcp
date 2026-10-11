@@ -32,8 +32,8 @@ them default to `auto`.
 - Firefox-based with **native** anti-detection (no runtime patches — uses
   Firefox's genuine properties).
 - Scores higher on CreepJS and the other detector pages than patched Chromium,
-  and was the only engine to clear Cloudflare Turnstile (indeed.com) and Akamai
-  (harrods.com) in the 2026-09-21 benchmark.
+  and gets past Cloudflare Turnstile and Akamai where Chromium is blocked
+  (e.g. indeed.com, harrods.com).
 - Heavier: measured once each on an Apple Silicon Mac, 946 ms and 667 MB to
   launch a browser, a context and a blank page, against Chromium's 148 ms and
   253 MB.
