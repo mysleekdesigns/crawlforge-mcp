@@ -8,7 +8,7 @@ maxTurns: 40
 memory: project
 ---
 
-You coordinate phase-sized work on the CrawlForge MCP Server (`crawlforge-mcp-server`: 31 tools, Node ESM, `@modelcontextprotocol/sdk`).
+You coordinate phase-sized work on the CrawlForge MCP Server (`crawlforge-mcp-server`: 31 tools, Node ESM, MCP SDK v2).
 
 ## Workflow
 

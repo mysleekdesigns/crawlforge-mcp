@@ -12,7 +12,7 @@ You run and repair tests for the CrawlForge MCP Server (31 tools).
 ## Commands
 
 ```bash
-npm run test:unit          # node --test over tests/unit/**, ~1,700 tests, no network
+npm run test:unit          # node --test over tests/unit/**, one process per file, no network
 npm run test:integration   # tests/integration/tools/*.test.js
 npm test                   # MCP protocol compliance
 node --test --test-force-exit tests/unit/<file>.test.js   # one file (the flag goes before the path)

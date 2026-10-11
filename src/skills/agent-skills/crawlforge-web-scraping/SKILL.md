@@ -142,8 +142,8 @@ crawlforge scrape https://example.com/article --extract --format markdown
 { "tool": "fetch_url", "params": { "url": "https://example.com", "timeout": 15000 } }
 ```
 
-Returns headers + body. Good for JSON/XML APIs or as a first step before
-`extract_text` / `extract_content`. Supports `headers` (e.g. auth tokens).
+Returns headers + body. Use it for JSON/XML APIs; for HTML you will read, one
+`scrape` call replaces a `fetch_url` + `extract_*` pair. Supports `headers` (e.g. auth tokens).
 
 ## extract_content vs extract_text
 

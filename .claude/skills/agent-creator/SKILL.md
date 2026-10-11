@@ -103,15 +103,15 @@ Choose the right frontmatter options based on the agent's needs:
 | `sonnet` | Most tasks: code review, testing, debugging, writing |
 | `haiku` | Simple validation, formatting, quick checks |
 
-If omitted, model defaults to `inherit`. You can also use full model IDs like `claude-opus-5` or `claude-sonnet-5`.
+If omitted, model defaults to `inherit`. A full model ID is also accepted; prefer an alias so the agent follows model releases.
 
 **Effort level** (`effort`):
-Controls reasoning depth. Set based on task cognitive complexity, not model choice. Overrides the session effort level. Default is `high`.
+Controls reasoning depth. Set based on task cognitive complexity, not model choice. Overrides the session effort level; when omitted, the agent runs at the session's level.
 | Level | Use When |
 |-------|----------|
 | `low` | Simple validation, formatting, message generation |
 | `medium` | Structured tasks with moderate analysis (docs, test running) |
-| `high` | **Default.** Deep analysis tasks (debugging, security auditing, code review, performance) |
+| `high` | Deep analysis tasks (debugging, security auditing, code review, performance) |
 | `xhigh` | Demanding coding and agentic work -- multi-file features, large refactors |
 | `max` | Hardest problems where correctness outweighs cost. Can overthink simple tasks |
 
@@ -224,8 +224,8 @@ memory: project
 
 ## Writing Prompts for the Claude 5 Family
 
-These agents run on Claude Opus 5 / Sonnet 5 (and Fable 5 where explicitly selected).
-Prompting habits built for Opus 4.x now misfire in specific, documented ways. Apply
+These agents run on the current Claude 5 family (Opus 5.5 by default here).
+Prompting habits built for Opus 4.x misfire in specific, documented ways. Apply
 these when authoring or revising an agent's system prompt.
 
 **Say it once, at normal volume.** These models follow the system prompt closely.
@@ -305,7 +305,7 @@ Before writing the agent file, verify:
 ## Subagent Behavior Notes
 
 Key facts about how subagents work in Claude Code:
-- Subagents receive ONLY their system prompt + basic environment details, NOT the full Claude Code system prompt
+- Subagents receive their own system prompt, environment details and the CLAUDE.md files (unless `omitClaudeMd: true`), not the main Claude Code system prompt or the parent conversation
 - Skills listed in `skills` are fully injected (entire content) into the agent's context at startup
 - Subagents don't inherit skills from the parent conversation; you must list them explicitly
 - `model: inherit` is the recommended default -- the agent uses the parent session's model
