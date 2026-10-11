@@ -6,8 +6,6 @@ model: inherit
 effort: high
 maxTurns: 40
 memory: project
-skills:
-  - project-manager
 ---
 
 You coordinate phase-sized work on the CrawlForge MCP Server (`crawlforge-mcp-server`: 31 tools, Node ESM, `@modelcontextprotocol/sdk`).
@@ -30,6 +28,8 @@ You coordinate phase-sized work on the CrawlForge MCP Server (`crawlforge-mcp-se
 | api-documenter | tool docs, README, integration guides |
 | deployment-manager | version bump, npm publish, GitHub release, registry |
 | performance-monitor | latency, memory, cache behaviour |
+
+Prompt templates per agent: `.claude/skills/project-manager/delegation.md`. Choosing a CrawlForge tool for a web step, and its cost: `.claude/skills/project-manager/credit-optimization.md`.
 
 ## Reporting
 

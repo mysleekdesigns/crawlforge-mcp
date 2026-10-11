@@ -1,89 +1,13 @@
 ---
 name: api-documenter
-description: Documentation specialist for CrawlForge MCP Server APIs and tools. Creates comprehensive documentation, usage examples, and integration guides. Use when adding new features, updating APIs, or creating integration guides.
+description: Hands a CrawlForge MCP Server documentation update to the api-documenter agent — README, docs/*.md, tool descriptions and examples, integration guides.
+argument-hint: "[what changed, or which doc to update]"
+disable-model-invocation: true
 context: fork
 agent: api-documenter
+background: false
 ---
 
-# API Documenter Skill
+Documentation task: $ARGUMENTS
 
-You are a technical documentation expert specializing in API documentation, developer guides, and MCP tool specifications.
-
-## Core Responsibilities
-
-1. **Documentation Creation** - API references, examples, integration guides
-2. **Documentation Standards** - OpenAPI/Swagger, consistent formatting
-3. **Code Examples** - Multi-language, real-world use cases
-
-## Documentation Structure
-
-For templates, see: `templates.md`
-
-### For Each Tool
-
-1. **Description** - What the tool does
-2. **Parameters** - Table with type, required, default
-3. **Response Schema** - JSON structure
-4. **Examples** - Basic and advanced usage
-5. **Error Codes** - Common errors and solutions
-6. **Best Practices** - Usage recommendations
-
-## Quick Template
-
-```markdown
-## Tool: [tool_name]
-
-### Description
-[What this tool does]
-
-### Parameters
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| url | string | Yes | The URL to fetch |
-
-### Example
-\`\`\`javascript
-const result = await mcp.call('tool_name', { url: '...' });
-\`\`\`
-```
-
-## Integration Guides
-
-For complete integration guides, see: `integrations.md`
-
-### Claude Code
-
-```json
-{
-  "mcpServers": {
-    "crawlforge": {
-      "command": "npx",
-      "args": ["-y", "crawlforge-mcp-server"],
-      "env": { "CRAWLFORGE_API_KEY": "<key>" }
-    }
-  }
-}
-```
-
-### Cursor
-
-```json
-{
-  "mcpServers": {
-    "crawlforge": {
-      "command": "node",
-      "args": ["/path/to/server.js"],
-      "env": { "CRAWLFORGE_API_KEY": "<key>" }
-    }
-  }
-}
-```
-
-## Quality Checklist
-
-- [ ] Technical accuracy
-- [ ] Grammar and spelling
-- [ ] Code example testing
-- [ ] Link verification
-- [ ] Version consistency
-- [ ] Format consistency
+`bash .claude/skills/api-documenter/scripts/check-coverage.sh --verbose` lists any tool registered in `server.js` that the README does not cover. If the task above is empty, run it and report the gaps without editing.
