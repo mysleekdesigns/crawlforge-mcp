@@ -166,7 +166,7 @@ export class RedditSearchTool {
       order = ['web_discovery'];
     } else if (v.source === 'reddit_api') {
       if (!this.officialConfigured) {
-        throw new Error('source:"reddit_api" needs Reddit app credentials — set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET (create a "script" app at https://www.reddit.com/prefs/apps)');
+        throw new Error('source:"reddit_api" needs Reddit app credentials — set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET. Reddit stopped issuing new app credentials without an approval ticket on 2025-11-11, so this needs an existing app or an approved request (see docs/reddit-access-and-oauth.md). Without it, drop source and auto reads the community archives');
       }
       if (v.mode === 'comments') {
         throw new Error('the official Reddit API has no comment full-text search — use comments mode with source:"arctic_shift" (scoped) or "web_discovery" (unscoped), or read a whole thread with mode:"thread"');

@@ -8,6 +8,8 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **Last Updated:** 2026-10-11
 
+**reddit_search official-API path documented (2026-10-11, no version bump).** The optional `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET` passthrough (commit 2a98c2a) has shipped since v5.2.0 but was never in the CHANGELOG or README, and its doc still called it an unreleased prototype. Now documented in `docs/CHANGELOG.md` [Unreleased], the README `reddit_search` row, `.env.example` and `.claude/rules/search-tools.md`; `docs/reddit-access-and-oauth.md` status and §5 updated (shipped quietly, flat 5 credits, no password grant, no website change). The `source:"reddit_api"` no-credentials error no longer sends users to reddit.com/prefs/apps, closed to new apps since 2025-11-11.
+
 **agent-creator "Avoid these defaults" list (2026-10-11, no version bump).** `.claude/skills/agent-creator/SKILL.md` now names the defaults a generated agent should not carry (pressure language on non-constraints, `If in doubt, use [tool]`, re-verify steps, reasoning-reproduction requests, token countdowns, blanket `effort: high`, inherited "delegate more", generic identifiers) in one list that grows when a new default turns up, matching the user-level frontend-design skill. Three overlapping quality-checklist items collapse into one pointer to the list.
 
 **Stealth-browsing skill wording (2026-10-11, no version bump).** The Camoufox notes in `crawlforge-stealth-browsing/SKILL.md` and `references/engine-selection.md` no longer pin the claim to "the only engine" in the dated 2026-09-21 benchmark; they now say it gets past Cloudflare Turnstile and Akamai where Chromium is blocked (e.g. indeed.com, harrods.com). `docs/SKILL.md` regenerated.

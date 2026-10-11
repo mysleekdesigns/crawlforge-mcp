@@ -1,13 +1,13 @@
 # Reddit access in 2026 — why the archives, and the optional official-API path
 
-**Status:** decision + prototype (unreleased). Not yet version-bumped or published.
+**Status:** shipped in v5.2.0 (2026-08-26) without a changelog entry; documented 2026-10-11. Off by default.
 **Scope:** the `reddit_search` tool (`src/tools/search/redditSearch.js`).
 **Date:** 2026-08-24 (updated same day: Reddit closed self-service API signup on 2025-11-11 — see §2 and §4).
 
 This doc records (1) why `reddit_search` reads community archives instead of
 `reddit.com`, (2) the research on whether that block can be worked around, and
-(3) the optional official-API passthrough added as a prototype behind two env
-vars. It leaves the default behavior of the tool unchanged.
+(3) the optional official-API passthrough behind two env vars. It leaves the
+default behavior of the tool unchanged.
 
 ---
 
@@ -60,7 +60,7 @@ gauntlet. The one additive, compliant enhancement is letting a user opt into
 **Path A with their own credentials**, exactly as `serp_rank` lets a user bring
 their own DataForSEO login.
 
-## 3. The prototype: optional official-API passthrough
+## 3. The optional official-API passthrough
 
 When (and only when) the user sets **both** `REDDIT_CLIENT_ID` and
 `REDDIT_CLIENT_SECRET`, `reddit_search` can read Reddit's official Data API
@@ -142,22 +142,19 @@ for posts/comments searches; `source:"pullpush"` goes to it directly. PullPush h
 refused automated clients since August 2026, so that fallback usually reports its
 refusal.
 
-## 5. Open questions before shipping (need a maintainer decision)
+## 5. Decisions (resolved 2026-10-11)
 
-- **Is it worth shipping now?** Reddit closed self-service signup (2025-11-11),
-  so most *new* users cannot easily obtain credentials — the passthrough only
-  benefits holders of pre-Nov-2025 apps or the few who win an approval ticket.
-  This strengthens "archives are the right default"; the OAuth path is a
-  power-user add-on, not a headline feature. Ship it quietly, or hold it.
-- **Credit cost.** Should the official path stay at 2 credits (it's the user's
-  own quota/key, like `serp_rank` costing 5 even though DataForSEO bills
-  separately)? Current prototype leaves it at **2**, unchanged.
-- **Password grant.** App-only (`client_credentials`) covers all public reads.
-  Reading a specific user's *private* data (the redditdev use case) would need
-  the OAuth `password`/redirect flow — out of scope here; add only if asked.
-- **Website credit parity.** If cost changes, the crawlforge-website
-  `TOOL_CREDIT_COSTS` must match (this repo is hands-off on the website).
-- **Docs sweep + version bump + publish** — not done; this is a prototype.
+The path shipped quietly in v5.2.0. These were the open questions before it did:
+
+- **Ship now or hold?** Shipped quietly, as a power-user add-on. Reddit closed
+  self-service signup, so it mainly helps holders of pre-Nov-2025 apps or an
+  approved ticket. The archives stay the default.
+- **Credit cost.** No separate price: `reddit_search` costs a flat **5** credits
+  whichever backend answers (it was 2 when this doc was drafted). The Reddit
+  quota is the user's own, as DataForSEO's is for `serp_rank`.
+- **Password grant.** Not built. App-only (`client_credentials`) covers all
+  public reads; private user data would need the `password` or redirect flow.
+- **Website credit parity.** Unaffected, since the price did not change.
 
 ## 6. Primary sources
 - **r/redditdev `1oug31u` — Reddit admin (u/redtaboo), *"Introducing the Responsible Builder Policy + new approval process for API access"*, 2025-11-11 — the authoritative "self-service closed" announcement (read via `reddit_search`)**
