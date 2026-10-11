@@ -37,6 +37,7 @@ fetched again.
 | fetch_url | 1 | Raw HTTP body (JSON/XML/API); not for HTML you will read |
 | get_batch_results | 1 | Read an already-paid batch job |
 | list_ollama_models | 1 | Local Ollama models (only if a model name is rejected) |
+| read_result | 1 | Search/slice a stored truncated result by `result_handle`; never re-fetch |
 | scrape_template | 1 | Known sites and platform APIs, no selectors |
 | extract_content | 2 | Readability-cleaned article |
 | extract_embedded_state | 2 | Exact values from __NEXT_DATA__ / RSC / Nuxt / Redux payloads |
@@ -45,6 +46,7 @@ fetched again.
 | process_document | 2 | PDF text and sections |
 | scrape | 2 | One page, every format in one call - the default page tool |
 | scrape_structured | 2 | Known CSS selectors |
+| browser_session | 3 | Page kept alive across calls: open 3, then 1-2 per operation |
 | analyze_content | 3 | NLP metrics on text you hold |
 | extract_structured | 3 | JSON schema via LLM (CSS fallback) |
 | extract_with_llm | 3 | Natural-language extraction via local Ollama |

@@ -1,6 +1,6 @@
 ---
 name: next-phase
-description: Drive the next incomplete phase of the remediation plan in the plan/ folder to completion. Auto-detects the next phase (Phase 0 → Phase 6), spawns specialized sub-agents IN PARALLEL to do the work, runs that phase's verification gate plus npm run test:unit and npm test, updates the phase file / plan README / PRD.md / CHANGELOG.md / docs/PRODUCTION_READINESS.md, then commits and pushes to the current branch. One phase per invocation.
+description: Drive the next incomplete phase of the remediation plan in the plan/ folder to completion. Auto-detects the next phase (Phase 0 → Phase 6), spawns specialized sub-agents IN PARALLEL to do the work, runs that phase's verification gate plus npm run test:unit and npm test, updates the phase file / plan README / PRD.md / docs/CHANGELOG.md / docs/PRODUCTION_READINESS.md, then commits and pushes to the current branch. One phase per invocation.
 disable-model-invocation: true
 context: fork
 background: false
@@ -68,7 +68,7 @@ Group the in-scope unchecked items by owning agent, primarily from each finding'
 | Tool logic & core in `src/tools/**` and `src/core/**` (crawlers, cache, processing, analysis, Snapshot/ChangeTracker, Research, Localization, Stealth), `server.js` handlers/schemas | `mcp-implementation` |
 | Real-module unit/integration tests, SSRF regression suite, coverage, `npm test`, `node test-tools.js`, `npm audit` | `testing-validation` |
 | Leak assertions (WeakRef/`--expose-gc`), soak/RSS/memory, browser-pool load | `performance-monitor` |
-| `docs/**`, `PRD.md`, `CHANGELOG.md`, `README.md`, `docs/PRODUCTION_READINESS.md` | `api-documenter` |
+| `docs/**`, `PRD.md`, `docs/CHANGELOG.md`, `README.md`, `docs/PRODUCTION_READINESS.md` | `api-documenter` |
 | `npm update`, dependency bumps/removals in `package.json`, Node-floor bump, Docker/npm verification, version bump | `deployment-manager` |
 
 Notes:
@@ -121,12 +121,12 @@ Only on full verification success:
 
 1. **Edit the phase file:** flip every completed `- [ ]` → `- [x]` (checklist items and verification-gate items). Under the `# Phase N` heading, append: `**Completed:** YYYY-MM-DD` (today's real date). For a partial DECISION phase, flip only the greenlit items and note which were deferred.
 2. **Edit `plan/README.md`:** in the phase table, mark the phase done (e.g. append `✅` to its row) so the index reflects progress.
-3. **Edit `PRD.md`:** append the version/phase entry per the standing project rule (see `CLAUDE.md` and the `feedback_commit_update_prd` memory). Match the format of prior entries.
-4. **Edit `CHANGELOG.md`:** append a section summarizing what shipped. Match prior entries.
+3. **Edit `PRD.md`:** append the version/phase entry per the standing rule in the `feedback_commit_update_prd` memory. Match the format of prior entries.
+4. **Edit `docs/CHANGELOG.md`:** append a section summarizing what shipped. Match prior entries.
 5. **Edit `docs/PRODUCTION_READINESS.md`:** record the phase completion (project rule: sub-agents report, PM updates this file).
 6. Stage **named files only** — every file the agents touched plus the plan/PRD/CHANGELOG/docs edits:
    ```bash
-   git add plan/phase-<N>-*.md plan/README.md PRD.md CHANGELOG.md docs/PRODUCTION_READINESS.md <other modified files>
+   git add plan/phase-<N>-*.md plan/README.md PRD.md docs/CHANGELOG.md docs/PRODUCTION_READINESS.md <other modified files>
    ```
    Never `git add -A`.
 7. Commit with a HEREDOC. Title: `Phase <N> — <phase title>`. Body: short bullets of what shipped (grouped by theme/subsystem). End the body with the `Co-Authored-By` trailer your environment's git rules specify (e.g. `Co-Authored-By: Claude <noreply@anthropic.com>`).

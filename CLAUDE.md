@@ -21,7 +21,7 @@ These bias toward caution over speed; for trivial tasks, use judgment.
 
 ## Project overview
 
-CrawlForge MCP Server — an MCP server providing 31 web scraping, crawling and content-processing tools (6 inline in `server.js` + 25 advanced). Node ESM, `@modelcontextprotocol/sdk`, Zod. The version lives in `package.json`.
+CrawlForge MCP Server — an MCP server providing 31 web scraping, crawling and content-processing tools (6 inline in `server.js` + 25 advanced). Node ESM, MCP SDK v2 (`@modelcontextprotocol/server`), Zod. The version lives in `package.json`.
 
 ## Development commands
 
