@@ -1,214 +1,96 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository. File-specific detail lives in path-scoped rules under `.claude/rules/` (tool registration and billing, search tools, stealth engines, security guards); they load when matching files are read.
 
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+## Working guidelines
 
-Tradeoff: These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+These bias toward caution over speed; for trivial tasks, use judgment.
 
-1. Think Before Coding
-   Don't assume. Don't hide confusion. Surface tradeoffs.
+1. **Think before coding.** Don't assume, and don't hide confusion.
+   - State your assumptions. If uncertain, ask.
+   - If several interpretations exist, present them rather than picking one silently.
+   - If a simpler approach exists, say so, and push back when warranted.
+2. **Simplicity first.** Write the minimum code that solves the problem.
+   - No features, abstractions, configurability or error handling beyond what was asked or what can actually happen.
+   - If 200 lines could be 50, rewrite it.
+3. **Surgical changes.** Touch only what you must.
+   - Don't "improve" adjacent code, comments or formatting, and don't refactor what isn't broken. Match the existing style.
+   - Remove imports, variables and functions your change made unused. Mention pre-existing dead code; don't delete it unless asked.
+   - Every changed line should trace to the request.
+4. **Goal-driven execution.** Turn the task into a check you can run, and loop until it passes: "fix the bug" → a test that reproduces it, then make it pass; "refactor X" → tests pass before and after. For multi-step work, state a brief plan with a verification step for each item.
 
-Before implementing:
+## Project overview
 
-State your assumptions explicitly. If uncertain, ask.
-If multiple interpretations exist, present them - don't pick silently.
-If a simpler approach exists, say so. Push back when warranted.
-If something is unclear, stop. Name what's confusing. Ask.
+CrawlForge MCP Server — an MCP server providing 31 web scraping, crawling and content-processing tools (6 inline in `server.js` + 25 advanced). Node ESM, `@modelcontextprotocol/sdk`, Zod. The version lives in `package.json`.
 
-2. Simplicity First
-   Minimum code that solves the problem. Nothing speculative.
-
-No features beyond what was asked.
-No abstractions for single-use code.
-No "flexibility" or "configurability" that wasn't requested.
-No error handling for impossible scenarios.
-If you write 200 lines and it could be 50, rewrite it.
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-3. Surgical Changes
-   Touch only what you must. Clean up only your own mess.
-
-When editing existing code:
-
-Don't "improve" adjacent code, comments, or formatting.
-Don't refactor things that aren't broken.
-Match existing style, even if you'd do it differently.
-If you notice unrelated dead code, mention it - don't delete it.
-When your changes create orphans:
-
-Remove imports/variables/functions that YOUR changes made unused.
-Don't remove pre-existing dead code unless asked.
-The test: Every changed line should trace directly to the user's request.
-
-4. Goal-Driven Execution
-   Define success criteria. Loop until verified.
-
-Transform tasks into verifiable goals:
-
-"Add validation" → "Write tests for invalid inputs, then make them pass"
-"Fix the bug" → "Write a test that reproduces it, then make it pass"
-"Refactor X" → "Ensure tests pass before and after"
-For multi-step tasks, state a brief plan:
-
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-   Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
-
-These guidelines are working if: fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
-
-## Project Overview
-
-CrawlForge MCP Server - A professional MCP (Model Context Protocol) server providing 31 web scraping, crawling, and content processing tools (6 inline + 25 advanced).
-
-**Current Version:** 5.6.6
-
-## Development Commands
+## Development commands
 
 ```bash
-# Install dependencies
 npm install
+npm run setup                # first run, users only; or export CRAWLFORGE_API_KEY=...
+npm start                    # stdio server
+npm run start:http           # HTTP transport
+npm run dev                  # verbose logging
 
-# Setup (required for first run - users only)
-npm run setup
-# Or provide API key via environment:
-export CRAWLFORGE_API_KEY="your_api_key_here"
-
-# Run the server (production)
-npm start
-
-# HTTP transport mode
-npm run start:http
-
-# Development mode with verbose logging
-npm run dev
-
-# Test MCP protocol compliance
-npm test
-
-# Unit tests (400+ tests across tests/unit/, no live network)
-npm run test:unit
-# Phase D regressions live in tests/unit/phaseD-regressions.test.js (agent hard stops, unified scrape, map_site ranking)
-# Run a single test file:  node --test tests/unit/phaseD-regressions.test.js
-# Note: the script includes --test-force-exit — importing StealthBrowserManager
-# (d2-reliability.test.js) leaves a Playwright handle that otherwise hangs the
-# runner at exit after all tests pass. When running a single file manually, put
-# --test-force-exit BEFORE the file path (after it, the flag is silently ignored).
-
-# Integration tests
+npm run test:unit            # node:test over tests/unit/**, no live network
+npm test                     # MCP protocol compliance
 npm run test:integration
+node test-tools.js           # functional test of every tool
+node test-real-world.js      # real-world scenarios
 
-# Functional tests
-node test-tools.js             # Test all tools
-node test-real-world.js        # Test real-world usage scenarios
-
-# MCP Protocol tests
-node tests/integration/mcp-protocol-compliance.test.js
-
-# CLI (v4.1.0+, requires global install or npx)
-crawlforge --help              # Show all subcommands
-crawlforge init                # API-key detection + skill install + idempotent MCP-stanza merge (v4.6.0)
-crawlforge init --all --yes    # Merge MCP config into Claude Code / Desktop / Cursor non-interactively
-crawlforge scrape https://example.com
-crawlforge batch --urls urls.txt --format markdown
-crawlforge install-skills --target claude-code
-# See docs/cli-guide.md for full reference
-
-# Docker
-npm run docker:build         # Build Docker image
-npm run docker:dev          # Run development container
-npm run docker:prod         # Run production container
+npm run docker:build         # also docker:dev, docker:prod
 ```
 
-### Debugging Tips
+- Single test file: `node --test --test-force-exit tests/unit/<file>.test.js`. The flag must come **before** the path (after it, it is silently ignored). Without it, the Playwright handle that `StealthBrowserManager` leaves open hangs the runner after all tests pass; `npm run test:unit` already sets it.
+- Phase D regressions (agent hard stops, unified scrape, map_site ranking): `tests/unit/phaseD-regressions.test.js`.
+- CLI (`crawlforge --help`): `init`, `scrape`, `batch`, `install-skills`, … — full reference in `docs/cli-guide.md`.
 
-- All diagnostic output (Winston logs + status banners) goes to stderr; stdout is reserved for the MCP JSON-RPC stream and CLI `--json` output (enforced in v4.2.4)
-- Set `NODE_ENV=development` for verbose logging
-- Use `--expose-gc` flag for memory profiling: `node --expose-gc server.js`
-- Check `cache/` directory for cached responses
-- Review `logs/` directory for application logs
-- Memory monitoring auto-enabled in development mode (logs every 60s if >200MB)
+### Debugging
 
-## High-Level Architecture
+- **stdout is reserved** for the MCP JSON-RPC stream and CLI `--json` output. All diagnostics (Winston logs, status banners) go to stderr.
+- `NODE_ENV=development` for verbose logging and memory monitoring (logs every 60s above 200MB); `node --expose-gc server.js` for memory profiling.
+- Cached responses are in `cache/`; application logs in `logs/`.
 
-### Core Infrastructure (`src/core/`)
+## Architecture
 
-- **AuthManager**: Authentication, credit tracking, and usage reporting
-- **PerformanceManager**: Centralized performance monitoring and optimization
-- **JobManager**: Asynchronous job tracking and management for batch operations
-- **WebhookDispatcher**: Event notification system for job completion callbacks
-- **ActionExecutor**: Browser automation engine (Playwright-based)
-- **ResearchOrchestrator**: Multi-stage research with query expansion and synthesis
-- **AgentOrchestrator**: Powers the `agent` tool — NL prompt → autonomous PLAN→GATHER→ACT→DECIDE→SHAPE loop with three orchestrator-enforced hard stops (maxSteps≤10, maxUrls≤20, wall-clock) never delegated to the LLM; degraded no-LLM-key path (D2, v4.6.0)
-- **StealthBrowserManager**: Stealth mode scraping with anti-detection; Camoufox (Firefox) engine added in v4.0.0. Engine selection goes through the one resolver `resolveStealthEngine(requested)` → `{engine, fallbackWarning}`; `'auto'` (the default for `scrape.escalate_engine` and `stealth_mode.engine` since the 2026-09 stealth review Phase 2) prefers Camoufox and falls back to Chromium with a caller-visible warning when its binary is absent. `'playwright'` is the tool layer's public name for Chromium. Camoufox personas are pinned to the installed binary's Firefox major so the UA's `rv:` and `Firefox/` tokens agree — see `docs/STEALTH_REVIEW_2026-09.md`
-- **LocalizationManager**: Multi-language content and localization
-- **ChangeTracker**: Content change tracking over time
-- **SnapshotManager**: Website snapshots and version history
-- **ResourceRegistry**: MCP Resources (crawlforge:// URI scheme, 5 resource types) — D1.1, v3.6.0
-- **PromptRegistry** (`src/prompts/`): 5 workflow prompts — D1.2, v3.6.0
-- **SamplingClient**: MCP Sampling with Ollama-API fallback chain — D1.3, v3.6.0
-- **ElicitationHelper**: MCP Elicitation for user confirmation on expensive operations — D1.4, v3.6.0
-- **endpointGuard**: Allow-list guard for server's own backend calls — v3.0.18
+`server.js` is the entry point: loads `.env` early (creator mode), sets up `AuthManager`, registers every tool through `withAuth()` for credit tracking, connects the stdio transport, and cleans up browsers and job managers on graceful shutdown.
 
-### Tool Layer (`src/tools/`)
+### Core (`src/core/`)
 
-Tools are organized in subdirectories by category:
+- **AuthManager** — API-key validation, credit tracking, usage reporting; `getToolCost` is the source of truth for prices.
+- **AgentOrchestrator** — powers `agent`: NL prompt → PLAN→GATHER→ACT→DECIDE→SHAPE loop. Its three hard stops (maxSteps ≤10, maxUrls ≤20, wall-clock) are enforced by the orchestrator, never delegated to the LLM; has a degraded no-LLM-key path.
+- **ResearchOrchestrator** — multi-stage research with query expansion and synthesis.
+- **StealthBrowserManager** — anti-detection scraping, Chromium or Camoufox (see `.claude/rules/stealth.md`).
+- **ActionExecutor** — Playwright browser automation for `scrape_with_actions`.
+- **JobManager** / **WebhookDispatcher** — async jobs for batch operations and their completion callbacks.
+- **PerformanceManager**, **LocalizationManager**, **ChangeTracker**, **SnapshotManager**.
+- MCP features: **ResourceRegistry** (`crawlforge://` resources), **PromptRegistry** (`src/prompts/`, 5 workflow prompts), **SamplingClient** (with Ollama fallback), **ElicitationHelper** (user confirmation on expensive operations).
+- **endpointGuard** — allowlist for the server's own backend calls.
 
-- `advanced/` - BatchScrapeTool, ScrapeWithActionsTool, BrowserSessionTool
-- `agent/` - agent (AgentOrchestrator-driven autonomous tool, v4.6.0)
-- `basic/` - fetchUrl, extractText, extractLinks, extractMetadata, scrapeStructured
-- `scrape/` - unifiedScrape (single-fetch multi-format `scrape` tool, v4.6.0)
-- `crawl/` - crawlDeep, mapSite
-- `extract/` - analyzeContent, extractContent, extractStructured, extractWithLlm, listOllamaModels, processDocument, summarizeContent
-- `research/` - deepResearch
-- `result/` - readResult (`read_result`: search/slice/lines/json_path over a stored over-threshold result by `result_handle`, v5.8.0)
-- `search/` - searchWeb (proxied through CrawlForge.dev API), serpRank (real Google organic rank via DataForSEO; adapter in `search/adapters/dataforseoSearch.js`), redditSearch (Reddit posts/comments/threads via Arctic Shift + PullPush community archives — reddit.com blocks scrapers)
-- `templates/` - ScrapeTemplateTool (10 pre-built site templates, v4.0.0)
-- `tracking/` - trackChanges
-- `llmstxt/` - generateLLMsTxt
+### Tools (`src/tools/`)
 
-### Available MCP Tools (31 total)
+| Directory | Tools |
+|---|---|
+| `basic/` | fetchUrl, extractText, extractLinks, extractMetadata, scrapeStructured |
+| `scrape/` | unifiedScrape — `scrape`: one fetch, one cheerio load, a `formats` array, per-format `warnings[]` |
+| `agent/` | `agent` (AgentOrchestrator) |
+| `advanced/` | BatchScrapeTool, ScrapeWithActionsTool, BrowserSessionTool |
+| `crawl/` | crawlDeep, mapSite (optional `search=` ranks URLs into `ranked_urls`) |
+| `extract/` | analyzeContent, extractContent, extractStructured, extractWithLlm, listOllamaModels, processDocument, summarizeContent |
+| `research/` | deepResearch |
+| `result/` | readResult — search/slice/lines/json_path over a stored over-threshold result by `result_handle` |
+| `search/` | searchWeb (proxied through the CrawlForge.dev API), serpRank (DataForSEO), redditSearch (community archives) — see `.claude/rules/search-tools.md` |
+| `templates/` | ScrapeTemplateTool (10 site templates) |
+| `tracking/` | trackChanges |
+| `llmstxt/` | generateLLMsTxt |
 
-**Basic Tools (server.js inline, 6):**
-fetch_url, extract_text, extract_links, extract_metadata, extract_embedded_state, scrape_structured
+**The 31 MCP tools.** Inline (6): fetch_url, extract_text, extract_links, extract_metadata, extract_embedded_state, scrape_structured. Advanced (25): search_web, serp_rank, reddit_search, crawl_deep, map_site, extract_content, process_document, summarize_content, analyze_content, extract_structured, extract_with_llm, list_ollama_models, batch_scrape, get_batch_results, scrape_with_actions, deep_research, track_changes, generate_llms_txt, stealth_mode, localization, scrape_template, scrape, agent, read_result, browser_session.
 
-**Advanced Tools (25):**
-search_web, serp_rank, reddit_search, crawl_deep, map_site, extract_content, process_document, summarize_content, analyze_content, extract_structured, extract_with_llm, list_ollama_models, batch_scrape, get_batch_results, scrape_with_actions, deep_research, track_changes, generate_llms_txt, stealth_mode, localization, scrape_template, scrape, agent, read_result, browser_session
+Adding or changing a tool: `.claude/rules/tool-registration.md`.
 
-**serp_rank (DataForSEO):**
-- `serp_rank` — reports where a target domain ranks in Google's REAL organic results for a keyword (the SERP position Google Custom Search / `search_web` cannot give). Backed by the DataForSEO Google Organic SERP API (Live Advanced, `POST /v3/serp/google/organic/live/advanced`, HTTP Basic auth). Credentials via `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD`, billed to the user's own DataForSEO account (~US$0.002 per 10 results of `depth`, so $0.004 at the default `depth:20` and $0.02 at `depth:100`), separate from CrawlForge credits. When unconfigured it returns `{ configured:false }` and charges **0** credits; when configured, **Cost: 5**. Never fabricates a rank.
+## Configuration
 
-**reddit_search (community archives, v5.1.0):**
-- `reddit_search` — searches Reddit posts/comments or reads a full comment thread. reddit.com 403-blocks ALL direct access (fetch, browser-UA, stealth — IP/TLS-reputation based), so this never touches reddit.com; it queries the Arctic Shift archive (`arctic-shift.photon-reddit.com`, near-real-time, comment trees) and PullPush (`api.pullpush.io`, Pushshift-compatible). Routing: Arctic Shift's keyword search REQUIRES a subreddit/author scope (verified live: HTTP 400 without one), so a scoped search queries it directly, while an unscoped keyword search for posts discovers them with a site-restricted web search and then reads those posts from the archive by ID (`source:"web_discovery"`). PullPush stopped serving automated clients in August 2026 (429 "does not provide free scraping resources for agents" on every UA; Cloudflare 403 from some IPs) and is no longer tried automatically anywhere — `source:"pullpush"` still reaches it. An unscoped COMMENT search has no backend and returns a scope-required error. Modes: `posts` (default), `comments`, `thread` (post + nested comment tree by `link_id`). Free, no Reddit credentials. Cost: 5 — a Reddit-wide search spends the same web search `search_web` does. `REDDIT_SEARCH_TIMEOUT_MS` overrides the 30s default.
-
-**v4.6.0 additions (Phase D):**
-- `scrape` — single fetch + one cheerio load dispatching a `formats` array (markdown/html/rawHtml/text/links/metadata/screenshot/json-schema) + `onlyMainContent`; partial-success via per-format `warnings[]`. Cost: 2.
-- `agent` — NL prompt → autonomous research/extract, no URLs required (see AgentOrchestrator above). Cost: 8.
-- `map_site` gained an optional `search=` param that ranks discovered URLs (`ranked_urls:[{url,score}]`); default output unchanged.
-
-### MCP Server Entry Point
-
-The main server implementation is in `server.js` which:
-
-1. **Secure Creator Mode**: Loads `.env` early, validates secret via SHA256 hash comparison
-2. **Authentication Flow**: AuthManager for API key validation and credit tracking
-3. **Tool Registration**: All tools registered via `server.registerTool()`, wrapped with `withAuth()` for credit tracking
-4. **Transport**: stdio transport for MCP protocol communication
-5. **Graceful Shutdown**: Cleans up browser instances, job managers, and other resources
-
-### Tool Credit System
-
-Each tool wrapped with `withAuth(toolName, handler)`:
-
-- Checks credits before execution (skipped in creator mode)
-- Reports usage with credit deduction on success
-- Charges half credits on error
-- Creator mode: Unlimited access for package maintainer
-
-### Key Configuration
-
-Critical environment variables defined in `src/constants/config.js`:
+Defaults and validation: `src/constants/config.js`. User auth is stored in `~/.crawlforge/config.json`; development env in `.env`.
 
 ```bash
 CRAWLFORGE_API_KEY=your_api_key_here
@@ -219,123 +101,19 @@ RATE_LIMIT_REQUESTS_PER_SECOND=10
 MAX_CRAWL_DEPTH=5
 MAX_PAGES_PER_CRAWL=100
 RESPECT_ROBOTS_TXT=true
-ROBOTS_CACHE_TTL_MS=3600000          # how long a parsed robots.txt stays good for
-CRAWLFORGE_BLOCKED_HOSTS=            # comma-separated; extends the permanent opt-out blocklist
-CRAWLFORGE_STEALTH_ENGINE=           # which engine `auto` resolves to on THIS deployment:
-                                     # chromium|playwright pins it to Chromium; unset or anything
-                                     # else keeps the default preference for Camoufox. A caller
-                                     # naming an engine always wins. There is no correct global
-                                     # value — which engine clears a wall depends on the exit IP
-                                     # (residential favours Camoufox, the hosted datacenter IP
-                                     # favours Chromium, measured twice).
-CRAWLFORGE_STEALTH_PROXIES=          # comma-separated proxy URLs used by the escalation stage,
-                                     # stealth_mode, browser_session, scrape_with_actions and the
-                                     # deep_research fallback when the caller passes none (a proxy
-                                     # passed on the call wins). CrawlForge supplies no proxies, and
-                                     # a datacenter one does not defeat these detectors. Distinct
-                                     # from the PROXY_ROTATION_* family, which belongs to
-                                     # localization. The agent's automatic stealth retry
-                                     # (stealth review Phase 3) reads it too.
-CRAWLFORGE_IMPIT=                    # `off` skips escalation's impit step (a Chrome TLS handshake with
-                                     # the honest UA, tried before the browser; stealth review Phase 7).
-                                     # Exit-IP dependent like the engine: it cleared indeed.com from a
-                                     # residential IP and nothing from the hosted datacenter IP, so
-                                     # render.yaml sets it off there. Measure with scripts/impit-probe.mjs.
-CRAWLFORGE_CLEARANCE_JAR=            # `off` disables the clearance jar (stealth review Phase 4):
-                                     # cf_clearance/__cf_bm/datadome cookies a stealth render earned
-                                     # are replayed to the next stealth context with the same engine,
-                                     # UA and proxy. Persisted at ~/.crawlforge/stealth-clearance.json.
 ```
 
-Camoufox is an **optional** dependency and its transitive `language-tags@2.1.0` requires Node ≥22. npm silently drops an optional subtree that fails an engine check, so on Node 20 it is simply absent — `'auto'` then resolves to Chromium and says so in `fallbackWarning`. `engines.node` stays at `>=20.16.0` deliberately; bumping it is breaking and is a release decision.
-
-Web Bot Auth (optional, off by default — requests go out unsigned when unset):
-
-```bash
-CRAWLFORGE_SIGNING_KEY=              # Ed25519 PKCS#8 PEM, or base64 of it. SECRET — never commit.
-WEB_BOT_AUTH_DIRECTORY=              # https://www.crawlforge.dev — advertised in Signature-Agent
-```
-
-Generate the pair with `node scripts/generate-signing-key.mjs`; publish the public half
-before setting the private one. Procedure and compromise response: `docs/policy/KEY_ROTATION.md`.
-
-`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` are optional. They only affect `deep_research`: when set, it produces a fully synthesized report internally; when unset, it returns raw evidence for the calling LLM (e.g. Claude Code) to synthesize.
-
-### Configuration Files
-
-- `~/.crawlforge/config.json` - User authentication and API key storage
-- `.env` - Environment variables for development
-- `src/constants/config.js` - Central configuration with defaults and validation
-
-### Adding New Tools
-
-When adding a new tool to server.js:
-
-1. Import the tool class from `src/tools/`
-2. Instantiate the tool (with config if needed)
-3. Register with `server.registerTool(name, { description, inputSchema }, withAuth(name, handler))`
-4. Ensure tool implements `execute(params)` method
-5. Add to cleanup array in gracefulShutdown if it has `destroy()` or `cleanup()` methods
-6. Update tool count in console log at server startup
-
-## Sandboxing & Approvals
-
-Key mechanisms for security-conscious future sessions:
-
-- **SSRF** (`src/utils/ssrfGuard.js` enforcing `src/utils/ssrfProtection.js`): As of v4.8.0 SSRF is actually enforced on the live scraping fetch path (previously `ssrfProtection.js` was unwired). `ssrfGuard` injects an undici dispatcher whose connect-time `lookup` validates every connection — initial request and each redirect hop — and pins the validated IP (closing the DNS-rebinding TOCTOU window). Stage 1 (default) blocks loopback, link-local/cloud-metadata (169.254.169.254), and 0.0.0.0; `SSRF_STRICT=true` adds full RFC1918/ULA/etc. enforcement. Kill switch `SSRF_PROTECTION_ENABLED=false`; `ALLOWED_DOMAINS` allowlist bypass. Wired into every read-scrape site (`_fetch.js`, `_fetchAndParse.js`, `batchScrape/worker.js`, `mapSite.js`, `BFSCrawler.js`, extract/template/session/research/llms-txt/robots/sitemap/track-changes fetches) via `ssrfGuard()`/`safeFetch()`. http/https only; dangerous ports + path-traversal still rejected by `ssrfProtection.js`.
-- **endpointGuard** (`src/core/endpointGuard.js`): Hard allow-list of `{crawlforge.dev, www.crawlforge.dev, api.crawlforge.dev}` for the server's own backend calls; HTTPS required; fail-closed. Localhost only in creator mode (v3.0.18).
-- **Action allowlist** (`src/core/ActionExecutor.js`): `scrape_with_actions` accepts only 7 action types: `wait`, `click`, `type`, `press`, `scroll`, `screenshot`, `executeJavaScript`. `executeJavaScript` throws unless `ALLOW_JAVASCRIPT_EXECUTION=true` is set at deploy time (off by default).
-- **Elicitation** (`src/core/ElicitationHelper.js`): User confirmation requested for `deep_research` (>50 URLs), `batch_scrape` (sync, >25 URLs), `crawl_deep` (projected >500 pages), `extract_structured` (schema has >3 required fields, no LLM configured), and credit-low situations. Fail-open if client does not support elicitation.
-- **Browser sandboxing**: Standard pool retains OS sandbox. Stealth Chromium uses `--no-sandbox` (deliberate fingerprint-spoofing trade-off); `--disable-web-security` was removed from it in Phase 1 of the 2026-09 stealth review — a page reads it in one line — but the non-stealth render browser (`BrowserProcessor`) still carries both flags. Camoufox (Firefox, v4.0.0) is the alternative — see `docs/stealth-engines.md`.
-
-See `docs/sandboxing-and-approvals.md` for the full reference.
+- Stealth variables (`CRAWLFORGE_STEALTH_ENGINE`, `CRAWLFORGE_STEALTH_PROXIES`, `CRAWLFORGE_IMPIT`, `CRAWLFORGE_CLEARANCE_JAR`): `.claude/rules/stealth.md`.
+- Robots, blocklist and Web Bot Auth signing variables: `.claude/rules/security-guards.md`.
+- `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` are optional and only affect `deep_research`: set, it synthesizes the report itself; unset, it returns raw evidence for the calling LLM to synthesize.
 
 ## Security
 
-Security testing and CI/CD pipeline details are in:
+- SSRF is enforced on every live fetch path through `ssrfGuard()`/`safeFetch()`; never call `fetch` directly on a user-supplied URL.
+- References: `docs/sandboxing-and-approvals.md` (canonical), `docs/security-audit-report.md`, `docs/SECURITY.md`; CI checks in `.github/workflows/ci.yml` and `.github/workflows/security.yml`. Run `npm audit` locally.
 
-- `docs/sandboxing-and-approvals.md` — Canonical sandboxing & approvals reference
-- `docs/security-audit-report.md` — Full security audit
-- `.github/workflows/ci.yml` — CI pipeline with security checks
-- `.github/workflows/security.yml` — Daily scheduled security scanning
-- `docs/SECURITY.md` — Security policy and procedures
+## Project management rules
 
-Run `npm audit` locally to check dependencies.
-
-## Implementation Patterns
-
-### Tool Structure
-
-```javascript
-export class ToolName {
-  constructor(config) { this.config = config; }
-
-  async execute(params) {
-    return { success: true, data: {...} };
-  }
-
-  async destroy() { /* cleanup resources */ }
-}
-```
-
-### Error Handling Pattern
-
-```javascript
-try {
-  const result = await tool.execute(params);
-  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-} catch (error) {
-  return {
-    content: [{ type: "text", text: `Operation failed: ${error.message}` }],
-    isError: true,
-  };
-}
-```
-
-## Project Management Rules
-
-- Delegate to a sub agent only for a genuinely independent, parallelizable track — not for work finishable in a few tool calls, and never to verify your own output (Claude 5 models over-delegate when told to parallelize)
-- When a phase completes, update `docs/PRODUCTION_READINESS.md`
-- Whenever a phase is completed, push all changes to GitHub
-- Put all documentation md files into the `docs/` folder
-- Every time you finish a phase run the test suites (`npm run test:unit` and `npm test`) and fix all failures before pushing
+- Delegate to a sub-agent only for a genuinely independent, parallelizable track — not for work finishable in a few tool calls, and never to verify your own output (Claude 5 models over-delegate when told to parallelize).
+- Put all documentation `.md` files in `docs/`.
+- When a phase completes: run `npm run test:unit` and `npm test` and fix all failures, update `docs/PRODUCTION_READINESS.md`, then push all changes to GitHub.

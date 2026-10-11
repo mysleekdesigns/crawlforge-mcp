@@ -1,7 +1,9 @@
 ---
 name: next-phase
 description: Drive the next incomplete phase of the remediation plan in the plan/ folder to completion. Auto-detects the next phase (Phase 0 → Phase 6), spawns specialized sub-agents IN PARALLEL to do the work, runs that phase's verification gate plus npm run test:unit and npm test, updates the phase file / plan README / PRD.md / CHANGELOG.md / docs/PRODUCTION_READINESS.md, then commits and pushes to the current branch. One phase per invocation.
+disable-model-invocation: true
 context: fork
+background: false
 ---
 
 # /next-phase — Ship the next phase of the `plan/` folder
@@ -34,7 +36,7 @@ The `` `file:line` `` and `Fix:` sub-bullets are the contract you hand to the su
 - If any verification step fails, **stop before commit**, leave the tree as-is, and report the failure with output.
 - All sub-agent calls in Step 3 go out in a **single message with multiple `Agent` tool calls** so they run in parallel.
 - **Disjoint file ownership.** No two parallel agents may edit the same file (they share the real working tree, not worktrees — concurrent edits to one file corrupt it). `server.js` and shared `src/utils/*` are hotspots; give each hot file to a single agent.
-- **In this environment**, `git`, `npm install/update`, and the test suites may fail under a restrictive sandbox (listen EPERM / write EPERM are artifacts, not real failures). If a step fails that way, re-run it with the sandbox disabled. Append `--test-force-exit` to `node --test` runs (a Playwright handle otherwise delays exit ~100s — see CLAUDE.md).
+- **In this environment**, `git`, `npm install/update`, and the test suites may fail under a restrictive sandbox (listen EPERM / write EPERM are artifacts, not real failures). If a step fails that way, re-run it with the sandbox disabled. Manual `node --test` runs need `--test-force-exit` placed before the file path (after it, the flag is silently ignored; a Playwright handle otherwise hangs the exit — see CLAUDE.md). `npm run test:unit` already sets it.
 
 ## Step 1 — Detect the next phase
 
@@ -107,7 +109,7 @@ After all agents return:
 2. For each owned item, confirm the change is actually in the diff. **Trust the code, not the agent's summary.** If an item wasn't done, re-delegate it or do it yourself. Reconcile any two agents that touched the same file (should not happen with disjoint ownership — if it did, re-read and merge both intents by hand).
 3. Run this phase's `## Verification gate` (the checklist from the phase file — its live re-smokes and assertions) **plus the project-standard suites**:
    ```bash
-   npm run test:unit          # expect 480/480 pass (add --test-force-exit if it hangs at exit)
+   npm run test:unit          # expect every test to pass
    npm test                   # expect 100.0% COMPLIANT, 0 errors
    ```
    For dependency phases (0, 5) also run `npm audit` and confirm the targeted advisories cleared. Run any phase-specific commands the gate names (e.g. `node test-tools.js`, a soak test).
