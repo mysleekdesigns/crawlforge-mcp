@@ -44,6 +44,132 @@
       }
     }
   },
+  "tools": [
+    {
+      "name": "agent",
+      "description": "Use this when you need an autonomous agent to research, navigate, and synthesise an answer from the web - no URLs required."
+    },
+    {
+      "name": "analyze_content",
+      "description": "Use this for NLP metrics on text you already hold - language detection, sentiment, topic extraction, entity recognition, readability score - for content auditing and classification."
+    },
+    {
+      "name": "batch_scrape",
+      "description": "Use this to scrape 2-50 URLs in one call - product pages, news articles, competitor pages."
+    },
+    {
+      "name": "browser_session",
+      "description": "Use this to drive a browser across several calls, keeping the page, its cookies and its login in between."
+    },
+    {
+      "name": "crawl_deep",
+      "description": "Use this to fetch many pages of one site by following links - a knowledge base, a docs index, a full-site audit."
+    },
+    {
+      "name": "deep_research",
+      "description": "Use this for exhaustive multi-source research on a topic - it searches the web, fetches and analyses sources, detects conflicts, and (when LLM keys or Ollama are configured) synthesizes a report."
+    },
+    {
+      "name": "extract_content",
+      "description": "Use this for the readable body of an article-style page with ads, nav, footers and boilerplate removed - for RAG ingestion, summarisation, or LLM context."
+    },
+    {
+      "name": "extract_embedded_state",
+      "description": "Use this when a page's data lives in its embedded JavaScript state rather than its rendered HTML - Next.js, Nuxt, SvelteKit, Apollo, Redux, Inertia, Shopify and JSON script blocks."
+    },
+    {
+      "name": "extract_links",
+      "description": "Use this to list the hyperlinks on one page - a crawl seed list, a broken-link audit, related resources."
+    },
+    {
+      "name": "extract_metadata",
+      "description": "Use this for a page's SEO metadata only: title, meta description, Open Graph tags, canonical URL, schema.org data."
+    },
+    {
+      "name": "extract_structured",
+      "description": "Use this to get a specific data shape from a page using a JSON schema when you can describe the fields but not their selectors - product details, job listings, event data."
+    },
+    {
+      "name": "extract_text",
+      "description": "Use this for a page's plain text or markdown with tags, scripts and styles removed - the cheapest read of a static HTML page."
+    },
+    {
+      "name": "extract_with_llm",
+      "description": "Extract data from a URL or text using a natural-language prompt."
+    },
+    {
+      "name": "fetch_url",
+      "description": "Use this for a raw HTTP body - JSON, XML, plain text, an API response - or for the status code, headers and response time."
+    },
+    {
+      "name": "generate_llms_txt",
+      "description": "Use this to generate an llms.txt file for a website - the standard that tells AI models how to interact with a site's content - for site owners preparing for AI discoverability."
+    },
+    {
+      "name": "get_batch_results",
+      "description": "Retrieve paginated results for a batch_scrape job by the batchId it returned."
+    },
+    {
+      "name": "list_ollama_models",
+      "description": "List the Ollama models installed locally, to choose a `model` value for extract_with_llm."
+    },
+    {
+      "name": "localization",
+      "description": "Use this to look up the locale settings of a country - language, Accept-Language header, timezone, currency, search domain, date and number formats - or to run a search targeted at a country (operation:\"localize_search\")."
+    },
+    {
+      "name": "map_site",
+      "description": "Use this to list a site's URLs without fetching page bodies - reads sitemap.xml when available, otherwise follows links."
+    },
+    {
+      "name": "process_document",
+      "description": "Use this to extract text from a PDF or DOCX URL or file - research papers, contracts, reports."
+    },
+    {
+      "name": "read_result",
+      "description": "Use this to read a result that came back with truncated: true and a result_handle - the tool kept the whole result for 1 hour and returned a preview."
+    },
+    {
+      "name": "reddit_search",
+      "description": "Use this to search Reddit posts or comments, or read a full comment thread - reddit.com blocks direct scraping, so this reads the Arctic Shift community archive instead (free, no Reddit credentials)."
+    },
+    {
+      "name": "scrape",
+      "description": "Use this to read one page - markdown by default, plus HTML, text, links, metadata, branding, a screenshot or LLM-structured JSON, all from one fetch."
+    },
+    {
+      "name": "scrape_structured",
+      "description": "Use this when you know the exact CSS selectors for the data you want - e.g. a pricing table or product list with consistent markup."
+    },
+    {
+      "name": "scrape_template",
+      "description": "Use this when you want structured data from a well-known site or platform API without writing custom selectors."
+    },
+    {
+      "name": "scrape_with_actions",
+      "description": "Use this when you must interact with a page before scraping - login, click buttons, fill forms, scroll, or wait for dynamic content to load - for SPAs, login-gated content, or multi-step flows."
+    },
+    {
+      "name": "search_web",
+      "description": "Use this to find pages for a query - titles, URLs, snippets and optional metadata, with language, date-range and site filters."
+    },
+    {
+      "name": "serp_rank",
+      "description": "Use this to check where a domain ranks in Google's ORGANIC results for a keyword - real SERP position, not Custom Search order."
+    },
+    {
+      "name": "stealth_mode",
+      "description": "Use this when a site blocks normal scraping - Cloudflare, Datadome, or other bot-detection systems."
+    },
+    {
+      "name": "summarize_content",
+      "description": "Use this to condense text you already hold into a briefing, comparison, or shorter LLM context - extractive (sentence selection) or abstractive (rewrite via Ollama/sampling)."
+    },
+    {
+      "name": "track_changes",
+      "description": "Use this to monitor a URL for content changes over time - competitor pricing, regulation updates, product availability."
+    }
+  ],
   "user_config": {
     "crawlforge_api_key": {
       "type": "string",
