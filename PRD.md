@@ -6,7 +6,13 @@ CrawlForge MCP Server (v4.2.2) has 23 specialized tools, MCP-native primitives (
 
 **Goal:** Add a CLI layer, LLM-powered structured extraction, and a skills system — all three shipped in v4.1.0 — without breaking any existing MCP tools or the current setup flow.
 
-**Last Updated:** 2026-09-26
+**Last Updated:** 2026-10-11
+
+**Dependency audit fix (2026-10-11, no version bump).** The nightly Security Scan failed `npm audit --audit-level=moderate` on three new advisories.
+- `@modelcontextprotocol/client` 2.0.0 → 2.3.1 (GHSA-6qxp-vccf-f47h, high; devDependency only) and `source-map-js` 1.2.1 → 1.2.2 (GHSA-68fv-2mgg-jv7q, high; via `jsdom → css-tree`), lockfile-only.
+- `sprintf-js` (GHSA-hp3w-g68c-fv3c, moderate) has no patched release. It came only through `argparse@1`, which `mammoth` and `js-yaml@3` load only from their CLI bins. A new `"argparse": "^2.0.1"` override removes `sprintf-js` from the tree; `mammoth`'s library path is unaffected.
+- `.gitignore`: `.env.creator` was never ignored, because Git has no inline comments and the rule matched the whole line. The comment now sits on its own line.
+- `npm audit`: 0 vulnerabilities. Unit 3094/3093 passed/0 failed; MCP 100%.
 
 **Stealth review Phase 7 follow-ups (2026-09-27).**
 - **Hybrid cookie pattern declined by the owner:** `cf_clearance` is bound to the User-Agent it was earned with, so replaying it through `impit` would need a browser UA.

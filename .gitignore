@@ -81,7 +81,8 @@ web_modules/
 .env.test.local
 .env.production.local
 .env.local
-.env.creator  # Never commit your creator secret!
+# Never commit your creator secret!
+.env.creator
 
 # Local MCP server config (contains creator secret + API keys — never commit!)
 .mcp.json
