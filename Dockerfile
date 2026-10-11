@@ -285,6 +285,15 @@ COPY --from=builder --chown=mcp:mcp /app/scripts ./scripts
 # safe: LAUNCH_FILE.lin is `camoufox-bin`, so if the extraction were actually
 # truncated the build fails there rather than shipping a browser that cannot
 # start.
+#
+# The GeoLite2 database is fetched with curl from the repo camoufox's own
+# downloadMMDB() uses (P3TERX/GeoLite.mmdb), not by calling downloadMMDB().
+# That function lists releases through the unauthenticated GitHub API and
+# iterates the reply; on a shared CI runner over the 60-requests-an-hour limit
+# the reply is an error object and the build died on "releases is not
+# iterable". The /releases/latest/download/ URL is a plain redirect, not an API
+# call, so that limit does not apply. `test -s` fails the build on an empty file.
+ARG GEOLITE_REPO=P3TERX/GeoLite.mmdb
 ARG INSTALL_CAMOUFOX=true
 ARG CAMOUFOX_TAG=v135.0.1-beta.24
 ARG CAMOUFOX_ASSET=camoufox-135.0.1-beta.24-lin.x86_64.zip
@@ -302,9 +311,9 @@ RUN if [ "$INSTALL_CAMOUFOX" = "true" ]; then \
         test -f /home/mcp/.cache/camoufox/camoufox-bin; \
         printf '{"version":"%s","release":"%s"}\n' "$CAMOUFOX_VERSION" "$CAMOUFOX_RELEASE" \
           > /home/mcp/.cache/camoufox/version.json; \
-        env -u PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD HOME=/home/mcp node -e \
-          "require('camoufox').downloadMMDB().then(()=>console.log('mmdb ok')).catch(e=>{console.error('mmdb failed:',e.message);process.exit(1)})"; \
-        test -f /home/mcp/.cache/camoufox/GeoLite2-City.mmdb; \
+        curl -fsSL --retry 5 --retry-all-errors -o /home/mcp/.cache/camoufox/GeoLite2-City.mmdb \
+          "https://github.com/${GEOLITE_REPO}/releases/latest/download/GeoLite2-City.mmdb"; \
+        test -s /home/mcp/.cache/camoufox/GeoLite2-City.mmdb; \
         chmod -R 755 /home/mcp/.cache/camoufox; \
         chown -R mcp:mcp /home/mcp/.cache; \
         ls -la /home/mcp/.cache/camoufox | head -6; \
