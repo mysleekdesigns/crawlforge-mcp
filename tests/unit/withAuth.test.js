@@ -98,7 +98,7 @@ test('withAuth: error path emits log line with outcome=error and rethrows', asyn
   const line = logger.calls[0];
   assert.equal(line.context.outcome, 'error');
   assert.equal(line.context.toolName, 'crawl_deep');
-  assert.equal(auth.reportCalls.length, 1, 'reportUsage still called on error (half credits)');
+  assert.equal(auth.reportCalls.length, 0, 'a failed call reports no usage');
 });
 
 test('withAuth: insufficient credits emits log line with outcome=insufficient_credits', async () => {
@@ -181,7 +181,7 @@ test('withAuth: metered tool checks credits and reports usage on success', async
   assert.equal(logger.calls[0].context.outcome, 'success');
 });
 
-test('withAuth: metered tool error path reports a half-credit charge', async () => {
+test('withAuth: metered tool error path reports no charge', async () => {
   const logger = makeFakeLogger();
   const auth = makeFakeAuth({ creditsOk: true, toolCost: 4 });
   const withAuth = makeWithAuth({ authManager: auth, logger });
@@ -191,11 +191,11 @@ test('withAuth: metered tool error path reports a half-credit charge', async () 
     /boom/
   );
 
-  assert.equal(auth.reportCalls.length, 1, 'half-credit charge reported on error');
+  assert.equal(auth.reportCalls.length, 0, 'failures are free');
   assert.equal(logger.calls[0].context.outcome, 'error');
 });
 
-test('withAuth: a returned { isError:true } is an error outcome billed at half, without throwing', async () => {
+test('withAuth: a returned { isError:true } is an error outcome charged nothing, without throwing', async () => {
   const logger = makeFakeLogger();
   const auth = makeFakeAuth({ creditsOk: true, toolCost: 4 });
   const withAuth = makeWithAuth({ authManager: auth, logger });
@@ -207,9 +207,7 @@ test('withAuth: a returned { isError:true } is an error outcome billed at half, 
   const result = await handler({ keyword: 'k', target: 't' });
 
   assert.equal(result.isError, true, 'the graceful isError result is returned, not thrown');
-  assert.equal(auth.reportCalls.length, 1, 'usage reported once');
-  assert.equal(auth.reportCalls[0][1], 2, 'charged half of 4 on an isError result');
-  assert.equal(auth.reportCalls[0][3], 500, 'reported with a 500 responseStatus');
+  assert.equal(auth.reportCalls.length, 0, 'no usage reported for a failure');
   assert.equal(logger.calls[0].context.outcome, 'error', 'logged as an error outcome');
 });
 
@@ -363,8 +361,7 @@ test('withAuth: outside a request context, billing behaves exactly as before', a
 
 // ── Option B: a pre-flight compliance refusal costs nothing ──────────────────
 // robots.txt disallowed the path, or the host is blocklisted. Nothing was
-// fetched, so neither the full price nor the half-credit error rate applies.
-// The half rate exists for work that ran and then failed.
+// fetched, and like every failure it is charged nothing.
 
 test('withAuth: a robots refusal is free and emits no usage event', async () => {
   const logger = makeFakeLogger();
@@ -382,7 +379,7 @@ test('withAuth: a robots refusal is free and emits no usage event', async () => 
 
   assert.equal(auth.reportCalls.length, 0, 'a refusal must not report usage at all');
   const cost = JSON.parse(result.content[0].text)._cost;
-  assert.equal(cost.actual, 0, 'a refusal must cost 0, not the half rate');
+  assert.equal(cost.actual, 0, 'a refusal must cost 0');
   assert.equal(cost.projected, 5, 'the published price is still surfaced');
 });
 
@@ -416,7 +413,7 @@ test('withAuth: a refusal that throws is free, and does not bill the error rate'
   assert.equal(auth.reportCalls.length, 0, 'the throw path must not bill a refusal either');
 });
 
-test('withAuth: a genuine failure still bills the half-credit error rate', async () => {
+test('withAuth: a genuine failure is charged nothing too', async () => {
   const logger = makeFakeLogger();
   const auth = makeFakeAuth({ creditsOk: true, toolCost: 5 });
   const withAuth = makeWithAuth({ authManager: auth, logger });
@@ -426,9 +423,9 @@ test('withAuth: a genuine failure still bills the half-credit error rate', async
     content: [{ type: 'text', text: '{"error":"navigation timeout"}' }], isError: true
   }));
 
-  await wrapped({ url: 'https://example.com/' });
-  assert.equal(auth.reportCalls.length, 1, 'a real failure still reports usage');
-  assert.equal(auth.reportCalls[0][1], 2, 'and still bills the half rate (floor(5 * 0.5))');
+  const result = await wrapped({ url: 'https://example.com/' });
+  assert.equal(auth.reportCalls.length, 0, 'failures are free, refusal or not');
+  assert.equal(JSON.parse(result.content[0].text)._cost.actual, 0);
 });
 
 test('withAuth: a refusal on one URL does not zero a call that still succeeded', async () => {
@@ -678,9 +675,8 @@ test('withAuth: eight round trips then a real result bill exactly once', async (
 });
 
 test('withAuth: a declined confirmation costs nothing beyond the work it did', async () => {
-  // The tool answers a decline with its own error result — which is real work
-  // reported honestly, and bills the error half-rate, exactly as any other
-  // error does. What must NOT happen is the round trip being billed as well.
+  // The tool answers a decline with its own error result, which is free like
+  // any other failure. The round trip must not be billed either.
   const auth = makeFakeAuth({ creditsOk: true, toolCost: 4 });
   const withAuth = makeWithAuth({ authManager: auth, logger: makeFakeLogger() });
 
@@ -693,8 +689,7 @@ test('withAuth: a declined confirmation costs nothing beyond the work it did', a
   await handler({ urls: ['https://example.com'] });
   await handler({ urls: ['https://example.com'] });
 
-  assert.equal(auth.reportCalls.length, 1, 'only the entry that produced a result reports');
-  assert.equal(auth.reportCalls[0][1], 2, 'error half-rate of 4, charged once');
+  assert.equal(auth.reportCalls.length, 0, 'neither the round trip nor the decline is billed');
 });
 
 test('withAuth: a low-credit round trip from checkCredits bills nothing', async () => {

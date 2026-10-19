@@ -78,35 +78,23 @@ test('actualCost: reported below projected bills the reported value on success',
   assert.equal(auth.reportCalls[0][3], 200);
 });
 
-test('actualCost: reported below projected on an isError result bills max(1, floor(reported * 0.5))', async () => {
+test('actualCost: a reported cost on an isError result is not billed (failures are free)', async () => {
   const { auth, withAuth } = setup(8);
   const wrapped = withAuth('scrape', async () => { setActualCost(5); return failed(); });
 
   const cost = costOf(await wrapped({ url: 'https://example.com/' }));
 
-  assert.equal(cost.actual, 2, 'floor(5 * 0.5)');
-  assert.equal(auth.reportCalls[0][1], 2);
-  assert.equal(auth.reportCalls[0][3], 500);
+  assert.equal(cost.actual, 0);
+  assert.equal(auth.reportCalls.length, 0);
 });
 
-test('actualCost: a reported 1 on an isError result still bills the 1-credit floor', async () => {
-  const { auth, withAuth } = setup(8);
-  const wrapped = withAuth('scrape', async () => { setActualCost(1); return failed(); });
-
-  const cost = costOf(await wrapped({ url: 'https://example.com/' }));
-
-  assert.equal(cost.actual, 1, 'max(1, floor(0.5))');
-  assert.equal(auth.reportCalls[0][1], 1);
-});
-
-test('actualCost: a thrown error halves the reported value, not the projection', async () => {
+test('actualCost: a thrown error is not billed, whatever was reported', async () => {
   const { auth, withAuth } = setup(8);
   const wrapped = withAuth('crawl_deep', async () => { setActualCost(4); throw new Error('boom'); });
 
   await assert.rejects(() => wrapped({ url: 'https://example.com/' }), /boom/);
 
-  assert.equal(auth.reportCalls.length, 1);
-  assert.equal(auth.reportCalls[0][1], 2, 'floor(4 * 0.5), not floor(8 * 0.5)');
+  assert.equal(auth.reportCalls.length, 0);
 });
 
 test('actualCost: unreported falls back to the projection', async () => {
@@ -116,8 +104,8 @@ test('actualCost: unreported falls back to the projection', async () => {
 
   assert.equal(costOf(await success({ url: 'https://a.example/' })).actual, 5);
   assert.equal(auth.reportCalls[0][1], 5);
-  assert.equal(costOf(await error({ url: 'https://b.example/' })).actual, 2, 'floor(5 * 0.5)');
-  assert.equal(auth.reportCalls[1][1], 2);
+  assert.equal(costOf(await error({ url: 'https://b.example/' })).actual, 0, 'failures are free');
+  assert.equal(auth.reportCalls.length, 1);
 });
 
 test('actualCost: a refusal still bills zero even when a cost was reported', async () => {

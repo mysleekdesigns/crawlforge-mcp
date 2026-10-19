@@ -85,4 +85,4 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
   only 2 when the plain fetch works; `scrape` then `stealth_mode` costs 7 either
   way. Do not set it on a site that reads fine — it raises the projection your
   balance is checked against.
-- Errors are charged at half the tool cost; creator mode is unlimited.
+- Failed calls are not charged; creator mode is unlimited.

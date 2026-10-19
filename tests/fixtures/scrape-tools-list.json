@@ -616,7 +616,7 @@
         "type": "string"
       },
       "_cost": {
-        "description": "Cost-transparency metadata (D3.5), present when injected into the text copy of the result",
+        "description": "Cost-transparency metadata (D3.5): what this call was projected to cost and what it was charged",
         "type": "object",
         "properties": {
           "projected": {
@@ -624,7 +624,7 @@
             "type": "number"
           },
           "actual": {
-            "description": "Credits actually charged (0 in creator mode, half-rate on error)",
+            "description": "Credits actually charged (0 in creator mode, and 0 for a failed call)",
             "type": "number"
           },
           "remaining_credits": {
@@ -640,6 +640,10 @@
           }
         },
         "additionalProperties": {}
+      },
+      "next_step": {
+        "description": "Failed calls only: the tool or fix to try next",
+        "type": "string"
       }
     },
     "additionalProperties": false

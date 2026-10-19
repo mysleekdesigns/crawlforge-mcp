@@ -17,16 +17,16 @@
 import { z } from 'zod';
 import { SCRAPE_STRING_FORMATS, SCRAPE_OBJECT_FORMATS } from '../tools/scrape/formats.js';
 
-// `_cost` is injected by withAuth into the legacy JSON-text copy of the
-// result (never into structuredContent directly) — included here anyway so
-// clients that copy `content[0].text` into structuredContent-shaped code
-// don't fail validation.
+// `_cost` and `next_step` are injected by withAuth into both the JSON-text copy
+// of the result and structuredContent (R25 0.2), so every shape declares them.
 const costShape = z.object({
   projected: z.number().optional().describe('Credits projected for this call before execution'),
-  actual: z.number().optional().describe('Credits actually charged (0 in creator mode, half-rate on error)'),
+  actual: z.number().optional().describe('Credits actually charged (0 in creator mode, and 0 for a failed call)'),
   remaining_credits: z.number().nullable().optional().describe('Credits remaining on the account after this call, if known'),
   projection_note: z.string().optional().describe('Human-readable note about how the cost was projected')
-}).passthrough().optional().describe('Cost-transparency metadata (D3.5), present when injected into the text copy of the result');
+}).passthrough().optional().describe('Cost-transparency metadata (D3.5): what this call was projected to cost and what it was charged');
+
+const nextStepShape = z.string().optional().describe('Failed calls only: the tool or fix to try next');
 
 // ── result handles (Phase 2) ────────────────────────────────────────────────
 
@@ -143,7 +143,8 @@ const scrapeShape = {
   warnings: z.array(z.string()).optional().describe('Per-format warnings; partial success never fails the whole call'),
   redaction: redactionShape,
   ...resultHandleShape,
-  _cost: costShape
+  _cost: costShape,
+  next_step: nextStepShape
 };
 
 // ── map_site ────────────────────────────────────────────────────────────────
@@ -186,7 +187,8 @@ const mapSiteShape = {
   }).passthrough()).optional().describe('Present only when the `search` param was set'),
   warnings: z.array(z.string()).optional().describe('Present when the map is partial, e.g. the start page could not be read and the URLs come from the sitemap only, or when the result is over max_inline_chars'),
   ...resultHandleShape,
-  _cost: costShape
+  _cost: costShape,
+  next_step: nextStepShape
 };
 
 // ── serp_rank ───────────────────────────────────────────────────────────────
@@ -220,7 +222,8 @@ const serpRankShape = {
   checkUrl: z.string().optional().describe('Link to view the real SERP on DataForSEO'),
   cost: z.number().optional().describe('USD charged by DataForSEO for this lookup (separate from CrawlForge credits)'),
   checkedAt: z.string().optional(),
-  _cost: costShape
+  _cost: costShape,
+  next_step: nextStepShape
 };
 
 // ── reddit_search ───────────────────────────────────────────────────────────
@@ -273,7 +276,8 @@ const redditSearchShape = {
   fallback_used: z.string().optional().describe('Present when the primary archive failed and the fallback served the result'),
   notes: z.array(z.string()).optional().describe('Data-provenance caveats (archive freshness, coverage gaps)'),
   checkedAt: z.string().optional(),
-  _cost: costShape
+  _cost: costShape,
+  next_step: nextStepShape
 };
 
 // ── search_web ──────────────────────────────────────────────────────────────
@@ -334,7 +338,8 @@ const searchWebShape = {
   redaction: redactionShape,
   warnings: z.array(z.string()).optional().describe('Notes on this result; over max_inline_chars, where the full result is kept and how to read it'),
   ...resultHandleShape,
-  _cost: costShape
+  _cost: costShape,
+  next_step: nextStepShape
 };
 
 // ── extract_structured ───────────────────────────────────────────────────────
@@ -366,7 +371,8 @@ const extractStructuredShape = {
     }).passthrough()).optional(),
     skipped: z.string().optional().describe('"empty_source" when there was nothing to check against')
   }).passthrough().optional(),
-  _cost: costShape
+  _cost: costShape,
+  next_step: nextStepShape
 };
 
 // ── crawl_deep ────────────────────────────────────────────────────────────────
@@ -417,7 +423,8 @@ const crawlDeepShape = {
   cached: z.boolean().optional().describe('True when this response was replayed from an earlier crawl rather than crawled now; crawled_at gives its age'),
   redaction: redactionShape,
   ...resultHandleShape,
-  _cost: costShape
+  _cost: costShape,
+  next_step: nextStepShape
 };
 
 // ── read_result ───────────────────────────────────────────────────────────────
@@ -455,7 +462,8 @@ const readResultShape = {
   preview: z.string().optional(),
   truncated: z.boolean().optional().describe('search: more matches than returned; json_path: value replaced by a preview'),
   warnings: z.array(z.string()).optional(),
-  _cost: costShape
+  _cost: costShape,
+  next_step: nextStepShape
 };
 
 // ── Export ────────────────────────────────────────────────────────────────────

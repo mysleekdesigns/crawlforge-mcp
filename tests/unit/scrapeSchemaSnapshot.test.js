@@ -20,7 +20,9 @@
  * `additionalProperties: false` on nested objects, inlines what used to be a
  * `$ref` back-reference, and orders keys differently. Runtime validation is
  * unchanged — zod still strips unknown keys — so the wire schema is merely
- * more permissive than the validator, not the other way round.
+ * more permissive than the validator, not the other way round. Regenerated
+ * 2026-10-19 for R25 0.2: outputSchema gains `next_step`, and `_cost` now
+ * describes the free-failure rule.
  *
  * The server is spawned with HOME pointed at a temp dir and an empty creator
  * secret so the real ~/.crawlforge is never read or written.
