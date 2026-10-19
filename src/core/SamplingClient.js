@@ -16,12 +16,23 @@
 import { ollamaBaseUrl as OLLAMA_BASE_URL, ollamaHeaders, selectOllamaModel } from '../utils/ollamaConfig.js';
 
 /**
+ * A provider call's own 30 s bound, cut short by the caller's time budget
+ * when there is one.
+ * @param {AbortSignal|null} [budget]
+ * @returns {AbortSignal}
+ */
+function callSignal(budget) {
+  const own = AbortSignal.timeout(30_000);
+  return budget ? AbortSignal.any([own, budget]) : own;
+}
+
+/**
  * Attempt an Ollama completion.
  * @param {string} prompt
  * @param {object} options
  * @returns {Promise<string>}
  */
-async function tryOllama(prompt, { model, maxTokens } = {}) {
+async function tryOllama(prompt, { model, maxTokens, budget } = {}) {
   const ollamaModel = model || await selectOllamaModel();
   const url = `${OLLAMA_BASE_URL()}/api/generate`;
   const res = await fetch(url, {
@@ -33,7 +44,7 @@ async function tryOllama(prompt, { model, maxTokens } = {}) {
       stream: false,
       ...(maxTokens ? { options: { num_predict: maxTokens } } : {}),
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: callSignal(budget),
   });
   if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
   const data = await res.json();
@@ -47,7 +58,7 @@ async function tryOllama(prompt, { model, maxTokens } = {}) {
  * @param {object} options
  * @returns {Promise<string>}
  */
-async function tryOpenAI(prompt, { model, maxTokens } = {}) {
+async function tryOpenAI(prompt, { model, maxTokens, budget } = {}) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY not set');
   const base = (process.env.OPENAI_BASE_URL || 'https://api.openai.com').replace(/\/$/, '');
@@ -62,7 +73,7 @@ async function tryOpenAI(prompt, { model, maxTokens } = {}) {
       messages: [{ role: 'user', content: prompt }],
       ...(maxTokens ? { max_tokens: maxTokens } : {}),
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: callSignal(budget),
   });
   if (!res.ok) throw new Error(`OpenAI HTTP ${res.status}`);
   const data = await res.json();
@@ -75,7 +86,7 @@ async function tryOpenAI(prompt, { model, maxTokens } = {}) {
  * @param {object} options
  * @returns {Promise<string>}
  */
-async function tryAnthropic(prompt, { model, maxTokens } = {}) {
+async function tryAnthropic(prompt, { model, maxTokens, budget } = {}) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
   const base = (process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '');
@@ -91,7 +102,7 @@ async function tryAnthropic(prompt, { model, maxTokens } = {}) {
       max_tokens: maxTokens || 1024,
       messages: [{ role: 'user', content: prompt }],
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: callSignal(budget),
   });
   if (!res.ok) throw new Error(`Anthropic HTTP ${res.status}`);
   const data = await res.json();
@@ -116,12 +127,18 @@ export class SamplingClient {
    * @param {string} [options.model] - Override model name
    * @param {number} [options.maxTokens] - Max tokens for response
    * @param {string} [options.systemPrompt] - Optional system-level instruction
+   * @param {number} [options.timeoutMs] - Time budget for the whole chain. Each
+   *   provider call stops at its own 30 s bound or when the budget runs out,
+   *   whichever comes first, and the sampling fallback is raced against it.
+   *   An exhausted budget throws an error with code 'LLM_TIMEOUT'.
    * @returns {Promise<{ text: string, provider: string }>}
    */
   async complete(prompt, options = {}) {
     const fullPrompt = options.systemPrompt
       ? `${options.systemPrompt}\n\n${prompt}`
       : prompt;
+    const budget = options.timeoutMs != null ? AbortSignal.timeout(Math.max(0, options.timeoutMs)) : null;
+    options = { ...options, budget };
 
     // 1. Try Ollama (local, no API key)
     try {
@@ -153,11 +170,19 @@ export class SamplingClient {
     // 3. Try MCP sampling (client-side LLM)
     if (this._mcpServer?.server?.createMessage) {
       try {
-        const samplingResult = await this._mcpServer.server.createMessage({
+        const request = this._mcpServer.server.createMessage({
           messages: [{ role: 'user', content: { type: 'text', text: fullPrompt } }],
           maxTokens: options.maxTokens || 1024,
           includeContext: 'none',
-        });
+        }, budget ? { signal: budget } : undefined);
+        // Raced as well: a client that ignores the cancellation would
+        // otherwise hold the caller past its budget.
+        const samplingResult = await (budget
+          ? Promise.race([request, new Promise((_, reject) => {
+            if (budget.aborted) reject(budget.reason);
+            else budget.addEventListener('abort', () => reject(budget.reason), { once: true });
+          })])
+          : request);
         const text = samplingResult?.content?.text || '';
         if (text) {
           // stderr, never stdout — stdout is the JSON-RPC stream on stdio.
@@ -170,6 +195,11 @@ export class SamplingClient {
     }
 
     // 4. All fallbacks exhausted
+    if (budget?.aborted) {
+      const err = new Error(`LLM time budget of ${options.timeoutMs} ms ran out before a provider answered.`);
+      err.code = 'LLM_TIMEOUT';
+      throw err;
+    }
     throw new Error(
       'No LLM available: Ollama is not running, no API keys set (OPENAI_API_KEY / ANTHROPIC_API_KEY), and the MCP client does not support sampling.'
     );
