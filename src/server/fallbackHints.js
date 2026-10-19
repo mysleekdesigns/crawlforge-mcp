@@ -174,6 +174,10 @@ export function appendFallbackHint(toolName, result) {
   if (parsed) {
     parsed.next_step = hint;
     first.text = JSON.stringify(parsed, null, 2);
+    // Clients that show structuredContent never see the text copy (R25 0.2).
+    if (result.structuredContent && typeof result.structuredContent === 'object') {
+      result.structuredContent.next_step = hint;
+    }
     return result;
   }
   first.text = `${first.text}\nNext step: ${hint}`;

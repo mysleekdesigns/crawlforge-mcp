@@ -96,7 +96,9 @@ test('a confirmed round trip: handler runs twice, the user is asked once, billin
   assert.equal(reportCalls[0][1], 4, 'billed the full tool price, once');
 
   assert.equal(result.isError, undefined, 'an outputSchema does not reject the round trip');
-  assert.deepEqual(result.structuredContent, { success: true, pages: 900 });
+  const { _cost, ...out } = result.structuredContent;
+  assert.deepEqual(out, { success: true, pages: 900 });
+  assert.equal(_cost.actual, 4, 'withAuth mirrors _cost into structuredContent (R25 0.2)');
 });
 
 test('the prompt carries the message and the detail lines the tool passed', async () => {
@@ -110,14 +112,16 @@ test('the prompt carries the message and the detail lines the tool passed', asyn
   assert.deepEqual(seen.requestedSchema.required, ['confirmed']);
 });
 
-test('a declined confirmation reaches the tool as a decline and is billed once', async () => {
+test('a declined confirmation reaches the tool as a decline and is billed nothing', async () => {
   const { result, entries, reportCalls } = await runGatedCall({
     answer: () => ({ action: 'decline' })
   });
 
   assert.equal(entries, 2);
-  assert.deepEqual(result.structuredContent, { success: false, pages: 900 }, 'the tool decided, not the SDK');
-  assert.equal(reportCalls.length, 1, 'the decline round trip itself is free');
+  const { _cost, next_step, ...out } = result.structuredContent;
+  assert.deepEqual(out, { success: false, pages: 900 }, 'the tool decided, not the SDK');
+  assert.equal(result.isError, true, 'a success:false body is an error outcome');
+  assert.equal(reportCalls.length, 0, 'neither the round trip nor the decline is billed');
 });
 
 test('a client that never declared elicitation is not asked, and the call succeeds', async () => {
@@ -131,6 +135,7 @@ test('a client that never declared elicitation is not asked, and the call succee
   assert.equal(entries, 1, 'no round trip at all');
   assert.equal(prompts, 0);
   assert.equal(result.isError, undefined, 'fail-open: the operation proceeds unasked');
-  assert.deepEqual(result.structuredContent, { success: true, pages: 900 });
+  const { _cost, ...out } = result.structuredContent;
+  assert.deepEqual(out, { success: true, pages: 900 });
   assert.equal(reportCalls.length, 1);
 });

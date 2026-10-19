@@ -423,7 +423,7 @@ describe('_cost through withAuth: projected 7, actual 2 or 7', () => {
     const body = bodyOf(result);
     assert.equal(result.isError, true);
     assert.equal(body.next_step, SCRAPE_ESCALATED_HINT);
-    assert.equal(body._cost.actual, 3, 'the error rate: half of the 7 that ran');
+    assert.equal(body._cost.actual, 0, 'failures are free, escalated or not');
   });
 
   test('find with keys_only is refused before any fetch and bills nothing', async () => {

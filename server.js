@@ -572,10 +572,10 @@ registerToolIfEnabled("search_web", {
   try {
     if (!query && !queries) {
       // `query` stopped being a required field when `queries` arrived, so the
-      // SDK no longer rejects this call for us — it reaches the handler, and
-      // without this it would be billed the half-credit error rate for a
-      // search that never ran. Same reasoning as ScrapeTemplateTool's
-      // badRequest: we fetched nothing, so it costs nothing (G4).
+      // SDK no longer rejects this call for us — it reaches the handler, which
+      // refuses it before any search runs. Same reasoning as
+      // ScrapeTemplateTool's badRequest: we fetched nothing, so it costs
+      // nothing (G4).
       markPreflightRefusal('BAD_REQUEST');
       return { content: [{ type: "text", text: EXACTLY_ONE_QUERY_MESSAGE }], isError: true };
     }
@@ -1258,8 +1258,8 @@ registerToolIfEnabled("scrape", {
         return shot;
       });
     }
-    // A blocked verdict (0.1) is an error result: withAuth bills it at the
-    // error rate and appends the hint naming stealth_mode, and the SDK skips
+    // A blocked verdict (0.1) is an error result: withAuth charges it nothing
+    // and appends the hint naming stealth_mode, and the SDK skips
     // outputSchema validation on isError. The JSON body still carries the
     // verdict (success:false, error, blocked) the way stealth_mode's does.
     if (result.success === false) return { ...dualOutput(result), isError: true };
@@ -1274,7 +1274,7 @@ registerToolIfEnabled("agent", {
   description: "Use this when you need an autonomous agent to research, navigate, and synthesise an answer from the web - no URLs required. The agent plans search queries, fetches and filters relevant pages, and returns a prose or structured answer. model:\"pro\" uses deep multi-source research. Hard limits: maxSteps<=10, maxUrls<=20, 120s wall-clock. Confirms before pro runs. Degraded-but-useful output if no LLM keys/Ollama. Not for a URL you already have (scrape) or a question one search answers (search_web). Pages that block a plain fetch are retried in the stealth browser automatically (at most 2 a run, URLs you name first; evidence marked via:\"stealth\"). Cost: 18 credits at most - 8, plus 5 per stealth retry that gets the page; a retry that is blocked again is free. Example: agent({prompt:\"What are the top 5 MCP servers in 2025?\", maxUrls:10})",
   annotations: { title: "Agent (Autonomous)", readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: {
-    prompt: z.string().min(1).max(2000).describe("Natural-language task or question"),
+    prompt: z.string().trim().min(1).max(2000).describe("Natural-language task or question"),
     urls: z.array(z.string().url()).max(20).optional().describe("Optional seed URLs to include (max 20)"),
     schema: z.record(z.any()).optional().describe("Optional JSON schema for structured output"),
     model: z.enum(["default", "pro"]).optional().default("default").describe("\"default\" = SamplingClient loop (no keys needed); \"pro\" = full ResearchOrchestrator"),

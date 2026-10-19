@@ -253,8 +253,9 @@ describe('error-class hints', () => {
 });
 
 // R24 4.1: these six returned success:false with no isError, so withAuth never
-// appended a hint. The bodies are the live stdio repro's.
-describe('success:false bodies without isError get a hint, billed as before', () => {
+// appended a hint. The bodies are the live stdio repro's. R25 0.1: they were
+// also billed in full; a failure is now flagged isError and charged nothing.
+describe('success:false bodies without isError get a hint and are charged nothing', () => {
   const SSRF = "SSRF Protection: blocked hostname '127.0.0.1'";
   const BODIES = {
     extract_structured: { success: false, url: 'http://127.0.0.1/', data: {}, error: `Structured extraction failed: ${SSRF}`, validation: { valid: false, errors: [SSRF] } },
@@ -279,17 +280,17 @@ describe('success:false bodies without isError get a hint, billed as before', ()
   const logger = { info() {}, warn() {}, error() {}, debug() {} };
 
   for (const [tool, body] of Object.entries(BODIES)) {
-    test(`${tool}: a hint lands and the charge is the full success charge it always was`, async () => {
+    test(`${tool}: a hint lands, isError is set, and the call is charged nothing`, async () => {
       const auth = billingAuth(4);
       const withAuth = makeWithAuth({ authManager: auth, logger });
       const handler = withAuth(tool, async () => ({ content: [{ type: 'text', text: JSON.stringify(body, null, 2) }] }));
       const result = await handler({});
-      assert.equal(result.isError, undefined, 'isError is not added');
+      assert.equal(result.isError, true, 'the failure is flagged for the client');
       const parsed = JSON.parse(result.content[0].text);
       assert.equal(typeof parsed.next_step, 'string');
       assert.ok(parsed.next_step.length > 20);
-      assert.equal(parsed._cost.actual, 4);
-      assert.deepEqual(auth.reportCalls.map((c) => [c[1], c[3]]), [[4, 200]]);
+      assert.equal(parsed._cost.actual, 0);
+      assert.deepEqual(auth.reportCalls, []);
     });
   }
 
@@ -301,7 +302,7 @@ describe('success:false bodies without isError get a hint, billed as before', ()
     }
   });
 
-  test('an isError result is still billed half, and a robots refusal nothing', async () => {
+  test('an isError result and a robots refusal are both charged nothing', async () => {
     const auth = billingAuth(4);
     const withAuth = makeWithAuth({ authManager: auth, logger });
     await withAuth('fetch_url', async () => ({ content: [{ type: 'text', text: 'Failed to fetch URL: Request timeout after 1500ms' }], isError: true }))({});
@@ -309,7 +310,7 @@ describe('success:false bodies without isError get a hint, billed as before', ()
       markPreflightRefusal('ROBOTS_DISALLOWED');
       return { content: [{ type: 'text', text: 'Failed to fetch URL: robots.txt on a.com disallows this path for CrawlForge.' }], isError: true };
     })({});
-    assert.deepEqual(auth.reportCalls.map((c) => c[1]), [2]);
+    assert.deepEqual(auth.reportCalls, []);
     assert.match(refused.content[0].text, /Next step: robots\.txt on this site disallows/);
   });
 });

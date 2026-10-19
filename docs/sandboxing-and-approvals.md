@@ -158,7 +158,7 @@ Every tool registration in `server.js` wraps the handler with `withAuth(toolName
 
 1. Checks the authenticated user's credit balance against the projected cost for that tool before execution.
 2. Deducts credits on successful completion.
-3. Deducts half credits on error (partial work may have been done).
+3. Charges nothing on error: an `isError` result, a JSON body with `success: false`, or a throw.
 4. In creator mode (`CRAWLFORGE_CREATOR_SECRET` verified), skips credit checks entirely.
 
 The credit check is fail-closed since v3.0.18: insufficient credits stop the tool before any network request is made.

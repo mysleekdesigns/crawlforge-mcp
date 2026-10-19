@@ -16,7 +16,7 @@ import { AGENT_ESCALATION_CREDITS } from './escalation.js';
 export const AGENT_BASE_CREDITS = 8;
 
 export const AgentInputSchema = z.object({
-  prompt: z.string().min(1).max(2000).describe('Natural-language task or question'),
+  prompt: z.string().trim().min(1).max(2000).describe('Natural-language task or question'),
   urls: z.array(z.string().url()).max(20).optional().describe('Optional seed URLs to include (max 20)'),
   schema: z.record(z.any()).optional().describe('Optional JSON schema for structured output'),
   model: z.enum(['default', 'pro']).optional().default('default').describe('"default" = SamplingClient loop; "pro" = full ResearchOrchestrator'),

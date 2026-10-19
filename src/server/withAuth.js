@@ -13,6 +13,8 @@
  *     handler did no work, so it is billed NOTHING and reports no usage. The
  *     SDK re-enters the handler with the reply and the terminal entry bills
  *     once, so a confirmation costs exactly what the call always cost (G4).
+ *   - a failed call (an isError result, a JSON body with success:false, or a
+ *     throw) is charged NOTHING and reports no usage: failures are free
  *   - error results get a "Next step:" hint naming the tool to try next
  *     (src/server/fallbackHints.js) so a failure is not followed by a blind retry
  *   - emits an OTel span via src/observability/tracing.js (no-op if disabled)
@@ -22,9 +24,9 @@
 import { createHash } from 'node:crypto';
 import { isInputRequiredResult } from '@modelcontextprotocol/server';
 import { recordToolInvocation } from '../observability/tracing.js';
-import { isInternalRequest, preflightRefusal, reportedActualCost, requestContext } from './requestContext.js';
+import { isInternalRequest, reportedActualCost, requestContext } from './requestContext.js';
 import { appendFallbackHint } from './fallbackHints.js';
-import { normalizeErrorResult } from './errorText.js';
+import { failure, normalizeErrorResult } from './errorText.js';
 import { INLINE_THRESHOLD_TOOLS, applyInlineThreshold } from './inlineThreshold.js';
 import { REDACTION_TOOLS, redactionSurcharge, runRedactionStage } from './redaction.js';
 import { getResultStore } from '../core/ResultStore.js';
@@ -96,10 +98,6 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
       let redactionModelRan = false;
       let outcome = 'pending';
       let thrown = null;
-      // Only bill the error-path half-charge once the handler has actually run.
-      // A throw from the credit check itself (backend down, key rejected, etc.)
-      // means the tool never executed and must cost nothing.
-      let handlerStarted = false;
       // A handler may report a lower spend (setActualCost). The projection is
       // the ceiling the caller saw before the call, so a report can only ever
       // lower the charge, never raise it.
@@ -139,7 +137,6 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
           }
         }
 
-        handlerStarted = true;
         const result = await handler(params, ctx);
 
         // Phase 4.4: a multi-round-trip handler answers `input_required` when it
@@ -157,18 +154,14 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
         }
 
         // Tools catch their own failures and return { isError:true } rather than
-        // throwing (the shared pattern in server.js). That is still an ERROR
-        // outcome: bill it the half-credit error rate — not full — and log/metric
-        // it as an error, honoring CLAUDE.md's "half credits on error" contract.
-        const isErrorResult = result?.isError === true;
+        // throwing (the shared pattern in server.js), and several return a JSON
+        // body with success:false and no flag at all (R25 0.1). Both are an
+        // ERROR outcome: charged nothing, logged and metered as an error. The
+        // flag is set on the second kind too, so the client sees an error and
+        // the SDK skips outputSchema validation of a failure body.
+        const isErrorResult = result?.isError === true || failure(result) !== null;
+        if (isErrorResult) result.isError = true;
         outcome = isErrorResult ? 'error' : 'success';
-        // A pre-flight refusal (robots.txt disallowed the path, or the host is
-        // blocklisted) means we fetched nothing at all, so it costs nothing —
-        // not even the half-credit error rate, which exists for work that ran
-        // and then failed. Only when the refusal actually sank the call: a
-        // multi-URL tool that skipped one disallowed URL and still returned a
-        // result did real work and bills for it.
-        const refused = isErrorResult && preflightRefusal() !== null;
 
         // Phase 5 (5.3): redact_pii scrubs the page text this call returns.
         // It runs BEFORE the inline-threshold stage below, so what gets
@@ -191,10 +184,10 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
           try { shapeLargeResult(toolName, result, params); } catch { /* shaping must never break the request path */ }
         }
 
-        const base = billable();
-        const charge = creditCost === 0 || refused
-          ? 0
-          : (isErrorResult ? Math.max(1, Math.floor(base * 0.5)) : base);
+        // Failures are free, as the website promises. A pre-flight refusal that
+        // sank the call is one of them; a multi-URL tool that skipped one
+        // disallowed URL and still returned a result is a success and bills.
+        const charge = creditCost === 0 || isErrorResult ? 0 : billable();
 
         // D3.5: Surface cost transparency in all tool responses. For internal
         // proxy requests the meaningful balance is the end user's, which only
@@ -223,15 +216,17 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
               // Not JSON — skip injection silently
             }
           }
+          // ...and into structuredContent, which is all some clients show (R25 0.2).
+          if (result?.structuredContent && typeof result.structuredContent === 'object') {
+            result.structuredContent._cost = costMeta;
+          }
         } catch {
           // Cost injection must never break the request path
         }
 
         // Selection hint: tell the model what to try instead of the same call,
         // after stripping ANSI codes, call logs and doubled prefixes from the
-        // error text (R24 4.5). Both act on isError results and on a JSON body
-        // with success:false, which several tools return without the flag
-        // (R24 4.1). Neither touches the charge, settled above.
+        // error text (R24 4.5). Neither touches the charge, settled above.
         try {
           normalizeErrorResult(result);
           appendFallbackHint(toolName, result);
@@ -242,26 +237,15 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
         // the backend has nothing to (re-)price; reporting 0 would still create
         // a serp_rank record the backend could recompute to full cost. The
         // same goes for a handler that reported a 0 spend.
-        if (!creatorMode && creditCost > 0 && !refused && charge > 0) {
-          await authManager.reportUsage(toolName, charge, params, isErrorResult ? 500 : 200, Date.now() - startTime);
+        if (!creatorMode && charge > 0) {
+          await authManager.reportUsage(toolName, charge, params, 200, Date.now() - startTime);
         }
 
         return result;
       } catch (error) {
+        // A throw is a failure, and failures are free: nothing is reported.
         outcome = 'error';
         thrown = error;
-        // Half-charge on error — but never charge a free (0-cost) call, never
-        // let Math.max(1, …) floor a 0 up to 1 credit, and never bill at all
-        // if the handler never ran (e.g. the credit check itself threw).
-        if (!creatorMode && creditCost > 0 && handlerStarted && preflightRefusal() === null) {
-          await authManager.reportUsage(
-            toolName,
-            Math.max(1, Math.floor(billable() * 0.5)),
-            params,
-            500,
-            Date.now() - startTime
-          );
-        }
         throw error;
       } finally {
         const durationMs = Date.now() - startTime;
