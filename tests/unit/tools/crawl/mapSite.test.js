@@ -276,8 +276,9 @@ describe('mapSite tool — real module (Phase 2 fixes)', () => {
       const result = await realTool.execute({ url: baseUrl, include_sitemap: true, group_by_path: false });
 
       const paths = result.urls.map(u => new URL(u).pathname).sort();
-      assert.deepEqual(paths, ['/a1', '/a2', '/a3', '/b1', '/b2', '/b3']);
-      assert.equal(result.total_urls, 6);
+      // Plus the start page itself (R25 1.2).
+      assert.deepEqual(paths, ['/', '/a1', '/a2', '/a3', '/b1', '/b2', '/b3']);
+      assert.equal(result.total_urls, 7);
     });
   });
 

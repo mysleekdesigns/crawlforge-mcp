@@ -49,6 +49,12 @@ import { load } from 'cheerio';
 // Readability already kept it. Long enough to be unique to that table.
 const SIGNATURE_LENGTH = 120;
 
+// Navigation tables are link lists laid out as tables, not data. Wikipedia's
+// navbox and sidebar templates pass the data-table test (a `<th>` and 2+
+// cells a row), so List_of_HTTP_status_codes came back with its "HTTP" sidebar
+// and footer navbox re-attached as pipe tables (R25, 2026-10-19).
+const NAVIGATION_TABLE = 'table.navbox, .navbox-inner, .vertical-navbox, [role="navigation"], nav';
+
 // Copied verbatim from @mozilla/readability's REGEXPS. Two of them delete
 // content, and both are unanchored: `unlikelyCandidates` removes an element
 // outright, `negative` docks 25 from its class weight, which is enough for
@@ -152,6 +158,26 @@ export function sanitizeAccidentalClasses(document) {
 }
 
 /**
+ * Undo MediaWiki's heading wrapper before Readability sees the page.
+ *
+ * Since 2024 MediaWiki emits every section heading as
+ * `<div class="mw-heading"><h2>History</h2><span class="mw-editsection">[edit]</span></div>`.
+ * Readability scores that div as a link-heavy fragment: the History and
+ * Techniques h2s of Wikipedia's *Web scraping* article were dropped, and the
+ * headings that survived each came back followed by a "[edit]" link line
+ * (R25, 2026-10-19). Deleting the edit links and unwrapping the div leaves the
+ * bare heading Readability keeps.
+ *
+ * @param {Document} document - mutated in place
+ */
+export function unwrapMediaWikiHeadings(document) {
+  for (const el of Array.from(document.querySelectorAll('.mw-editsection'))) el.remove();
+  for (const wrapper of Array.from(document.querySelectorAll('div.mw-heading'))) {
+    wrapper.replaceWith(...Array.from(wrapper.childNodes));
+  }
+}
+
+/**
  * Readability's own data-table test (`_markDataTables`): 10+ rows or more than
  * 4 columns means the table carries data rather than layout, counting
  * rowspan/colspan the way Readability does.
@@ -232,6 +258,7 @@ export function recoverDroppedTables(html, url, keptText = '') {
       // A nested table travels with its parent; re-attaching it separately
       // would duplicate it.
       .filter((table) => !table.parentElement?.closest('table'))
+      .filter((table) => !table.closest(NAVIGATION_TABLE))
       .filter((table) => isDataTable(table) || isHeadedTable(table))
       .filter((table) => {
         const signature = normalizeWhitespace(table.textContent || '').slice(0, SIGNATURE_LENGTH);
@@ -260,6 +287,7 @@ export function extractMainContent(html, url) {
   try {
     const dom = new JSDOM(html, { url });
     sanitizeAccidentalClasses(dom.window.document);
+    unwrapMediaWikiHeadings(dom.window.document);
     article = new Readability(dom.window.document).parse();
   } catch {
     return { html: null, title: '', tablesRecovered: 0 };

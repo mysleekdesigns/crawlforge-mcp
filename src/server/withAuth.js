@@ -192,13 +192,12 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
         // D3.5: Surface cost transparency in all tool responses. For internal
         // proxy requests the meaningful balance is the end user's, which only
         // the website knows — report null rather than the static key's cache.
+        // Creator mode has no balance: null, since outputSchema rejects Infinity.
         try {
           const projection = authManager.projectCost(toolName, params);
-          const remainingCredits = creatorMode
-            ? Infinity
-            : internal
-              ? null
-              : (authManager.creditCache ? [...authManager.creditCache.values()][0] ?? null : null);
+          const remainingCredits = creatorMode || internal
+            ? null
+            : (authManager.creditCache ? [...authManager.creditCache.values()][0] ?? null : null);
           const costMeta = {
             projected: creditCost,
             actual: creatorMode ? 0 : charge,

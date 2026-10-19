@@ -619,7 +619,8 @@ export class ProcessDocumentTool {
    */
   extractTitleFromHTML(html) {
     const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    return titleMatch ? titleMatch[1].trim() : null;
+    // Decode entities: MDN's <table> page is titled "&lt;table&gt; ...".
+    return titleMatch ? load(titleMatch[1], null, false).root().text().trim() : null;
   }
 
   /**

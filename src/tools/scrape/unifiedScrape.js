@@ -53,6 +53,85 @@ export const JSON_TIMEOUT_MS = 60000;
 
 const isQueryFormat = (fmt) => Boolean(fmt) && typeof fmt === 'object' && (fmt.type === 'highlights' || fmt.type === 'question');
 
+// ── Question evidence support (R25 1.4) ──────────────────────────────────────
+// A ranked unit is not support for an answer by being ranked: before
+// crawlforge-extractors 1.18.0 the ranker scored link URLs, and Wikipedia's
+// reference list answered "Who created Python…?" with citation titles — as
+// grounded:true. These checks read only the units this call returns, so they
+// hold with any extractors version.
+const EVIDENCE_LINK = /(!?)\[((?:\\.|[^[\]\\])*)\]\((?:\\.|[^()\\\s]|\([^()\s]*\))*(?:\s+"(?:\\.|[^"\\])*")?\)/g;
+const REFERENCE_HEADING = /^(?:(?:references?|notes?|citations?|sources?|footnotes?|bibliography|works cited)(?:\s*(?:,|&|and)\s*|\s*$))+$/i;
+// Words any question shares with any page; they show no unit answers it.
+const QUESTION_STOPWORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'of', 'to', 'in', 'on', 'at', 'by', 'for', 'with', 'from', 'as', 'into', 'about',
+  'is', 'are', 'was', 'were', 'be', 'been', 'being', 'am', 'do', 'does', 'did', 'has', 'have', 'had', 'can', 'could',
+  'will', 'would', 'should', 'may', 'might', 'it', 'its', 'this', 'that', 'these', 'those', 'there', 'their', 'they',
+  'he', 'she', 'his', 'her', 'i', 'you', 'we', 'my', 'your', 'our', 'me', 'us', 'them', 'any', 'some', 'not', 'no',
+  'who', 'whom', 'whose', 'what', 'which', 'when', 'where', 'why', 'how', 'many', 'much'
+]);
+// crawlforge-extractors' word runs: a CJK run and any other run never merge.
+const CJK_CHAR = '[\\p{scx=Han}\\p{scx=Hiragana}\\p{scx=Katakana}\\p{scx=Hangul}]';
+const QUESTION_TOKEN = new RegExp(`(?:(?=${CJK_CHAR})[\\p{L}\\p{N}])+|(?:(?!${CJK_CHAR})[\\p{L}\\p{N}\\p{M}])+`, 'gu');
+const CJK_RUN = new RegExp(`^${CJK_CHAR}`, 'u');
+
+/** A unit's text as a reader sees it: link labels without URLs, no citation markers. */
+function visibleEvidenceText(text) {
+  let out = String(text ?? '');
+  for (let pass = 0; pass < 2 && out.includes(']('); pass++) {
+    out = out.replace(EVIDENCE_LINK, (match, _bang, label) => (/\]\(#cite_(?:note|ref)/.test(match) ? ' ' : label));
+  }
+  return out.toLowerCase();
+}
+
+/** An entry of a references-type list: under such a heading, or carrying a Wikipedia back-link. */
+function isReferenceUnit(unit) {
+  if (/\]\(#cite_ref/.test(String(unit.text ?? ''))) return true;
+  return typeof unit.heading === 'string' && REFERENCE_HEADING.test(unit.heading.trim());
+}
+
+/**
+ * The question's content terms, stemmed lightly ("released" → "releas") so a
+ * substring test finds their inflections; a CJK run becomes bigrams.
+ */
+function questionTerms(question) {
+  const terms = new Set();
+  for (const [run] of String(question ?? '').toLowerCase().matchAll(QUESTION_TOKEN)) {
+    if (CJK_RUN.test(run)) {
+      const chars = Array.from(run);
+      if (chars.length === 1) terms.add(run);
+      for (let i = 0; i + 1 < chars.length; i++) terms.add(chars[i] + chars[i + 1]);
+    } else if (!QUESTION_STOPWORDS.has(run)) {
+      terms.add(run.length > 4 ? run.replace(/(?:ing|ed|es|s)$/, '').replace(/(.{4,})e$/, '$1') : run);
+    }
+  }
+  return [...terms];
+}
+
+/**
+ * Whether the ranked evidence can ground an answer: some unit outside a
+ * reference list whose visible text (or heading) holds a content term of the
+ * question. Returns the reason when it cannot.
+ * @param {Array<{ text: string, heading?: string | null }>} evidence
+ * @param {string} question
+ * @returns {{ supported: boolean, reason?: string }}
+ */
+export function evidenceSupport(evidence, question) {
+  if (evidence.length === 0) return { supported: false };
+  const body = evidence.filter((unit) => !isReferenceUnit(unit));
+  if (body.length === 0) {
+    return { supported: false, reason: 'every evidence unit is a reference-list entry (References, Notes, Citations or Sources)' };
+  }
+  const terms = questionTerms(question);
+  if (terms.length === 0) return { supported: true };
+  const holds = body.some((unit) => {
+    const visible = `${visibleEvidenceText(unit.text)}\n${visibleEvidenceText(unit.heading)}`;
+    return terms.some((term) => visible.includes(term));
+  });
+  return holds
+    ? { supported: true }
+    : { supported: false, reason: 'no evidence unit outside a reference list contains a term of the question in its visible text' };
+}
+
 // The six public fields in tools/list order, each carrying the description
 // the client sees. server.js spreads this with COMPLIANCE_PARAMS instead of
 // keeping its own copy (Phase 0, 0.3).
@@ -686,8 +765,11 @@ export class UnifiedScrapeTool {
             const evidence = rankUnits(candidates, fmt.question, { maxUnits: QUESTION_EVIDENCE_UNITS });
             const evidenceText = evidence.map((unit) => unit.text).join('\n');
             let text = evidenceText;
-            // An empty answer rests on nothing, so it is never grounded.
-            let grounded = evidence.length > 0;
+            // An empty answer rests on nothing, so it is never grounded; nor
+            // does one resting on reference-list entries or link URLs alone.
+            const support = evidenceSupport(evidence, fmt.question);
+            if (support.reason) warnings.push(`question: ${support.reason}; grounded: false`);
+            let grounded = support.supported;
             if (fmt.mode === 'model' && evidence.length > 0) {
               try {
                 text = await this._answerQuestion(evidence, fmt.question);
@@ -698,7 +780,7 @@ export class UnifiedScrapeTool {
                   warnings.push('question: the model found no answer in the evidence; grounded: false');
                 } else {
                   const check = groundingCheck(text, evidenceText, fmt.question);
-                  grounded = check.grounded;
+                  grounded = check.grounded && support.supported;
                   if (!grounded) {
                     warnings.push(`question: the model's answer has ${check.unbacked.length} token(s) not found in the evidence or the question (${check.unbacked.join(', ')}); grounded: false`);
                   }

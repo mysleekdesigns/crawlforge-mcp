@@ -147,10 +147,10 @@ describe('LLMsTxtAnalyzer.prioritizeUrls', () => {
     assert.deepEqual(ordered, [`${BASE}/`, `${BASE}/docs/intro`, `${BASE}/docs/a/b`, `${BASE}/docs/a/b/c`]);
   });
 
-  test('nothing discovered means nothing invented', () => {
+  test('nothing else discovered still leaves the site root (R25 1.2: a one-page site was 0 pages)', () => {
     const analyzer = new LLMsTxtAnalyzer();
-    assert.deepEqual(analyzer.prioritizeUrls([], BASE, 10), []);
-    assert.deepEqual(analyzer.prioritizeUrls(['not a url'], BASE, 10), []);
+    assert.deepEqual(analyzer.prioritizeUrls([], BASE, 10), [`${BASE}/`]);
+    assert.deepEqual(analyzer.prioritizeUrls(['not a url'], BASE, 10), [`${BASE}/`]);
   });
 });
 

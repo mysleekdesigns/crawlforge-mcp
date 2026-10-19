@@ -160,7 +160,25 @@ test('withAuth: creator mode skips credit checks and reports, but still logs', a
   assert.equal(auth.reportCalls.length, 0, 'no usage report in creator mode');
 });
 
-// ─── All tools are metered (no free tier) ────────────────────────────────────
+test('withAuth: creator mode structuredContent _cost passes the outputSchema (no Infinity)', async () => {
+  const { z } = await import('zod');
+  const { OUTPUT_SCHEMAS } = await import('../../src/schemas/toolOutputSchemas.js');
+  const auth = makeFakeAuth({ creatorMode: true, toolCost: 2 });
+  const withAuth = makeWithAuth({ authManager: auth, logger: makeFakeLogger() });
+
+  const structured = { success: true, url: 'https://example.com/', total_urls: 0, urls: [] };
+  const handler = withAuth('map_site', async () => ({
+    content: [{ type: 'text', text: JSON.stringify(structured) }],
+    structuredContent: { ...structured }
+  }));
+  const result = await handler({ url: 'https://example.com/' });
+
+  assert.equal(result.structuredContent._cost.remaining_credits, null);
+  const parsed = z.object(OUTPUT_SCHEMAS.map_site).shape._cost.safeParse(result.structuredContent._cost);
+  assert.ok(parsed.success, JSON.stringify(parsed.error?.issues));
+});
+
+// ─── All tools are metered (no free tier)────────────────────────────────────
 
 test('withAuth: metered tool checks credits and reports usage on success', async () => {
   const logger = makeFakeLogger();

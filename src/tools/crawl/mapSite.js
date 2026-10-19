@@ -167,6 +167,11 @@ export class MapSiteTool {
       // unresolvable host used to return a success with total_urls: 0 (R24).
       try {
         const pageUrls = await this.fetchPageUrls(validated.url, domainFilter, identity);
+        // The start page is a page of the site too: a one-page site with no
+        // sitemap used to map to 0 URLs (R25 1.2).
+        if (!domainFilter || domainFilter.isAllowed(validated.url).allowed) {
+          urls.add(normalizeUrl(validated.url));
+        }
         pageUrls.forEach(url => {
           if (urls.size < poolLimit) {
             urls.add(normalizeUrl(url));
@@ -200,6 +205,9 @@ export class MapSiteTool {
 
       // Convert to array and limit
       const urlArray = pool.slice(0, validated.max_urls);
+      if (urlArray.length === 0) {
+        warnings.push('No URLs were found: no sitemap listed any, and the start page and its links were all excluded by the domain filter.');
+      }
 
       // Fetch metadata if requested
       if (validated.include_metadata) {
