@@ -2,7 +2,7 @@
  * serp_rank tool
  *
  * Reports where a target domain ranks in Google's REAL organic results for a
- * keyword — the SERP position that Google Custom Search (search_web) cannot
+ * keyword — the SERP position that search_web, a general web search, cannot
  * give you. Backed by the DataForSEO SERP adapter.
  *
  * Honesty rule: if DataForSEO is not configured, this returns an explained
@@ -11,6 +11,46 @@
 
 import { z } from 'zod';
 import { DataForSEOSearchAdapter } from './adapters/dataforseoSearch.js';
+
+/** Words too common to tell a relevant result from an unrelated one. */
+const STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'how', 'what', 'why', 'who', 'when', 'where',
+  'are', 'you', 'your', 'best', 'from', 'near', 'can', 'does', 'that', 'this',
+]);
+
+/** Below this share of top results mentioning the keyword, a SERP is flagged. */
+const DECOY_THRESHOLD = 0.2;
+/** Fewer results than this is too little to judge. */
+const DECOY_MIN_RESULTS = 3;
+
+/** The keyword's distinctive words: lowercased, 3+ characters, stopwords out. */
+function keywordTokens(keyword) {
+  const words = String(keyword).toLowerCase().split(/[^\p{L}\p{N}]+/u);
+  return [...new Set(words.filter((w) => w.length >= 3 && !STOPWORDS.has(w)))];
+}
+
+/**
+ * Whether a SERP looks like a decoy. Google serves some scrapers real-looking
+ * results that have nothing to do with the query, and DataForSEO passes such
+ * a page on as a valid one: on 2026-10-19 "crawlforge" came back as 19
+ * crawl/MCP pages, none naming CrawlForge, while Search Console had the site
+ * at #1 and a second lookup a minute later did too. So check whether the top
+ * results mention the keyword at all.
+ *
+ * @returns {{ checked: number, matching: number, suspect: boolean } | null}
+ *   null when the keyword has no usable word or there are too few results.
+ */
+export function assessSerpRelevance(keyword, results) {
+  const tokens = keywordTokens(keyword);
+  const top = results.slice(0, RESULTS_LIMIT);
+  if (tokens.length === 0 || top.length < DECOY_MIN_RESULTS) return null;
+
+  const matching = top.filter((r) => {
+    const text = `${r.title ?? ''} ${r.url ?? ''} ${r.snippet ?? ''}`.toLowerCase();
+    return tokens.some((t) => text.includes(t));
+  }).length;
+  return { checked: top.length, matching, suspect: matching / top.length < DECOY_THRESHOLD };
+}
 
 /** How many top organic results to return as the SERP listing (`results`).
  * The first Google page is ~10; bounding it keeps the tool payload small while
@@ -121,6 +161,9 @@ export class SerpRankTool {
         snippet: it.snippet,
       }));
 
+    const relevance = assessSerpRelevance(validated.keyword, results);
+    const suspect = relevance?.suspect ?? false;
+
     return {
       configured: true,
       keyword: validated.keyword,
@@ -140,6 +183,16 @@ export class SerpRankTool {
       checkUrl: meta.checkUrl, // link to view the real SERP
       cost: meta.cost, // USD charged by DataForSEO for this lookup
       checkedAt: new Date().toISOString(),
+      // true when the top results barely mention the keyword: a likely decoy SERP
+      suspect,
+      ...(suspect
+        ? {
+            warnings: [
+              `These results look unrelated to the keyword (${relevance.matching} of the top ${relevance.checked} mention it). ` +
+                'Google may have served a decoy results page. Re-run the lookup, or check Search Console, before acting on this rank.',
+            ],
+          }
+        : {}),
     };
   }
 }

@@ -113,7 +113,7 @@ if (configErrors.length > 0 && config.server.nodeEnv === 'production') {
 // Create the server
 const server = new McpServer({
   name: "crawlforge",
-  version: "6.20.1",
+  version: "6.21.0",
   description: "Production-ready MCP server with 31 web scraping, crawling, and content processing tools. Features MCP Resources (crawlforge://), Prompts, Sampling fallback, Elicitation, stealth browsing, stateful browser sessions with element refs, deep research, structured extraction, embedded JavaScript state extraction, real Google SERP rank tracking, Reddit search via community archives, change tracking, local-LLM extraction via Ollama, unified multi-format scrape, and autonomous agent tool.",
   homepage: "https://www.crawlforge.dev",
   icon: "https://www.crawlforge.dev/icon.png",
@@ -588,7 +588,7 @@ registerToolIfEnabled("search_web", {
 
 // Tool: serp_rank — REAL Google organic rank for a target domain (via DataForSEO)
 registerToolIfEnabled("serp_rank", {
-  description: "Use this to check where a domain ranks in Google's ORGANIC results for a keyword - real SERP position, not Custom Search order. Returns the target's organic rank, the ranking URL, and every position it holds. Not for general search (search_web). One lookup is one sample: Google can return a different result set for the same query minutes apart (seResultsCount tells them apart), so compare several before reading a rank change. Requires DataForSEO credentials and returns configured:false without them - do not retry in that case. Cost: 5 credits (0 when unconfigured). Example: serp_rank({keyword: \"managed wordpress hosting\", target: \"dashboardhosting.com\", location_name: \"United States\"})",
+  description: "Use this to check where a domain ranks in Google's ORGANIC results for a keyword - real SERP position, not search_web's order. Returns the target's organic rank, the ranking URL, and every position it holds. Not for general search (search_web). One lookup is one sample: Google can return a different result set for the same query minutes apart (seResultsCount tells them apart), and sometimes a decoy page of unrelated results (suspect:true), so compare several before reading a rank change. Requires DataForSEO credentials and returns configured:false without them - do not retry in that case. Cost: 5 credits (0 when unconfigured). Example: serp_rank({keyword: \"managed wordpress hosting\", target: \"dashboardhosting.com\", location_name: \"United States\"})",
   annotations: { title: "SERP Rank Check", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     keyword: z.string().describe("The search query to check ranking for"),

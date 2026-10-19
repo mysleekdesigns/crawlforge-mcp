@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SearchProviderFactory } from './adapters/searchProviderFactory.js';
+import { BraveSearchAdapter } from './adapters/braveSearch.js';
 import { CacheManager } from '../../core/cache/CacheManager.js';
 import { QueryExpander } from './queryExpander.js';
 import { ResultRanker } from './ranking/ResultRanker.js';
@@ -8,6 +9,14 @@ import { SearchResultCache } from './ranking/SearchResultCache.js';
 import LocalizationManager from '../../core/LocalizationManager.js';
 import { isCreatorModeVerified } from '../../core/creatorMode.js';
 import { searchViaSearxng } from './providers/searxng.js';
+
+/** The CrawlForge API's `provider` field, as a backend name. */
+const CRAWLFORGE_BACKENDS = { brave: 'Brave Search API', google: 'Google Custom Search API' };
+
+/** The backend the CrawlForge API reported serving a search with. */
+function crawlforgeBackend(provider) {
+  return CRAWLFORGE_BACKENDS[provider] ?? 'CrawlForge web search';
+}
 import { MAX_SEARCH_QUERIES, SEARCH_WEB_CREDITS, EXACTLY_ONE_QUERY_MESSAGE } from './batchSearch.js';
 import { setActualCost } from '../../server/requestContext.js';
 
@@ -405,12 +414,12 @@ export class SearchWebTool {
         // is not repeated here: it is the same on every call, and a
         // queries:[...] batch carried one copy per query (R24 4.4).
         provider: this.isCreatorModeFallback ? {
-          name: 'google',
-          backend: 'Google Custom Search API (Creator Mode)',
-          note: 'Using Google Search API directly. Production users use CrawlForge API.'
+          name: this.creatorBackendName(),
+          backend: `${CRAWLFORGE_BACKENDS[this.creatorBackendName()]} (Creator Mode)`,
+          note: 'Calling the search API directly. Production users use CrawlForge API.'
         } : {
           name: 'crawlforge',
-          backend: 'Google Search'
+          backend: crawlforgeBackend(bestResults?.provider)
         },
         
         // Add localization information
@@ -664,12 +673,12 @@ export class SearchWebTool {
   getStats() {
     return {
       provider: this.isCreatorModeFallback ? {
-        name: 'google',
-        backend: 'Google Custom Search API (Creator Mode)',
-        note: 'Using Google Search API directly'
+        name: this.creatorBackendName(),
+        backend: `${CRAWLFORGE_BACKENDS[this.creatorBackendName()]} (Creator Mode)`,
+        note: 'Calling the search API directly'
       } : {
         name: 'crawlforge',
-        backend: 'Google Search',
+        backend: 'Web search via CrawlForge API',
         capabilities: SearchProviderFactory.getProviderCapabilities('crawlforge')
       },
       creatorMode: this.isCreatorModeFallback || false,
@@ -680,12 +689,17 @@ export class SearchWebTool {
     };
   }
 
+  /** Which search API Creator Mode calls directly: 'brave' or 'google'. */
+  creatorBackendName() {
+    return this.searchAdapter instanceof BraveSearchAdapter ? 'brave' : 'google';
+  }
+
   getProviderInfo() {
     return {
-      activeProvider: this.isCreatorModeFallback ? 'google' : 'crawlforge',
+      activeProvider: this.isCreatorModeFallback ? this.creatorBackendName() : 'crawlforge',
       backend: this.isCreatorModeFallback
-        ? 'Google Custom Search API (Creator Mode)'
-        : 'Google Search via CrawlForge API',
+        ? `${CRAWLFORGE_BACKENDS[this.creatorBackendName()]} (Creator Mode)`
+        : 'Web search via CrawlForge API',
       capabilities: SearchProviderFactory.getProviderCapabilities(
         this.isCreatorModeFallback ? 'google' : 'crawlforge'
       ),

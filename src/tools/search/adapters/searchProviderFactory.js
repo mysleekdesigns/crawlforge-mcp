@@ -2,12 +2,14 @@
  * Search Provider Factory
  *
  * Creates search adapter instances.
- * - Production: Uses CrawlForge proxy for Google Search (users with CrawlForge API key)
- * - Creator Mode: Uses Google Search API directly (requires GOOGLE_API_KEY & GOOGLE_SEARCH_ENGINE_ID)
+ * - Production: Uses the CrawlForge API's web search (users with CrawlForge API key)
+ * - Creator Mode: Uses Brave Search API directly when BRAVE_SEARCH_API_KEY is set, else Google
+ *   Custom Search (GOOGLE_API_KEY & GOOGLE_SEARCH_ENGINE_ID; discontinued by Google on 2027-01-01)
  */
 
 import { CrawlForgeSearchAdapter } from './crawlforgeSearch.js';
 import { GoogleSearchAdapter } from './googleSearch.js';
+import { BraveSearchAdapter } from './braveSearch.js';
 import { SEARCH_WEB_CREDITS } from '../batchSearch.js';
 
 export class SearchProviderFactory {
@@ -19,18 +21,25 @@ export class SearchProviderFactory {
    * @param {boolean} options.creatorMode - Whether Creator Mode is enabled
    * @param {string} options.googleApiKey - Google API key (for Creator Mode)
    * @param {string} options.googleSearchEngineId - Google Search Engine ID (for Creator Mode)
-   * @returns {CrawlForgeSearchAdapter|GoogleSearchAdapter} Search adapter instance
+   * @returns {CrawlForgeSearchAdapter|BraveSearchAdapter|GoogleSearchAdapter} Search adapter instance
    */
   static createAdapter(apiKey, options = {}) {
-    // In Creator Mode without CrawlForge API key, use Google Search API directly
+    // In Creator Mode without CrawlForge API key, call a search API directly:
+    // Brave when its key is set, Google Custom Search until that is switched off.
     if (!apiKey && options.creatorMode) {
+      const braveApiKey = options.braveApiKey || process.env.BRAVE_SEARCH_API_KEY;
+      if (braveApiKey) {
+        console.error('🔍 Creator Mode: Using Brave Search API directly');
+        return new BraveSearchAdapter(braveApiKey);
+      }
+
       const googleApiKey = options.googleApiKey || process.env.GOOGLE_API_KEY;
       const googleSearchEngineId = options.googleSearchEngineId || process.env.GOOGLE_SEARCH_ENGINE_ID;
 
       if (!googleApiKey || !googleSearchEngineId) {
         throw new Error(
-          'Creator Mode requires Google Search API credentials. ' +
-          'Set GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID environment variables.\n' +
+          'Creator Mode requires search API credentials. ' +
+          'Set BRAVE_SEARCH_API_KEY, or GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID.\n' +
           'Get credentials at:\n' +
           '  - API Key: https://console.cloud.google.com/apis/credentials\n' +
           '  - Search Engine ID: https://programmablesearchengine.google.com/'
@@ -72,8 +81,9 @@ export class SearchProviderFactory {
     // CrawlForge API key available
     if (apiKey) return true;
 
-    // Creator Mode with Google credentials
+    // Creator Mode with Brave or Google credentials
     if (options.creatorMode) {
+      if (options.braveApiKey || process.env.BRAVE_SEARCH_API_KEY) return true;
       const googleApiKey = options.googleApiKey || process.env.GOOGLE_API_KEY;
       const googleSearchEngineId = options.googleSearchEngineId || process.env.GOOGLE_SEARCH_ENGINE_ID;
       return !!(googleApiKey && googleSearchEngineId);
@@ -141,8 +151,8 @@ export class SearchProviderFactory {
       rateLimit: 'Based on your CrawlForge plan',
       creditCost: `${SEARCH_WEB_CREDITS} credits per search`,
       features: [
-        'Google Search results via CrawlForge proxy',
-        'No Google API credentials needed',
+        'Web search results via the CrawlForge API (Brave Search API)',
+        'No search API credentials needed',
         'Full text search',
         'Image metadata',
         'Exact phrase matching',
@@ -154,14 +164,13 @@ export class SearchProviderFactory {
         'Country targeting',
         'Safe search',
         'Localization support',
-        'Related searches',
         'Rich snippets'
       ],
       benefits: [
         'Simplified authentication (one API key)',
         'Unified billing through CrawlForge',
         'Enterprise-grade reliability',
-        'No Google API quota management',
+        'No search API quota management',
         'Built-in rate limiting',
         'Credit-based pricing'
       ]

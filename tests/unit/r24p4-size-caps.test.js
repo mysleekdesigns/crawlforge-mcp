@@ -256,10 +256,19 @@ function searchTool() {
   return tool;
 }
 
+test('search_web names the backend the CrawlForge API reported', async () => {
+  const tool = searchTool();
+  const search = tool.searchAdapter.search;
+  tool.searchAdapter = { async search(params) { return { ...(await search(params)), provider: 'brave' }; } };
+  const single = await tool.execute({ query: 'a' });
+  assert.deepEqual(single.provider, { name: 'crawlforge', backend: 'Brave Search API' });
+});
+
 test('4.4 search_web: no capabilities block, single or batch', async () => {
   const tool = searchTool();
   const single = await tool.execute({ query: 'a' });
-  assert.deepEqual(single.provider, { name: 'crawlforge', backend: 'Google Search' });
+  // The adapter here reports no provider, as deployments before 2026-10-19 did.
+  assert.deepEqual(single.provider, { name: 'crawlforge', backend: 'CrawlForge web search' });
   const batch = await tool.execute({ queries: ['a', 'b', 'c'] });
   assert.equal(JSON.stringify(batch).includes('capabilities'), false);
   assert.equal(batch.results_by_query.length, 3);
