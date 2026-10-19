@@ -11,7 +11,9 @@
  * Search's response shape, so the rest of the pipeline is unchanged.
  *
  * Checked against the live API on 2026-10-19:
- * - `count` is at most 20, and `offset` is a PAGE index from 0 to 9.
+ * - `count` is at most 20, and `offset` is a PAGE index from 0 to 9. A caller's
+ *   `start` need not fall on a page boundary, so `bravePage` picks a page size
+ *   whose page holds the whole window, and the extra results are sliced off.
  * - `search_lang` and `country` are validated: `zh`, `pt` and `EN` are a 422
  *   where `zh-hans`, `pt-br` and `en` pass. Common forms are normalised, and a
  *   locale still refused is retried once without it.
@@ -21,6 +23,8 @@
 const ENDPOINT = 'https://api.search.brave.com/res/v1/web/search';
 const MAX_COUNT = 20;
 const MAX_PAGE = 9;
+/** Custom Search's depth, which search_web documents: nothing past the 100th result. */
+const MAX_RESULTS = 100;
 const TIMEOUT_MS = 15000;
 
 const FRESHNESS = { d1: 'pd', w1: 'pw', m1: 'pm', y1: 'py' };
@@ -41,6 +45,22 @@ export function braveLanguage(lr) {
   if (LANGUAGE_ALIASES[code]) return LANGUAGE_ALIASES[code];
   if (REGIONAL_LANGUAGES.has(code)) return code;
   return code.split('-')[0];
+}
+
+/**
+ * The Brave page that holds results `first` to `first + wanted - 1` (zero-based):
+ * the smallest page size whose page contains the whole window. Every window of
+ * up to 10 within the first 100 results fits one; a wider one that fits none
+ * gets the 20-result page holding `first`, and so only part of the window.
+ */
+export function bravePage(first, wanted) {
+  for (let count = wanted; count <= MAX_COUNT; count++) {
+    const page = Math.floor(first / count);
+    if (page <= MAX_PAGE && Math.floor((first + wanted - 1) / count) === page) {
+      return { count, page };
+    }
+  }
+  return { count: MAX_COUNT, page: Math.floor(first / MAX_COUNT) };
 }
 
 /** Brave's highlighted HTML as the plain text Custom Search puts in `snippet`. */
@@ -95,9 +115,10 @@ export class BraveSearchAdapter {
    */
   async search(params) {
     const startedAt = Date.now();
-    const count = Math.min(Math.max(1, params.num || 10), MAX_COUNT);
-    const page = Math.floor(Math.max(0, (params.start || 1) - 1) / count);
-    if (page > MAX_PAGE) return this.toResult([], startedAt);
+    const first = Math.max(0, (params.start || 1) - 1);
+    const wanted = Math.min(Math.max(1, params.num || 10), MAX_COUNT, MAX_RESULTS - first);
+    if (wanted <= 0) return this.toResult([], startedAt);
+    const { count, page } = bravePage(first, wanted);
 
     const base = new URLSearchParams({
       q: params.query,
@@ -131,7 +152,8 @@ export class BraveSearchAdapter {
     }
 
     const data = await response.json();
-    return this.toResult((data?.web?.results ?? []).flatMap(toItem), startedAt);
+    const skip = first - page * count;
+    return this.toResult((data?.web?.results ?? []).slice(skip, skip + wanted).flatMap(toItem), startedAt);
   }
 
   async send(params) {

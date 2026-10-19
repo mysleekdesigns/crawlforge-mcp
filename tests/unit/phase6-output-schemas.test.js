@@ -260,6 +260,12 @@ describe('OUTPUT_SCHEMAS — realistic samples parse', () => {
     assert.equal(result.success, true, JSON.stringify(result.error?.issues));
   });
 
+  test('search_web: Brave reports no total, so total_results is null', () => {
+    const schema = z.object(OUTPUT_SCHEMAS.search_web);
+    const result = schema.safeParse({ query: 'q', results: [], total_results: null });
+    assert.equal(result.success, true, JSON.stringify(result.error?.issues));
+  });
+
   test('extract_structured: llm-extracted success result', () => {
     const schema = z.object(OUTPUT_SCHEMAS.extract_structured);
     const sample = {
