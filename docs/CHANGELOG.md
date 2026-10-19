@@ -5,6 +5,52 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.21.0] - 2026-10-19
+
+### Added
+- **`serp_rank` flags a likely decoy results page.** Google now serves some
+  automated SERP lookups a real-looking page of results unrelated to the
+  query, and DataForSEO passes it on as valid. On 2026-10-19 "crawlforge"
+  came back as crawl/MCP pages, none of the top 10 naming CrawlForge, while Search
+  Console and a second lookup a minute later had the site at #1. When fewer
+  than 1 in 5 of the top results mention the keyword, the result now carries
+  `suspect: true` and a `warnings` entry saying how many did; otherwise
+  `suspect: false`. Same 5 credits.
+- **Creator Mode searches on the Brave Search API** when `BRAVE_SEARCH_API_KEY`
+  is set (new `BraveSearchAdapter`), falling back to Google Custom Search,
+  which Google discontinues on 2027-01-01.
+- **The `.mcpb` manifest lists all 31 tools**, so Claude Desktop and directory
+  listings can show them before the server runs. A unit test keeps the list
+  in step with the registered tools.
+
+### Changed
+- **`search_web` names the search backend that served it.** The CrawlForge API
+  moved web search from Google Custom Search to the Brave Search API on
+  2026-10-19 and now reports which in its response; `provider.backend` reads
+  `Brave Search API` instead of a hard-coded `Google Search`
+  (`CrawlForge web search` against a deployment that does not report one).
+  Results come from Brave's independent index, `total_results` is no longer
+  reported, and `related_searches` is empty.
+
+### Fixed
+- **PDFs work in the `.mcpb` bundle on macOS and Windows.** The bundle was
+  built on Linux and carried only Linux builds of `@napi-rs/canvas` and
+  `impit`, so `process_document` failed every PDF with "DOMMatrix is not
+  defined". Every `.mcpb` from 6.0.0 to 6.20.1 shipped that way; the bundle
+  now carries darwin-arm64, darwin-x64 and win32-x64 binaries too.
+- **`source:"reddit_api"` without credentials no longer gives a dead
+  instruction.** The error told users to create an app at
+  reddit.com/prefs/apps, which has refused new apps since 2025-11-11. It now
+  points to the approval route and to dropping `source` for the archives.
+- **The Docker image fetches its GeoLite2 database without the GitHub API**,
+  whose unauthenticated rate limit failed the build on shared runners.
+
+### Security
+- **Link extraction drops `data:` and `vbscript:` links**, as it already did
+  `javascript:` ones, in `scrape`'s links format, `map_site`, `crawl_deep`
+  and the stealth-escalated scrape. Two unused validator modules flagged by
+  CodeQL, and `isomorphic-dompurify` with them, are removed.
+
 ### Documentation
 - **`reddit_search`'s optional official-API path is now documented.** It
   shipped in 5.2.0 without a changelog entry. With your own Reddit app
@@ -17,12 +63,6 @@ All notable changes to CrawlForge MCP Server will be documented in this file.
   credits. Reddit stopped issuing new credentials without an approval ticket on
   2025-11-11; see `docs/reddit-access-and-oauth.md`. The README, `.env.example`
   and that doc no longer call the path a prototype.
-
-### Fixed
-- **`source:"reddit_api"` without credentials no longer gives a dead
-  instruction.** The error told users to create an app at
-  reddit.com/prefs/apps, which has refused new apps since 2025-11-11. It now
-  points to the approval route and to dropping `source` for the archives.
 
 ## [6.20.1] - 2026-10-11
 
