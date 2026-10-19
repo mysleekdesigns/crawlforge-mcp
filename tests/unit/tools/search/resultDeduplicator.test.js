@@ -35,17 +35,17 @@ describe('ResultDeduplicator — partial thresholds deep-merge', () => {
   });
 
   test('the url override itself is applied (lowering it flips a pair from distinct to duplicate)', async () => {
-    // Same title (title similarity 1.0, matches the preserved default 0.85),
-    // moderately different URLs (measured url similarity ~0.51 — below both
-    // the default 0.9 threshold and the >=0.95 always-duplicate shortcut),
-    // and distinct snippets so content similarity does not itself trigger a
-    // match. Under the default url threshold this is 1 signal (title only)
-    // — not enough (areDuplicates requires >=2 signals) — so both survive.
-    // Lowering the url threshold to 0.5 makes url count as a second signal,
-    // and the pair is merged.
+    // Same snippet (content similarity 1.0, above the default 0.85),
+    // different titles (~0.33) and moderately different URLs
+    // (measured url similarity ~0.44, below the default 0.9). Different URLs
+    // merge only on content plus one more signal (R25 1.3), so under the
+    // default url threshold content alone is not enough and both survive.
+    // Lowering the url threshold to 0.4 makes url the second signal, and the
+    // pair is merged.
+    const snippet = 'Learn how backpressure and piping work in Node streams, with buffering, highWaterMark and pipeline examples.';
     const results = () => [
-      { title: 'Guide to Node Streams', link: 'https://example.com/blog/2024/guide-to-node-streams-in-practice', snippet: 'Learn how backpressure and piping work in Node streams.' },
-      { title: 'Guide to Node Streams', link: 'https://example.com/resources/node-streams-explained-fully', snippet: 'A different explanation of stream internals and buffering behavior.' }
+      { title: 'Guide to Node Streams', link: 'https://example.com/blog/2024/guide-to-node-streams-in-practice', snippet },
+      { title: 'Node Streams Explained', link: 'https://example.com/resources/node-streams-explained-fully', snippet }
     ];
 
     const withDefaults = new ResultDeduplicator({ cacheEnabled: false });
@@ -53,8 +53,8 @@ describe('ResultDeduplicator — partial thresholds deep-merge', () => {
     assert.equal(defaultResult.length, 2, 'default url threshold (0.9) must not merge this pair');
 
     const withOverride = new ResultDeduplicator({ cacheEnabled: false });
-    const overrideResult = await withOverride.deduplicateResults(results(), { thresholds: { url: 0.5 } });
-    assert.equal(overrideResult.length, 1, 'the overridden url threshold (0.5) must be applied and merge this pair');
+    const overrideResult = await withOverride.deduplicateResults(results(), { thresholds: { url: 0.4 } });
+    assert.equal(overrideResult.length, 1, 'the overridden url threshold (0.4) must be applied and merge this pair');
   });
 
   test('no options — default thresholds still dedupe near-identical results', async () => {

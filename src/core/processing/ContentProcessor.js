@@ -8,7 +8,7 @@ import { JSDOM } from 'jsdom';
 import * as cheerio from 'cheerio';
 import { z } from 'zod';
 import { ContentQualityAssessor } from '../../utils/contentUtils.js';
-import { recoverDroppedTables } from '../../tools/scrape/_mainContent.js';
+import { recoverDroppedTables, unwrapMediaWikiHeadings } from '../../tools/scrape/_mainContent.js';
 import { pageTitle } from '../../utils/pageTitle.js';
 import { flattenText } from 'crawlforge-extractors';
 
@@ -74,6 +74,7 @@ export class ContentProcessor {
 
       // Extract main content using Mozilla Readability
       if (processingOptions.removeBoilerplate) {
+        unwrapMediaWikiHeadings(document);
         const reader = new Readability(document, {
           debug: false,
           maxElemsToDivide: 300,

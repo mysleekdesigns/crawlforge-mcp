@@ -119,7 +119,6 @@ export class ResultDeduplicator {
         ...result,
         originalIndex: index,
         normalizedUrl: this.normalizeUrl(result.link || result.url, dedupeOptions.urlNormalization),
-        contentHash: this.computeContentHash(result, dedupeOptions.contentSimilarity),
         titleTokens: this.tokenizeTitle(result.title || ''),
         deduplicationInfo: {
           originalUrl: result.link || result.url,
@@ -188,11 +187,13 @@ export class ResultDeduplicator {
       const currentGroup = [results[i]];
       processed.add(i);
 
-      // Find all duplicates of current result
+      // Find all duplicates of current result. A result joins the group only
+      // when it duplicates EVERY member, so a hub page (e.g. MDN `Array`)
+      // cannot pull in its children one by one.
       for (let j = i + 1; j < results.length; j++) {
         if (processed.has(j)) continue;
 
-        if (this.areDuplicates(results[i], results[j], options)) {
+        if (currentGroup.every(member => this.areDuplicates(member, results[j], options))) {
           currentGroup.push(results[j]);
           processed.add(j);
           
@@ -216,21 +217,24 @@ export class ResultDeduplicator {
   areDuplicates(result1, result2, options) {
     const similarities = this.computeSimilarities(result1, result2, options);
 
-    // Near-identical URLs are always duplicates (e.g. http vs https of same page)
-    if (similarities.url >= 0.95) {
+    // The same page written differently (protocol, www, trailing slash,
+    // index.html, tracking parameters) normalizes to the same URL.
+    if (result1.normalizedUrl && result1.normalizedUrl === result2.normalizedUrl) {
       this.stats.urlDuplicates++;
       return true;
     }
 
-    // Require at least 2 high-similarity signals to mark as duplicate
-    let matchCount = 0;
-    if (similarities.url >= options.thresholds.url) matchCount++;
-    if (similarities.title >= options.thresholds.title) matchCount++;
-    if (similarities.content >= options.thresholds.content) matchCount++;
+    // Different URLs merge only on similar content. Sibling pages share a
+    // URL prefix and a site title template (" - JavaScript | MDN"), so URL
+    // and title similarity alone never prove two pages are the same.
+    if (similarities.content < options.thresholds.content) {
+      return false;
+    }
 
-    if (matchCount >= 2) {
+    // Content plus one more high-similarity signal
+    if (similarities.url >= options.thresholds.url || similarities.title >= options.thresholds.title) {
       if (similarities.title >= options.thresholds.title) this.stats.titleDuplicates++;
-      if (similarities.content >= options.thresholds.content) this.stats.contentDuplicates++;
+      this.stats.contentDuplicates++;
       return true;
     }
 
@@ -294,28 +298,23 @@ export class ResultDeduplicator {
   }
 
   /**
-   * Compute content similarity using SimHash
+   * Compute content similarity: Jaccard over the snippets' words. A 64-bit
+   * SimHash of a ~30-word snippet is too noisy here: unrelated MDN sibling
+   * snippets scored up to 0.86 against the 0.85 threshold (R25 1.3).
    */
   computeContentSimilarity(result1, result2, contentOptions) {
     const content1 = this.extractContent(result1);
     const content2 = this.extractContent(result2);
-    
+
     if (content1.length < contentOptions.minLength || content2.length < contentOptions.minLength) {
       return 0;
     }
-    
-    // Use pre-computed content hashes
-    const hash1 = result1.contentHash;
-    const hash2 = result2.contentHash;
-    
-    // Compute Hamming distance between hashes
-    const hammingDistance = this.hammingDistance(hash1, hash2);
-    
-    // Convert to similarity score
-    const maxDistance = contentOptions.simhashBits;
-    const similarity = 1 - (hammingDistance / maxDistance);
-    
-    return Math.max(0, similarity);
+
+    const words1 = new Set(content1.split(' '));
+    const words2 = new Set(content2.split(' '));
+    const intersection = [...words1].filter(word => words2.has(word)).length;
+
+    return intersection / new Set([...words1, ...words2]).size;
   }
 
   /**
@@ -378,7 +377,7 @@ export class ResultDeduplicator {
       // Update deduplication info
       primaryResult.deduplicationInfo.merged = true;
       primaryResult.deduplicationInfo.mergedDuplicates = duplicates.length;
-      primaryResult.deduplicationInfo.duplicateUrls = duplicates.map(d => d.originalUrl);
+      primaryResult.deduplicationInfo.duplicateUrls = duplicates.map(d => d.deduplicationInfo.originalUrl);
       
       this.stats.merged += duplicates.length;
       
@@ -456,16 +455,12 @@ export class ResultDeduplicator {
     if (!url) return '';
     
     try {
-      let normalized = url;
-      
       // Parse URL
       const urlObj = new URL(url);
-      
-      // Remove protocol if specified
-      if (normalizationOptions.removeProtocol) {
-        normalized = normalized.replace(/^https?:\/\//, '');
-      }
-      
+
+      // A fragment points into the same page
+      urlObj.hash = '';
+
       // Remove www prefix
       if (normalizationOptions.removeWww) {
         urlObj.hostname = urlObj.hostname.replace(/^www\./, '');
@@ -484,19 +479,24 @@ export class ResultDeduplicator {
         }
       }
       
+      // A directory index is the directory itself
+      urlObj.pathname = urlObj.pathname.replace(/\/index\.(html?|php)$/i, '/');
+
       // Remove trailing slash
       if (normalizationOptions.removeTrailingSlash) {
         urlObj.pathname = urlObj.pathname.replace(/\/$/, '') || '/';
       }
-      
+
       // Sort and clean query parameters
       if (normalizationOptions.sortQueryParams || normalizationOptions.removeEmptyParams) {
         const params = new URLSearchParams(urlObj.search);
         const sortedParams = new URLSearchParams();
-        
-        // Get sorted parameter names
-        const paramNames = Array.from(params.keys()).sort();
-        
+
+        // Get sorted parameter names, without tracking parameters
+        const paramNames = Array.from(params.keys())
+          .filter(name => !/^(utm_.*|gclid|fbclid|msclkid|mc_cid|mc_eid)$/i.test(name))
+          .sort();
+
         for (const name of paramNames) {
           const value = params.get(name);
           if (!normalizationOptions.removeEmptyParams || (value && value.trim())) {
@@ -506,8 +506,12 @@ export class ResultDeduplicator {
         
         urlObj.search = sortedParams.toString();
       }
-      
-      return urlObj.toString();
+
+      // Remove protocol if specified (http vs https of the same page)
+      const normalized = urlObj.toString();
+      return normalizationOptions.removeProtocol
+        ? normalized.replace(/^https?:\/\//, '')
+        : normalized;
     } catch (error) {
       // If URL parsing fails, return cleaned original
       return url.toLowerCase().replace(/^https?:\/\/(www\.)?/, '');
@@ -515,30 +519,12 @@ export class ResultDeduplicator {
   }
 
   /**
-   * Compute content hash using SimHash algorithm
-   */
-  computeContentHash(result, contentOptions) {
-    const content = this.extractContent(result);
-    
-    if (content.length < contentOptions.minLength) {
-      return '0'; // Default hash for short content
-    }
-    
-    return this.simHash(content, contentOptions.simhashBits);
-  }
-
-  /**
-   * Extract content from result for comparison
+   * Extract content from result for comparison. The snippet only: the title
+   * and domain are shared by a site's pages (a title template), so they made
+   * sibling pages look alike; the title is compared on its own anyway.
    */
   extractContent(result) {
-    const parts = [
-      result.title || '',
-      result.snippet || '',
-      result.htmlSnippet || '',
-      result.displayLink || ''
-    ];
-    
-    return parts.join(' ').toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    return (result.snippet || '').toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
   /**

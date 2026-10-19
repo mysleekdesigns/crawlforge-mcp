@@ -103,14 +103,14 @@ export function unverifiedValues(answer, sourceText) {
 
 /**
  * Current-state task gate: prompts about the live "now" ("right now",
- * "currently", "today", "latest", "#1 … now") go stale through search alone —
+ * "current", "currently", "today", "latest", "#1 … now") go stale through search alone —
  * dated articles rank for the task's words while the live page does not
  * (live repro 2026-08-26: "#1 story on Hacker News right now" answered from
  * a January thread; news.ycombinator.com was never fetched). Detected
  * deterministically here (never LLM-trusted) so PLAN steers search toward
  * the live entity page and SHAPE answers from it, not from dated results.
  */
-const CURRENT_STATE_RE = /\b(right now|currently|today|tonight|at the moment|as of (now|today)|latest|this (week|month|morning))\b|#\d+[^.?!]*\bnow\b/i;
+const CURRENT_STATE_RE = /\b(right now|current|currently|today|tonight|at the moment|as of (now|today)|latest|this (week|month|morning))\b|#\d+[^.?!]*\bnow\b/i;
 
 /** Version numbers as they appear in an answer, e.g. "2.11.4". */
 const VERSION_IN_TEXT = /\b\d+\.\d+(?:\.\d+){0,2}\b/g;
@@ -170,6 +170,66 @@ export function unsupportedVersionClaims(answer, evidence) {
 
 export function isCurrentStateTask(prompt) {
   return CURRENT_STATE_RE.test(prompt || '');
+}
+
+/** The registrable label of a hostname: "python" for www.python.org, "bbc" for bbc.co.uk. */
+function siteLabel(hostname) {
+  const labels = hostname.toLowerCase().split('.');
+  const ccSecondLevel = labels.length >= 3 && labels.at(-1).length === 2 && labels.at(-2).length <= 3;
+  return labels[Math.max(labels.length - (ccSecondLevel ? 3 : 2), 0)];
+}
+
+/**
+ * True when a search result is the entity's own site: its domain is the
+ * entity's name (python.org for "Python"), or it is a site root whose title
+ * leads with exactly that name (news.ycombinator.com, titled "Hacker News").
+ *
+ * The domain vote alone picked the wrong site in both R25 repros (2026-10-19).
+ * Brave returns each origin about once, so for "Python" every origin tied and
+ * the top-ranked one, en.wikipedia.org, was promoted — its root is the
+ * Wikipedia Main Page. For "Hacker News" thehackernews.com appeared twice and
+ * outvoted news.ycombinator.com. Neither look-alike passes this test: its
+ * domain is "thehackernews", its title "The Hacker News | …".
+ */
+export function isOfficialResult(entity, url, title) {
+  const name = (entity || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!name) return false;
+  let u;
+  try { u = new URL(url); } catch { return false; }
+  const compact = s => s.replace(/[^\p{L}\p{N}]/gu, '');
+  if (compact(siteLabel(u.hostname)) === compact(name)) return true;
+  const lead = (title || '').split(/\s+[|–—-]\s+|:\s/)[0].trim().toLowerCase().replace(/\s+/g, ' ');
+  return u.pathname === '/' && !u.search && lead === name;
+}
+
+/**
+ * A page's share of the synthesis budget. Cut from the top, a page whose
+ * answer sits below its navigation menus loses it: python.org's
+ * "Latest: Python 3.15.0" sits ~3 500 characters in, under a wall of menu
+ * links, past a 2 400-character share (R25, 2026-10-19). When a line past the
+ * cut matches more of the task's terms than any line before it, the second
+ * half of the share goes to the text around that line.
+ */
+export function sliceForSynthesis(text, cap, terms) {
+  if (!text || text.length <= cap) return text;
+  const score = line => {
+    const lc = line.toLowerCase();
+    return terms.filter(t => lc.includes(t)).length;
+  };
+  let keptBest = 0;
+  let best = 0;
+  let bestAt = -1;
+  let pos = 0;
+  for (const line of text.split('\n')) {
+    const s = score(line);
+    if (pos + line.length <= cap) keptBest = Math.max(keptBest, s);
+    else if (s > best) { best = s; bestAt = pos; }
+    pos += line.length + 1;
+  }
+  if (best <= keptBest) return truncate(text, cap);
+  const head = Math.floor(cap / 2);
+  const from = Math.max(head, bestAt - 200);
+  return `${text.slice(0, head)}\n[...]\n${truncate(text.slice(from), cap - head)}`;
 }
 
 /**
@@ -477,8 +537,10 @@ export class AgentOrchestrator {
     // queue and first at SHAPE time so synthesis answers from it, never from
     // a dated article. A wrong root self-heals: it fails the relevance gate
     // and never enters evidence.
+    let promotedOrigin = null;
     if (currentState && searchResults.length > 0) {
       const originCounts = new Map();
+      const official = new Set();
       // Only the bare entity query votes: the fact query added above returns
       // guides and news sites, which must not outvote the official domain.
       const entityQuery = searchQueries[0];
@@ -487,14 +549,23 @@ export class AgentOrchestrator {
         try {
           const origin = new URL(s.url).origin;
           originCounts.set(origin, (originCounts.get(origin) || 0) + 1);
+          if (isOfficialResult(entityQuery, s.url, s.title)) official.add(origin);
         } catch { /* unparsable result url */ }
       }
+      // The entity's own site wins over any vote count; only when no result
+      // is official does the vote decide, and a tied vote decides nothing —
+      // with one result per origin it would just promote the top-ranked one.
       let bestOrigin = null;
       let bestCount = 0;
+      let tied = false;
       for (const [origin, count] of originCounts) {
+        if (official.size > 0 && !official.has(origin)) continue;
         // Strict > keeps the earliest-seen (top-ranked) origin on ties.
-        if (count > bestCount) { bestOrigin = origin; bestCount = count; }
+        if (count > bestCount) { bestOrigin = origin; bestCount = count; tied = false; }
+        else if (count === bestCount) tied = true;
       }
+      if (tied && official.size === 0) bestOrigin = null;
+      promotedOrigin = bestOrigin;
       if (bestOrigin) {
         const liveRoot = `${bestOrigin}/`;
         if (!priorityUrls.includes(liveRoot)) priorityUrls.push(liveRoot);
@@ -622,8 +693,11 @@ export class AgentOrchestrator {
       }))
       .sort((a, b) => b._score - a._score);
     const perSourceCap = Math.max(1500, Math.floor(12000 / Math.max(evidence.length, 1)));
+    // Question words match any prose ("What is your name?" in a code sample).
+    const sliceTerms = promptTerms.map(t => t.replace(/[^\p{L}\p{N}]/gu, ''))
+      .filter(t => t.length > 3 && !/^(what|which|when|where|does|that|this|with|from|have|about)$/.test(t));
     const combinedText = orderedEvidence
-      .map(e => `--- Source: ${e.url}${e.snippet ? ' (search-result snippet; the page itself could not be fetched)' : ''} ---\n${truncate(e.text, perSourceCap)}`)
+      .map(e => `--- Source: ${e.url}${e.snippet ? ' (search-result snippet; the page itself could not be fetched)' : ''} ---\n${sliceForSynthesis(e.text, perSourceCap, sliceTerms)}`)
       .join('\n\n');
 
     if (!combinedText.trim()) {
@@ -706,9 +780,13 @@ export class AgentOrchestrator {
         `Rules:\n` +
         // Short and imperative on purpose: the executing model is a small
         // local one (gemma3:4b-class) and ignores hedged phrasing.
-        (currentState
+        // "The first source is the live page" is only true when GATHER
+        // promoted one; otherwise the first source is just the best term match.
+        (currentState && promotedOrigin
           ? `- The task asks about the CURRENT state. Answer from the FIRST source below (the live page); if the FIRST source does not state the answer, take it from the next sources in order. NEVER present older or dated content as the current answer.\n`
-          : '') +
+          : currentState
+            ? `- The task asks about the CURRENT state. Prefer the subject's own official site over third-party articles. NEVER present older or dated content as the current answer.\n`
+            : '') +
         `- Answer ONLY from the provided sources; do not use outside knowledge.\n` +
         `- Read the sources carefully before concluding anything is missing from them.\n` +
         `- Cite the exact source URL(s) you used.\n` +
@@ -784,6 +862,30 @@ export class AgentOrchestrator {
             `Version claim unsupported by the project's own sources: ` +
             `${forumOnlyVersions.map(v => `"${v}"`).join(', ')} ${forumOnlyVersions.length === 1 ? 'appears' : 'appear'} ` +
             `only in discussion pages. The authoritative pages fetched state no version.`;
+        }
+      }
+
+      // A promoted live page is only worth its +1000 if the answer came from
+      // it. R25 (2026-10-19) answered "not stated" over a promoted Wikipedia
+      // Main Page, and the HN question from thehackernews.com, both with
+      // degraded:false. The answer counts as the live page's when it cites
+      // that host or states a value (version, date, number) the page shows.
+      if (currentState && promotedOrigin && !degraded) {
+        const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return null; } };
+        const liveHost = host(promotedOrigin);
+        const liveText = evidence.filter(e => host(e.url) === liveHost).map(e => e.text || '').join('\n');
+        // unverifiedValues against an empty text lists every value the answer states.
+        const stated = unverifiedValues(answer, '');
+        const fromLivePage = answer.toLowerCase().includes(liveHost) ||
+          (liveText !== '' && unverifiedValues(answer, liveText).length < stated.length);
+        if (!fromLivePage) {
+          degraded = true;
+          degradedReason =
+            `The answer does not come from the live page ${promotedOrigin}/: ` +
+            (liveText
+              ? 'it neither cites that page nor states a value shown on it.'
+              : 'that page could not be fetched or did not match the task.') +
+            ' It may describe a dated or third-party source rather than the current state.';
         }
       }
     } catch (err) {

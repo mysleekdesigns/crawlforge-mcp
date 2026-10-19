@@ -437,7 +437,7 @@ describe('ScrapeTemplateTool (real module, real fetch against a local server)', 
       }
       if (pathname === '/acme/widget') {
         res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end('<html><body><strong itemprop="name"><a href="/acme/widget">widget</a></strong></body></html>');
+        res.end('<html><body><strong itemprop="name"><a href="/acme/widget">widget</a></strong><a class="topic-tag" href="/topics/cli">cli</a></body></html>');
         return;
       }
       if (pathname === '/collections/shoes/products.json') {

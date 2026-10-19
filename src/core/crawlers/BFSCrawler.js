@@ -44,6 +44,10 @@ export class BFSCrawler {
     this.sessionContext = sessionContext;
 
     this.visited = new Map(); // normalized key -> the URL as fetched
+    // Normalized keys of the pages fetched, by where each fetch landed after
+    // redirects. Kept apart from visited so the page a redirect lands on is
+    // not fetched again, without spending a second max_pages slot on it.
+    this.landed = new Set();
     this.results = [];
     this.errors = [];
     this.filterDecisions = []; // Track filtering decisions for analysis
@@ -153,7 +157,7 @@ export class BFSCrawler {
 
     // Check if already visited
     const normalizedUrl = normalizeUrl(url);
-    if (this.visited.has(normalizedUrl)) {
+    if (this.visited.has(normalizedUrl) || this.landed.has(normalizedUrl)) {
       return;
     }
     // The form that goes on the wire: a bare origin gains its root "/",
@@ -215,7 +219,7 @@ export class BFSCrawler {
     // top of this task ran before the awaited robots lookup, so concurrent
     // queue tasks may have filled the budget (or claimed this URL) since.
     // This block is synchronous, so the cap is exact.
-    if (this.visited.size >= this.maxPages || this.visited.has(normalizedUrl)) {
+    if (this.visited.size >= this.maxPages || this.visited.has(normalizedUrl) || this.landed.has(normalizedUrl)) {
       return;
     }
     this.visited.set(normalizedUrl, url);
@@ -263,6 +267,20 @@ export class BFSCrawler {
         if (cacheKey) await this.cache.set(cacheKey, pageData);
       }
 
+      // Links resolve against where the fetch landed, not the URL asked for:
+      // docs.python.org answers /3/tutorial with a redirect to /3/tutorial/,
+      // and appetite.html resolved against the first is /3/appetite.html, a
+      // 404 (R25). A seed that lands on another origin (http -> https, apex
+      // -> www) moves the crawl's origin with it, or every link it holds
+      // would read as external.
+      const pageUrl = pageData.finalUrl || url;
+      const landedKey = normalizeUrl(pageUrl);
+      if (isSeed && landedKey !== normalizedUrl) this.baseUrl = new URL(landedKey);
+      // Another link (one that redirects here, or this URL itself) reached the
+      // same page first: this copy is a duplicate.
+      if (this.landed.has(landedKey)) return;
+      this.landed.add(landedKey);
+
       // Process links for analysis
       if (this.enableLinkAnalysis && this.linkAnalyzer && pageData.links) {
         // Parse the page once and reuse for every link; re-parsing per link is
@@ -270,7 +288,7 @@ export class BFSCrawler {
         const $page = pageData.originalHtml ? load(pageData.originalHtml) : null;
         const pageBodyText = $page ? $page('body').text() : '';
         for (const link of pageData.links) {
-          const absoluteUrl = this.resolveUrl(link, url);
+          const absoluteUrl = this.resolveUrl(link, pageUrl);
           if (absoluteUrl) {
             // Extract anchor text and context from link
             const linkMetadata = this.extractLinkMetadata(link, $page, pageBodyText);
@@ -301,8 +319,9 @@ export class BFSCrawler {
         for (const link of pageData.links) {
           if (this.visited.size >= this.maxPages) break;
           
-          const absoluteUrl = this.resolveUrl(link, url);
-          if (absoluteUrl && !this.visited.has(normalizeUrl(absoluteUrl))) {
+          const absoluteUrl = this.resolveUrl(link, pageUrl);
+          const key = absoluteUrl && normalizeUrl(absoluteUrl);
+          if (key && !this.visited.has(key) && !this.landed.has(key)) {
             // Not awaited: this task already holds a queue slot, so awaiting a
             // child would keep that slot pinned for the rest of the recursive
             // crawl (starving other tasks when concurrency <= depth, and making
@@ -395,7 +414,9 @@ export class BFSCrawler {
       // readBody decodes with the body's real charset — response.text() is
       // UTF-8-only and mangled ISO-8859-1 pages ("portugu�s" on lua.org).
       const html = await readBody(response);
-      return this.parsePage(html, url);
+      // response.url is where the redirects ended; links resolve against it.
+      const finalUrl = response.url || url;
+      return { ...this.parsePage(html, finalUrl), finalUrl };
     } catch (error) {
       clearTimeout(timeoutId);
       throw error;

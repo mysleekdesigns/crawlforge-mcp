@@ -236,7 +236,9 @@ export class LLMsTxtAnalyzer {
         const batch = commonPaths.slice(i, i + PROBE_CONCURRENCY);
         const results = await Promise.allSettled(
           batch.map(async (path) => {
-            const apiUrl = `${baseUrl}${path}`;
+            // Resolved, not concatenated: the URL arrives as typed, and
+            // "https://site.com/" + "/json" was listed as "https://site.com//json" (R25 1.8).
+            const apiUrl = new URL(path, baseUrl).toString();
             const response = await this.fetchWithTimeout(apiUrl, { timeout: 5000 });
             if (response.ok) {
               const contentType = response.headers.get('content-type') || '';
@@ -367,7 +369,7 @@ export class LLMsTxtAnalyzer {
         const batch = sensitivePaths.slice(i, i + PROBE_CONCURRENCY);
         const results = await Promise.allSettled(
           batch.map(async (path) => {
-            const testUrl = `${baseUrl}${path}`;
+            const testUrl = new URL(path, baseUrl).toString();
             const response = await this.fetchWithTimeout(testUrl, { timeout: 3000 });
             if (response.status === 200 || response.status === 302 || response.status === 401) {
               return {
@@ -571,7 +573,6 @@ export class LLMsTxtAnalyzer {
    */
   prioritizeUrls(urls, baseUrl, limit) {
     const sections = new Map();
-    let sawAny = false;
 
     for (const url of urls) {
       let segments;
@@ -580,7 +581,6 @@ export class LLMsTxtAnalyzer {
       } catch {
         continue;
       }
-      sawAny = true;
       // The root arrives as either "https://site.com" or "https://site.com/"
       // (normalizeUrl strips a trailing slash from every path but "/"), so it
       // is recognised by its path and re-added below in one canonical form.
@@ -590,10 +590,9 @@ export class LLMsTxtAnalyzer {
       sections.get(section).push({ url, depth: segments.length });
     }
 
-    if (!sawAny) return [];
-
     // The site root leads: it is always fetched, and a site guide that omits
-    // the homepage is a misleading one.
+    // the homepage is a misleading one. That holds with no other candidate
+    // too: a one-page site was analysed as 0 pages (R25 1.2).
     const ordered = [`${baseUrl}/`];
     const queues = [...sections.keys()].sort().map((name) =>
       sections.get(name).sort((a, b) => a.depth - b.depth || a.url.localeCompare(b.url)));
