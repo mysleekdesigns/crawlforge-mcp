@@ -10,7 +10,7 @@
 
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { SerpRankTool } from '../../src/tools/search/serpRank.js';
+import { SerpRankTool, assessSerpRelevance } from '../../src/tools/search/serpRank.js';
 import { DataForSEOSearchAdapter } from '../../src/tools/search/adapters/dataforseoSearch.js';
 
 // ---------------------------------------------------------------------------
@@ -403,5 +403,87 @@ describe('SerpRankTool', () => {
     await assert.rejects(() => tool.execute({ keyword: 'k', target: 't', device: 'tablet' }), isZod); // bad enum
     await assert.rejects(() => tool.execute({ keyword: 'k', target: 't', depth: 5 }), isZod);         // below min 10
     await assert.rejects(() => tool.execute({ keyword: 'k', target: 't', depth: 201 }), isZod);       // above max 200
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Decoy-SERP check
+// ---------------------------------------------------------------------------
+
+// The two serp_rank samples of 2026-10-19 for keyword "crawlforge", a minute
+// apart. Search Console had crawlforge.dev at #1 for it all month.
+const DECOY_SAMPLE = [
+  { title: 'coleam00/mcp-crawl4ai-rag: Web Crawling and ...', url: 'https://github.com/coleam00/mcp-crawl4ai-rag', snippet: 'This MCP server provides tools that enable AI agents to crawl websites, store content in a vector database (Supabase), and perform RAG over the crawled content.' },
+  { title: 'AI Skills, MCP Tools & Agent Capabilities - UtilityHub', url: 'https://utilityhub.site/skills', snippet: 'The official Model Context Protocol server for secure filesystem access.' },
+  { title: 'Crawl4AI MCP Server', url: 'https://mcpservers.org/servers/walksoda/crawl-mcp', snippet: 'An MCP server for advanced web crawling, content extraction, and AI-powered analysis using the crawl4ai library.' },
+  { title: 'Comment “scrape” I\'ll send it over Someone just open- ...', url: 'https://www.instagram.com/reel/DX5LNQ6AZ9Z/', snippet: 'One command to deploy. MIT licensed. 88K stars, 14K forks.' },
+  { title: 'Free Developer Tools', url: 'https://textforge.net/tools', snippet: 'Free Developer Tools. Practical tools for developers working with MCP servers and AI agents.' },
+  { title: '3 Web Scraping Tools for AI Agents', url: 'https://www.youtube.com/watch?v=DU4-1W2TjOk', snippet: null },
+  { title: 'Crawl a documentation site - AI Agent Skill Task', url: 'https://www.openagentskill.com/tasks/crawl-documentation-site', snippet: 'Find skills for crawling docs, converting HTML to markdown, preserving links.' },
+  { title: 'ClawForge: AI Agent Tool Orchestration & Workflow ...', url: 'https://mcpmarket.com/server/clawforge', snippet: 'ClawForge serves as an open-source, event-driven tool orchestration framework.' },
+  { title: 'Crawler Access for AI SEO (GPTBot & ClaudeBot)', url: 'https://www.searchbloom.com/ai-seo/inclusion/crawler-access/', snippet: 'AI Search pulls content from owned pages through crawlers run by each major AI vendor.' },
+  { title: 'Crawl4AI', url: 'https://mcpservers.org/servers/brettdavies/crawl4ai-skill', snippet: 'Web scraping skill for Claude AI.' },
+];
+const GOOD_SAMPLE = [
+  { title: 'CrawlForge MCP', url: 'https://www.crawlforge.dev/', snippet: 'MCP server with 31 web scraping tools for AI agents.' },
+  { title: 'CrawlForge — What changed on your sites since last week', url: 'https://crawlforge.org/', snippet: 'Technical auditing for people who run many sites.' },
+  { title: 'Official AgentQL MCP Server', url: 'https://mcpservers.org/servers/tinyfish-io/agentql-mcp', snippet: 'Enable AI agents to get structured data from unstructured web with AgentQL.' },
+  { title: 'CrawlForge MCP — Forge any website into clean data for AI agents', url: 'https://www.youtube.com/watch?v=x3Hz1Qq3JO4', snippet: 'CrawlForge MCP is an open-source MCP server.' },
+  { title: 'The CrawlForge crawler', url: 'https://crawlforge.org/bot/', snippet: 'CrawlForge is not a service with a fleet of crawlers.' },
+  { title: 'crawlforge agent fails', url: 'https://www.youtube.com/watch?v=f0j-wLVP4ZE', snippet: 'Here are three ways agents break on the web.' },
+  { title: 'https://github.com/mysleekdesigns/crawlforge-mcp.git', url: 'https://github.com/mysleekdesigns/crawlforge-mcp.git', snippet: 'No information is available for this page.' },
+  { title: 'Home - Crawl4AI Documentation (v0.9.x)', url: 'https://docs.crawl4ai.com/', snippet: 'Crawl4AI turns any website into clean, LLM-ready Markdown.' },
+];
+
+describe('assessSerpRelevance', () => {
+  test('flags the 2026-10-19 decoy sample: none of the top 10 mention the keyword', () => {
+    assert.deepEqual(assessSerpRelevance('crawlforge', DECOY_SAMPLE), { checked: 10, matching: 0, suspect: true });
+  });
+
+  test('passes the good sample from a minute later', () => {
+    assert.deepEqual(assessSerpRelevance('crawlforge', GOOD_SAMPLE), { checked: 8, matching: 6, suspect: false });
+  });
+
+  test('ignores stopwords and short words, so "how to" cannot make a decoy pass', () => {
+    const results = [1, 2, 3].map((n) => ({ title: `How to do thing ${n}`, url: `https://x${n}.example/`, snippet: '' }));
+    assert.equal(assessSerpRelevance('how to bake sourdough', results).suspect, true);
+  });
+
+  test('matches keyword words in the URL, case-insensitively', () => {
+    const results = [1, 2, 3].map((n) => ({ title: 'Home', url: `https://Sourdough${n}.example/`, snippet: '' }));
+    assert.equal(assessSerpRelevance('Sourdough', results).suspect, false);
+  });
+
+  test('matches non-Latin keywords', () => {
+    const results = [1, 2, 3].map((n) => ({ title: `网络爬虫 教程 ${n}`, url: `https://x${n}.example/`, snippet: '' }));
+    assert.equal(assessSerpRelevance('网络爬虫', results).suspect, false);
+  });
+
+  test('does not judge a keyword with no usable word, or fewer than 3 results', () => {
+    assert.equal(assessSerpRelevance('hp', DECOY_SAMPLE), null);
+    assert.equal(assessSerpRelevance('crawlforge', DECOY_SAMPLE.slice(0, 2)), null);
+  });
+});
+
+describe('SerpRankTool decoy flag', () => {
+  const asItems = (sample) => sample.map((r, i) => ({
+    type: 'organic', rank_group: i + 1, rank_absolute: i + 1,
+    domain: new URL(r.url).hostname, url: r.url, title: r.title, description: r.snippet,
+  }));
+
+  test('a decoy SERP comes back suspect, with a warning', async () => {
+    stubFetch(async () => okResponse(envelope(asItems(DECOY_SAMPLE))));
+    const tool = new SerpRankTool({ login: 'u', password: 'p' });
+    const out = await tool.execute({ keyword: 'crawlforge', target: 'crawlforge.dev' });
+    assert.equal(out.suspect, true);
+    assert.match(out.warnings[0], /0 of the top 10 mention it/);
+  });
+
+  test('a normal SERP is not suspect and carries no warnings', async () => {
+    stubFetch(async () => okResponse(envelope(asItems(GOOD_SAMPLE))));
+    const tool = new SerpRankTool({ login: 'u', password: 'p' });
+    const out = await tool.execute({ keyword: 'crawlforge', target: 'crawlforge.dev' });
+    assert.equal(out.suspect, false);
+    assert.equal(out.warnings, undefined);
   });
 });

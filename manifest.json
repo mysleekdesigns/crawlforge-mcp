@@ -155,7 +155,7 @@
     },
     {
       "name": "serp_rank",
-      "description": "Use this to check where a domain ranks in Google's ORGANIC results for a keyword - real SERP position, not Custom Search order."
+      "description": "Use this to check where a domain ranks in Google's ORGANIC results for a keyword - real SERP position, not search_web's order."
     },
     {
       "name": "stealth_mode",

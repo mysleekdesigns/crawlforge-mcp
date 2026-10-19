@@ -1,7 +1,8 @@
 /**
  * CrawlForge Search Adapter
  * 
- * Proxies search requests through CrawlForge.dev API which uses Google Search.
+ * Proxies search requests through the CrawlForge.dev API, which runs them on its
+ * configured backend (Brave Search API since 2026-10) and reports which in `provider`.
  * Users only need their CrawlForge API key - no Google credentials required.
  * 
  * Credit Cost: 5 credits per search (SEARCH_WEB_CREDITS in ../batchSearch.js)
@@ -90,7 +91,9 @@ export class CrawlForgeSearchAdapter {
           searchTime: 0
         },
         queries: data.queries || {},
-        context: data.context || {}
+        context: data.context || {},
+        // 'brave' | 'google'; absent from deployments older than 2026-10-19
+        provider: data.provider
       };
     } catch (error) {
       // Network errors or fetch failures

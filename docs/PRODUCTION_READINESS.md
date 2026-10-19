@@ -347,7 +347,7 @@ Security: daily npm audit + gitleaks secret scan + CodeQL analysis.
 | `POST /api/v1/auth/validate` | Validate API key |
 | `GET /api/v1/credits` | Check credit balance |
 | `POST /api/v1/usage` | Report tool usage |
-| `POST /api/v1/search` | Google Search proxy |
+| `POST /api/v1/search` | Web search proxy (Brave Search API since 2026-10-19) |
 
 ### Streamable HTTP transport (v3.2.0+, when `--http` is used)
 

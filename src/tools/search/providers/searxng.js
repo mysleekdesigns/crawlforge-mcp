@@ -9,6 +9,11 @@
  *
  * Result shape is normalised to match the CrawlForge/Google adapter format so
  * the rest of the search pipeline (ranking, deduplication, caching) is unaffected.
+ *
+ * SearXNG's `google` engine scrapes google.com, so it meets Google's
+ * anti-scraping measures: 429s, CAPTCHAs, and decoy result pages that look
+ * valid but are unrelated to the query (seen 2026-10 by SEO rank trackers).
+ * Prefer the `brave` and `duckduckgo` engines in settings.yml.
  */
 
 /**

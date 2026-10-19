@@ -38,7 +38,7 @@ export const DEFAULT_CONFIGS = {
     }
   },
 
-  // API operations (Google Search, etc.)
+  // API operations (web search, etc.)
   api: {
     retry: {
       maxRetries: 4,
