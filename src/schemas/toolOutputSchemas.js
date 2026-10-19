@@ -306,7 +306,7 @@ const searchWebShape = {
   effective_query: z.string().optional().describe('Present when query expansion changed the query actually used'),
   expanded_queries: z.array(z.string()).optional().describe('Present only when the original query returned nothing: the queries searched, in order - the original, then its expanded form'),
   results: z.array(searchWebResultShape).optional(),
-  total_results: z.union([z.string(), z.number()]).optional(),
+  total_results: z.union([z.string(), z.number()]).nullable().optional().describe('The backend\'s total match count; null when it reports none (Brave Search API)'),
   search_time: z.number().optional(),
   offset: z.number().optional(),
   limit: z.number().optional(),

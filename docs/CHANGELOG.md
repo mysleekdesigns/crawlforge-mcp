@@ -5,6 +5,22 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.21.1] - 2026-10-19
+
+### Fixed
+- **`search_web` pages on the Brave Search API return the results asked for.**
+  Brave's `offset` counts pages, not results, and a request was mapped to the
+  page at its own size, so an offset that was not a multiple of it got the
+  wrong slice. `search_web` always asks for `limit` + 4 to cover dedupe, so
+  offset 27 with limit 3 returned results 22-28, and offset 90 with limit 3
+  came back empty. The page is now chosen to hold the whole window and the
+  extra results are trimmed: still one request, paging to 90 as documented.
+  Fixed in the CrawlForge API (what every install calls) and in Creator Mode's
+  `BraveSearchAdapter`.
+- **`search_web` returns `total_results: null` when the backend reports no
+  total.** Brave never does, and the old `0` read as "no results". The output
+  schema accepts `null`.
+
 ## [6.21.0] - 2026-10-19
 
 ### Added

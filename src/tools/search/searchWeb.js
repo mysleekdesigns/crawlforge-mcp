@@ -403,7 +403,7 @@ export class SearchWebTool {
         effective_query: usedQuery !== validated.query ? usedQuery : undefined,
         expanded_queries: queriesToTry.length > 1 ? queriesToTry : undefined,
         results: processedResults,
-        total_results: bestResults.searchInformation?.totalResults || 0,
+        total_results: bestResults.searchInformation?.totalResults ?? null,
         search_time: bestResults.searchInformation?.searchTime || 0,
         offset: localizedParams.offset,
         limit: localizedParams.limit,
@@ -537,7 +537,7 @@ export class SearchWebTool {
     return {
       query: validated.query,
       results: processedResults,
-      total_results: adapterResult.searchInformation?.totalResults || 0,
+      total_results: adapterResult.searchInformation?.totalResults ?? null,
       search_time: adapterResult.searchInformation?.searchTime || 0,
       offset: validated.offset,
       limit: validated.limit,

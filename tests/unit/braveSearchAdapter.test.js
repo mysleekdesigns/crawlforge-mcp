@@ -9,7 +9,7 @@
 
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { BraveSearchAdapter, braveLanguage, plainText } from '../../src/tools/search/adapters/braveSearch.js';
+import { BraveSearchAdapter, braveLanguage, bravePage, plainText } from '../../src/tools/search/adapters/braveSearch.js';
 import { SearchProviderFactory } from '../../src/tools/search/adapters/searchProviderFactory.js';
 
 const realFetch = global.fetch;
@@ -89,6 +89,37 @@ describe('BraveSearchAdapter', () => {
     stubFetch(ok(BODY));
     const out = await new BraveSearchAdapter('k').search({ query: 'q', num: 10, start: 101 });
     assert.deepEqual([out.items, calls.length], [[], 0]);
+  });
+
+  test('asks for the page that holds a window off a page boundary', async () => {
+    // search_web offset 27, limit 3 sends num 7 from result 28: at 7 a page,
+    // Brave's page 3 is results 22-28; at 9 a page it is results 28-36.
+    stubFetch(ok(BODY));
+    await new BraveSearchAdapter('k').search({ query: 'q', num: 7, start: 28 });
+    assert.deepEqual(
+      [calls[0].url.searchParams.get('count'), calls[0].url.searchParams.get('offset')],
+      ['9', '3'],
+    );
+  });
+
+  test('slices the window out of a larger page', async () => {
+    // Results 6-12 fit no page smaller than 12, which is results 1-12.
+    const results = Array.from({ length: 12 }, (_, i) => ({ title: `r${i + 1}`, url: `https://example.com/${i + 1}` }));
+    stubFetch(ok({ web: { results } }));
+    const out = await new BraveSearchAdapter('k').search({ query: 'q', num: 7, start: 6 });
+    assert.deepEqual(out.items.map((item) => item.title), ['r6', 'r7', 'r8', 'r9', 'r10', 'r11', 'r12']);
+  });
+
+  test('fits every window of up to 10 within the first 100 results on one page', () => {
+    const misses = [];
+    for (let wanted = 1; wanted <= 10; wanted++) {
+      for (let first = 0; first + wanted <= 100; first++) {
+        const { count, page } = bravePage(first, wanted);
+        const fits = page <= 9 && count <= 20 && page * count <= first && first + wanted <= (page + 1) * count;
+        if (!fits) misses.push(`${first}+${wanted}`);
+      }
+    }
+    assert.deepEqual(misses, []);
   });
 
   test('names a rejected key', async () => {
