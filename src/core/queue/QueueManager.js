@@ -1,4 +1,4 @@
-import PQueue from 'p-queue';
+import PQueue, { TimeoutError } from 'p-queue';
 
 export class QueueManager {
   constructor(options = {}) {
@@ -46,7 +46,21 @@ export class QueueManager {
 
   async add(fn, options = {}) {
     const { priority = 0 } = options;
-    return this.queue.add(fn, { priority });
+    try {
+      return await this.queue.add(fn, { priority });
+    } catch (error) {
+      // p-queue's message gives the queue state when the task STARTED, which
+      // reads like a queue problem. The task itself ran too long, often
+      // because synchronous work elsewhere held the event loop.
+      if (error instanceof TimeoutError) {
+        throw new Error(
+          `Task ran over its ${this.queue.timeout / 1000} s time budget; ` +
+          'it may have been starved by other work running in this process.',
+          { cause: error }
+        );
+      }
+      throw error;
+    }
   }
 
   async addAll(tasks, options = {}) {

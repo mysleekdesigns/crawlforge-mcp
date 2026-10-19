@@ -287,11 +287,21 @@ export class BFSCrawler {
         // O(links × page size) and starves the event loop on link-dense pages.
         const $page = pageData.originalHtml ? load(pageData.originalHtml) : null;
         const pageBodyText = $page ? $page('body').text() : '';
+        // Index the anchors once by raw href, first one winning: a per-link
+        // `a[href="..."]` query scanned the whole page for every link (16,766
+        // scans of the 7.3 MB python changelog, R25) and blocked other calls.
+        const anchorsByHref = new Map();
+        if ($page) {
+          $page('a[href]').each((_, element) => {
+            const href = $page(element).attr('href');
+            if (!anchorsByHref.has(href)) anchorsByHref.set(href, element);
+          });
+        }
         for (const link of pageData.links) {
           const absoluteUrl = this.resolveUrl(link, pageUrl);
           if (absoluteUrl) {
             // Extract anchor text and context from link
-            const linkMetadata = this.extractLinkMetadata(link, $page, pageBodyText);
+            const linkMetadata = this.extractLinkMetadata(link, $page, pageBodyText, anchorsByHref);
             this.linkAnalyzer.addLink(normalizedUrl, normalizeUrl(absoluteUrl), linkMetadata);
           }
         }
@@ -677,17 +687,20 @@ export class BFSCrawler {
    * @param {string} href - The href attribute value
    * @param {Object} $ - Cheerio document for the page (parsed once per page)
    * @param {string} bodyText - Pre-computed body text of the page
+   * @param {Map} anchorsByHref - Raw href -> first <a> element with it
    * @returns {Object} Link metadata
    */
-  extractLinkMetadata(href, $, bodyText = '') {
+  extractLinkMetadata(href, $, bodyText = '', anchorsByHref) {
     if (!$) return {};
 
     try {
-      const linkElement = $(`a[href="${href}"]`).first();
+      const element = anchorsByHref.get(href);
 
-      if (linkElement.length === 0) {
+      if (!element) {
         return { href };
       }
+
+      const linkElement = $(element);
 
       const anchorText = linkElement.text().trim();
       const title = linkElement.attr('title');
@@ -989,6 +1002,10 @@ export class BFSCrawler {
     const segments = pathname.split('/').filter(s => s);
     
     if (segments.length === 0) return '/';
+    // A file (bugs.html) is a page, not a directory: no trailing "/" or "/...".
+    if (segments.length <= 2 && /.\.[a-z0-9]+$/i.test(segments[segments.length - 1])) {
+      return `/${segments.join('/')}`;
+    }
     if (segments.length === 1) return `/${segments[0]}/`;
     
     // Return first two segments as pattern

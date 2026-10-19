@@ -12,7 +12,9 @@
  * Hard stops (enforced here, not by the LLM):
  *   1. maxSteps iterations of the ACT loop
  *   2. maxUrls total URLs fetched
- *   3. wallClockMs wall-clock milliseconds (default 120 000)
+ *   3. wallClockMs wall-clock milliseconds (default 120 000); every LLM call
+ *      gets only the time left, and a run that reaches it returns degraded
+ *      with the evidence gathered so far
  *
  * No-LLM-key path: if all LLM calls fail, return collected evidence + {degraded:true}.
  * pro model: delegates to ResearchOrchestrator.conductResearch() for richer synthesis.
@@ -31,6 +33,12 @@ const DEFAULT_MAX_URLS = 10;
 // A stealth retry launches a browser and waits out a challenge; one started
 // with less than this left on the wall clock would overrun the hard stop.
 const ESCALATION_MIN_REMAINING_MS = 20_000;
+// PLAN is optional (the raw prompt is the fallback query), so a slow model
+// may spend at most this share of the wall clock on it, never all of it.
+const PLAN_MAX_SHARE = 0.25;
+// A corrective rewrite is a whole synthesis call; with less than this left it
+// would run into the hard stop, so the first answer is kept and flagged.
+const REWRITE_MIN_REMAINING_MS = 15_000;
 
 /** A refusal (robots.txt, blocklist) is a decision, not a wall — a browser must not retry it. */
 function isRefusal(err) {
@@ -369,7 +377,9 @@ export class AgentOrchestrator {
     usage.charged = 0;
 
     const startTime = Date.now();
-    const deadline = () => (Date.now() - startTime) >= wallClockMs;
+    const remaining = () => wallClockMs - (Date.now() - startTime);
+    const deadline = () => remaining() <= 0;
+    const timeLimitReason = `Stopped at the ${wallClockMs} ms time limit; the evidence gathered before it is returned.`;
 
     // Hard-cap params regardless of what caller sends
     const capSteps = Math.min(maxSteps, 10);
@@ -418,7 +428,10 @@ export class AgentOrchestrator {
           ? `The task asks about a CURRENT live state: the FIRST query must be ONLY the name of the site or thing whose current state is asked, nothing else. `
           : '') +
         `Output ONLY the queries, one per line, no preamble or numbering:\n\n${prompt}`;
-      const { text } = await this._getSamplingClient().complete(planPrompt, { maxTokens: 200 });
+      const { text } = await this._getSamplingClient().complete(planPrompt, {
+        maxTokens: 200,
+        timeoutMs: Math.min(remaining(), wallClockMs * PLAN_MAX_SHARE)
+      });
       const lines = text.split('\n')
         .map(l => l.replace(/^[-*\d.)\s]+/, '').trim())
         // A model that fences its list ("```\nq1\nq2\n```") or quotes each
@@ -598,7 +611,7 @@ export class AgentOrchestrator {
       let plainError = null;
       let verdict = null;
       try {
-        plain = await fetchAndParse(url, { timeoutMs: 10000, errorDocuments: true });
+        plain = await fetchAndParse(url, { timeoutMs: Math.max(1, Math.min(10000, remaining())), errorDocuments: true });
         verdict = documentVerdict(
           { url: plain.finalUrl, title: plain.$('title').first().text().trim(), text: plain.textContent, html: plain.html, status: plain.status },
           { fetcher: 'a plain fetch', rendered: false, contentReturned: false }
@@ -704,7 +717,7 @@ export class AgentOrchestrator {
       return {
         success: true,
         degraded: true,
-        reason: 'No content could be fetched for the given prompt.',
+        reason: deadline() ? timeLimitReason : 'No content could be fetched for the given prompt.',
         search_results: searchResults,
         evidence: [],
         answer: null,
@@ -717,15 +730,19 @@ export class AgentOrchestrator {
     }
 
     // Schema path: use ExtractWithLlm for structured output
-    if (schema && Object.keys(schema).length > 0) {
+    if (schema && Object.keys(schema).length > 0 && !deadline()) {
       try {
         const extractWithLlm = await this._getExtractWithLlm();
         const result = await extractWithLlm.execute({
           content: combinedText,
           prompt: `From the following research sources, answer this task and extract structured data:\n${prompt}`,
           schema,
-          provider: 'auto'
+          provider: 'auto',
+          signal: AbortSignal.timeout(Math.max(0, remaining()))
         });
+        // Out of time: fall through so the time-limit result below carries
+        // the full evidence.
+        if (!result.success && deadline()) throw new Error(result.error);
         // A required field left null is an incomplete answer, not a
         // structured success (R24, 2026-10-03).
         const missingRequired = result.success && Array.isArray(schema.required)
@@ -766,6 +783,7 @@ export class AgentOrchestrator {
     let synthesisFailed = false;
 
     try {
+      if (deadline()) throw new Error('time limit reached before synthesis');
       // Wording matters for small local models (llama3.2-class): without the
       // "already fetched / do not refuse" framing they answer "I cannot access
       // the internet" or "the sources do not contain it" even when the answer
@@ -794,7 +812,7 @@ export class AgentOrchestrator {
         `- NEVER invent or guess a URL; cite only URLs that appear in the sources above.\n\n` +
         `Provide a clear, concise answer.`;
 
-      const { text } = await this._getSamplingClient().complete(synthesisPrompt, { maxTokens: 1024 });
+      const { text } = await this._getSamplingClient().complete(synthesisPrompt, { maxTokens: 1024, timeoutMs: remaining() });
       answer = text;
 
       // A small model fills gaps from memory: "Swift 5.9.3", "commander 8.6.2
@@ -803,14 +821,14 @@ export class AgentOrchestrator {
       // the source text; what does not gets one corrective rewrite, and
       // whatever still remains is named in the answer and in `provenance`.
       unverified = unverifiedValues(answer, combinedText);
-      if (unverified.length > 0) {
+      if (unverified.length > 0 && remaining() >= REWRITE_MIN_REMAINING_MS) {
         const retryPrompt =
           `${synthesisPrompt}\n\nYour previous answer was:\n${fenceUntrusted(answer, 'previous answer')}\n` +
           `It contains values that appear nowhere in the source text: ${unverified.map(v => `"${v}"`).join(', ')}. ` +
           `Rewrite the answer. Keep only values that the sources state, spelled as the sources spell them. ` +
           `Where the sources do not state a value, say that it is not stated instead of guessing.`;
         try {
-          const { text: rewritten } = await this._getSamplingClient().complete(retryPrompt, { maxTokens: 1024 });
+          const { text: rewritten } = await this._getSamplingClient().complete(retryPrompt, { maxTokens: 1024, timeoutMs: remaining() });
           if (rewritten && rewritten.trim()) {
             answer = rewritten;
             unverified = unverifiedValues(answer, combinedText);
@@ -834,7 +852,7 @@ export class AgentOrchestrator {
       // presented as the answer.
       if (currentState && isVersionQuestion(prompt)) {
         forumOnlyVersions = unsupportedVersionClaims(answer, evidence);
-        if (forumOnlyVersions.length > 0) {
+        if (forumOnlyVersions.length > 0 && remaining() >= REWRITE_MIN_REMAINING_MS) {
           const versionRetryPrompt =
             `${synthesisPrompt}\n\nYour previous answer was:\n${fenceUntrusted(answer, 'previous answer')}\n` +
             `It states ${forumOnlyVersions.map(v => `"${v}"`).join(', ')}, which ${forumOnlyVersions.length === 1 ? 'appears' : 'appear'} ` +
@@ -843,7 +861,7 @@ export class AgentOrchestrator {
             `Rewrite the answer using only versions stated by the project's own sources. ` +
             `If none of them states a current version, say plainly that the fetched sources do not state one.`;
           try {
-            const { text: rewritten } = await this._getSamplingClient().complete(versionRetryPrompt, { maxTokens: 1024 });
+            const { text: rewritten } = await this._getSamplingClient().complete(versionRetryPrompt, { maxTokens: 1024, timeoutMs: remaining() });
             if (rewritten && rewritten.trim()) {
               answer = rewritten;
               forumOnlyVersions = unsupportedVersionClaims(answer, evidence);
@@ -891,7 +909,9 @@ export class AgentOrchestrator {
     } catch (err) {
       degraded = true;
       synthesisFailed = true;
-      degradedReason = `LLM synthesis unavailable: ${err.message}`;
+      degradedReason = err.code === 'LLM_TIMEOUT' || deadline()
+        ? timeLimitReason
+        : `LLM synthesis unavailable: ${err.message}`;
       // Return raw evidence so the host LLM can synthesize
       answer = null;
     }
