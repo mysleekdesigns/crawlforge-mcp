@@ -1,0 +1,23 @@
+{
+  "_about": "Live sweep 2026-10-20 item 2.5: agent prompt 'Latest stable Rust version and its release date'. questionResults: Brave via search_web for 'latest stable Rust version release date', captured 2026-10-20, trimmed to link/title/snippet. entityResults: the bare query 'Rust' as the sweep described it (the game, the film); RECONSTRUCTED, not captured. pages['https://endoflife.date/rust']: captured 2026-10-20 (scrape markdown + its 'Last updated on' line), condensed to the header and first three table rows. pages['https://www.rust-lang.org/'] and the facepunch page: RECONSTRUCTED minimal home pages.",
+  "prompt": "Latest stable Rust version and its release date",
+  "questionResults": [
+    { "link": "https://endoflife.date/rust", "title": "Rust | endoflife.date", "snippet": "Rust is an open source multi-paradigm, general-purpose programming language that emphasizes performance, type safety, and concurrency. A new stable release is produced every six weeks. Only the latest stable release receives patches." },
+    { "link": "https://blog.rust-lang.org/releases/latest/", "title": "Announcing Rust 1.99.1", "snippet": "Click here to be redirected to the latest Rust release announcement." },
+    { "link": "https://crates.io/crates/rust-releases", "title": "rust-releases - crates.io: Rust Package Registry", "snippet": "Release date: 6 days ago · Minimum Rust version: v1.94.1" },
+    { "link": "https://doc.rust-lang.org/beta/releases.html", "title": "Rust Release Notes", "snippet": "The 2024 Edition is now stable." },
+    { "link": "https://releases.rs/", "title": "Rust Versions | Rust Changelogs", "snippet": "Rust Versions # Stable: 1.99.1 Beta: 1.100.0 (12 November, 2026, 23 days left)" }
+  ],
+  "entityResults": [
+    { "link": "https://rust.facepunch.com/", "title": "Rust", "snippet": "The only aim in Rust is to survive." },
+    { "link": "https://www.imdb.com/title/tt11893274/", "title": "Rust (2024) - IMDb", "snippet": "Rust: Directed by Joel Souza." },
+    { "link": "https://store.steampowered.com/app/252490/Rust/", "title": "Rust on Steam", "snippet": "The only aim in Rust is to survive." },
+    { "link": "https://www.rust-lang.org/", "title": "Rust Programming Language", "snippet": "A language empowering everyone to build reliable and efficient software." },
+    { "link": "https://en.wikipedia.org/wiki/Rust", "title": "Rust - Wikipedia", "snippet": "Rust is an iron oxide." }
+  ],
+  "pages": {
+    "https://endoflife.date/rust": "<html><head><title>Rust | endoflife.date</title></head><body><h1>Rust</h1><p>📅 Last updated on 16 October 2026 🤖</p><p>Rust is an open source multi-paradigm, general-purpose programming language. A new stable release is produced every six weeks. Only the latest stable release receives patches.</p><table><thead><tr><th>Release</th><th>Released</th><th>Supported</th><th>Latest</th></tr></thead><tbody><tr><td>1.99</td><td>2 weeks and 5 days ago (01 Oct 2026)</td><td>Yes</td><td><a href=\"https://github.com/rust-lang/rust/releases/tag/1.99.1\">1.99.1</a> (15 Oct 2026)</td></tr><tr><td>1.98</td><td>2 months ago (20 Aug 2026)</td><td>Ended 2 weeks and 5 days ago (01 Oct 2026)</td><td><a href=\"https://github.com/rust-lang/rust/releases/tag/1.98.1\">1.98.1</a> (03 Sep 2026)</td></tr><tr><td>1.97</td><td>3 months ago (09 Jul 2026)</td><td>Ended 2 months ago (20 Aug 2026)</td><td><a href=\"https://github.com/rust-lang/rust/releases/tag/1.97.1\">1.97.1</a> (16 Jul 2026)</td></tr></tbody></table></body></html>",
+    "https://www.rust-lang.org/": "<html><head><title>Rust Programming Language</title></head><body><h1>Rust</h1><p>A language empowering everyone to build reliable and efficient software.</p><p>Get Started</p><p>Version 1.99.1</p></body></html>",
+    "https://rust.facepunch.com/": "<html><head><title>Rust</title></head><body><h1>Rust</h1><p>The only aim in Rust is to survive. Latest update: October release, new version of the monument.</p></body></html>"
+  }
+}

@@ -92,6 +92,20 @@ const MARKUP_BETWEEN_DIGITS = /(\d)(?:(?:\s*<[^>]{0,120}>)+\s*)([\d.,])/g;
 const MAX_WELD_PASSES = 3;
 
 /**
+ * Whether `sep` can be a digit-grouping separator in `t`: Western 3-digit
+ * groups ("1,234,567") or Indian lakh grouping ("12,34,567").
+ *
+ * @param {string} t
+ * @param {string} sep - "." or ","
+ * @returns {boolean}
+ */
+function isGrouped(t, sep) {
+  const s = sep === '.' ? '\\.' : sep;
+  return new RegExp(`^-?\\d{1,3}(?:${s}\\d{3})+$`).test(t)
+    || new RegExp(`^-?\\d{1,2}(?:${s}\\d{2})*${s}\\d{3}$`).test(t);
+}
+
+/**
  * Every numeric reading of one token, canonicalised.
  *
  * "1,299.00" -> 1299 | "1.299,00" -> 1299 | "1 299" -> 1299 | "1.299" -> both
@@ -114,7 +128,9 @@ function readings(token) {
     raw.push(t.split(grouping).join('').replace(decimal, '.'));
   } else if (hasDot || hasComma) {
     const sep = hasDot ? '.' : ',';
-    raw.push(t.split(sep).join(''));                                  // grouping reading
+    // A grouping reading only when the groups are real thousands groups, so
+    // "12.34" is never read as 1234 (nor 1234 found in a page's "12.34").
+    if (isGrouped(t, sep)) raw.push(t.split(sep).join(''));           // grouping reading
     if (t.split(sep).length === 2) raw.push(t.replace(sep, '.'));     // decimal reading
   } else {
     raw.push(t);
@@ -250,6 +266,79 @@ function embeddedVersionReadings(value) {
   });
 }
 
+/** An ISO calendar date, the form a model is asked to convert dates into. */
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Lowercase, strip accents and fold NBSPs, so "Mär" and "mar" compare equal. */
+const foldText = (s) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+
+/**
+ * Month name -> month number (1-12), long and short forms, from Intl for the
+ * languages a page is most often written in. A name two languages assign to
+ * different months would be ambiguous and is dropped.
+ */
+const MONTHS = (() => {
+  const map = new Map();
+  const clash = new Set();
+  for (const locale of ['en', 'fr', 'de', 'es', 'it', 'pt', 'nl']) {
+    for (const month of ['long', 'short']) {
+      const fmt = new Intl.DateTimeFormat(locale, { month, timeZone: 'UTC' });
+      for (let m = 1; m <= 12; m++) {
+        const name = foldText(fmt.format(new Date(Date.UTC(2026, m - 1, 15)))).replace(/\.$/, '');
+        if (map.has(name) && map.get(name) !== m) clash.add(name);
+        map.set(name, m);
+      }
+    }
+  }
+  map.set('sept', 9); // "Sept 14" in English
+  for (const name of clash) map.delete(name);
+  return map;
+})();
+
+/** "2026-10-14" when y/m/d is a real calendar date, else null. */
+function isoDate(y, m, d) {
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/** "14 octobre 2026", "14. März 2026", "1er octobre 2026", "14 de octubre de 2026". */
+const DAY_MONTH_YEAR = /(?<![\p{L}\d])(\d{1,2})(?:er|st|nd|rd|th|\.)?\s*(?:de\s+)?(\p{L}{3,})\.?,?\s+(?:de\s+)?(\d{4})(?!\d)/gu;
+/** "October 14, 2026", "Oct 14th 2026". */
+const MONTH_DAY_YEAR = /(?<![\p{L}\d])(\p{L}{3,})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})(?!\d)/gu;
+/** "14.10.2026", "14/10/2026", "10/14/2026" — day/month order read both ways. */
+const NUMERIC_DATE = /(?<!\d)(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?!\d)/g;
+
+/**
+ * Every calendar date the source writes in words or as d/m/y digits, as ISO
+ * strings. Only real dates are admitted, and day, month and year must come
+ * from one expression, so a date is never assembled from scattered numbers.
+ *
+ * @param {string} source
+ * @returns {Set<string>}
+ */
+function datesInSource(source) {
+  const found = new Set();
+  const add = (y, m, d) => {
+    const iso = isoDate(Number(y), Number(m), Number(d));
+    if (iso) found.add(iso);
+  };
+  for (const variant of sourceVariants(source)) {
+    const text = foldText(variant);
+    for (const [, d, name, y] of text.matchAll(DAY_MONTH_YEAR)) {
+      if (MONTHS.has(name)) add(y, MONTHS.get(name), d);
+    }
+    for (const [, name, d, y] of text.matchAll(MONTH_DAY_YEAR)) {
+      if (MONTHS.has(name)) add(y, MONTHS.get(name), d);
+    }
+    for (const [, a, b, y] of text.matchAll(NUMERIC_DATE)) {
+      add(y, b, a);
+      add(y, a, b);
+    }
+  }
+  return found;
+}
+
 /**
  * Replace every numeric value that is not present in the source with null.
  *
@@ -278,6 +367,7 @@ export function verifyNumericProvenance(data, source) {
   // Built lazily: most extractions are all numbers and never need it, and
   // lowercasing a multi-megabyte page is not free.
   let haystacks = null;
+  let dates = null;
   const inSource = (spellings) => {
     if (haystacks === null) haystacks = literalHaystacks(source);
     return spellings.some((s) => haystacks.some((h) => h.includes(s)));
@@ -312,6 +402,17 @@ export function verifyNumericProvenance(data, source) {
       if (inSource(literals)) {
         verified++;
         return node;
+      }
+      // An ISO date the model converted from "14 octobre 2026" is not on the
+      // page literally; it is when the page's own dates are read. A date that
+      // cannot exist ("2027-03-00") never matches.
+      const iso = typeof node === 'string' && node.trim().match(ISO_DATE);
+      if (iso) {
+        if (dates === null) dates = datesInSource(source);
+        if (dates.has(isoDate(Number(iso[1]), Number(iso[2]), Number(iso[3])))) {
+          verified++;
+          return node;
+        }
       }
       unverified.push({ path: path || '(root)', value: node, reason: 'not_found_in_source' });
       return null;

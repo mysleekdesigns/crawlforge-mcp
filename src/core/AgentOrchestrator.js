@@ -27,6 +27,7 @@ import { fenceUntrusted } from '../utils/untrustedContent.js';
 import { stealthDocumentVerdict as documentVerdict } from '../utils/stealthVerdict.js';
 import { aBrowserMightPass } from '../tools/scrape/escalation.js';
 import { AGENT_MAX_ESCALATIONS } from '../tools/agent/escalation.js';
+import { siteLabel, corroboratedOrigins, updateLabelledDates } from '../tools/agent/sourceChecks.js';
 
 const DEFAULT_WALL_CLOCK_MS = 120_000;
 const DEFAULT_MAX_STEPS = 5;
@@ -278,13 +279,6 @@ export function unsupportedVersionClaims(answer, evidence) {
 
 export function isCurrentStateTask(prompt) {
   return CURRENT_STATE_RE.test(prompt || '');
-}
-
-/** The registrable label of a hostname: "python" for www.python.org, "bbc" for bbc.co.uk. */
-function siteLabel(hostname) {
-  const labels = hostname.toLowerCase().split('.');
-  const ccSecondLevel = labels.length >= 3 && labels.at(-1).length === 2 && labels.at(-2).length <= 3;
-  return labels[Math.max(labels.length - (ccSecondLevel ? 3 : 2), 0)];
 }
 
 /**
@@ -580,15 +574,22 @@ export class AgentOrchestrator {
     // live front page, which rarely states the fact asked for: "what does
     // Southwest charge for a first checked bag" fetched southwest.com's home,
     // booking and careers pages and answered that the fee is not stated
-    // (R20, 2026-09-07). Keep the entity query first — the domain vote and
-    // live-root promotion depend on it — and add the task's own words as a
-    // second query so the page that states the fact is in the queue too.
+    // (R20, 2026-09-07). Add the task's own words as a second query so the
+    // page that states the fact is in the queue too. A one-word name is also
+    // ambiguous: "Latest stable Rust version and its release date" searched
+    // "Rust" first and got the game and the film (live sweep, 2026-10-20).
+    // Then the task's words, its noun phrase intact, are searched first. The
+    // entity query is searched either way: the domain vote and live-root
+    // promotion below read its results.
+    const entityQuery = searchQueries[0];
+    const oneWordEntity = !/\s/.test(entityQuery.trim());
     if (currentState && searchQueries.length === 1) {
       try {
         const { compactSearchTopic, clampSearchQuery } = await import('./ResearchOrchestrator.js');
         const factQuery = clampSearchQuery(compactSearchTopic(prompt));
-        if (factQuery && factQuery.toLowerCase() !== searchQueries[0].toLowerCase()) {
-          searchQueries.push(factQuery);
+        if (factQuery && factQuery.toLowerCase() !== entityQuery.toLowerCase()) {
+          if (oneWordEntity) searchQueries.unshift(factQuery);
+          else searchQueries.push(factQuery);
         }
       } catch { /* the entity query alone is the pre-R20 behaviour */ }
     }
@@ -656,7 +657,6 @@ export class AgentOrchestrator {
       const official = new Set();
       // Only the bare entity query votes: the fact query added above returns
       // guides and news sites, which must not outvote the official domain.
-      const entityQuery = searchQueries[0];
       for (const s of searchResults) {
         if (s.query !== entityQuery) continue;
         try {
@@ -665,6 +665,22 @@ export class AgentOrchestrator {
           if (isOfficialResult(entityQuery, s.url, s.title)) official.add(origin);
         } catch { /* unparsable result url */ }
       }
+      // For a one-word name, a site the task's own search does not surface is
+      // a namesake, not the subject: rust.facepunch.com, a root titled "Rust",
+      // passed as official for the Rust language and was blamed in the
+      // degraded reason (live sweep, 2026-10-20).
+      const onTopic = oneWordEntity
+        ? corroboratedOrigins(originCounts.keys(), searchResults.filter(s => s.query !== entityQuery).map(s => s.url))
+        : new Set(originCounts.keys());
+      for (const origin of official) if (!onTopic.has(origin)) official.delete(origin);
+      // The namesakes' pages are not fetched either: the game's site is not a
+      // source for the language's release.
+      for (let i = urlQueue.length - 1; i >= 0; i--) {
+        try {
+          if (!namedUrls.has(urlQueue[i]) && originCounts.has(new URL(urlQueue[i]).origin) &&
+            !onTopic.has(new URL(urlQueue[i]).origin)) urlQueue.splice(i, 1);
+        } catch { /* unparsable url stays */ }
+      }
       // The entity's own site wins over any vote count; only when no result
       // is official does the vote decide, and a tied vote decides nothing —
       // with one result per origin it would just promote the top-ranked one.
@@ -672,6 +688,7 @@ export class AgentOrchestrator {
       let bestCount = 0;
       let tied = false;
       for (const [origin, count] of originCounts) {
+        if (!onTopic.has(origin)) continue;
         if (official.size > 0 && !official.has(origin)) continue;
         // Strict > keeps the earliest-seen (top-ranked) origin on ties.
         if (count > bestCount) { bestOrigin = origin; bestCount = count; tied = false; }
@@ -896,6 +913,7 @@ export class AgentOrchestrator {
     let unverified = [];
     let unverifiedLinks = [];
     let forumOnlyVersions = [];
+    let updateDates = [];
     // Distinct from `degraded`: a run can be degraded because its version
     // claims are unsupported and still have had its provenance checked.
     let synthesisFailed = false;
@@ -926,12 +944,36 @@ export class AgentOrchestrator {
         `- Answer ONLY from the provided sources; do not use outside knowledge.\n` +
         `- Read the sources carefully before concluding anything is missing from them.\n` +
         `- Cite the exact URL(s) you used: a source URL, or the URL an item has under "Links on this page".\n` +
+        `- For a date, use the one the sources give for the event itself (e.g. "released", "release date"), never a page's "last updated" or "modified" date, and quote the sentence or table row it came from.\n` +
         `- If, after careful reading, the sources genuinely do not contain the answer, say so explicitly.\n` +
         `- NEVER invent or guess a URL; cite only URLs that appear in the sources above.\n\n` +
         `Provide a clear, concise answer.`;
 
       const { text } = await this._getSamplingClient().complete(synthesisPrompt, { maxTokens: 1024, timeoutMs: remaining() });
       answer = text;
+
+      // A page's "Last updated on 16 October 2026" is not the release date
+      // its table gives (15 Oct 2026), and the provenance check below passes
+      // it: the string is on the page (live sweep, 2026-10-20). A date the
+      // sources state only as an update date gets one corrective rewrite
+      // before the provenance check; what survives it is flagged below.
+      updateDates = updateLabelledDates(answer, evidence, prompt);
+      if (updateDates.length > 0 && remaining() >= REWRITE_MIN_REMAINING_MS) {
+        const dateRetryPrompt =
+          `${synthesisPrompt}\n\nYour previous answer was:\n${fenceUntrusted(answer, 'previous answer')}\n` +
+          `It gives ${updateDates.map(d => `"${d.date}"`).join(', ')}, which the sources state only as the date a page was last updated or modified. ` +
+          `Rewrite the answer using the date the sources give for the event itself (e.g. "released", "release date", the date in the row of the version asked about), ` +
+          `and quote the sentence or table row it came from. If the sources give no such date, say so.`;
+        try {
+          const { text: rewritten } = await this._getSamplingClient().complete(dateRetryPrompt, { maxTokens: 1024, timeoutMs: remaining() });
+          if (rewritten && rewritten.trim()) {
+            answer = rewritten;
+            updateDates = updateLabelledDates(answer, evidence, prompt);
+          }
+        } catch {
+          // Keep the first answer; it is flagged below.
+        }
+      }
 
       // A small model fills gaps from memory: "Swift 5.9.3", "commander 8.6.2
       // published January 18, 2024" — none of it on any fetched page (R17,
@@ -1012,6 +1054,20 @@ export class AgentOrchestrator {
         }
       }
 
+      // A provenance or version rewrite above may have changed the dates.
+      updateDates = updateLabelledDates(answer, evidence, prompt);
+      if (updateDates.length > 0) {
+        answer +=
+          `\n\nDate warning: ${updateDates.map(d => `"${d.date}"`).join(', ')} ` +
+          `${updateDates.length === 1 ? 'is' : 'are'} the date a source page was last updated, not the date of the event asked about.`;
+        if (!degraded) {
+          degraded = true;
+          degradedReason =
+            `The answer gives a page-update date as the date asked for: ` +
+            updateDates.map(d => `"${d.date}" is labelled as an update date on ${d.url}`).join('; ') + '.';
+        }
+      }
+
       // A promoted live page is only worth its +1000 if the answer came from
       // it. R25 (2026-10-19) answered "not stated" over a promoted Wikipedia
       // Main Page, and the HN question from thehackernews.com, both with
@@ -1069,7 +1125,8 @@ export class AgentOrchestrator {
         checked: !synthesisFailed,
         unverified,
         ...(unverifiedLinks.length > 0 ? { unverified_urls: unverifiedLinks } : {}),
-        ...(forumOnlyVersions.length > 0 ? { unsupported_versions: forumOnlyVersions } : {})
+        ...(forumOnlyVersions.length > 0 ? { unsupported_versions: forumOnlyVersions } : {}),
+        ...(updateDates.length > 0 ? { update_dates: updateDates } : {})
       }
     };
   }

@@ -347,7 +347,8 @@ const searchWebShape = {
 const extractStructuredShape = {
   success: z.boolean().optional().describe('False when the extraction errored, or a required field came back missing, empty, or in the wrong shape'),
   url: z.string().optional(),
-  data: z.record(z.unknown()).optional().describe('Extracted fields matching the requested schema'),
+  data: z.record(z.unknown()).optional().describe('Extracted fields matching the requested schema; every requested field is present, null when not found'),
+  missing_fields: z.array(z.string()).optional().describe('Requested schema fields no extraction method found on the page; each is present in data as null'),
   extraction_method: z.string().optional().describe('"llm" | "css_fallback" | "keyword_fallback" | "none"'),
   provider: z.string().optional().describe('LLM provider that produced the data ("ollama" | "openai" | "anthropic"); present when extraction_method is "llm"'),
   model: z.string().optional().describe('Model that produced the data, e.g. "gemma3:12b"; present when extraction_method is "llm"'),

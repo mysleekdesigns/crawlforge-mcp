@@ -44,6 +44,7 @@
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import { load } from 'cheerio';
+import { normalizeCodeBlocks } from '../../utils/htmlToMarkdown.js';
 
 // How much of a table's text is compared against the article to decide whether
 // Readability already kept it. Long enough to be unique to that table.
@@ -174,6 +175,68 @@ export function unwrapMediaWikiHeadings(document) {
   for (const el of Array.from(document.querySelectorAll('.mw-editsection'))) el.remove();
   for (const wrapper of Array.from(document.querySelectorAll('div.mw-heading'))) {
     wrapper.replaceWith(...Array.from(wrapper.childNodes));
+  }
+}
+
+// Readability's `byline` regex. The first element matching it (or carrying
+// rel="author" / itemprop="author") under 100 characters is taken as the
+// article's byline and deleted from the content.
+const BYLINE = /byline|author|dateline|writtenby|p-author/i;
+
+// A list page repeats one item markup: 10 `div.quote`, 20 `li.product`. Items
+// shorter than this are menu entries or tag-cloud links, not content.
+const MIN_LIST_ITEMS = 5;
+const MIN_ITEM_CHARS = 40;
+
+/**
+ * The repeated items of a list page in a DOM document: the children of one
+ * parent that share a tag and class, when there are at least MIN_LIST_ITEMS
+ * of them with MIN_ITEM_CHARS of text each.
+ * @param {Document} document
+ * @returns {Element[]}
+ */
+function repeatedItems(document) {
+  const items = [];
+  for (const parent of Array.from(document.querySelectorAll('body, body *'))) {
+    const groups = new Map();
+    for (const child of Array.from(parent.children)) {
+      const className = (child.getAttribute('class') || '').trim();
+      if (!className) continue;
+      const key = `${child.tagName} ${className}`;
+      groups.set(key, [...(groups.get(key) || []), child]);
+    }
+    for (const group of groups.values()) {
+      if (group.length < MIN_LIST_ITEMS) continue;
+      const substantial = group.filter((el) => normalizeWhitespace(el.textContent || '').length >= MIN_ITEM_CHARS);
+      if (substantial.length >= MIN_LIST_ITEMS) items.push(...substantial);
+    }
+  }
+  return items;
+}
+
+/**
+ * Stop Readability taking an author line inside a list item as the page's
+ * byline. It deletes the first byline-like element it meets, so on
+ * quotes.toscrape.com the first quote lost its author ("…our thinking.” by
+ * (about)") from every main-content read (live sweep, 2026-10-20). A byline
+ * belongs to an article, not to one entry of a list, so the attributes that
+ * mark one are stripped from nodes inside repeated items.
+ *
+ * @param {Document} document - mutated in place
+ */
+export function keepListItemBylines(document) {
+  for (const item of repeatedItems(document)) {
+    for (const el of Array.from(item.querySelectorAll('*'))) {
+      if (el.getAttribute('rel') === 'author') el.removeAttribute('rel');
+      if ((el.getAttribute('itemprop') || '').includes('author')) el.removeAttribute('itemprop');
+      if (BYLINE.test(el.id || '')) el.removeAttribute('id');
+      const className = el.getAttribute('class');
+      if (className && BYLINE.test(className)) {
+        const kept = className.split(/\s+/).filter((token) => token && !BYLINE.test(token));
+        if (kept.length > 0) el.setAttribute('class', kept.join(' '));
+        else el.removeAttribute('class');
+      }
+    }
   }
 }
 
@@ -309,9 +372,11 @@ export function extractMainContent(html, url) {
   if (tooLargeForReadability(html)) return { html: null, title: '', tablesRecovered: 0, tooLarge: true };
   let article;
   try {
-    const dom = new JSDOM(html, { url });
+    // Readability strips classes, so code-block languages move to data attributes first.
+    const dom = new JSDOM(normalizeCodeBlocks(html), { url });
     sanitizeAccidentalClasses(dom.window.document);
     unwrapMediaWikiHeadings(dom.window.document);
+    keepListItemBylines(dom.window.document);
     article = new Readability(dom.window.document).parse();
   } catch {
     return { html: null, title: '', tablesRecovered: 0 };
@@ -356,8 +421,8 @@ export function keepPageHeading(mainHtml, $) {
 }
 
 // Below both of these, Readability's article is a fragment of the page, not
-// its main content.
-export const THIN_MAIN_CONTENT = { maxChars: 1500, maxShare: 0.35 };
+// its main content. On a list page the bar is a share of `listMaxShare`.
+export const THIN_MAIN_CONTENT = { maxChars: 1500, maxShare: 0.35, listMaxShare: 0.6 };
 
 function visibleTextLength(html) {
   const $ = load(html);
@@ -379,10 +444,36 @@ function visibleTextLength(html) {
  */
 export function isThinMainContent(mainHtml, pageHtml) {
   const kept = visibleTextLength(mainHtml || '');
-  if (kept >= THIN_MAIN_CONTENT.maxChars) return null;
   const visible = visibleTextLength(pageHtml || '');
-  if (visible === 0 || kept / visible >= THIN_MAIN_CONTENT.maxShare) return null;
-  return { kept, visible };
+  if (visible === 0) return null;
+  const share = kept / visible;
+  if (kept < THIN_MAIN_CONTENT.maxChars && share < THIN_MAIN_CONTENT.maxShare) return { kept, visible };
+  // A list page's items are its content, and Readability scores them one
+  // block at a time: scrape_with_actions' text lost 3 of quotes.toscrape.com's
+  // 10 quotes (live sweep, 2026-10-20). Keeping much less than the page has
+  // there means items were pruned, not chrome.
+  if (share < THIN_MAIN_CONTENT.listMaxShare && isListPage(pageHtml)) return { kept, visible };
+  return null;
+}
+
+/**
+ * True when `html` repeats one item markup MIN_LIST_ITEMS+ times with
+ * MIN_ITEM_CHARS of text each — repeatedItems' test, on a cheerio parse.
+ * @param {string} html
+ */
+function isListPage(html) {
+  const $ = load(html);
+  return $('body, body *').toArray().some((parent) => {
+    const groups = new Map();
+    for (const child of $(parent).children().toArray()) {
+      const className = ($(child).attr('class') || '').trim();
+      if (!className) continue;
+      const key = `${child.name} ${className}`;
+      groups.set(key, [...(groups.get(key) || []), child]);
+    }
+    return Array.from(groups.values()).some((group) => group.length >= MIN_LIST_ITEMS &&
+      group.filter((el) => normalizeWhitespace($(el).text()).length >= MIN_ITEM_CHARS).length >= MIN_LIST_ITEMS);
+  });
 }
 
 export default extractMainContent;

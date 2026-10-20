@@ -833,10 +833,15 @@ export class ScrapeWithActionsTool extends EventEmitter {
         // post-action page (a demo form, a results panel) that leaves the
         // footer alone, or a page minus the very buttons the actions produced.
         // A short readable result means it found nothing substantial, so hand
-        // back the whole (equally short) body text instead.
+        // back the whole (equally short) body text instead. So does a page
+        // whose Readability article was not its main content (a landing or
+        // list page): the whole page, as browser_session read returns it,
+        // rather than the boilerplate-removal guess — that read kept all 10
+        // of quotes.toscrape.com's quotes where this text lost 3 (2026-10-20).
         const readable = extractResult.content.text || '';
         const bodyText = flattenText($);
-        if (readable.length < 300 && bodyText.length > readable.length) {
+        const notMainContent = extractResult.extractionMethod && extractResult.extractionMethod !== 'readability';
+        if ((readable.length < 300 || notMainContent) && bodyText.length > readable.length) {
           extractResult.content.text = bodyText;
           extractResult.content.textSource = 'body';
         }
