@@ -29,7 +29,10 @@ const SSRF_CONFIG = {
     '0.0.0.0/8',       // This network
     '100.64.0.0/10',   // Carrier-grade NAT
     '198.18.0.0/15',   // Benchmark testing
+    '::/128',          // IPv6 unspecified (connects to the local host)
     '::1/128',         // IPv6 localhost
+    '::/96',           // IPv4-compatible IPv6 (deprecated)
+    '64:ff9b::/96',    // NAT64 (embeds an IPv4 address)
     'fc00::/7',        // IPv6 private network
     'fe80::/10',       // IPv6 link-local
     'ff00::/8',        // IPv6 multicast

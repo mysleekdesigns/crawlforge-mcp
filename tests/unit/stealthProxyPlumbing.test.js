@@ -32,6 +32,7 @@ import fs from 'node:fs';
 
 import { StealthBrowserManager, CamoufoxAdapter } from '../../src/core/StealthBrowserManager.js';
 import { config } from '../../src/constants/config.js';
+import { guardedProxyFor } from '../../src/core/browser/guardedProxy.js';
 
 const rotation = (proxies, rotationInterval = 300000) => ({
   proxyRotation: { enabled: true, proxies, rotationInterval }
@@ -219,10 +220,12 @@ const stubCamoufox = (t) => {
 };
 
 describe('the proxy reaches the browser context on both engines', () => {
+  // The context itself goes out through the SSRF-guarded local proxy, which
+  // chains to the parsed one and keeps its credentials (guardedProxy.js).
   test('chromium contexts are created with the parsed proxy', async () => {
     const manager = stubLaunch(new StealthBrowserManager());
     await manager.createStealthContext({ engine: 'chromium', ...rotation([ENTRY]) });
-    assert.deepEqual(manager.browser.newContextOptions[0].proxy, PARSED);
+    assert.deepEqual(manager.browser.newContextOptions[0].proxy, await guardedProxyFor(PARSED));
     await manager.cleanup();
   });
 
@@ -233,7 +236,7 @@ describe('the proxy reaches the browser context on both engines', () => {
     await manager.createStealthContext({ engine: 'camoufox' });
 
     assert.deepEqual(launches[0].proxy, PARSED, 'the launcher is told about the proxy');
-    assert.deepEqual(manager.browser.newContextOptions[0].proxy, PARSED,
+    assert.deepEqual(manager.browser.newContextOptions[0].proxy, await guardedProxyFor(PARSED),
       'and so is the context — camoufox routes a launch-time proxy but drops its credentials');
     await manager.cleanup();
   });
@@ -250,14 +253,14 @@ describe('the proxy reaches the browser context on both engines', () => {
     manager.proxyManager.lastRotation = Date.now() - 301000;
     await manager.createStealthContext({ engine: 'camoufox' });
 
-    assert.deepEqual(manager.browser.newContextOptions[1].proxy, PARSED);
+    assert.deepEqual(manager.browser.newContextOptions[1].proxy, await guardedProxyFor(PARSED));
     await manager.cleanup();
   });
 
-  test('no proxy option at all when rotation is off', async () => {
+  test('no upstream proxy when rotation is off', async () => {
     const manager = stubLaunch(new StealthBrowserManager());
     await manager.createStealthContext({ engine: 'chromium' });
-    assert.ok(!('proxy' in manager.browser.newContextOptions[0]));
+    assert.deepEqual(manager.browser.newContextOptions[0].proxy, await guardedProxyFor(null));
     await manager.cleanup();
   });
 

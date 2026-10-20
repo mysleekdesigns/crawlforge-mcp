@@ -11,6 +11,7 @@ import HumanBehaviorSimulator from '../../utils/HumanBehaviorSimulator.js';
 import LocalizationManager from '../LocalizationManager.js';
 import { safeGoto, assertNavigationAllowed } from '../../utils/ssrfGuard.js';
 import { browserUserAgent } from '../../utils/fetchIdentity.js';
+import { guardedProxyFor } from '../browser/guardedProxy.js';
 
 const BrowserProcessorSchema = z.object({
   url: z.string().url(),
@@ -622,9 +623,10 @@ export class BrowserProcessor {
     if (options.geolocation) {
       contextOptions.geolocation = options.geolocation;
     }
-    if (options.proxy) {
-      contextOptions.proxy = options.proxy;
-    }
+    // Every connection the page opens — redirect hops, iframes, WebSockets —
+    // goes through the SSRF-guarded proxy, chained to the caller's proxy when
+    // there is one (src/core/browser/guardedProxy.js).
+    contextOptions.proxy = await guardedProxyFor(options.proxy || null);
 
     const context = await this.browser.newContext(contextOptions);
     const page = await context.newPage();

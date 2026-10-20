@@ -45,6 +45,40 @@ describe('ssrfGuard.ipBlocked (stage 1, default)', () => {
   });
 });
 
+// Live sweep 10-20 (1.3): `::` connects to the local host, and safeFetch read a
+// local listener through http://[::]:PORT/ even under SSRF_STRICT=true.
+describe('ssrfGuard.ipBlocked: the IPv6 unspecified address', () => {
+  for (const strict of [undefined, 'true']) {
+    test(`blocks :: in ${strict ? 'strict' : 'stage 1'} mode`, () => {
+      const prev = process.env.SSRF_STRICT;
+      if (strict) process.env.SSRF_STRICT = strict;
+      else delete process.env.SSRF_STRICT;
+      try {
+        assert.equal(ipBlocked('::'), true);
+        assert.equal(ipBlocked('0:0:0:0:0:0:0:0'), true);
+        assert.throws(() => ssrfGuard('http://[::]:8080/'), /SSRF Protection/);
+        assert.equal(ipBlocked('2001:4860:4860::8888'), false);
+      } finally {
+        if (prev === undefined) delete process.env.SSRF_STRICT;
+        else process.env.SSRF_STRICT = prev;
+      }
+    });
+  }
+  test('strict mode also blocks IPv4-compatible (::/96) and NAT64 (64:ff9b::/96) addresses', () => {
+    const prev = process.env.SSRF_STRICT;
+    process.env.SSRF_STRICT = 'true';
+    try {
+      assert.equal(ipBlocked('::7f00:1'), true);
+      assert.equal(ipBlocked('::127.0.0.1'), true);
+      assert.equal(ipBlocked('64:ff9b::7f00:1'), true);
+      assert.equal(ipBlocked('64:ff9b::808:808'), true);
+    } finally {
+      if (prev === undefined) delete process.env.SSRF_STRICT;
+      else process.env.SSRF_STRICT = prev;
+    }
+  });
+});
+
 describe('ssrfGuard.ipBlocked (strict mode)', () => {
   test('SSRF_STRICT=true blocks all private ranges', () => {
     const prev = process.env.SSRF_STRICT;
@@ -255,4 +289,57 @@ describe('redirect-hop protection (end-to-end, subprocess for a fresh ALLOWED_DO
     assert.equal(parsed.blocked, true, `expected redirect to be blocked, got: ${parsed.message}`);
     assert.equal(parsed.secretHit, false, '/secret must never be reached');
   });
+
+  for (const strict of [undefined, 'true']) {
+    test(`safeFetch blocks a redirect to http://[::]:PORT/ (${strict ? 'strict' : 'stage 1'} mode)`, () => {
+      const script = `
+        import http from 'node:http';
+        import { safeFetch, isSsrfError } from '${ssrfGuardUrl}';
+
+        let secretHit = false;
+        const server = http.createServer((req, res) => {
+          if (req.url === '/redirect') {
+            res.writeHead(302, { Location: 'http://[::]:' + server.address().port + '/secret' });
+            res.end();
+          } else if (req.url === '/secret') {
+            secretHit = true;
+            res.writeHead(200);
+            res.end('secret');
+          } else {
+            res.writeHead(404);
+            res.end();
+          }
+        });
+
+        server.listen(0, '::', async () => {
+          const port = server.address().port;
+          let blocked = false;
+          let message = '';
+          try {
+            await safeFetch('http://localhost:' + port + '/redirect');
+          } catch (err) {
+            blocked = isSsrfError(err) || /SSRF/.test(err.message);
+            message = err.message;
+          }
+          process.stdout.write(JSON.stringify({ blocked, secretHit, message }));
+          server.close(() => process.exit(0));
+        });
+      `;
+
+      const env = { ...process.env, ALLOWED_DOMAINS: 'localhost' };
+      delete env.SSRF_PROTECTION_ENABLED;
+      if (strict) env.SSRF_STRICT = strict;
+      else delete env.SSRF_STRICT;
+      const result = spawnSync(
+        process.execPath,
+        ['--input-type=module', '-e', script],
+        { env, encoding: 'utf8', timeout: 10000 }
+      );
+
+      assert.equal(result.status, 0, `subprocess failed: ${result.stderr}`);
+      const parsed = JSON.parse(result.stdout);
+      assert.equal(parsed.blocked, true, `expected redirect to be blocked, got: ${parsed.message}`);
+      assert.equal(parsed.secretHit, false, '/secret must never be reached');
+    });
+  }
 });

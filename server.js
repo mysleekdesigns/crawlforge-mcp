@@ -754,7 +754,7 @@ registerToolIfEnabled("extract_content", {
 
 // Tool: process_document
 registerToolIfEnabled("process_document", {
-  description: "Use this to extract text from a PDF or DOCX URL or file - research papers, contracts, reports. The body decides how it is read: a PDF or Word document served under sourceType \"url\" still reaches its parser, and a body this tool cannot read (an image, an archive) is refused by name. Returns structured sections, metadata, and word count; for a PDF, pagesRead names the pages read (maxPages defaults to 100). Not for ordinary web pages (scrape), though an HTML URL is accepted. Cost: 2 credits. Example: process_document({source: \"https://example.com/report.pdf\", sourceType: \"pdf_url\"})",
+  description: "Use this to extract text from a PDF or DOCX URL or file - research papers, contracts, reports. The body decides how it is read: a PDF or Word document served under sourceType \"url\" still reaches its parser, and a body this tool cannot read (an image, an archive) is refused by name. Returns structured sections, metadata, and word count; for a PDF, pagesRead names the pages read (maxPages defaults to 100). Not for ordinary web pages (scrape), though an HTML URL is accepted. A local file (sourceType file/pdf_file) must be .pdf, .docx, .txt, .md or .html and outside dot-directories; CRAWLFORGE_ALLOWED_DIRS limits reads to the listed directories. Cost: 2 credits. Example: process_document({source: \"https://example.com/report.pdf\", sourceType: \"pdf_url\"})",
   annotations: { title: "Process Document", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     source: z.string().describe("Document source - URL or file path"),

@@ -12,6 +12,7 @@ import { safeFetch, safeGoto, assertNavigationAllowed } from '../utils/ssrfGuard
 import { serverStealthProxies } from '../constants/config.js';
 import { preflightFetch, browserPreflight, redirectGate } from '../utils/robotsGate.js';
 import { guardFirefoxPageErrors } from '../utils/firefoxPageErrorGuard.js';
+import { guardedProxyFor } from './browser/guardedProxy.js';
 import { noteRetryAfter } from '../utils/hostRateLimiter.js';
 import { load } from 'cheerio';
 import { flattenText } from 'crawlforge-extractors';
@@ -1097,6 +1098,9 @@ export class ResearchOrchestrator extends EventEmitter {
               launchOptions.geoip = true;
             }
             this._stealthBrowser = await camoufox.Camoufox(launchOptions);
+            // Each context goes out through the SSRF-guarded proxy, chained to
+            // this one (src/core/browser/guardedProxy.js).
+            this._stealthUpstream = proxy ? { server: proxy.url } : null;
             this._stealthEngineActive = 'camoufox';
             this.logger.info('Stealth fallback using Camoufox (Firefox) engine', {
               proxy: proxy ? proxy.redacted : null
@@ -1207,7 +1211,10 @@ export class ResearchOrchestrator extends EventEmitter {
     if (this._stealthEngineActive === 'camoufox') {
       // viewport:null skips Browser.setDefaultViewport, whose playwright-core
       // 1.62 payload (isMobile etc.) camoufox's older Firefox build rejects.
-      camoufoxContext = await this._stealthBrowser.newContext({ viewport: null });
+      camoufoxContext = await this._stealthBrowser.newContext({
+        viewport: null,
+        proxy: await guardedProxyFor(this._stealthUpstream)
+      });
       page = await camoufoxContext.newPage();
     } else {
       const { contextId } = await this._stealthManager.createStealthContext({ level: this.stealthLevel });
