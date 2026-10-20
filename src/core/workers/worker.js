@@ -10,6 +10,7 @@ import { Readability } from '@mozilla/readability';
 import compromise from 'compromise';
 import { franc } from 'franc';
 import { pageTitle } from '../../utils/pageTitle.js';
+import { keepListItemBylines } from '../../tools/scrape/_mainContent.js';
 
 // Task handlers
 const taskHandlers = {
@@ -162,6 +163,7 @@ async function handleExtractContent(data) {
 
   // Use Readability for main content extraction
   if (removeBoilerplate) {
+    keepListItemBylines(document);
     const reader = new Readability(document, {
       debug: false,
       maxElemsToDivide: 300,

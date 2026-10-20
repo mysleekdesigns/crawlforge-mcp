@@ -52,6 +52,63 @@ export function promoteCornerHeaderCells(html) {
   }
 }
 
+const SKIP_LANGUAGES = new Set(['default', 'none']);
+
+/**
+ * Find a code block's language in the markup that names it: `data-language`,
+ * a `language-x`/`lang-x` class, MDN's `brush: x` class, a Sphinx
+ * `highlight-x` wrapper, or MDN's `.example-header .language-name` label.
+ * @param {import('cheerio').Cheerio<any>} pre
+ * @returns {string}
+ */
+function codeLanguage(pre) {
+  const code = pre.children('code').first();
+  const fromData = pre.attr('data-language') || code.attr('data-language');
+  if (fromData) return fromData;
+  for (const cls of [code.attr('class'), pre.attr('class')]) {
+    const m = /(?:^|\s)(?:language|lang)-([\w+#.-]+)/.exec(cls || '') || /brush:\s*([\w+#.-]+)/.exec(cls || '');
+    if (m) return m[1];
+  }
+  const wrapper = pre.closest('[class*="highlight-"]');
+  const m = /(?:^|\s)highlight-([\w+#.-]+)/.exec(wrapper.attr('class') || '');
+  if (m && !SKIP_LANGUAGES.has(m[1])) return m[1];
+  return pre.closest('.code-example').find('.example-header .language-name').first().text().trim();
+}
+
+/**
+ * Sphinx (docs.python.org) highlights code as `<pre>` full of `<span>`s with
+ * no `<code>`, so Turndown treated it as prose and escaped it (`\# comment`,
+ * `spam \= 1`); MDN puts a "js" language label and copy button in a header
+ * before each `<pre>`, which came out as a stray `js` line (live sweep
+ * 2026-10-20, 2.2). Rewrite every `<pre>` as `<pre><code>` holding its plain
+ * text with the language in `data-language` (Readability strips classes but
+ * keeps data attributes), and drop MDN's example headers. Run it before
+ * Readability as well as here, while the classes that name the language exist.
+ * @param {string} html
+ * @returns {string}
+ */
+export function normalizeCodeBlocks(html) {
+  if (!/<pre[\s>]/i.test(html)) return html;
+  try {
+    const $ = load(html);
+    $('pre').each((_, el) => {
+      const pre = $(el);
+      const language = codeLanguage(pre);
+      pre.find('br').replaceWith('\n');
+      const code = $('<code></code>').text(pre.text());
+      if (language) {
+        pre.attr('data-language', language);
+        code.attr('data-language', language);
+      }
+      pre.empty().append(code);
+    });
+    $('.code-example > .example-header').remove();
+    return $.html();
+  } catch {
+    return html;
+  }
+}
+
 const ROW_CONTAINER = /^(table|thead|tbody|tfoot)$/;
 
 /**
@@ -152,6 +209,25 @@ function getTurndown() {
       replacement: content => (content.trim() ? content.trim() + '\n' : '')
     });
 
+    // Every <pre> is a fenced block of its plain text, never escaped prose;
+    // the language comes from normalizeCodeBlocks' data-language.
+    _td.addRule('codeBlock', {
+      filter: 'pre',
+      replacement: (_content, node) => {
+        const text = node.textContent.replace(/\n$/, '');
+        if (!text.trim()) return '';
+        const code = node.firstChild && node.firstChild.nodeName === 'CODE' ? node.firstChild : null;
+        const language =
+          node.getAttribute('data-language') ||
+          (code && (code.getAttribute('data-language') ||
+            (/(?:^|\s)language-(\S+)/.exec(code.getAttribute('class') || '') || [])[1])) ||
+          '';
+        const longestRun = Math.max(0, ...(text.match(/`+/g) || []).map(r => r.length));
+        const fence = '`'.repeat(Math.max(3, longestRun + 1));
+        return '\n\n' + fence + language + '\n' + text + '\n' + fence + '\n\n';
+      }
+    });
+
     // Remove boilerplate elements before converting
     _td.remove(['script', 'style', 'nav', 'footer', 'aside', 'noscript']);
   }
@@ -178,7 +254,7 @@ export function htmlToMarkdown(html, options = {}) {
     const visible = options.keepHiddenContent
       ? rows
       : stripHiddenHtml(rows, { css: options.css });
-    return getTurndown().turndown(promoteCornerHeaderCells(visible)).trim();
+    return getTurndown().turndown(promoteCornerHeaderCells(normalizeCodeBlocks(visible))).trim();
   } catch {
     // Fallback: strip tags, return plain text
     return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();

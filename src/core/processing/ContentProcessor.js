@@ -8,7 +8,7 @@ import { JSDOM } from 'jsdom';
 import * as cheerio from 'cheerio';
 import { z } from 'zod';
 import { ContentQualityAssessor } from '../../utils/contentUtils.js';
-import { recoverDroppedTables, unwrapMediaWikiHeadings, tooLargeForReadability } from '../../tools/scrape/_mainContent.js';
+import { recoverDroppedTables, unwrapMediaWikiHeadings, keepListItemBylines, tooLargeForReadability } from '../../tools/scrape/_mainContent.js';
 import { pageTitle } from '../../utils/pageTitle.js';
 import { flattenText } from 'crawlforge-extractors';
 
@@ -76,6 +76,7 @@ export class ContentProcessor {
       // A page too large for Readability keeps no `readability` block (R25).
       if (processingOptions.removeBoilerplate && !tooLargeForReadability(html)) {
         unwrapMediaWikiHeadings(document);
+        keepListItemBylines(document);
         const reader = new Readability(document, {
           debug: false,
           maxElemsToDivide: 300,

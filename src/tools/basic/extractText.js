@@ -14,7 +14,7 @@ import { flattenText, gridTables, absoluteUrls } from 'crawlforge-extractors';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import { fetchLadder, ladderErrorResult, isJsonType } from '../../utils/fetchLadder.js';
-import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
+import { htmlToMarkdown, normalizeCodeBlocks } from '../../utils/htmlToMarkdown.js';
 import { tooLargeForReadability } from '../scrape/_mainContent.js';
 
 // Block-level elements whose boundaries should become paragraph breaks
@@ -67,11 +67,13 @@ export function extractBlockText($) {
  * @returns {string}
  */
 export function readabilityToMarkdown(html, pageUrl) {
-  let articleHtml = html;
+  // Code-block languages live in classes Readability strips (2.2).
+  const codeHtml = normalizeCodeBlocks(html);
+  let articleHtml = codeHtml;
   // A page too large for Readability is converted whole (R25).
-  if (!tooLargeForReadability(html)) {
+  if (!tooLargeForReadability(codeHtml)) {
     try {
-      const dom = new JSDOM(html, { url: pageUrl });
+      const dom = new JSDOM(codeHtml, { url: pageUrl });
       const reader = new Readability(dom.window.document);
       const article = reader.parse();
       if (article) articleHtml = article.content;

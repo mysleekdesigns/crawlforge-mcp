@@ -1,0 +1,53 @@
+<!doctype html>
+<!-- Condensed from https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/map, fetched 2026-10-20 (live sweep 2.2). MDN markup kept as served. -->
+<html lang="en-US"><head><meta charset="UTF-8" /><title>Array.prototype.map() - JavaScript | MDN</title></head>
+<body><main id="content" class="layout__content"><div class="layout__header reference-layout__header"><h1>Array.prototype.map()</h1></div>
+<div class="reference-layout__body"><article class="reference-content">
+<section
+    class="content-section"
+    aria-labelledby="try_it"
+  >
+    <!--lit-part J1rEYwaybRw=--><!--lit-node 0--><h2 id="try_it" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#try_it">Try it</a></h2><!--/lit-part-->
+    <interactive-example name="JavaScript Demo: Array.prototype.map()"></interactive-example>
+<div class="code-example"><pre class="brush: js interactive-example notranslate"><code>const array = [1, 4, 9, 16];
+
+// Pass a function to map
+const mapped = array.map((x) =&gt; x * 2);
+
+console.log(mapped);
+// Expected output: Array [2, 8, 18, 32]
+</code></pre></div>
+  </section>
+<section
+    class="content-section"
+    aria-labelledby="syntax"
+  >
+    <!--lit-part X3RKttXoaxo=--><!--lit-node 0--><h2 id="syntax" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#syntax">Syntax</a></h2><!--/lit-part-->
+    <div class="code-example"><div class="example-header"><span class="language-name">js</span></div><pre class="brush: js notranslate"><code>map(callbackFn)
+map(callbackFn, thisArg)
+</code></pre></div>
+  </section>
+<section
+    class="content-section"
+    aria-labelledby="description"
+  >
+    <!--lit-part Srkl5+9Rtas=--><!--lit-node 0--><h2 id="description" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#description">Description</a></h2><!--/lit-part-->
+    <p>The <code>map()</code> method is an <a href="/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array#iterative_methods">iterative method</a>. It calls a provided <code>callbackFn</code> function once for each element in an array and constructs a new array from the results. Read the <a href="/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array#iterative_methods">iterative methods</a> section for more information about how these methods work in general.</p>
+<p><code>callbackFn</code> is invoked only for array indexes which have assigned values. It is not invoked for empty slots in <a href="/en-US/docs/Web/JavaScript/Guide/Indexed_collections#sparse_arrays">sparse arrays</a>.</p>
+<p>The <code>map()</code> method is <a href="/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array#generic_array_methods">generic</a>. It only expects the <code>this</code> value to have a <code>length</code> property and integer-keyed properties.</p>
+<p>Since <code>map</code> builds a new array, calling it without using the returned array is an anti-pattern; use <a href="/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/forEach"><code>forEach</code></a> or <a href="/en-US/docs/Web/JavaScript/Reference/Statements/for...of"><code>for...of</code></a> instead.</p>
+  </section>
+<section
+    class="content-section"
+    aria-labelledby="mapping_an_array_of_numbers_to_an_array_of_square_roots"
+  >
+    <!--lit-part Lr8dQp5N1CI=--><!--lit-node 0--><h3 id="mapping_an_array_of_numbers_to_an_array_of_square_roots" class="heading"><!--lit-node 1--><a class="heading-anchor" href="#mapping_an_array_of_numbers_to_an_array_of_square_roots">Mapping an array of numbers to an array of square roots</a></h3><!--/lit-part-->
+    <p>The following code takes an array of numbers and creates a new array containing the square roots of the numbers in the first array.</p>
+<div class="code-example"><div class="example-header"><span class="language-name">js</span></div><pre class="brush: js notranslate"><code>const numbers = [1, 4, 9];
+const roots = numbers.map((num) =&gt; Math.sqrt(num));
+
+// roots is now     [1, 2, 3]
+// numbers is still [1, 4, 9]
+</code></pre></div>
+  </section>
+</article></div></main></body></html>

@@ -154,6 +154,88 @@ export function verifyFieldShapes(data, schema) {
   return { data: out, unverified };
 }
 
+/**
+ * The value of the label/value row whose label names the field: a two-cell
+ * <tr> (`<th>UPC</th><td>…</td>`) or a <dt>/<dd> pair. Every word of the
+ * field name must be in the label; among several matches the label with the
+ * fewest extra words wins. The CSS fallback only looked at class, id, itemprop
+ * and meta, so a product-information table never answered anything:
+ * books.toscrape's UPC came back missing (live sweep 2026-10-20, 2.3).
+ *
+ * @param {import('cheerio').CheerioAPI} $
+ * @param {string} key - schema field name
+ * @returns {string|null}
+ */
+function labelledValue($, key) {
+  const want = keyWords(key);
+  if (want.length === 0) return null;
+  let best = null;
+  const consider = (label, value) => {
+    const words = keyWords(label);
+    if (!value || !want.every((w) => words.includes(w))) return;
+    const extra = words.length - want.length;
+    if (!best || extra < best.extra) best = { value, extra };
+  };
+  $('tr').each((_, tr) => {
+    const cells = $(tr).children('th, td');
+    if (cells.length === 2) consider(cells.first().text(), cells.last().text().trim());
+  });
+  $('dt').each((_, dt) => consider($(dt).text(), $(dt).next('dd').text().trim()));
+  return best ? best.value : null;
+}
+
+/** Field-name words a page's own wording leaves out: "in_stock_count". */
+const COUNT_WORDS = new Set(['count', 'number', 'num', 'total', 'qty', 'quantity']);
+
+/**
+ * For a numeric field: the text after the field's phrase on the first page
+ * line that has it with a number after it. `in_stock_count` reads
+ * "In stock (22 available)" as " (22 available)", which the caller coerces to
+ * 22. Only the text after the phrase counts, so a number earlier on the line
+ * is never taken.
+ *
+ * @param {string} text - flattened page text, one line per block
+ * @param {string} key
+ * @returns {string|null}
+ */
+function textAfterPhrase(text, key) {
+  const words = keyWords(key).filter((w) => !COUNT_WORDS.has(w));
+  if (words.length === 0) return null;
+  const phrase = new RegExp(`\\b${words.join('[\\s_-]*')}\\b`, 'i');
+  for (const line of text.split('\n')) {
+    const match = phrase.exec(line);
+    if (!match) continue;
+    const rest = line.slice(match.index + match[0].length);
+    if (/\d/.test(rest)) return rest;
+  }
+  return null;
+}
+
+const RATING_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+
+/**
+ * A star rating carried only in a class token: books.toscrape renders three
+ * stars as `<p class="star-rating Three">` with five identical icons inside,
+ * so no text on the page says 3. For a field named for a rating or stars, the
+ * first class token on a star/rating element that spells a number one to five
+ * is that number. Decision (2.3): it is returned as a number for a
+ * number/integer field and as its digit string ("3") otherwise.
+ *
+ * @param {import('cheerio').CheerioAPI} $
+ * @param {string} key
+ * @returns {number|null}
+ */
+function classRating($, key) {
+  if (!keyWords(key).some((w) => w === 'rating' || w === 'stars' || w === 'star')) return null;
+  for (const el of $('[class*="star"], [class*="rating"]').toArray()) {
+    for (const token of ($(el).attr('class') || '').split(/\s+/)) {
+      const n = RATING_WORDS[token.toLowerCase()];
+      if (n) return n;
+    }
+  }
+  return null;
+}
+
 /** Lowercased, whitespace-collapsed text for a containment check. */
 function squash(text) {
   return text.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -502,10 +584,30 @@ export class ExtractStructuredTool {
       const failedRequired = extractionResult.valid !== true
         && (missingRequired.length > 0 || invalidRequired.length > 0);
 
+      // Every requested field is in `data`. A field no method filled used to
+      // be left out with no null and no note, so a caller could not tell
+      // "not on the page" from "not looked for" (live sweep 2026-10-20, 2.3).
+      // An empty array is an answer (no items), not a missing value.
+      const data = { ...(extractionResult.data || {}) };
+      const missingFields = [];
+      if (!Array.isArray(extractionResult.data)) {
+        for (const key of Object.keys(schema.properties || {})) {
+          const value = data[key];
+          if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+            data[key] = null;
+            missingFields.push(key);
+          }
+        }
+      }
+      if (missingFields.length > 0) {
+        extractionNotes.push(`Not found on the page, returned as null: ${missingFields.join(', ')}`);
+      }
+
       return {
         success: !failedRequired,
         url,
-        data: extractionResult.data || {},
+        data,
+        missing_fields: missingFields,
         extraction_method: extractionMethod,
         // The provider and model that produced an LLM extraction (R24).
         ...(extractionMethod === 'llm' && extractionResult.model
@@ -556,6 +658,7 @@ export class ExtractStructuredTool {
     const properties = schema.properties || {};
     const extracted = {};
     let fieldsFound = 0;
+    let pageText = null; // flattened lazily, only for a numeric field that needs it
 
     for (const [key, fieldSchema] of Object.entries(properties)) {
       // Schema keys become CSS selector fragments below (class/id/data-attr).
@@ -647,6 +750,15 @@ export class ExtractStructuredTool {
           }
         }
 
+        // A labelled table or definition-list row: <th>UPC</th><td>…</td>.
+        if (!(key in extracted)) {
+          const labelled = labelledValue($, key);
+          if (labelled) {
+            extracted[key] = this._coerceValue(labelled, fieldSchema);
+            fieldsFound++;
+          }
+        }
+
         // Last resort: semantic element selectors for well-known field names
         // (e.g. title -> <h1>/<title>) so common fields resolve without hints.
         if (!(key in extracted)) {
@@ -671,6 +783,27 @@ export class ExtractStructuredTool {
                 }
               }
             }
+          }
+        }
+
+        // A rating encoded only as a class token (`star-rating Three`).
+        if (!(key in extracted)) {
+          const stars = classRating($, key);
+          if (stars !== null) {
+            const numeric = fieldSchema.type === 'number' || fieldSchema.type === 'integer';
+            extracted[key] = numeric ? stars : String(stars);
+            fieldsFound++;
+          }
+        }
+
+        // A numeric field stated in running text: "In stock (22 available)".
+        if (!(key in extracted) && (fieldSchema.type === 'number' || fieldSchema.type === 'integer')) {
+          if (pageText === null) pageText = flattenBodyText($);
+          const after = textAfterPhrase(pageText, key);
+          const value = after === null ? null : this._coerceValue(after, fieldSchema);
+          if (typeof value === 'number') {
+            extracted[key] = value;
+            fieldsFound++;
           }
         }
       } catch (_fieldError) {
