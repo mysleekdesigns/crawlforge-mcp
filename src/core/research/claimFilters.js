@@ -40,6 +40,21 @@ const FRONT_MATTER_PATTERNS = [
   /\bperformance (?:&|and) security by\b/i
 ];
 
+// Lines that are not statements about the topic, all three key findings in the
+// R25 re-check (2026-10-19, "What anti-bot systems do major websites use in
+// 2026"): a question, which is an FAQ heading ("What makes a good anti-bot
+// solution?"); an opening hook addressed to the reader ("If you've ever
+// rage-clicked on a … puzzle, you already understand the problem with
+// CAPTCHAs."); and a scoring rubric's weight ("Detection technology
+// (signatures, ML, rules, session/event models): 25%"). Its live re-run added
+// "What you are experiencing is the cat-and-mouse game…" and the signpost
+// "Here's how Cloudflare, Akamai, Kasada, and PerimeterX each weigh…".
+const NON_STATEMENT_PATTERNS = [
+  /\?["'”’)]*\s*$/,
+  /^(?:if you(?:['’]ve| have) ever|have you ever|ever (?:wondered|tried|noticed)|imagine|picture this|let['’]s|what you(?:['’]re| are)|here['’]s (?:how|what|why|where))\b/i,
+  /^[^.!?]{2,150}:\s*\d{1,3}(?:\.\d+)?\s*%\.?$/
+];
+
 // Tokens that mark an affiliation line rather than a sentence about the topic.
 const AFFILIATION_TOKENS = new Set([
   'university', 'universities', 'institute', 'institut', 'department', 'dept',
@@ -159,10 +174,14 @@ export function properNounDensity(text) {
 // author or affiliation block rather than a sentence about the topic.
 const PROPER_NOUN_DENSITY_MAX = 0.5;
 
-/** A candidate claim is admissible when it is a verb-bearing, non-front-matter sentence. */
+/**
+ * A candidate claim is admissible when it is a verb-bearing, non-front-matter
+ * statement: not a question, a hook addressed to the reader, or a rubric weight.
+ */
 export function isAdmissibleClaim(text) {
   if (typeof text !== 'string' || text.trim().length === 0) return false;
   if (isFrontMatter(text)) return false;
+  if (NON_STATEMENT_PATTERNS.some(pattern => pattern.test(text.trim()))) return false;
   if (!hasFiniteVerb(text)) return false;
   return properNounDensity(text) <= PROPER_NOUN_DENSITY_MAX;
 }

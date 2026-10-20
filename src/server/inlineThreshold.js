@@ -84,8 +84,10 @@ export const INLINE_THRESHOLD_TOOLS = Object.freeze({
   scrape_template: { textPaths: [], truncate: true },
   map_site: { textPaths: [], truncate: true, keep: ['site_map', 'statistics'] },
   // A prose answer is the text view; a structured or missing one leaves the
-  // JSON view, and the sources stay inline when they fit.
-  agent: { textPaths: ['answer'], truncate: true, keep: ['evidence', 'search_results', 'provenance'] },
+  // JSON view, and the sources stay inline when they fit. `reason` too: a
+  // degraded run's reason runs past the 200 characters kept unasked, and a
+  // degraded:true with no reason says nothing (R25 follow-up, 2026-10-20).
+  agent: { textPaths: ['answer'], truncate: true, keep: ['reason', 'evidence', 'search_results', 'provenance'] },
   // llms-full.txt is the large file and the view; llms.txt stays inline under
   // `files` when it fits. Neither key can be named in a json_path (the "."),
   // so the view is the way to read the long one.
