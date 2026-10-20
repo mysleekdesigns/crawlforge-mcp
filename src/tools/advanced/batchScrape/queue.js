@@ -3,7 +3,7 @@
  * Semaphore-based concurrency runner that dispatches work to worker.js.
  */
 
-import { scrapeUrl } from './worker.js';
+import { scrapeUrl, failedEntryHint } from './worker.js';
 
 /** Semaphore for concurrency limiting. */
 class Semaphore {
@@ -57,10 +57,12 @@ export async function scrapeUrlsBatch(urlConfigs, options, defaultTimeout) {
 
   return settled.map((result, index) => {
     if (result.status === 'fulfilled') return result.value;
+    const error = result.reason?.message || 'Unknown error';
     return {
       success: false,
       url: urlConfigs[index].url,
-      error: result.reason?.message || 'Unknown error',
+      error,
+      next_step: failedEntryHint(error),
       timestamp: Date.now()
     };
   });

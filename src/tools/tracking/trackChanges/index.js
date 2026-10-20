@@ -14,6 +14,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { z } from 'zod';
 import os from 'os';
 import path from 'path';
 import ChangeTracker from '../../../core/ChangeTracker.js';
@@ -191,7 +192,11 @@ export class TrackChangesTool extends EventEmitter {
         default:                        throw new Error(`Unknown operation: ${operation}`);
       }
     } catch (error) {
-      return { success: false, error: error.message, timestamp: Date.now() };
+      // A ZodError's message is its issue array as JSON; one line per issue reads better.
+      const message = error instanceof z.ZodError
+        ? `Invalid input - ${error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')}`
+        : error.message;
+      return { success: false, error: message, timestamp: Date.now() };
     }
   }
 

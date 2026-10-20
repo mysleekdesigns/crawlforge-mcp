@@ -27,6 +27,7 @@ import { toPublicUnit, parseChosenIndexes, groundingCheck, headingUnits, NOT_IN_
 import { setActualCost } from '../../server/requestContext.js';
 import { fenceUntrusted } from '../../utils/untrustedContent.js';
 import { fetchAndParse } from '../extract/_fetchAndParse.js';
+import { fetchErrorMessage } from '../../utils/fetchError.js';
 import { extractMainContent, isThinMainContent, keepPageHeading } from './_mainContent.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 import { stripHiddenFromDom } from '../../utils/hiddenContent.js';
@@ -438,7 +439,7 @@ export class UnifiedScrapeTool {
           errorDocuments: true
         }));
       } catch (err) {
-        throw new Error(`scrape: fetch failed for ${url}: ${err.message}`);
+        throw new Error(`scrape: fetch failed for ${url}: ${fetchErrorMessage(err, url)}`);
       }
       warnings.push(...fetchWarnings);
 
