@@ -132,6 +132,7 @@
     "pdf-parse": "2.4.5",
     "playwright": "^1.54.2",
     "robots-parser": "^3.0.1",
+    "sentiment": "5.0.2",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
     "undici": "^7.24.0",

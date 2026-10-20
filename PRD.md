@@ -428,7 +428,7 @@ Third and final execution phase of `IMPROVEMENT_PLAN.md`. Closes all C-series it
 **C3 — Tool quality:**
 - New `get_batch_results` tool (`server.js`) — paginated retrieval of `batch_scrape` results by `batchId` (tool count 23 → 24); also restored `list_ollama_models` to the startup tool list.
 - `localization` — `handle_geo_blocking` renamed to `detect_geo_blocking` (no bypass is actually applied; returns recommendations only); fixed the US phone regex (`\\d` → `\d`).
-- `extract_with_llm` — forces Anthropic structured output via tool-use (`tools` + `tool_choice`) when a `schema` is given; validates output with zod (`valid` / `validationErrors`); `parseJson` recovers the first *balanced* embedded JSON object/array (string/escape-aware, tolerates prose before and after); surfaces input-truncation metadata (`truncated`, `original_length`).
+- `extract_with_llm` — forces Anthropic structured output via tool-use (`tools` + `tool_choice`) when a `schema` is given; validates output with zod (`valid` / `validationErrors`); `parseJson` recovers the first *balanced* embedded JSON object/array (string/escape-aware, tolerates prose before and after); surfaces input-truncation metadata (`input_truncated`, `original_length`).
 - `list_ollama_models` — hardened against non-array responses; `modified_at` normalized to ISO 8601.
 - `process_document` — true page-range extraction (`pageRange:{start,end}` via per-page `pagerender` capture; `extractPDFPages` no longer returns all pages); server `options` schema made passthrough so granular options reach the tool; markdown builder de-dups the `<title>` heading vs the first `<h1>`.
 - `batch_scrape` — webhook delivery status returned on the result.

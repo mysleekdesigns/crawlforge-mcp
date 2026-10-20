@@ -10,7 +10,7 @@
  *     content.json with no warning at all
  *   - output that failed schema validation (`valid:false`) was presented as
  *     clean data
- *   - input clipped at the 50k character cap (`truncated:true`) was invisible,
+ *   - input clipped at the 50k character cap (`input_truncated:true`) was invisible,
  *     so missing fields looked like they were absent from the page
  *
  * Both a page server and a stub Ollama run locally, so no live model is used

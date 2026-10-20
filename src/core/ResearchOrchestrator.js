@@ -63,6 +63,35 @@ export function reportedFindings(keyFindings) {
   return material.length > 0 ? material : keyFindings;
 }
 
+// Citation markers left in extracted text: "(3)", "[12]", "[3, 4]", "[2-5]".
+// At most three digits, so a year such as "(2024)" stays.
+const CITATION_MARKER = /\s*(?:\(\d{1,3}(?:\s*[,\u2013-]\s*\d{1,3})*\)|\[\d{1,3}(?:\s*[,\u2013-]\s*\d{1,3})*\])/g;
+const LIST_MARKER = /^(?:[-*\u2022\u25AA\u2013]|\d{1,2}[.)])\s+/;
+
+/**
+ * The statements in one extracted key point. A key point is a sentence as the
+ * splitter found it, so a heading or list item above it arrives in the same
+ * string ("Built-in encryption\nQUIC was built with security in mind.").
+ * Each line becomes its own statement, except a line starting in lowercase,
+ * which continues the one before it (wrapped text). List and citation markers
+ * are removed. Heading-only lines are left for isAdmissibleClaim to reject.
+ *
+ * @param {string} point
+ * @returns {string[]}
+ */
+export function claimStatements(point) {
+  const blocks = [];
+  for (const raw of String(point).split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (blocks.length > 0 && /^[a-z]/.test(line)) blocks[blocks.length - 1] += ` ${line}`;
+    else blocks.push(line);
+  }
+  return blocks
+    .map(block => block.replace(LIST_MARKER, '').replace(CITATION_MARKER, '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
 /**
  * Page text for the plain-fetch fallback, one line per block element. The
  * regex tag-strip it replaces ran every block together on one line.
@@ -1384,7 +1413,8 @@ export class ResearchOrchestrator extends EventEmitter {
         const keyPoints = summary.keypoints || summary.keyPoints || [];
         if (keyPoints.length > 0) {
           const relevance = this.sourceRelevance(source);
-          keyPoints.forEach((point, index) => {
+          let claimIndex = 0;
+          keyPoints.forEach((keyPoint, index) => claimStatements(keyPoint).forEach(point => {
             const credibility = source.overallCredibility || 0.65;
             // A recommendation is not evidence. Two routes to the same flag: a
             // page promoting itself, and — whoever published it — a claim whose
@@ -1392,7 +1422,7 @@ export class ResearchOrchestrator extends EventEmitter {
             const promotional = isVendorSelfPromotion(point, source.link) ||
               isProductRecommendation(point);
             claims.push({
-              id: `${source.link}_claim_${index}`,
+              id: `${source.link}_claim_${claimIndex++}`,
               claim: point,
               source: source.link,
               sourceTitle: source.title,
@@ -1402,7 +1432,7 @@ export class ResearchOrchestrator extends EventEmitter {
               context: summary.supporting?.[index] || '',
               extractedAt: new Date().toISOString()
             });
-          });
+          }));
         }
       } catch (error) {
         this.logger.warn('Claim extraction failed', {
@@ -1464,31 +1494,33 @@ export class ResearchOrchestrator extends EventEmitter {
   /**
    * Keep only claims that can be research findings: prose about the topic, not
    * document front matter (author/affiliation blocks, DOI stubs, "Retrieved
-   * from" lines), not from a source the relevance analysis scored below
-   * MIN_CLAIM_RELEVANCE, and not a sentence the LLM scored as barely about the
-   * topic. Each gate falls back to the previous claim set rather than returning
-   * nothing — no claims means no findings at all.
+   * from" lines), and not a sentence the LLM scored as barely about the topic.
+   * Those two gates fall back to the previous claim set rather than returning
+   * nothing. A claim from an off-topic source — one the relevance analysis
+   * scored below MIN_CLAIM_RELEVANCE — is always dropped: when every source is
+   * off-topic, no findings is the honest result (R25 reported such claims as
+   * findings through the fallback). A source with no score is kept.
    */
   admitClaims(claims) {
     if (claims.length === 0) return claims;
 
-    const substantive = claims.filter(claim => isAdmissibleClaim(claim.claim));
-    const relevant = substantive.filter(
+    const relevant = claims.filter(
       claim => typeof claim.relevance !== 'number' || claim.relevance >= MIN_CLAIM_RELEVANCE
     );
-    const onTopic = relevant.filter(
+    const substantive = relevant.filter(claim => isAdmissibleClaim(claim.claim));
+    const onTopic = substantive.filter(
       claim => typeof claim.topicRelevance !== 'number' ||
         claim.topicRelevance >= MIN_CLAIM_TOPIC_RELEVANCE
     );
 
     const admitted = onTopic.length > 0
       ? onTopic
-      : (relevant.length > 0 ? relevant : (substantive.length > 0 ? substantive : claims));
+      : (substantive.length > 0 ? substantive : relevant);
 
     this.logger.debug('Claim admission', {
       candidates: claims.length,
-      substantive: substantive.length,
       relevant: relevant.length,
+      substantive: substantive.length,
       onTopic: onTopic.length,
       admitted: admitted.length
     });
@@ -2007,8 +2039,10 @@ export class ResearchOrchestrator extends EventEmitter {
           findings.push({
             finding: claim.claim,
             supportingClaims: group.claims.length,
+            supportingSources: group.sourceCount,
             credibility: group.avgCredibility,
-            sources: group.claims.map(c => c.source),
+            // One entry per source: a group holds several claims from one page.
+            sources: [...new Set(group.claims.map(c => c.source))],
             ...(claim.promotional ? { promotional: true } : {}),
             ...(typeof claim.topicRelevance === 'number'
               ? { topicRelevance: claim.topicRelevance }

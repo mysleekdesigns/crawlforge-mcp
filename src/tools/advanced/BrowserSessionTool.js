@@ -25,6 +25,7 @@
 
 import { z } from 'zod';
 import { load } from 'cheerio';
+import { absoluteUrls } from 'crawlforge-extractors';
 import { createHash } from 'node:crypto';
 
 import ActionExecutor from '../../core/ActionExecutor.js';
@@ -577,8 +578,16 @@ export class BrowserSessionTool {
     if (params.formats.includes('markdown')) {
       // Readability finds no article on most app pages, and then no markdown is
       // produced at all (R20, 2026-09-07). Convert the DOM we hold instead of
-      // handing back a placeholder.
-      content.markdown = (params.onlyMainContent && extracted.content?.markdown) || htmlToMarkdown(html);
+      // handing back a placeholder. The raw DOM carries no base URL, so its
+      // links are resolved against the page first: HN's "item?id=…" hrefs came
+      // back relative and unusable (R25, 2026-10-19).
+      let markdown = params.onlyMainContent && extracted.content?.markdown;
+      if (!markdown) {
+        const $page = load(html);
+        absoluteUrls($page, url);
+        markdown = htmlToMarkdown($page.html());
+      }
+      content.markdown = markdown;
     }
     if (params.formats.includes('json')) {
       content.json = {

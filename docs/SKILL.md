@@ -724,20 +724,13 @@ Still never reach for `stealth_mode` first.
 
 ## stealth_mode (cost: 5)
 
-`stealth_mode` is operation-based. Typical flow: create a context, then create a
-page that navigates to the target URL.
+`stealth_mode` is operation-based. `operation:"scrape"` is the one-shot path:
+it renders one URL and returns the requested formats (examples below).
 
-```json
-{
-  "tool": "stealth_mode",
-  "params": {
-    "operation": "create_context",
-    "stealthConfig": { "level": "advanced", "simulateHumanBehavior": true }
-  }
-}
-```
-
-Then use the returned `contextId`:
+`create_context` then `create_page` is a navigation and challenge check, not a
+multi-step path: `create_page` loads `urlToTest`, reports its status, title and
+any challenge page it detected, and closes the page before the call returns.
+Nothing on that page carries over to a later call.
 
 ```json
 {
@@ -745,6 +738,10 @@ Then use the returned `contextId`:
   "params": { "operation": "create_page", "contextId": "<id-from-create_context>", "urlToTest": "https://protected-site.com" }
 }
 ```
+
+For work over several calls on one page (log in, then read; click through a
+flow), use `browser_session` with `stealth:true` (see the
+crawlforge-browser-sessions skill).
 
 Operations: `scrape`, `configure`, `create_context`, `create_page`,
 `get_stats`, `cleanup`. `stealthConfig.level` is `basic` / `medium` (default) /

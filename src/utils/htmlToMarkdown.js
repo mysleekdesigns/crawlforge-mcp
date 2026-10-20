@@ -52,6 +52,39 @@ export function promoteCornerHeaderCells(html) {
   }
 }
 
+const ROW_CONTAINER = /^(table|thead|tbody|tfoot)$/;
+
+/**
+ * Readability serializes a layout table it half-kept as `<tbody>`/`<tr>` with
+ * no `<table>` around them. An HTML parser drops row and cell tags outside a
+ * table, so on Hacker News every story's cells ran together into one line
+ * ("…(github.com/x)62 points by … 39 comments2.") and the layout-table rules
+ * never saw a row (R25, 2026-10-19). htmlparser2 keeps the orphans, so they
+ * are found there and each run of adjacent ones is wrapped in a `<table>`.
+ * @param {string} html
+ * @returns {string}
+ */
+export function wrapOrphanRows(html) {
+  if (!/<(tr|tbody|thead|tfoot)[\s>]/i.test(html)) return html;
+  try {
+    const $ = load(html, { xml: { xmlMode: false, decodeEntities: false } }, false);
+    const created = new Set();
+    $('thead, tbody, tfoot, tr').each((_, el) => {
+      if (el.parent && ROW_CONTAINER.test(el.parent.name)) return;
+      const prev = $(el).prev();
+      if (prev.length && created.has(prev[0])) {
+        prev.append(el);
+      } else {
+        $(el).wrap('<table></table>');
+        created.add(el.parent);
+      }
+    });
+    return created.size > 0 ? $.html() : html;
+  } catch {
+    return html;
+  }
+}
+
 // Mirrors turndown-plugin-gfm's own heading-row test, which is what decides
 // whether it converts a table or keeps it as raw HTML.
 function isHeadingRow(tr) {
@@ -141,9 +174,10 @@ export function htmlToMarkdown(html, options = {}) {
     // Drop content a browser would not paint before converting. Turndown keeps
     // the text of screen-reader-only labels and state-gated badges, which then
     // reads as live page content once the CSS is gone.
+    const rows = wrapOrphanRows(html);
     const visible = options.keepHiddenContent
-      ? html
-      : stripHiddenHtml(html, { css: options.css });
+      ? rows
+      : stripHiddenHtml(rows, { css: options.css });
     return getTurndown().turndown(promoteCornerHeaderCells(visible)).trim();
   } catch {
     // Fallback: strip tags, return plain text

@@ -167,13 +167,12 @@ describe('4.2 claims are gated on the per-source relevance score', () => {
 
     const claims = await ro.extractKeyClaims([source()]);
 
-    // Nothing else survives, so the relevance gate falls back rather than
-    // returning an empty research run.
-    assert.equal(claims.length, 1);
-    assert.equal(claims[0].relevance, 0.02);
+    // The recorded 0.02 marks the source off-topic, so its claim is dropped
+    // even though nothing else survives (R25: no fallback for this gate).
+    assert.equal(claims.length, 0);
   });
 
-  test('when every source is below the threshold the gate falls back instead of emptying the run', async () => {
+  test('when every source is below the threshold no claim is admitted (R25)', async () => {
     const ro = withKeypoints(orchestrator(), {
       'content-a': [ON_TOPIC_CLAIM],
       'content-b': ['Perimeter defences moved from IP reputation to behavioural scoring.']
@@ -184,7 +183,7 @@ describe('4.2 claims are gated on the per-source relevance score', () => {
       source({ link: 'https://other.example/b', extractedContent: 'content-b', relevanceScore: 0.05 })
     ]);
 
-    assert.equal(claims.length, 2);
+    assert.equal(claims.length, 0);
   });
 });
 

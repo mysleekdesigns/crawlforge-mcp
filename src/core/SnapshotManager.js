@@ -12,6 +12,7 @@ import { gzip, gunzip } from 'zlib';
 import { promisify } from 'util';
 import { z } from 'zod';
 import { EventEmitter } from 'events';
+import { calculateSimilarity } from '../tools/tracking/trackChanges/differ.js';
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
@@ -362,9 +363,11 @@ export class SnapshotManager extends EventEmitter {
       if (metadata.compression && metadata.compression.enabled) {
         if (metadata.compression.algorithm === 'gzip') {
           content = await gunzipAsync(content);
-          content = content.toString();
         }
       }
+      // readSnapshotFile returns a Buffer; an uncompressed snapshot was
+      // returned as one, not as its text.
+      content = content.toString();
       
       // Reconstruct from delta if needed
       if (metadata.delta && metadata.delta.enabled) {
@@ -502,14 +505,21 @@ export class SnapshotManager extends EventEmitter {
       
       const history = [];
       const snapshotList = snapshots.snapshots;
-      
+
+      // Each snapshot's content is read once and carried to the next pair.
+      let currentContent = snapshotList.length > 1
+        ? await this.loadSnapshotContent(snapshotList[0].id)
+        : null;
+
       for (let i = 0; i < snapshotList.length - 1; i++) {
         const current = snapshotList[i];
         const previous = snapshotList[i + 1];
-        
+        const previousContent = await this.loadSnapshotContent(previous.id);
+
         // Calculate change metrics
-        const changeMetrics = await this.calculateChangeMetrics(previous, current);
-        
+        const changeMetrics = await this.calculateChangeMetrics(previous, current, previousContent, currentContent);
+        currentContent = previousContent;
+
         history.push({
           timestamp: current.metadata.timestamp,
           snapshotId: current.id,
@@ -842,7 +852,17 @@ export class SnapshotManager extends EventEmitter {
     throw new Error('Cannot reconstruct legacy delta snapshot: no diff data was stored for it. Re-fetch or re-create this snapshot from the source.');
   }
 
-  async calculateChangeMetrics(previousSnapshot, currentSnapshot) {
+  /** A stored snapshot's content, or null when it cannot be read back. */
+  async loadSnapshotContent(snapshotId) {
+    try {
+      const snapshot = await this.retrieveSnapshot(snapshotId);
+      return typeof snapshot.content === 'string' ? snapshot.content : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async calculateChangeMetrics(previousSnapshot, currentSnapshot, previousContent = null, currentContent = null) {
     // Calculate various change metrics between snapshots
     const metrics = {
       sizeDelta: currentSnapshot.metadata.contentLength - previousSnapshot.metadata.contentLength,
@@ -852,14 +872,13 @@ export class SnapshotManager extends EventEmitter {
       similarity: 0
     };
     
-    // Calculate content similarity if different hashes
+    // Content similarity, computed from the stored content. A size-based
+    // estimate scored two different pages of the same length 1.0. null when
+    // either snapshot's content could not be read back.
     if (metrics.hashChanged) {
-      // This would require loading both snapshots' content
-      // For now, estimate based on size difference
-      metrics.similarity = 1 - Math.abs(metrics.sizeDelta) / Math.max(
-        currentSnapshot.metadata.contentLength,
-        previousSnapshot.metadata.contentLength
-      );
+      metrics.similarity = typeof previousContent === 'string' && typeof currentContent === 'string'
+        ? calculateSimilarity(previousContent, currentContent)
+        : null;
     } else {
       metrics.similarity = 1.0;
     }

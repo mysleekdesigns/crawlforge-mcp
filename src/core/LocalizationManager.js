@@ -778,15 +778,40 @@ export class LocalizationManager extends EventEmitter {
   }
   
   getFirstDayOfWeek(countryCode) {
-    // 0 = Sunday, 1 = Monday
+    // 0 = Sunday, 1 = Monday. From CLDR 48 supplemental weekData "firstDay";
+    // covers every SUPPORTED_COUNTRIES entry. The fallback is CLDR's world
+    // default (Monday). `??`, not `||`: Sunday is 0 (R25).
     const firstDays = {
       'US': 0,
       'GB': 1,
       'DE': 1,
-      'FR': 1
+      'FR': 1,
+      'JP': 0,
+      'CN': 1,
+      'AU': 1,
+      'CA': 0,
+      'IT': 1,
+      'ES': 1,
+      'RU': 1,
+      'BR': 0,
+      'IN': 0,
+      'KR': 0,
+      'MX': 0,
+      'NL': 1,
+      'SE': 1,
+      'NO': 1,
+      'SA': 0,
+      'AE': 1,
+      'TR': 1,
+      'IL': 0,
+      'TH': 0,
+      'SG': 0,
+      'PL': 1,
+      'ZA': 0,
+      'CH': 1
     };
-    
-    return firstDays[countryCode] || 1;
+
+    return firstDays[countryCode] ?? 1;
   }
   
   generateScreenProperties(countryCode) {

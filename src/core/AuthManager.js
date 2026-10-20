@@ -758,7 +758,10 @@ class AuthManager {
         break;
       }
       case 'extract_with_llm':
-        note = 'External LLM API call billed by your LLM provider, separate from the credit cost.';
+        // Only the cloud providers bill you; the default runs on local Ollama.
+        if (params?.provider === 'openai' || params?.provider === 'anthropic') {
+          note = 'External LLM API call billed by your LLM provider, separate from the credit cost.';
+        }
         break;
       case 'stealth_mode':
         note = projected === 1

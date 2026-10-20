@@ -1,0 +1,235 @@
+<!DOCTYPE html><!-- Condensed capture of https://en.wikipedia.org/wiki/Web_scraping (2026-10-19): the <main> element verbatim (title bar with the language dropdown cut to five entries, page toolbar menus, the lead and History section); scripts, styles and everything outside <main> removed. Converting the whole <main> put the language list and menus into batch_scrape markdown (R25 Phase 4). -->
+<html class="client-nojs vector-feature-language-in-header-enabled vector-feature-language-in-main-menu-disabled vector-feature-language-in-main-page-header-disabled vector-feature-page-tools-pinned-disabled vector-feature-toc-pinned-clientpref-1 vector-feature-main-menu-pinned-disabled vector-feature-limited-width-clientpref-1 vector-feature-limited-width-content-enabled vector-feature-custom-font-size-clientpref-1 vector-feature-appearance-pinned-clientpref-1 skin-theme-clientpref-day vector-sticky-header-enabled vector-toc-available skin-thumbsize-clientpref-standard skin-underline-clientpref-browser" lang="en" dir="ltr"><head>
+<meta charset="UTF-8">
+<title>Web scraping - Wikipedia</title>
+</head>
+<body class="skin--responsive skin-vector skin-vector-search-vue mediawiki ltr sitedir-ltr mw-hide-empty-elt ns-0 ns-subject mw-editable page-Web_scraping rootpage-Web_scraping skin-vector-2022 action-view"><main id="content" class="mw-body">
+				<header class="mw-body-header vector-page-titlebar no-font-mode-scale">
+					<nav aria-label="Contents" class="vector-toc-landmark">
+<div id="vector-page-titlebar-toc" class="vector-dropdown vector-page-titlebar-toc vector-button-flush-left" title="Table of Contents">
+	<input type="checkbox" id="vector-page-titlebar-toc-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-page-titlebar-toc" class="vector-dropdown-checkbox " aria-label="Toggle the table of contents">
+	<label id="vector-page-titlebar-toc-label" for="vector-page-titlebar-toc-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"><span class="vector-icon mw-ui-icon-listBullet mw-ui-icon-wikimedia-listBullet cdx-button__icon"></span>
+<span class="vector-dropdown-label-text">Toggle the table of contents</span>
+	</label>
+	<div class="vector-dropdown-content">
+							<div id="vector-page-titlebar-toc-unpinned-container" class="vector-unpinned-container">
+			</div>
+	</div>
+</div>
+					</nav>
+					<h1 id="firstHeading" class="firstHeading mw-first-heading"><span lang="en" dir="ltr"><span class="mw-page-title-main">Web scraping</span></span></h1>
+<div id="p-lang-btn" class="vector-dropdown mw-portlet mw-portlet-lang">
+	<input type="checkbox" id="p-lang-btn-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-p-lang-btn" class="vector-dropdown-checkbox mw-interlanguage-selector" aria-label="22 languages" aria-description="Go to an article in another language. Available in 22 languages">
+	<label id="p-lang-btn-label" for="p-lang-btn-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--action-progressive mw-portlet-lang-heading-22" aria-hidden="true"><span class="vector-icon mw-ui-icon-language-progressive mw-ui-icon-wikimedia-language-progressive cdx-button__icon"></span>
+<span class="vector-dropdown-label-text">22 languages</span>
+	</label>
+	<div class="vector-dropdown-content">
+		<div class="vector-menu-content">
+			<ul class="vector-menu-content-list">
+				<li class="interlanguage-link interwiki-ar mw-list-item"><a href="https://ar.wikipedia.org/wiki/%D8%AA%D8%AC%D8%B1%D9%8A%D9%81_%D9%88%D9%8A%D8%A8" title="تجريف ويب – Arabic" lang="ar" hreflang="ar" data-title="تجريف ويب" data-language-autonym="العربية" data-language-local-name="Arabic" class="interlanguage-link-target"><span>العربية</span></a></li><li class="interlanguage-link interwiki-ary mw-list-item"><a href="https://ary.wikipedia.org/wiki/%D8%AA%D8%BA%D8%B1%D8%A7%D9%81_%D9%84%D9%88%D9%8A%D8%A8" title="تغراف لويب – Moroccan Arabic" lang="ary" hreflang="ary" data-title="تغراف لويب" data-language-autonym="الدارجة" data-language-local-name="Moroccan Arabic" class="interlanguage-link-target"><span>الدارجة</span></a></li><li class="interlanguage-link interwiki-ca mw-list-item"><a href="https://ca.wikipedia.org/wiki/Web_scraping" title="Web scraping – Catalan" lang="ca" hreflang="ca" data-title="Web scraping" data-language-autonym="Català" data-language-local-name="Catalan" class="interlanguage-link-target"><span>Català</span></a></li><li class="interlanguage-link interwiki-cs mw-list-item"><a href="https://cs.wikipedia.org/wiki/Web_scraping" title="Web scraping – Czech" lang="cs" hreflang="cs" data-title="Web scraping" data-language-autonym="Čeština" data-language-local-name="Czech" class="interlanguage-link-target"><span>Čeština</span></a></li><li class="interlanguage-link interwiki-de mw-list-item"><a href="https://de.wikipedia.org/wiki/Screen_Scraping" title="Screen Scraping – German" lang="de" hreflang="de" data-title="Screen Scraping" data-language-autonym="Deutsch" data-language-local-name="German" class="interlanguage-link-target"><span>Deutsch</span></a></li>
+			</ul>
+			<div class="after-portlet after-portlet-lang"><span class="wb-langlinks-edit wb-langlinks-link"><a href="https://www.wikidata.org/wiki/Special:EntityPage/Q665452#sitelinks-wikipedia" title="Edit interlanguage links" class="wbc-editpage">Edit links</a></span></div>
+		</div>
+	</div>
+</div>
+</header>
+				<div class="vector-page-toolbar">
+					<div class="vector-page-toolbar-container">
+						<div id="left-navigation">
+							<nav aria-label="Namespaces">
+<div id="p-associated-pages" class="vector-menu vector-menu-tabs mw-portlet mw-portlet-associated-pages">
+	<div class="vector-menu-content">
+		<ul class="vector-menu-content-list">
+			<li id="ca-nstab-main" class="selected mw-list-item vector-tab-noicon"><a data-mw-interface="" href="/wiki/Web_scraping" title="View the content page [c]" accesskey="c" class=""><span>Article</span></a>
+</li>
+<li id="ca-talk" class="mw-list-item vector-tab-noicon"><a data-mw-interface="" href="/wiki/Talk:Web_scraping" rel="discussion" title="Discuss improvements to the content page [t]" accesskey="t" class=""><span>Talk</span></a>
+</li>
+		</ul>
+	</div>
+</div>
+<div id="vector-variants-dropdown" class="vector-dropdown emptyPortlet">
+	<input type="checkbox" id="vector-variants-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-variants-dropdown" class="vector-dropdown-checkbox " aria-label="Change language variant">
+	<label id="vector-variants-dropdown-label" for="vector-variants-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet" aria-hidden="true"><span class="vector-dropdown-label-text">English</span>
+	</label>
+	<div class="vector-dropdown-content">
+<div id="p-variants" class="vector-menu mw-portlet mw-portlet-variants emptyPortlet">
+	<div class="vector-menu-content">
+		<ul class="vector-menu-content-list">
+		</ul>
+	</div>
+</div>
+	</div>
+</div>
+							</nav>
+						</div>
+						<div id="right-navigation" class="vector-collapsible">
+							<nav aria-label="Views">
+<div id="p-views" class="vector-menu vector-menu-tabs mw-portlet mw-portlet-views">
+	<div class="vector-menu-content">
+		<ul class="vector-menu-content-list">
+			<li id="ca-view" class="selected mw-list-item vector-menu-item--collapsible vector-tab-noicon"><a data-mw-interface="" href="/wiki/Web_scraping" class=""><span>Read</span></a>
+</li>
+<li id="ca-edit" class="mw-list-item vector-menu-item--collapsible vector-tab-noicon"><a data-mw-interface="" href="/w/index.php?title=Web_scraping&amp;action=edit" title="Edit this page [e]" accesskey="e" class=""><span>Edit</span></a>
+</li>
+<li id="ca-history" class="mw-list-item vector-menu-item--collapsible vector-tab-noicon"><a data-mw-interface="" href="/w/index.php?title=Web_scraping&amp;action=history" title="Past revisions of this page [h]" accesskey="h" class=""><span>View history</span></a>
+</li>
+		</ul>
+	</div>
+</div>
+			</nav>
+							<nav class="vector-page-tools-landmark" aria-label="Page tools">
+<div id="vector-page-tools-dropdown" class="vector-dropdown vector-page-tools-dropdown">
+	<input type="checkbox" id="vector-page-tools-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-page-tools-dropdown" class="vector-dropdown-checkbox " aria-label="Tools">
+	<label id="vector-page-tools-dropdown-label" for="vector-page-tools-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"><span class="vector-icon mw-ui-icon-verticalEllipsis mw-ui-icon-wikimedia-verticalEllipsis cdx-button__icon"></span>
+<span class="vector-dropdown-label-text">Tools</span>
+	</label>
+	<div class="vector-dropdown-content">
+									<div id="vector-page-tools-unpinned-container" class="vector-unpinned-container">
+<div id="vector-page-tools" class="vector-page-tools vector-pinnable-element">
+	<div class="vector-pinnable-header vector-page-tools-pinnable-header vector-pinnable-header-unpinned" data-feature-name="page-tools-pinned" data-pinnable-element-id="vector-page-tools" data-pinned-container-id="vector-page-tools-pinned-container" data-unpinned-container-id="vector-page-tools-unpinned-container">
+	<div class="vector-pinnable-header-label">Tools</div>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-page-tools.pin" aria-label="Move Tools to sidebar">move to sidebar</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-page-tools.unpin" aria-label="Hide Tools">hide</button>
+</div>
+<div id="p-cactions" class="vector-menu mw-portlet mw-portlet-cactions emptyPortlet vector-has-collapsible-items">
+	<div class="vector-menu-heading">
+		Actions
+	</div>
+	<div class="vector-menu-content">
+		<ul class="vector-menu-content-list">
+			<li id="ca-view-more" class="selected mw-list-item vector-menu-item--collapsible"><a data-mw-interface="" href="/wiki/Web_scraping" class=""><span class="vector-icon mw-ui-icon-eye mw-ui-icon-wikimedia-eye cdx-button__icon"></span>
+<span>Read</span></a>
+</li>
+<li id="ca-edit-more" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface="" href="/w/index.php?title=Web_scraping&amp;action=edit" title="Edit this page [e]" accesskey="e" class=""><span class="vector-icon mw-ui-icon-edit mw-ui-icon-wikimedia-edit cdx-button__icon"></span>
+<span>Edit</span></a>
+</li>
+<li id="ca-history-more" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface="" href="/w/index.php?title=Web_scraping&amp;action=history" title="Past revisions of this page [h]" accesskey="h" class=""><span class="vector-icon mw-ui-icon-history mw-ui-icon-wikimedia-history cdx-button__icon"></span>
+<span>View history</span></a>
+</li>
+		</ul>
+	</div>
+</div>
+<div id="p-tb" class="vector-menu mw-portlet mw-portlet-tb">
+	<div class="vector-menu-heading">
+		General
+	</div>
+	<div class="vector-menu-content">
+		<ul class="vector-menu-content-list">
+			<li id="t-whatlinkshere" class="mw-list-item"><a href="/wiki/Special:WhatLinksHere/Web_scraping" title="List of all English Wikipedia pages containing links to this page [j]" accesskey="j"><span>What links here</span></a></li><li id="t-recentchangeslinked" class="mw-list-item"><a href="/wiki/Special:RecentChangesLinked/Web_scraping" rel="nofollow" title="Recent changes in pages linked from this page [k]" accesskey="k"><span>Related changes</span></a></li><li id="t-upload" class="mw-list-item"><a href="//en.wikipedia.org/wiki/Wikipedia:File_Upload_Wizard" title="Upload files [u]" accesskey="u"><span>Upload file</span></a></li><li id="t-permalink" class="mw-list-item"><a href="/w/index.php?title=Web_scraping&amp;oldid=1375681792" title="Permanent link to this revision of this page"><span>Permanent link</span></a></li><li id="t-info" class="mw-list-item"><a href="/w/index.php?title=Web_scraping&amp;action=info" title="More information about this page"><span>Page information</span></a></li><li id="t-cite" class="mw-list-item"><a href="/w/index.php?title=Special:CiteThisPage&amp;page=Web_scraping&amp;id=1375681792&amp;wpFormIdentifier=titleform" title="Information on how to cite this page"><span>Cite this page</span></a></li><li id="t-urlshortener" class="mw-list-item"><a href="/w/index.php?title=Special:UrlShortener&amp;url=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FWeb_scraping"><span>Get shortened URL</span></a></li><li id="parsermigration-switch-to-legacy" class="mw-list-item"><a href="/w/index.php?title=Web_scraping&amp;useparsoid=0"><span>Switch to legacy parser</span></a></li>
+		</ul>
+	</div>
+</div>
+<div id="p-coll-print_export" class="vector-menu mw-portlet mw-portlet-coll-print_export">
+	<div class="vector-menu-heading">
+		Print/export
+	</div>
+	<div class="vector-menu-content">
+		<ul class="vector-menu-content-list">
+			<li id="coll-download-as-rl" class="mw-list-item"><a href="/w/index.php?title=Special:DownloadAsPdf&amp;page=Web_scraping&amp;action=show-download-screen" title="Download this page as a PDF file"><span>Download as PDF</span></a></li><li id="t-print" class="mw-list-item"><a href="javascript:print();" rel="alternate" title="Printable version of this page [p]" accesskey="p"><span>Printable version</span></a></li>
+		</ul>
+	</div>
+</div>
+<div id="p-wikibase-otherprojects" class="vector-menu mw-portlet mw-portlet-wikibase-otherprojects">
+	<div class="vector-menu-heading">
+		In other projects
+	</div>
+	<div class="vector-menu-content">
+		<ul class="vector-menu-content-list">
+			<li class="wb-otherproject-link wb-otherproject-commons mw-list-item"><a href="https://commons.wikimedia.org/wiki/Category:Web_scraping" hreflang="en"><span>Wikimedia Commons</span></a></li><li id="t-wikibase" class="wb-otherproject-link wb-otherproject-wikibase-dataitem mw-list-item"><a href="https://www.wikidata.org/wiki/Special:EntityPage/Q665452" title="Structured data on this page hosted by Wikidata [g]" accesskey="g"><span>Wikidata item</span></a></li>
+		</ul>
+	</div>
+</div>
+</div>
+									</div>
+	</div>
+</div>
+							</nav>
+						</div>
+					</div>
+				</div>
+				<div class="vector-column-end no-font-mode-scale">
+					<div class="vector-sticky-pinned-container">
+						<nav class="vector-page-tools-landmark" aria-label="Page tools">
+							<div id="vector-page-tools-pinned-container" class="vector-pinned-container">
+							</div>
+		</nav>
+						<nav class="vector-appearance-landmark" aria-label="Appearance">
+							<div id="vector-appearance-pinned-container" class="vector-pinned-container">
+				<div id="vector-appearance" class="vector-appearance vector-pinnable-element">
+	<div class="vector-pinnable-header vector-appearance-pinnable-header vector-pinnable-header-pinned" data-feature-name="appearance-pinned" data-pinnable-element-id="vector-appearance" data-pinned-container-id="vector-appearance-pinned-container" data-unpinned-container-id="vector-appearance-unpinned-container">
+	<div class="vector-pinnable-header-label">Appearance</div>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-appearance.pin" aria-label="Move Appearance to sidebar">move to sidebar</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-appearance.unpin" aria-label="Hide Appearance">hide</button>
+</div>
+</div>
+							</div>
+		</nav>
+					</div>
+				</div>
+				<div id="bodyContent" class="vector-body" aria-labelledby="firstHeading" data-mw-ve-target-container="">
+					<div class="vector-body-before-content">
+							<div class="mw-indicators">
+		</div>
+						<div id="siteSub" class="noprint">From Wikipedia, the free encyclopedia</div>
+						<div id="contentSub"><div id="mw-content-subtitle"></div></div>
+					</div>
+					<div id="mw-content-text" class="mw-body-content"><div class="mw-content-ltr mw-parser-output" lang="en" dir="ltr" data-mw-parsoid-version="0.24.0.0-alpha24" data-mw-html-version="2.8.0"><section data-mw-section-id="0" id="mwAQ"><div class="shortdescription nomobile noexcerpt noprint searchaux" style="display:none" about="#mwt1" typeof="mw:Transclusion" id="mwAg" data-mw="{&quot;parts&quot;:[{&quot;template&quot;:{&quot;target&quot;:{&quot;wt&quot;:&quot;Short description&quot;,&quot;href&quot;:&quot;./Template:Short_description&quot;},&quot;params&quot;:{&quot;1&quot;:{&quot;wt&quot;:&quot;Method of extracting data from websites&quot;}},&quot;i&quot;:0}}]}">Method of extracting data from websites</div><span class="mw-empty-elt" about="#mwt1"></span>
+<span class="mw-empty-elt" about="#mwt2" typeof="mw:Transclusion" id="mwAw" data-mw="{&quot;parts&quot;:[{&quot;template&quot;:{&quot;target&quot;:{&quot;wt&quot;:&quot;broader&quot;,&quot;href&quot;:&quot;./Template:Broader&quot;},&quot;params&quot;:{&quot;1&quot;:{&quot;wt&quot;:&quot;Data scraping&quot;}},&quot;i&quot;:0}}]}"></span><div role="note" class="hatnote navigation-not-searchable" about="#mwt2" id="mwBA">For broader coverage of this topic, see <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Data_scraping" title="Data scraping">Data scraping</a>.</div>
+<span class="mw-empty-elt" about="#mwt4" typeof="mw:Transclusion" id="mwBQ" data-mw="{&quot;parts&quot;:[{&quot;template&quot;:{&quot;target&quot;:{&quot;wt&quot;:&quot;redirect&quot;,&quot;href&quot;:&quot;./Template:Redirect&quot;},&quot;params&quot;:{&quot;1&quot;:{&quot;wt&quot;:&quot;Web scraper&quot;},&quot;2&quot;:{&quot;wt&quot;:&quot;websites that scrape content&quot;},&quot;3&quot;:{&quot;wt&quot;:&quot;Scraper site&quot;}},&quot;i&quot;:0}}]}"></span><div role="note" class="hatnote navigation-not-searchable" about="#mwt4" id="mwBg">"Web scraper" redirects here. For websites that scrape content, see <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Scraper_site" title="Scraper site">Scraper site</a>.</div>
+<span class="mw-empty-elt" about="#mwt6" typeof="mw:Transclusion" id="mwBw" data-mw="{&quot;parts&quot;:[{&quot;template&quot;:{&quot;target&quot;:{&quot;wt&quot;:&quot;more citations needed&quot;,&quot;href&quot;:&quot;./Template:More_citations_needed&quot;},&quot;params&quot;:{&quot;date&quot;:{&quot;wt&quot;:&quot;April 2023&quot;}},&quot;i&quot;:0}}]}"></span><table class="box-More_citations_needed plainlinks metadata ambox ambox-content ambox-Refimprove" role="presentation" about="#mwt6"><tbody><tr><td class="mbox-image"><div class="mbox-image-div"><span typeof="mw:File"><a href="https://en.wikipedia.org/wiki/File:Question_book-new.svg" class="mw-file-description"><img resource="https://en.wikipedia.org/wiki/File:Question_book-new.svg" src="//thumb.wikimedia.org/wikipedia/en/thumb/9/99/Question_book-new.svg/60px-Question_book-new.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail" decoding="async" loading="lazy" srcset="//thumb.wikimedia.org/wikipedia/en/thumb/9/99/Question_book-new.svg/120px-Question_book-new.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail 2x" alt="icon" data-file-width="512" data-file-height="399" data-file-type="drawing" height="39" width="50" class="mw-file-element"></a></span></div></td><td class="mbox-text"><div class="mbox-text-span">This article <b>needs <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Wikipedia:Verifiability" title="Wikipedia:Verifiability">more citations</a></b>.<span class="hide-when-compact"> Please help <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Special:EditPage/Web_scraping" title="Special:EditPage/Web scraping">improve this article</a> by <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Help:Referencing_for_beginners" title="Help:Referencing for beginners">adding citations to reliable sources</a>. Unsourced material may be challenged and <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Wikipedia:Verifiability#Burden_of_evidence" title="Wikipedia:Verifiability">removed</a>.<br><small><span class="plainlinks"><i>Find sources:</i><span typeof="mw:Entity">&nbsp;</span><a rel="mw:ExtLink nofollow" href="https://www.google.com/search?as_eq=wikipedia&amp;q=%22Web+scraping%22" class="external text">"Web scraping"</a><span typeof="mw:Entity">&nbsp;</span>–<span typeof="mw:Entity">&nbsp;</span><a rel="mw:ExtLink nofollow" href="https://www.google.com/search?tbm=nws&amp;q=%22Web+scraping%22+-wikipedia&amp;tbs=ar:1" class="external text">news</a>&nbsp;<b>·</b> <a rel="mw:ExtLink nofollow" href="https://www.google.com/search?&amp;q=%22Web+scraping%22&amp;tbs=bkt:s&amp;tbm=bks" class="external text">newspapers</a>&nbsp;<b>·</b> <a rel="mw:ExtLink nofollow" href="https://www.google.com/search?tbs=bks:1&amp;q=%22Web+scraping%22+-wikipedia" class="external text">books</a>&nbsp;<b>·</b> <a rel="mw:ExtLink nofollow" href="https://scholar.google.com/scholar?q=%22Web+scraping%22" class="external text">scholar</a>&nbsp;<b>·</b> <a rel="mw:ExtLink nofollow" href="https://www.jstor.org/action/doBasicSearch?Query=%22Web+scraping%22&amp;acc=on&amp;wc=on" class="external text">JSTOR</a></span></small></span>  <span class="date-container"><i>(<span class="date">April 2023</span>)</i></span><span class="hide-when-compact"><i> (<small><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Help:Maintenance_template_removal" title="Help:Maintenance template removal">Learn how and when to remove this message</a></small>)</i></span></div></td></tr></tbody></table><span class="mw-empty-elt" about="#mwt6"></span>
+<p id="mwCA"><b id="mwCQ">Web scraping</b>, <b id="mwCg">web harvesting</b>, or <b id="mwCw">web data extraction</b> is <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Data_scraping" title="Data scraping" id="mwDA">data scraping</a> used for <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Data_extraction" title="Data extraction" id="mwDQ">extracting data</a> from <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Website" title="Website" id="mwDg">websites</a>.<sup about="#mwt10" class="mw-ref reference" id="cite_ref-1" rel="dc:references" typeof="mw:Extension/ref" data-mw="{&quot;name&quot;:&quot;ref&quot;,&quot;attrs&quot;:{},&quot;body&quot;:{&quot;id&quot;:&quot;mw-reference-text-cite_note-1&quot;}}"><a href="#cite_note-1" id="mwDw"><span class="mw-reflink-text" id="mwEA"><span class="cite-bracket" id="mwEQ">[</span>1<span class="cite-bracket" id="mwEg">]</span></span></a></sup> Web scraping software may directly access the <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/World_Wide_Web" title="World Wide Web" id="mwEw">World Wide Web</a> using the <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol" title="Hypertext Transfer Protocol" class="mw-redirect" id="mwFA">Hypertext Transfer Protocol</a> or a web browser. While web scraping can be done manually by a software user, the term typically refers to automated processes implemented using a <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Internet_bot" title="Internet bot" id="mwFQ">bot</a> or <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Web_crawler" title="Web crawler" id="mwFg">web crawler</a>. It is a form of copying in which specific data is gathered and copied from the web, typically into a central local <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Database" title="Database" id="mwFw">database</a> or <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Spreadsheet" title="Spreadsheet" id="mwGA">spreadsheet</a>, for later <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Data_retrieval" title="Data retrieval" id="mwGQ">retrieval</a> or <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Data_analysis" title="Data analysis" id="mwGg">analysis</a>.</p>
+<p id="mwGw">Scraping a web page involves fetching it and then extracting data from it. Fetching is the downloading of a page (which a browser does when a user views a page). Therefore, web crawling is a main component of web scraping, to fetch pages for later processing. Having fetched, extraction can take place. The content of a page may be <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Parsing" title="Parsing" id="mwHA">parsed</a>, searched and reformatted, and its data copied into a spreadsheet or loaded into a database. Web scrapers typically take something out of a page, to make use of it for another purpose somewhere else. An example would be finding and copying names and telephone numbers, companies and their URLs, or e-mail addresses to a list (contact scraping). Another example is collecting competitors product prices for marketing purposes, which can involve gathering large-scale pricing datasets from e-commerce websites and analysing them using data science techniques such as trend analysis, predictive modelling, and competitive benchmarking.</p>
+<p id="mwHQ"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Contact_scraping" title="Contact scraping" id="mwHg">Contact scraping</a> is a type of web scraping that is used as a component of applications used for <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Web_indexing" title="Web indexing" id="mwHw">web indexing</a>, <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Web_mining" title="Web mining" class="mw-redirect" id="mwIA">web mining</a> and <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Data_mining" title="Data mining" id="mwIQ">data mining</a>, online price change monitoring and <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Comparison_shopping_website" title="Comparison shopping website" id="mwIg">price comparison</a>, product review scraping (to watch the competition), gathering real estate listings, weather data monitoring, <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Change_detection_and_notification" title="Change detection and notification" id="mwIw">website change detection</a>, research, tracking online presence and reputation, <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Web_mashup" title="Web mashup" class="mw-redirect" id="mwJA">web mashup</a>, and <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Web_data_integration" title="Web data integration" id="mwJQ">web data integration</a>.</p>
+<p id="mwJg"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Web_page" title="Web page" id="mwJw">Web pages</a> are built using text-based <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Markup_languages" title="Markup languages" class="mw-redirect" id="mwKA">markup languages</a> (<a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/HTML" title="HTML" id="mwKQ">HTML</a> and <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/XHTML" title="XHTML" id="mwKg">XHTML</a>), and frequently contain a wealth of data in text form. However, most web pages are designed for human <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/End-user_(computer_science)" title="End-user (computer science)" class="mw-redirect" id="mwKw">end-users</a> and not for ease of automated use. As a result, specialized tools and software have been developed to facilitate the scraping of web pages. Web scraping applications include <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Market_research" title="Market research" id="mwLA">market research</a>, price comparison, content monitoring and <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Artificial_intelligence" title="Artificial intelligence" id="mwLQ">artificial intelligence</a>. Businesses rely on web scraping services to efficiently gather and use this data.</p>
+<p id="mwLg">There are methods that some websites use to prevent web scraping, such as detecting and disallowing bots from crawling (viewing) their pages. In response, web scraping systems use techniques involving <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Document_Object_Model" title="Document Object Model" id="mwLw">DOM</a> parsing, <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Computer_vision" title="Computer vision" id="mwMA">computer vision</a> and <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Natural_language_processing" title="Natural language processing" id="mwMQ">natural language processing</a> to simulate human-like browsing to enable gathering web page content for offline parsing.</p>
+</section><section data-mw-section-id="1" id="mwMw" aria-labelledby="History"><div class="mw-heading mw-heading2"><h2 id="History">History</h2><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Web_scraping&amp;action=edit&amp;section=1" title="Edit section: History"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mwNA">After the <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/History_of_the_World_Wide_Web" title="History of the World Wide Web" id="mwNQ">birth of the World Wide Web</a> in 1989, the first web robot,<sup about="#mwt13" class="mw-ref reference" id="cite_ref-2" rel="dc:references" typeof="mw:Extension/ref" data-mw="{&quot;name&quot;:&quot;ref&quot;,&quot;attrs&quot;:{},&quot;body&quot;:{&quot;id&quot;:&quot;mw-reference-text-cite_note-2&quot;}}"><a href="#cite_note-2" id="mwNg"><span class="mw-reflink-text" id="mwNw"><span class="cite-bracket" id="mwOA">[</span>2<span class="cite-bracket" id="mwOQ">]</span></span></a></sup> <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/World_Wide_Web_Wanderer" title="World Wide Web Wanderer" id="mwOg">World Wide Web Wanderer</a>, was created in June 1993, which was intended only to measure the size of the web.</p>
+<p id="mwOw">In December 1993, the first crawler-based web search engine, <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/JumpStation" title="JumpStation" id="mwPA">JumpStation</a>, was launched.<sup class="noprint Inline-Template Template-Fact" style="white-space:nowrap;" about="#mwt14" id="mwPg"><span typeof="mw:Entity">[</span><i><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Wikipedia:Citation_needed" title="Wikipedia:Citation needed"><span title="This claim needs references to reliable sources. (January 2026)">citation needed</span></a></i><span typeof="mw:Entity">]</span></sup> As there were fewer websites available on the web, search engines at that time used to rely on human administrators to collect and format links. In comparison, Jump Station was the first WWW search engine to rely on a web robot.</p>
+<p id="mwPw">In 2000, the first Web <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/API" title="API" id="mwQA">API</a> and <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/API" title="API" id="mwQQ">API</a> crawler were created. In 2000, <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Salesforce.com" title="Salesforce.com" class="mw-redirect" id="mwQg">Salesforce</a> and <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/EBay" title="EBay" id="mwQw">eBay</a> launched their own API, with which programmers could access and download some of the data available to the public.<sup about="#mwt17" class="mw-ref reference" id="cite_ref-3" rel="dc:references" typeof="mw:Extension/ref" data-mw="{&quot;name&quot;:&quot;ref&quot;,&quot;attrs&quot;:{},&quot;body&quot;:{&quot;id&quot;:&quot;mw-reference-text-cite_note-3&quot;}}"><a href="#cite_note-3" id="mwRA"><span class="mw-reflink-text" id="mwRQ"><span class="cite-bracket" id="mwRg">[</span>3<span class="cite-bracket" id="mwRw">]</span></span></a></sup> Since then, many websites offer web APIs for people to access their public database.</p>
+<p id="mwSA">In the mid 2020s, the web scrapers of <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Large_language_model" title="Large language model" id="mwSQ">LLM</a> vendors have become a major source of web traffic, using distributed web crawling to avoid detection.<sup about="#mwt20" class="mw-ref reference" id="cite_ref-4" rel="dc:references" typeof="mw:Extension/ref" data-mw="{&quot;name&quot;:&quot;ref&quot;,&quot;attrs&quot;:{},&quot;body&quot;:{&quot;id&quot;:&quot;mw-reference-text-cite_note-4&quot;}}"><a href="#cite_note-4" id="mwSg"><span class="mw-reflink-text" id="mwSw"><span class="cite-bracket" id="mwTA">[</span>4<span class="cite-bracket" id="mwTQ">]</span></span></a></sup><sup about="#mwt23" class="mw-ref reference" id="cite_ref-:0_5-0" rel="dc:references" typeof="mw:Extension/ref" data-mw="{&quot;name&quot;:&quot;ref&quot;,&quot;attrs&quot;:{&quot;name&quot;:&quot;:0&quot;},&quot;body&quot;:{&quot;id&quot;:&quot;mw-reference-text-cite_note-:0-5&quot;}}"><a href="#cite_note-:0-5" id="mwTg"><span class="mw-reflink-text" id="mwTw"><span class="cite-bracket" id="mwUA">[</span>5<span class="cite-bracket" id="mwUQ">]</span></span></a></sup><sup about="#mwt26" class="mw-ref reference" id="cite_ref-6" rel="dc:references" typeof="mw:Extension/ref" data-mw="{&quot;name&quot;:&quot;ref&quot;,&quot;attrs&quot;:{},&quot;body&quot;:{&quot;id&quot;:&quot;mw-reference-text-cite_note-6&quot;}}"><a href="#cite_note-6" id="mwUg"><span class="mw-reflink-text" id="mwUw"><span class="cite-bracket" id="mwVA">[</span>6<span class="cite-bracket" id="mwVQ">]</span></span></a></sup></p>
+</section>
+<!-- 
+NewPP limit report
+Parsed by mw‐web.eqiad.main‐597bd9c9c‐tcc4c
+Cached time: 20260930162828
+Cache expiry: 2592000
+Cache expiry source: Module:Citation/CS1 (os.date(%Y))
+Reduced expiry: false
+Complications: [vary‐revision‐sha1, show‐toc, use‐parsoid]
+CPU time usage: 0.613 seconds
+Real time usage: 0.725 seconds
+Preprocessor visited node count: 2097/1000000
+Revision size: 34836/2097152 bytes
+Post‐expand include size: 89673/2097152 bytes
+Template argument size: 1968/2097152 bytes
+Highest expansion depth: 13/100
+Expensive parser function count: 12/500
+Unstrip recursion depth: 0/20
+Unstrip post‐expand size: 90969/5000000 bytes
+Lua time usage: 0.164/10.000 seconds
+Lua memory usage: 7173556/52428800 bytes
+Number of Wikibase entities loaded: 0/500
+-->
+<!--
+Transclusion expansion time report (%,ms,calls,template)
+100.00%  529.649      1 -total
+ 13.67%   72.387     30 Template:Cite_web
+ 10.98%   58.142      4 Template:Cite_journal
+ 10.12%   53.584      1 Template:Short_description
+  6.81%   36.047      3 Template:Ambox
+  6.55%   34.682      1 Template:More_citations_needed
+  5.39%   28.574      2 Template:Pagetype
+  3.35%   17.720      6 Template:Main_other
+  3.04%   16.076      1 Template:SDcat
+  2.58%   13.681      2 Template:Citation_needed
+-->
+<!-- Render ID f772681e-bceb-11f1-a6b4-691c7211e939 -->
+<!-- Saved in parser cache with key enwiki:parsoid-pcache:2696619:|#|:idhash:useParsoid=1 and timestamp 20260930162828 and revision id 1375681792. Rendering was triggered because: page_view
+ -->
+<!-- Parsoid 0.24.0.0-alpha24 -->
+</div><!--
+Post‐processing cache key enwiki:postproc‐parsoid‐pcache:2696619:|#|:idhash:injectTOC=0!postproc=1!skin=vector‐2022!useParsoid=1!visibleLinks=single, generated at 20260930162828
+--><noscript><img src="https://en.wikipedia.org/wiki/Special:CentralAutoLogin/start?useformat=desktop&amp;type=1x1&amp;usesul3=1" alt="" width="1" height="1" style="border: none; position: absolute;"></noscript>
+</div>
+				</div>
+			</main></body></html>
