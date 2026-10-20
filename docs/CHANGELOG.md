@@ -5,6 +5,19 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.22.2] - 2026-10-19
+
+### Fixed
+- **Links written back to back no longer run together in page text.**
+  crawlforge-extractors 1.18.2: when one link is followed directly by another
+  with no text between them, each gets its own line. Such links are laid out
+  apart by CSS the text reader can't see, so a table of contents of
+  block-styled links read "The six vendors at a glanceWhat the independent
+  benchmarks show…". This reaches every tool that reads page text through
+  `flattenText`: `extract_content` (and `deep_research`, which reads pages
+  through it), `extract_text`, `batch_scrape`, `scrape_with_actions` and
+  `agent`. Links with spaces or text between them are unchanged.
+
 ## [6.22.1] - 2026-10-19
 
 ### Fixed
