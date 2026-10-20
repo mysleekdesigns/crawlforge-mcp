@@ -5,6 +5,104 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.22.0] - 2026-10-19
+
+Fixes from a live sweep of all 31 tools on 6.21.1 (about 470 calls, each
+defect reproduced by a second tester before it was fixed).
+
+### Changed
+- **Every failed call is free.** The half-rate charge on errors is gone, which
+  matches the website's "Failed calls are not charged". A failure is an
+  `isError` result, a thrown error, or a top-level `success:false` body.
+  `extract_structured`, `extract_with_llm` and `summarize_content` used to
+  return `success:false` without `isError`, so those calls were billed in full
+  and logged as successes. They now charge 0, log `error` and set `isError`.
+- **`_cost` and `next_step` are in `structuredContent` too**, not only in the
+  text result, for the tools that declare an output schema.
+- **`agent` refuses a blank prompt** (`'   '`) before it searches anything.
+- **`agent` keeps to its 120 s limit.** Every LLM call gets the time left as
+  its budget (new error code `LLM_TIMEOUT`), the corrective rewrites are
+  skipped with under 15 s left, and a run that hits the limit returns
+  `degraded:true` with the evidence it has. One sweep run had taken 183 s.
+- **`track_changes` requires `url`** for `create_baseline`, `compare`,
+  `monitor`, `get_history` and `create_scheduled_monitor`, instead of failing
+  with "Failed to parse URL from undefined".
+- **`extract_with_llm` reports an input cut as `input_truncated`**, not
+  `truncated`, which means a cut result preview everywhere else. A named
+  Ollama model that is not pulled is now an error instead of a silent switch
+  to MCP sampling, and the external-provider billing note appears only for
+  `openai` and `anthropic`.
+- **`analyze_content` sentiment uses the AFINN-165 lexicon** (new dependency
+  `sentiment@5.0.2`) with negation, in place of a 25-word list that called
+  clearly positive text neutral. Text with no sentiment words gets confidence
+  0, and non-English text gets `not_applicable`.
+- **`stealth_mode`'s `create_page` is described as what it is**: a navigation
+  and challenge check whose page closes straight away. Multi-step work belongs
+  in `browser_session`.
+
+### Fixed
+- **`crawl_deep` resolves links against the page it landed on**, not the URL
+  it asked for. `docs.python.org/3/tutorial` redirects to `/3/tutorial/`, and
+  every chapter link resolved one level too high and returned 404.
+- **`crawl_deep` link analysis no longer stalls the server.** It scanned the
+  whole page once per link; on a 7.3 MB page with 16,766 links that took 50 s
+  and starved every other call past its queue timeout. It now takes 0.5 s, and
+  a queue timeout says the task ran over its time budget. Pages above 50,000
+  elements skip Readability (it took 9 s on that page) in `scrape`,
+  `crawl_deep`, `batch_scrape`, `extract_structured`, `extract_content` and
+  `extract_text`, and `scrape` warns when it does.
+- **`map_site` includes the start URL**, so a one-page site returns 1 URL, not
+  0, and `generate_llms_txt` analyses it.
+- **`search_web` deduplication no longer merges different pages.** URLs count
+  as duplicates only when they are the same page written differently, a shared
+  title template is not enough, and `duplicateUrls` no longer holds nulls.
+- **`scrape`'s `question` format answers from the article, not its
+  references.** Citation links and reference sections are down-weighted
+  (crawlforge-extractors 1.18.1), and `grounded` is false when no evidence
+  unit holds a term from the question.
+- **`scrape_template` `github-repo`** returns the repository name from the URL,
+  each topic once, and `open_issues` from the current Issues tab.
+- **`agent` answers current-state questions from the official source.** A tied
+  domain vote promoted the first-ranked site, often Wikipedia; the official
+  site now wins, and an answer from a source that does not hold it is marked
+  `degraded`.
+- **`extract_content` keeps Wikipedia section headings**, drops the "[edit]"
+  links, leaves navboxes out of the tables, and decodes HTML entities in
+  titles.
+- **`generate_llms_txt`** builds API links without a double slash, prints the
+  contact section only when there is contact information, and documents that
+  `complianceLevel` applies only with `robotsStyle:true`.
+- **Error messages name the cause.** DNS and connection failures in `scrape`,
+  `extract_metadata`, `extract_structured`, `batch_scrape`, `fetch_url` and
+  the other fetch paths now include undici's cause (`ENOTFOUND`,
+  `ECONNREFUSED`), so the next-step hint says to check the URL instead of
+  suggesting `stealth_mode`. A selector that matches nothing is reported as a
+  selector miss and names the selector, not as a slow site. `stealth_mode`'s
+  unknown `contextId` points to `create_context`. Each failed `batch_scrape`
+  entry carries its own `next_step`.
+- **`summarize_content`'s validation error is one line** (`text: Too small…`),
+  not a raw issue array.
+- **`process_document` with `sourceType:'pdf_url'` refuses a non-PDF by type**
+  ("image/png content is not a PDF") instead of "Invalid PDF structure".
+- **`search_web` over SearXNG fails with the engines that failed** when every
+  engine is unresponsive, instead of returning an empty success, and its
+  connection error names the instance and the `docker start searxng` fix.
+- **`scrape_with_actions`'s `wait` action** with a `duration` and a `selector`
+  now waits for both.
+- **Screenshot resources report their real MIME type** (`image/jpeg` for JPEG).
+- **`localization` uses CLDR's first day of the week** for every supported
+  country; the US and Japan start on Sunday.
+- **`browser_session` `read` returns absolute links.**
+- **Hacker News-style layout tables convert one row per line** in markdown.
+- **`batch_scrape` markdown** goes through the same main-content pass as
+  `scrape`, so menus and language lists are left out and the H1 is not doubled.
+- **`track_changes` history similarity** is computed from the snapshots'
+  content, not from their sizes.
+- **`deep_research`** lists each source once per finding (new
+  `supportingSources`), strips citation markers and heading fragments from
+  findings, drops claims from off-topic sources, and sets
+  `sources[].relevance`.
+
 ## [6.21.1] - 2026-10-19
 
 ### Fixed
