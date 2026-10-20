@@ -276,6 +276,12 @@ export CRAWLFORGE_STEALTH_PROXIES="http://user:pass@gw.provider.net:8080"
 
 # Optional: turn off the clearance jar (on by default) — see "Stealth engines and proxies"
 export CRAWLFORGE_CLEARANCE_JAR="off"
+
+# Optional: also refuse private networks (RFC1918, ULA, CGNAT, ...) — see "Security & Approvals"
+export SSRF_STRICT="true"
+
+# Optional: the only directories process_document may read local files from (":"-separated, ";" on Windows)
+export CRAWLFORGE_ALLOWED_DIRS="$HOME/Documents:$HOME/Downloads"
 ```
 
 ### MCP Spec Features
@@ -380,7 +386,10 @@ Once configured, use these tools in your AI assistant:
 
 ### Security & Approvals
 
-- **SSRF enforcement**: Every scraped URL is validated before the request is sent — http/https only; blocks loopback, RFC1918, IPv6 private/link-local ranges, cloud metadata endpoints (GCP, Azure), and dangerous ports (SSH, SMTP, DNS, MySQL, Postgres, Redis, MongoDB, etc.). Redirects are re-validated each hop, capped at 5.
+- **SSRF enforcement**: Every scraped URL is validated before the request is sent, and every connection (each redirect hop included, capped at 5) is checked against the address it actually connects to — http/https only, cloud metadata hostnames (GCP, Azure) refused. Two levels:
+  - **Default (Stage 1)** blocks loopback (`127.0.0.0/8`, `::1`), the unspecified addresses (`0.0.0.0/8`, `::`), link-local and cloud metadata (`169.254.0.0/16` incl. `169.254.169.254`, `fe80::/10`). It **allows private networks** (RFC1918 `10/8`, `172.16/12`, `192.168/16`, IPv6 ULA): run on your own machine, the server acts for you, and reading a router page, a NAS or an intranet docs site on your LAN is a legitimate use that the stricter level would break.
+  - **`SSRF_STRICT=true`** adds every private and reserved range: RFC1918, ULA (`fc00::/7`), CGNAT (`100.64/10`), multicast, reserved, IPv4-compatible (`::/96`) and NAT64 (`64:ff9b::/96`) IPv6. Set it if an agent that reads untrusted pages (and could be prompt-injected into fetching a LAN address) should not reach your local network, or whenever the server is shared.
+- **Local files** (`process_document` with `sourceType` `file` or `pdf_file`; refused outright when the server is served to a network): a path is judged by its realpath, so a symlink counts as its target. Only `.pdf`, `.docx`, `.txt`, `.md`, `.html` and `.htm` files are read, and nothing inside a dot-directory (`~/.ssh`, `~/.aws`, `~/.config`, `~/.crawlforge`, ...). `CRAWLFORGE_ALLOWED_DIRS` (directories separated by `:`, `;` on Windows) narrows reads to those directories instead; inside them the dot-directory rule is lifted, the extension rule is not.
 - **Backend endpoint guard** (v3.0.18): The server's own calls to CrawlForge.dev use a separate fail-closed allow-list (`{crawlforge.dev, www.crawlforge.dev, api.crawlforge.dev}`, HTTPS required). Setting `CRAWLFORGE_API_URL` to an arbitrary host is blocked at parse time.
 - **Action allowlist**: `scrape_with_actions` accepts only 11 action types (`snapshot`, `wait`, `click`, `type`, `press`, `scroll`, `screenshot`, `executeJavaScript`, `select`, `hover`, `navigate`). No download, file-write, or arbitrary cross-page navigation primitives exist — `navigate` goes through the same SSRF and robots.txt gate as the initial URL.
 - **JavaScript gate**: The `executeJavaScript` action throws by default. Set `ALLOW_JAVASCRIPT_EXECUTION=true` at deploy time to enable (not recommended in production).

@@ -24,6 +24,7 @@ const { ScrapeWithActionsTool } = await import('../../src/tools/advanced/ScrapeW
 const { BrowserProcessor } = await import('../../src/core/processing/BrowserProcessor.js');
 const { StealthBrowserManager, CamoufoxAdapter, redactProxyEntry } = await import('../../src/core/StealthBrowserManager.js');
 const fs = await import('node:fs');
+const { guardedProxyFor } = await import('../../src/core/browser/guardedProxy.js');
 
 const ENTRY = 'http://alice:s3cret@proxy.example.com:8080';
 const ROTATION = { enabled: true, proxies: [ENTRY] };
@@ -157,7 +158,8 @@ describe('a caller\'s proxy is held to the SSRF guard', () => {
   test('a public proxy host passes', async () => {
     const manager = stubbedManager();
     await manager.createStealthContext({ engine: 'chromium', proxyRotation: { enabled: true, proxies: ['http://93.184.215.14:8080'] } });
-    assert.equal(manager.browser.newContextOptions[0].proxy.server, 'http://93.184.215.14:8080');
+    // The context goes out through the guarded proxy, chained to this one.
+    assert.deepEqual(manager.browser.newContextOptions[0].proxy, await guardedProxyFor({ server: 'http://93.184.215.14:8080' }));
     await manager.cleanup();
   });
 
@@ -166,7 +168,7 @@ describe('a caller\'s proxy is held to the SSRF guard', () => {
     t.after(() => { delete process.env.CRAWLFORGE_STEALTH_PROXIES; });
     const manager = stubbedManager();
     await manager.createStealthContext({ engine: 'chromium' });
-    assert.equal(manager.browser.newContextOptions[0].proxy.server, 'http://127.0.0.1:3128');
+    assert.deepEqual(manager.browser.newContextOptions[0].proxy, await guardedProxyFor({ server: 'http://127.0.0.1:3128' }));
     await manager.cleanup();
   });
 });
@@ -302,7 +304,8 @@ describe('camoufox takes its launch proxy only from the operator list', () => {
     const manager = new StealthBrowserManager();
     await manager.createStealthContext({ engine: 'camoufox' });
     assert.equal(launches[0].proxy.server, 'http://proxy.example.com:8080');
-    assert.equal(manager.browser.newContextOptions[0].proxy.server, 'http://proxy.example.com:8080');
+    assert.deepEqual(manager.browser.newContextOptions[0].proxy,
+      await guardedProxyFor({ server: 'http://proxy.example.com:8080', username: 'alice', password: 's3cret' }));
     await manager.cleanup();
   });
 
@@ -320,7 +323,8 @@ describe('camoufox takes its launch proxy only from the operator list', () => {
   test('Chromium per-call proxies are unchanged', async () => {
     const manager = stubbedManager();
     await manager.createStealthContext({ engine: 'chromium', proxyRotation: { enabled: true, proxies: ['http://alice:s3cret@93.184.215.14:8080'] } });
-    assert.deepEqual(manager.browser.newContextOptions[0].proxy, { server: 'http://93.184.215.14:8080', username: 'alice', password: 's3cret' });
+    assert.deepEqual(manager.browser.newContextOptions[0].proxy,
+      await guardedProxyFor({ server: 'http://93.184.215.14:8080', username: 'alice', password: 's3cret' }));
     await manager.cleanup();
   });
 });

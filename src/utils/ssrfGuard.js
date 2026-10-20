@@ -10,7 +10,7 @@
  *
  * Two levels:
  *  - Stage 1 (default): blocks connections to loopback, link-local /
- *    cloud-metadata (169.254.0.0/16, incl. 169.254.169.254), and 0.0.0.0.
+ *    cloud-metadata (169.254.0.0/16, incl. 169.254.169.254), 0.0.0.0 and `::`.
  *    These are never legitimate public-scrape targets, so impact is ~zero.
  *  - Stage 2 (SSRF_STRICT=true): full private-range enforcement (RFC1918, ULA,
  *    multicast, CGNAT, etc.) via the existing SSRFProtection range logic.
@@ -42,7 +42,8 @@ import { withFetchCause } from './fetchError.js';
 const _ssrf = new SSRFProtection();
 
 // Narrow Stage-1 ranges: things no legitimate public scrape ever targets.
-const STAGE1_RANGES = ['127.0.0.0/8', '169.254.0.0/16', '0.0.0.0/8', '::1/128', 'fe80::/10'];
+// `::` (the unspecified address) connects to the local host, like 0.0.0.0.
+const STAGE1_RANGES = ['127.0.0.0/8', '169.254.0.0/16', '0.0.0.0/8', '::/128', '::1/128', 'fe80::/10'];
 
 // Literal cloud-metadata / service-discovery hostnames blocked even before DNS.
 const METADATA_HOSTS = new Set(['metadata.google.internal', 'metadata.azure.com', 'metadata']);
@@ -179,7 +180,7 @@ function preflightHostCheck(u, sec) {
  * connects to exactly what we checked (rebinding-safe). Allowlisted hostnames
  * are resolved normally, with no address filtering.
  */
-function ssrfLookup(hostname, opts, callback) {
+export function ssrfLookup(hostname, opts, callback) {
   const sec = config.security?.ssrfProtection;
   if (isAllowlisted(hostname.toLowerCase(), sec?.allowedDomains)) {
     return dns.lookup(hostname, opts, callback);

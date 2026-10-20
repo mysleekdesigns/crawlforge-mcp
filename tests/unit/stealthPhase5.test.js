@@ -24,6 +24,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { detectChallengePage } from '../../src/utils/challengeDetection.js';
 import { stealthDocumentVerdict } from '../../src/utils/stealthVerdict.js';
+import { config } from '../../src/constants/config.js';
 import {
   StealthBrowserManager,
   pickTurnstileBox,
@@ -181,6 +182,8 @@ describe('Phase 5 live: the click earns the token on a local test-key page', { s
   let server;
   let url;
   let manager;
+  const sec = config.security.ssrfProtection;
+  const allowed = sec.allowedDomains;
 
   before(async () => {
     server = http.createServer((req, res) => {
@@ -190,9 +193,13 @@ describe('Phase 5 live: the click earns the token on a local test-key page', { s
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     url = `http://127.0.0.1:${server.address().port}/`;
     manager = new StealthBrowserManager({ clearanceJar: null });
+    // The browser's guarded proxy refuses loopback like any fetch; this
+    // local page stands in for a public one.
+    sec.allowedDomains = [...allowed, '127.0.0.1'];
   });
 
   after(async () => {
+    sec.allowedDomains = allowed;
     await manager.cleanup().catch(() => {});
     await new Promise((resolve) => server.close(resolve));
   });

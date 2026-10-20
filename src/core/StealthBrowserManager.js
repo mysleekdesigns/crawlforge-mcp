@@ -23,6 +23,7 @@ import { guardFirefoxPageErrors } from '../utils/firefoxPageErrorGuard.js';
 import { serverStealthProxies } from '../constants/config.js';
 import { ClearanceJar, sharedClearanceJar } from './ClearanceJar.js';
 import { readWindowState } from './browser/windowState.js';
+import { guardedProxyFor } from './browser/guardedProxy.js';
 
 // Grace given to a document that rendered no title and no text (see _waitOutEmptyDocument).
 export const EMPTY_DOCUMENT_GRACE_MS = 8000;
@@ -873,9 +874,6 @@ export class StealthBrowserManager {
     const proxy = this._launchedEngine === 'camoufox'
       ? (this.browser[CAMOUFOX_PROXY] || null)
       : this.resolveProxy(validatedConfig);
-    if (proxy) {
-      contextOptions.proxy = proxy;
-    }
 
     // The identity a clearance is bound to: engine, the User-Agent this context
     // presents, and the exit it goes out through. Read before the camoufox
@@ -952,6 +950,12 @@ export class StealthBrowserManager {
         fingerprint.timezone = null;
       }
     }
+
+    // What goes on the context is the SSRF-guarded local proxy, chained to
+    // that one: it checks every connection the page opens — redirect hops,
+    // iframes, WebSockets — where route() never sees them, and keeps the
+    // upstream's credentials itself (src/core/browser/guardedProxy.js).
+    contextOptions.proxy = await guardedProxyFor(proxy);
 
     const context = await this.browser.newContext(contextOptions);
     const contextId = this.generateContextId();

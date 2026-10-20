@@ -15,6 +15,7 @@ import { safeFetch } from '../../utils/ssrfGuard.js';
 import { preflightFetch } from '../../utils/robotsGate.js';
 import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
 import { isRemoteTransport } from '../../utils/remoteMode.js';
+import { assertLocalFileAllowed } from '../../utils/localFilePolicy.js';
 import { flattenText } from 'crawlforge-extractors';
 import { load } from 'cheerio';
 
@@ -221,6 +222,12 @@ export class ProcessDocumentTool {
         );
       }
 
+      // Locally, a read is still held to the document extensions and kept out
+      // of dot-directories (or held to CRAWLFORGE_ALLOWED_DIRS): see localFilePolicy.js.
+      const readFrom = sourceType === 'file' || sourceType === 'pdf_file'
+        ? await assertLocalFileAllowed(source)
+        : source;
+
       const result = {
         source,
         sourceType,
@@ -232,10 +239,10 @@ export class ProcessDocumentTool {
       // Determine document type and processing method
       if (sourceType.includes('pdf')) {
         result.documentType = 'pdf';
-        await this.processPDFDocument(result, source, sourceType, options, { respect_robots, user_agent });
+        await this.processPDFDocument(result, readFrom, sourceType, options, { respect_robots, user_agent });
       } else if (sourceType === 'file') {
         result.documentType = 'file';
-        await this.processLocalFileDocument(result, source, options);
+        await this.processLocalFileDocument(result, readFrom, options);
       } else {
         result.documentType = 'web';
         await this.processWebDocument(result, source, options, { respect_robots, user_agent });

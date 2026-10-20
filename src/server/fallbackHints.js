@@ -88,8 +88,12 @@ export const CLASS_HINTS = Object.freeze({
       : 'This tool has no override; get the content from another source.'),
   host_blocked: () =>
     'This host is on CrawlForge\'s permanent blocklist (a site-owner opt-out). No CrawlForge tool will fetch it and there is no override - get the content from another source.',
+  // Names what the active mode refuses (ssrfGuard.js): local Stage 1 lets private networks through.
   ssrf: () =>
-    'The URL points at a private or internal address (localhost, a private network, cloud metadata), which every CrawlForge tool refuses. Do not retry it with this or any other tool; use a public URL.',
+    (process.env.SSRF_STRICT === 'true'
+      ? 'The URL points at a private or internal address (localhost/loopback, link-local, cloud metadata, or a private network), which every CrawlForge tool refuses. '
+      : 'The URL points at an internal address (localhost/loopback, link-local, or cloud metadata), which every CrawlForge tool refuses; private-network addresses are allowed unless SSRF_STRICT=true is set, which refuses them too. ') +
+    'Do not retry it with this or any other tool; use a public URL.',
   not_found: () =>
     'The URL does not exist (HTTP 404, or the host does not resolve). Check it for typos, or find the right one with map_site on the site or search_web. Retrying it, or switching to stealth_mode, will not help.',
   model_not_pulled: () =>

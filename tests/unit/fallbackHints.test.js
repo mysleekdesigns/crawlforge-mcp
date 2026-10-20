@@ -205,6 +205,26 @@ describe('error-class hints', () => {
     assert.equal(classifyError({ code: 'SSRF_BLOCKED', error: 'x' }, '').cls, 'ssrf');
   });
 
+  // Live sweep 10-20 (1.4): local Stage 1 lets private networks through, so the
+  // hint may only claim what the active mode refuses.
+  test('the SSRF hint names what the active mode refuses', () => {
+    const prev = process.env.SSRF_STRICT;
+    try {
+      delete process.env.SSRF_STRICT;
+      const stage1 = CLASS_HINTS.ssrf();
+      process.env.SSRF_STRICT = 'true';
+      const strict = CLASS_HINTS.ssrf();
+      assert.notEqual(stage1, strict);
+      for (const hint of [stage1, strict]) assert.match(hint, /loopback, link-local.* cloud metadata/);
+      assert.match(stage1, /private-network addresses are allowed unless SSRF_STRICT=true/);
+      assert.doesNotMatch(stage1, /refuses.*a private network/);
+      assert.match(strict, /or a private network\), which every CrawlForge tool refuses/);
+    } finally {
+      if (prev === undefined) delete process.env.SSRF_STRICT;
+      else process.env.SSRF_STRICT = prev;
+    }
+  });
+
   test('a 404 is told the URL does not exist and to find the right one', () => {
     const body = { success: false, status: 404, error: 'answered with an error page' };
     assert.equal(hintOf('scrape', textError(JSON.stringify(body))), CLASS_HINTS.not_found());
