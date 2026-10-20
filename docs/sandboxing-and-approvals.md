@@ -1,7 +1,7 @@
 # Sandboxing & Approvals
 
 **Version:** 4.4.0
-**Last updated:** 2026-06-06
+**Last updated:** 2026-10-20
 **Audience:** Operators, security reviewers, and integrators evaluating CrawlForge for production deployment.
 
 ---
@@ -20,33 +20,39 @@ CrawlForge enforces three layers of protection:
 
 ### Inbound — every scraped URL
 
-Source: `src/utils/ssrfProtection.js`
+Source: `src/utils/ssrfGuard.js` (the IP ranges for strict mode live in `src/utils/ssrfProtection.js`)
 
-All URLs submitted for scraping are validated by `SSRFProtection.validateURL()` before any HTTP request is made. The checks run in order:
+Every scrape target goes through `ssrfGuard()` / `safeFetch()` (fetch path) or `assertUrlAllowed()` / `safeGoto()` (browser path). The checks are:
 
-**Protocol**: only `http:` and `https:` are permitted. All other schemes are rejected with HIGH severity.
+**Pre-flight, on the URL** (`preflightHostCheck`):
+- Protocol must be `http:` or `https:`.
+- `ALLOWED_DOMAINS` (exact host or any subdomain) skips every check below.
+- Cloud metadata hostnames are refused: `metadata.google.internal`, `metadata.azure.com`, `metadata`.
+- `BLOCKED_DOMAINS` (exact host or any subdomain) is refused. Default: `localhost`, `127.0.0.1`, `0.0.0.0`, `metadata.google.internal`, `169.254.169.254`, `metadata.azure.com`.
+- An IP-literal host is checked against the blocked ranges below.
 
-**Hostname blocklist**: the following are blocked outright:
-- Exact names: `localhost`, `metadata.google.internal`, `metadata.azure.com`, `metadata`, `consul`, `vault`
-- Pattern matches: hostnames starting with `metadata`, `consul`, `vault`, `admin`, `internal`; hostnames ending in `.local` or `.internal`
+**At connect time, on every connection** (`ssrfLookup` + `guardedConnect`): the hostname is resolved, every answer is checked, and the connection goes to the address that was checked. This covers the first request and each redirect hop, and closes the DNS-rebinding window: there is no cache to outlive.
 
-**Port blocklist**: the following ports are blocked regardless of hostname:
-22 (SSH), 23 (Telnet), 25 (SMTP), 53 (DNS), 135 (RPC), 139 (NetBIOS), 445 (SMB), 1433 (MSSQL), 1521 (Oracle), 3306 (MySQL), 3389 (RDP), 5432 (PostgreSQL), 5984 (CouchDB), 6379 (Redis), 8086 (InfluxDB), 9200/9300 (Elasticsearch), 27017 (MongoDB).
+**Blocked ranges** depend on the mode:
+- **Default (Stage 1):** loopback (`127.0.0.0/8`, `::1`), the unspecified addresses (`0.0.0.0/8`, `::`), and link-local and cloud metadata (`169.254.0.0/16`, `fe80::/10`). Private networks (RFC1918, IPv6 ULA) are **allowed**. On a user's own machine the server acts for that user, and reading a router page, a NAS or an intranet site on the LAN is a legitimate use.
+- **`SSRF_STRICT=true`:** adds RFC1918 (`10/8`, `172.16/12`, `192.168/16`), CGNAT (`100.64/10`), benchmark (`198.18/15`), multicast, reserved, IPv6 ULA (`fc00::/7`), IPv6 multicast, IPv4-compatible (`::/96`) and NAT64 (`64:ff9b::/96`). Set it when an agent reads untrusted pages and should not be able to reach the LAN, and whenever the server is shared. The hosted deployment runs strict.
 
-**DNS resolution + IP validation**: the hostname is resolved to an IP and checked against blocked CIDR ranges:
-- `127.0.0.0/8` (loopback), `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` (RFC1918 private)
-- `169.254.0.0/16` (IPv4 link-local), `100.64.0.0/10` (CGNAT), `198.18.0.0/15` (benchmark), `224.0.0.0/4` (multicast), `240.0.0.0/4` (reserved)
-- `::1/128` (IPv6 loopback), `fc00::/7` (IPv6 ULA), `fe80::/10` (IPv6 link-local), `ff00::/8` (IPv6 multicast)
+IPv4-mapped IPv6 literals (`::ffff:127.0.0.1`) are reduced to their IPv4 address before the check. `SSRF_PROTECTION_ENABLED=false` turns the whole guard off.
 
-DNS results are cached for 5 minutes (LRU, max 10,000 entries).
+**Browser tools:** every browser context (Chromium, stealth Chromium, Camoufox, `browser_session`) uses a local forward proxy, `guardedProxyFor()` in `src/core/browser/guardedProxy.js`. It runs the same pre-flight and connect-time lookup on every connection the page makes: navigations, redirect hops, iframes, subresources, fetch/XHR and WebSockets. A refused connection gets a 403. A caller's upstream proxy is chained behind it, and the target is still checked locally first. `page.route` is not used for this, because it never sees redirect hops or WebSockets.
 
-**Path traversal**: `checkRawPathTraversal()` scans the raw URL string before URL-parsing for `../`, `..\`, and their URL-encoded variants (`%2e%2e%2f`, `%2e%2e%5c`, `%2e%2e`, `..%2f`, `..%5c`). Violations are HIGH severity.
+Not enforced on the live path: ports, path-traversal patterns and the hostname patterns (`admin*`, `consul*`, `*.internal`, ...) in `SSRFProtection.validateURL()`. Nothing calls that method.
 
-**Path pattern check**: parsed path is also scanned for `/etc/`, `/proc/`, `/sys/`, `/dev/`, `/tmp/`, `/var/log`. Violations are MEDIUM severity (do not block alone).
+### Local files — `process_document`
 
-**Redirects**: handled manually via `redirect: 'manual'`. Each redirect location is re-validated through the full chain above. Capped at 5 hops; exceeding the cap throws.
+Source: `src/utils/localFilePolicy.js`
 
-**Known limitation**: SSRF protection is blocklist-based. There is no operator-configurable outbound allowlist for scraped targets. An attacker who can register a public hostname that resolves to a previously unblocked private IP range after the DNS cache cools could bypass the check (DNS rebinding). The 5-minute cache window limits exposure.
+`sourceType` `file` and `pdf_file` read from disk. When the server is served to a network they are refused outright. Locally, a path is judged by its realpath, so a symlink counts as its target:
+- Only `.pdf`, `.docx`, `.txt`, `.md`, `.html` and `.htm` files are read.
+- Nothing inside a dot-directory (`~/.ssh`, `~/.aws`, `~/.config`, `~/.crawlforge`, ...) is read.
+- `CRAWLFORGE_ALLOWED_DIRS` (directories separated by `:`, or `;` on Windows) limits reads to those directories. Inside them the dot-directory rule is lifted; the extension rule still applies.
+
+The point is prompt injection: a page an agent reads can ask it to read a local file, such as the CrawlForge config that holds the API key.
 
 ### Outbound — server's own backend
 
@@ -183,7 +189,8 @@ The credit check is fail-closed since v3.0.18: insufficient credits stop the too
 
 The following are documented limitations, not planned fixes:
 
-- **SSRF is blocklist-based**: there is no per-deployment outbound allowlist for scraped targets. A previously unknown private range or a DNS rebinding attack after the 5-minute cache window could bypass the check.
+- **SSRF is blocklist-based**: there is no per-deployment outbound allowlist for scraped targets (`ALLOWED_DOMAINS` is a bypass list, not a restriction). Anything outside the blocked ranges is reachable, and in the default Stage-1 mode that includes the local network; set `SSRF_STRICT=true` to refuse it.
+- **The browser SSRF proxy has no authentication**: any process on the same host can use the 127.0.0.1 listener. It still enforces the SSRF policy, but it would relay through a configured upstream proxy with that proxy's stored credentials. This only matters on multi-user hosts.
 - **Stealth Chromium uses `--no-sandbox`**: this is a real sandbox reduction. Use Camoufox or OS-level container isolation if scraping untrusted content at scale. The non-stealth render browser (`BrowserProcessor`) runs with `--no-sandbox` and `--disable-web-security`; only the stealth browser dropped the second flag.
 - **robots.txt is fail-open**: a missing or unreachable `robots.txt` is treated as "allow all". This is a deliberate resilience choice, not a compliance guarantee.
 - **No per-action elicitation in `scrape_with_actions`**: the tool accepts entire action chains without mid-chain confirmation. The action allowlist and JS env-var gate are the only per-action controls.
