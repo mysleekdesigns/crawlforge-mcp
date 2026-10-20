@@ -5,6 +5,23 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.22.1] - 2026-10-19
+
+### Fixed
+- **`agent` flags a URL it cites that no source supports.** The provenance
+  check skipped URLs as citations, so an answer with the right Hacker News
+  title and a link to a 2021 story passed as `unverified: []`. A cited URL
+  must now be a fetched page (before or after redirects), a link on one, or
+  written in the source text; scheme, `www.`, fragment and trailing slash are
+  ignored. One that is not gets the existing corrective rewrite, and one that
+  survives it is named in a provenance warning in the answer and in the new
+  `provenance.unverified_urls`, present only when something was flagged.
+- **`deep_research` findings are no longer table rows or welded headings.**
+  A line with ` | ` cell separators, or a short unpunctuated line of headings
+  run together with no space ("The six vendors at a glanceWhat the
+  independent benchmarks show…", from a table of contents of block links), is
+  dropped as a claim. camelCase names such as JavaScript and DataDome are kept.
+
 ## [6.22.0] - 2026-10-19
 
 Fixes from a live sweep of all 31 tools on 6.21.1 (about 470 calls, each
