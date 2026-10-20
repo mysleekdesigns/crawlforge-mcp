@@ -135,3 +135,35 @@ describe('failedEntryHint (a failed batch_scrape entry\'s next_step)', () => {
     assert.equal(hint, CLASS_HINTS.not_found());
   });
 });
+
+describe('safeFetch and fetchWithTimeout keep the cause for every caller (withFetchCause)', () => {
+  test('fetch_url names ENOTFOUND and gets the not_found hint', async () => {
+    const { fetchUrlHandler } = await import('../../src/tools/basic/fetchUrl.js');
+    const result = await fetchUrlHandler({ url: URL_ });
+    assert.equal(result.isError, true);
+    assert.equal(result.content[0].text, `Failed to fetch URL: Could not reach ${URL_} (getaddrinfo ENOTFOUND ${HOST})`);
+    assertNotFound(null, result.content[0].text);
+  });
+
+  test('safeFetch rethrows a TypeError that keeps the cause, its code, and retryability', async () => {
+    const { safeFetch } = await import('../../src/utils/ssrfGuard.js');
+    const { RetryManager } = await import('../../src/utils/RetryManager.js');
+    await assert.rejects(() => safeFetch(URL_), (err) => {
+      assert.ok(err instanceof TypeError);
+      assert.equal(err.message, `Could not reach ${URL_} (getaddrinfo ENOTFOUND ${HOST})`);
+      assert.equal(err.code, 'ENOTFOUND');
+      assert.equal(err.cause.code, 'ENOTFOUND');
+      // Already named: a caller that runs fetchErrorMessage again changes nothing.
+      assert.equal(fetchErrorMessage(err, URL_), err.message);
+      assert.equal(new RetryManager().isRetryableError(err), true);
+      return true;
+    });
+  });
+
+  test('the wrapped message names the URL without its query (a connector key)', async () => {
+    const { withFetchCause } = await import('../../src/utils/fetchError.js');
+    const raw = new TypeError('fetch failed', { cause: enotfound(HOST) });
+    const err = withFetchCause(raw, `${URL_}list.json?key=secret-value`);
+    assert.equal(err.message, `Could not reach ${URL_}list.json (getaddrinfo ENOTFOUND ${HOST})`);
+  });
+});

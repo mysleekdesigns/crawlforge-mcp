@@ -9,6 +9,7 @@ import { ssrfGuard, isSsrfError } from '../../utils/ssrfGuard.js';
 import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
 import { preflightFetch } from '../../utils/robotsGate.js';
 import { fetchResigned } from '../../utils/resignedFetch.js';
+import { withFetchCause } from '../../utils/fetchError.js';
 
 /**
  * Fetch a URL with a configurable timeout and body-size cap.
@@ -68,7 +69,7 @@ export async function fetchWithTimeout(url, options = {}) {
       if (error.name === 'AbortError') {
         throw new Error(`Request timeout after ${timeout}ms`);
       }
-      throw error;
+      throw withFetchCause(error, url);
     }
 
     // A host asking us to back off is honoured on the *next* request to it,

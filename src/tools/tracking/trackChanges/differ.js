@@ -104,7 +104,8 @@ export async function fetchContent(url, options = {}) {
     // undici reports every network failure as bare "fetch failed" and puts
     // the real reason (ENOTFOUND, ECONNREFUSED, timeout) in error.cause —
     // without it, a dead host and a typoed domain read identically.
-    const cause = error.cause?.message ? ` (${error.cause.message})` : '';
+    // safeFetch now names it itself (withFetchCause); don't say it twice.
+    const cause = error.cause?.message && !error.message.includes(error.cause.message) ? ` (${error.cause.message})` : '';
     throw new Error(`Failed to fetch content: ${error.message}${cause}`);
   }
 }

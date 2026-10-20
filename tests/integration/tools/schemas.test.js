@@ -195,9 +195,13 @@ test('TrackChangesSchema: rejects invalid granularity value', () => {
 test('TrackChangesSchema: applies defaults for trackingOptions', () => {
   const result = TrackChangesSchema.safeParse({ url: 'https://example.com/' });
   assert.equal(result.success, true);
-  assert.equal(result.data.trackingOptions.granularity, 'section');
-  assert.equal(result.data.trackingOptions.trackText, true);
-  assert.equal(result.data.trackingOptions.ignoreWhitespace, true);
+  // No zod defaults on the options a monitoring template sets (R24 2.7):
+  // ChangeTracker fills those in, so a template's value is not overridden.
+  assert.equal(result.data.trackingOptions.granularity, undefined);
+  assert.equal(result.data.trackingOptions.trackText, undefined);
+  assert.equal(result.data.trackingOptions.ignoreWhitespace, undefined);
+  assert.equal(result.data.trackingOptions.trackAttributes, false);
+  assert.ok(result.data.trackingOptions.excludeSelectors.includes('script'));
 });
 
 // ── SearchResultCache ─────────────────────────────────────────────────────────
