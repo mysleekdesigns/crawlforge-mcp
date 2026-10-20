@@ -67,6 +67,27 @@ export function reportedFindings(keyFindings) {
 // At most three digits, so a year such as "(2024)" stays.
 const CITATION_MARKER = /\s*(?:\(\d{1,3}(?:\s*[,\u2013-]\s*\d{1,3})*\)|\[\d{1,3}(?:\s*[,\u2013-]\s*\d{1,3})*\])/g;
 const LIST_MARKER = /^(?:[-*\u2022\u25AA\u2013]|\d{1,2}[.)])\s+/;
+// A lowercase word run straight into a capitalized one: "glanceWhat". A
+// camelCase name starts with a capital ("JavaScript", "DataDome") and never matches.
+const WELDED_WORDS = /\b[a-z]{2,}[A-Z][a-z]/g;
+
+/**
+ * A line that is a table row or headings welded together, not a statement.
+ * extract_content reads a table one row per line, cells joined by " | " (a
+ * two-cell row has just one), and crawlforge-extractors' flattenText joins
+ * inline elements with no separator, so a table of contents of `<a class="block">` links came back as "The six
+ * vendors at a glanceWhat the independent benchmarks showWhy your approach…"
+ * (R25 re-check, 2026-10-19). A sentence ends in punctuation; welded headings
+ * have none.
+ *
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isPageFragment(line) {
+  if (/\s\|\s/.test(line) || (line.match(/\|/g) || []).length >= 2) return true;
+  return line.length <= 300 && !/[.!?](?:\s|$)/.test(line) &&
+    (line.match(WELDED_WORDS) || []).length >= 2;
+}
 
 /**
  * The statements in one extracted key point. A key point is a sentence as the
@@ -74,18 +95,25 @@ const LIST_MARKER = /^(?:[-*\u2022\u25AA\u2013]|\d{1,2}[.)])\s+/;
  * string ("Built-in encryption\nQUIC was built with security in mind.").
  * Each line becomes its own statement, except a line starting in lowercase,
  * which continues the one before it (wrapped text). List and citation markers
- * are removed. Heading-only lines are left for isAdmissibleClaim to reject.
+ * are removed. Table rows and welded headings are dropped; heading-only lines
+ * are left for isAdmissibleClaim to reject.
  *
  * @param {string} point
  * @returns {string[]}
  */
 export function claimStatements(point) {
   const blocks = [];
+  let afterFragment = false;
   for (const raw of String(point).split('\n')) {
     const line = raw.trim();
     if (!line) continue;
-    if (blocks.length > 0 && /^[a-z]/.test(line)) blocks[blocks.length - 1] += ` ${line}`;
+    if (isPageFragment(line)) {
+      afterFragment = true;
+      continue;
+    }
+    if (blocks.length > 0 && !afterFragment && /^[a-z]/.test(line)) blocks[blocks.length - 1] += ` ${line}`;
     else blocks.push(line);
+    afterFragment = false;
   }
   return blocks
     .map(block => block.replace(LIST_MARKER, '').replace(CITATION_MARKER, '').replace(/\s+/g, ' ').trim())

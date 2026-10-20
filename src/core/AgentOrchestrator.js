@@ -20,6 +20,7 @@
  * pro model: delegates to ResearchOrchestrator.conductResearch() for richer synthesis.
  */
 
+import { load } from 'cheerio';
 import { fetchAndParse } from '../tools/extract/_fetchAndParse.js';
 import { SamplingClient } from './SamplingClient.js';
 import { fenceUntrusted } from '../utils/untrustedContent.js';
@@ -75,7 +76,7 @@ function truncate(text, maxChars = 8000) {
  * strings that do not (deduplicated, in answer order). Comparison is
  * case-insensitive with whitespace and thousands separators removed, so
  * "6.3.3" matches "6.3.3" and "1,234" matches "1 234". URLs in the answer are
- * ignored: they are citations, not claims.
+ * skipped here: they are citations, checked by unverifiedUrls.
  */
 const MONTHS = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*';
 const VALUE_PATTERNS = [
@@ -107,6 +108,71 @@ export function unverifiedValues(answer, sourceText) {
   }
   // "2024" inside an already-flagged "January 18, 2024" is the same claim.
   return missing.filter((v, i) => !missing.some((o, j) => j !== i && o.length > v.length && o.includes(v)));
+}
+
+/**
+ * The http(s) URLs in a text, trailing punctuation removed. A closing
+ * parenthesis stays only when it closes one opened inside the URL, so
+ * "[HN](https://x/item?id=1)" yields the link and "/wiki/Foo_(bar)" survives.
+ */
+export function urlsIn(text) {
+  return (String(text || '').match(/https?:\/\/[^\s<>"'`\]]+/g) || []).map(url => {
+    for (;;) {
+      if (/[.,;:!?*'"]$/.test(url)) url = url.slice(0, -1);
+      else if (url.endsWith(')') && url.split('(').length < url.split(')').length) url = url.slice(0, -1);
+      else return url;
+    }
+  });
+}
+
+/**
+ * A URL as a citation is compared: scheme, "www.", fragment and trailing
+ * slash dropped, host lowercased, "&amp;" decoded. Null when it does not parse.
+ */
+function citationKey(url) {
+  try {
+    const u = new URL(String(url).replace(/&amp;/g, '&'));
+    return `${u.host.toLowerCase().replace(/^www\./, '')}${u.pathname.replace(/\/+$/, '')}${u.search}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * URLs the answer cites that no fetched page supports: not a fetched URL
+ * (before or after redirects), not a link on a fetched page, and not written
+ * in the source text. The R25 re-check (2026-10-19) answered the current HN
+ * top story with the right title and a link to a 2021 story that none of the
+ * sources contained, and the value-only check above skipped it as a citation.
+ *
+ * @param {string} answer
+ * @param {Iterable<string>} citable fetched URLs, their final URLs and the links on them
+ * @param {string} [sourceText]
+ * @returns {string[]} the cited URLs as written, deduplicated
+ */
+export function unverifiedUrls(answer, citable, sourceText = '') {
+  const known = new Set([...citable, ...urlsIn(sourceText)].map(citationKey).filter(Boolean));
+  const seen = new Set();
+  return urlsIn(answer).filter(url => {
+    const key = citationKey(url);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return !known.has(key);
+  });
+}
+
+/** Absolute http(s) hrefs of the links on a parsed page. */
+function pageLinks($, baseUrl) {
+  const links = [];
+  $('a[href]').each((_, el) => {
+    try {
+      const url = new URL($(el).attr('href'), baseUrl);
+      if (url.protocol === 'http:' || url.protocol === 'https:') links.push(url.href);
+    } catch {
+      // An unparsable href cites nothing.
+    }
+  });
+  return links;
 }
 
 /**
@@ -596,6 +662,9 @@ export class AgentOrchestrator {
     // cap whenever it was smaller than capUrls, leaving maxUrls unreachable
     // at its default. Both caps remain fully enforced (neither is weakened).
     const evidence = [];
+    // URLs an answer may cite: every evidence page's URL (requested and
+    // final) and the links on it.
+    const citable = [];
     let urlsFetched = 0;
     let step = 0;
     const warnings = [];
@@ -631,6 +700,7 @@ export class AgentOrchestrator {
             text: truncate(plain.textContent),
             step
           });
+          citable.push(url, plain.finalUrl, ...pageLinks(plain.$, plain.finalUrl));
           continue;
         }
         // A real page that is simply off-topic: nothing to retry.
@@ -675,6 +745,7 @@ export class AgentOrchestrator {
               via: 'stealth',
               step
             });
+            citable.push(url, stealth.url || url, ...pageLinks(load(stealth.html || ''), stealth.url || url));
             continue;
           }
           warnings.push(`stealth retry of ${url} ${rendered.success ? 'returned a page unrelated to the task' : `did not get the page either${rendered.blocked?.vendor ? ` (${rendered.blocked.vendor})` : ''}`}`);
@@ -685,6 +756,7 @@ export class AgentOrchestrator {
 
       if (relevantExcerpt) {
         evidence.push({ url, title: relevantExcerpt.title, text: relevantExcerpt.text, snippet: true, step });
+        citable.push(url);
       }
     }
 
@@ -777,6 +849,7 @@ export class AgentOrchestrator {
     let degraded = false;
     let degradedReason;
     let unverified = [];
+    let unverifiedLinks = [];
     let forumOnlyVersions = [];
     // Distinct from `degraded`: a run can be degraded because its version
     // claims are unsupported and still have had its provenance checked.
@@ -820,11 +893,16 @@ export class AgentOrchestrator {
       // 2026-09-04). Versions, dates and counts in the answer must appear in
       // the source text; what does not gets one corrective rewrite, and
       // whatever still remains is named in the answer and in `provenance`.
+      // A cited URL is checked the same way (R25 re-check, 2026-10-19: the
+      // right HN title with an invented item link).
+      const sourceText = evidence.map(e => e.text || '').join('\n');
       unverified = unverifiedValues(answer, combinedText);
-      if (unverified.length > 0 && remaining() >= REWRITE_MIN_REMAINING_MS) {
+      unverifiedLinks = unverifiedUrls(answer, citable, sourceText);
+      if ((unverified.length > 0 || unverifiedLinks.length > 0) && remaining() >= REWRITE_MIN_REMAINING_MS) {
         const retryPrompt =
           `${synthesisPrompt}\n\nYour previous answer was:\n${fenceUntrusted(answer, 'previous answer')}\n` +
-          `It contains values that appear nowhere in the source text: ${unverified.map(v => `"${v}"`).join(', ')}. ` +
+          (unverified.length > 0 ? `It contains values that appear nowhere in the source text: ${unverified.map(v => `"${v}"`).join(', ')}. ` : '') +
+          (unverifiedLinks.length > 0 ? `It cites URLs that are not among the sources or the links on them: ${unverifiedLinks.join(', ')}. Cite only the source URLs given above. ` : '') +
           `Rewrite the answer. Keep only values that the sources state, spelled as the sources spell them. ` +
           `Where the sources do not state a value, say that it is not stated instead of guessing.`;
         try {
@@ -832,6 +910,7 @@ export class AgentOrchestrator {
           if (rewritten && rewritten.trim()) {
             answer = rewritten;
             unverified = unverifiedValues(answer, combinedText);
+            unverifiedLinks = unverifiedUrls(answer, citable, sourceText);
           }
         } catch {
           // Keep the first answer; it is flagged below.
@@ -841,6 +920,11 @@ export class AgentOrchestrator {
         answer +=
           `\n\nProvenance warning: ${unverified.map(v => `"${v}"`).join(', ')} ` +
           `${unverified.length === 1 ? 'does' : 'do'} not appear in the fetched sources and may be invented.`;
+      }
+      if (unverifiedLinks.length > 0) {
+        answer +=
+          `\n\nProvenance warning: ${unverifiedLinks.join(', ')} ` +
+          `${unverifiedLinks.length === 1 ? 'is' : 'are'} not among the fetched pages or the links on them and may be invented.`;
       }
 
       // Asked for a current version, the agent answered "2.4.3" from a forum
@@ -931,6 +1015,7 @@ export class AgentOrchestrator {
       provenance: {
         checked: !synthesisFailed,
         unverified,
+        ...(unverifiedLinks.length > 0 ? { unverified_urls: unverifiedLinks } : {}),
         ...(forumOnlyVersions.length > 0 ? { unsupported_versions: forumOnlyVersions } : {})
       }
     };
