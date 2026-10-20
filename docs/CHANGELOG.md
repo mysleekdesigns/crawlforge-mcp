@@ -5,6 +5,8 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.22.3] - 2026-10-20
+
 ### Fixed
 - **`agent` can cite the exact link of an item.** The synthesis prompt carried
   page text only, so the answer could name the current Hacker News top story
