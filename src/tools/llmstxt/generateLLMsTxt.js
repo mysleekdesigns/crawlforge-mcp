@@ -33,7 +33,7 @@ const GenerateLLMsTxtSchema = z.object({
     robotsStyle: z.boolean().optional().default(false).describe('Emit legacy robots.txt-style directives instead of spec-compliant llmstxt.org markdown')
   }).optional().prefault({}),
 
-  complianceLevel: z.enum(['basic', 'standard', 'strict']).optional().default('standard').describe('Compliance level for generated guidelines'),
+  complianceLevel: z.enum(['basic', 'standard', 'strict']).optional().default('standard').describe('Applies only with outputOptions.robotsStyle:true, where it sets how many paths the llms.txt Disallow list covers (basic < standard < strict). The default llmstxt.org markdown is the same at every level; llms-full.txt only records the level as a label.'),
   
   format: z.enum(['both', 'llms-txt', 'llms-full-txt']).optional().default('both').describe('Which files to generate')
 });
@@ -740,7 +740,11 @@ export class GenerateLLMsTxtTool {
     lines.push('If you encounter issues or need clarification on these guidelines:');
     lines.push('1. Check this document for guidance');
     lines.push('2. Review the basic llms.txt file');
-    lines.push('3. Contact us using the information above');
+    // Only when section 1 printed something to contact: without either field
+    // this pointed at contact information the file did not contain.
+    if (outputOptions.contactEmail || outputOptions.organizationName) {
+      lines.push('3. Contact us using the information above');
+    }
     lines.push('');
     lines.push('### Updates');
     lines.push('These guidelines may be updated periodically. Check the generation date above');

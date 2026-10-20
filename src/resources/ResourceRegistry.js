@@ -35,6 +35,19 @@ const RESOURCE_MIME = {
 };
 
 /**
+ * A screenshot's MIME type, read from its magic bytes: callers ask for png or
+ * jpeg (and could get webp), and the bytes cannot disagree with themselves.
+ * Anything unrecognised keeps the old image/png label.
+ * @param {Buffer} buf
+ * @returns {string}
+ */
+export function sniffImageMime(buf) {
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  return RESOURCE_MIME.screenshot;
+}
+
+/**
  * Parse a crawlforge:// URI into its components.
  * @param {string} uri
  * @returns {{ type: string, parts: string[] } | null}
@@ -67,8 +80,8 @@ export class ResourceRegistry {
     // In-memory stores for lightweight resource tracking
     /** @type {Map<string, { data: any, createdAt: number, ttl: number }>} */
     this._crawlSitemaps = new Map(); // sessionId -> sitemap
-    /** @type {Map<string, { data: Buffer, createdAt: number, ttl: number }>} */
-    this._screenshots = new Map(); // actionId -> PNG buffer
+    /** @type {Map<string, { data: Buffer, mimeType: string, createdAt: number, ttl: number }>} */
+    this._screenshots = new Map(); // actionId -> image buffer
 
     // Default TTL: 1 hour
     this.defaultTtl = 60 * 60 * 1000;
@@ -90,7 +103,7 @@ export class ResourceRegistry {
   /**
    * Store a screenshot for later retrieval.
    * @param {string} actionId
-   * @param {Buffer|string} screenshotData - PNG buffer or base64 string
+   * @param {Buffer|string} screenshotData - image buffer or base64 string
    */
   storeScreenshot(actionId, screenshotData) {
     const buf = Buffer.isBuffer(screenshotData)
@@ -98,6 +111,7 @@ export class ResourceRegistry {
       : Buffer.from(screenshotData, 'base64');
     this._screenshots.set(actionId, {
       data: buf,
+      mimeType: sniffImageMime(buf),
       createdAt: Date.now(),
       ttl: this.defaultTtl,
     });
@@ -176,7 +190,7 @@ export class ResourceRegistry {
           uri: `crawlforge://screenshot/${actionId}`,
           name: `Screenshot ${actionId}`,
           description: 'Screenshot from a CrawlForge browser tool',
-          mimeType: RESOURCE_MIME.screenshot,
+          mimeType: entry.mimeType,
         });
       }
     }
@@ -302,7 +316,7 @@ export class ResourceRegistry {
     return {
       contents: [{
         uri,
-        mimeType: RESOURCE_MIME.screenshot,
+        mimeType: entry.mimeType,
         blob: entry.data.toString('base64'),
       }],
     };

@@ -718,7 +718,7 @@ export class UnifiedScrapeTool {
                 `json: output did not match the requested schema — ${(result.validationErrors || []).join('; ')}`
               );
             }
-            if (result.truncated) {
+            if (result.input_truncated) {
               warnings.push(
                 `json: page text was truncated from ${result.original_length} chars before extraction; ` +
                 'fields appearing late in the page may be missing'

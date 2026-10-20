@@ -10,9 +10,12 @@ import {
   needsWordSegmentation
 } from '../../utils/languageDetection.js';
 import nlp from 'compromise';
+import Sentiment from 'sentiment';
 import { z } from 'zod';
 import { splitSentences } from './sentenceUtils.js';
 import { LANGUAGE_STOP_WORDS } from './languageStopWords.js';
+
+const sentimentAnalyzer = new Sentiment();
 
 const ContentAnalyzerSchema = z.object({
   text: z.string().min(1),
@@ -845,25 +848,20 @@ export class ContentAnalyzer {
    */
   async analyzeSentiment(text, options = {}) {
     try {
-      const doc = nlp(text);
-      
-      // Simple sentiment analysis using compromise
-      // This is basic - for production use a dedicated sentiment library
-      const positiveWords = ['good', 'great', 'excellent', 'amazing', 'wonderful', 'fantastic', 'awesome', 'perfect', 'love', 'like', 'happy', 'pleased', 'satisfied'];
-      const negativeWords = ['bad', 'terrible', 'awful', 'horrible', 'hate', 'dislike', 'angry', 'sad', 'disappointed', 'frustrated', 'annoyed', 'upset'];
-      
-      const words = doc.terms().out('array').map(w => w.toLowerCase());
-      
-      let positiveCount = 0;
-      let negativeCount = 0;
-      
-      words.forEach(word => {
-        if (positiveWords.includes(word)) positiveCount++;
-        if (negativeWords.includes(word)) negativeCount++;
-      });
+      // AFINN-165 lexicon (about 3,400 English words scored -5..+5) with
+      // negation ("not happy" scores negative). A 25-word list used to leave
+      // clearly positive text "neutral" (R25).
+      const { calculation, tokens } = sentimentAnalyzer.analyze(text);
+      // Drop hits that are function words of the detected language: German
+      // "die" is -3 in the English lexicon.
+      const foreignStopWords = LANGUAGE_STOP_WORDS[options.detectedLanguage];
+      const scores = calculation
+        .map(entry => Object.entries(entry)[0])
+        .filter(([word]) => !foreignStopWords?.has(word))
+        .map(([, score]) => score);
 
-      const totalSentimentWords = positiveCount + negativeCount;
-      
+      const totalSentimentWords = scores.length;
+
       if (totalSentimentWords === 0) {
         // The lexicon is English. Finding none of its words in German or
         // Japanese text is not evidence of neutrality, so say the measure does
@@ -879,22 +877,25 @@ export class ContentAnalyzer {
             notApplicable: 'sentiment-lexicon-is-english-only'
           };
         }
+        // No opinion words at all: neutral, but with no evidence behind it.
         return {
           polarity: 0,
           subjectivity: 0,
           label: 'neutral',
-          confidence: 0.5
+          confidence: 0
         };
       }
 
-      const polarity = (positiveCount - negativeCount) / Math.max(words.length, 1);
-      const subjectivity = totalSentimentWords / Math.max(words.length, 1);
-      
-      let label = 'neutral';
-      if (polarity > 0.1) label = 'positive';
-      else if (polarity < -0.1) label = 'negative';
+      // Net lexicon score per word, clamped to -1..1.
+      const net = scores.reduce((sum, score) => sum + score, 0);
+      const polarity = Math.max(-1, Math.min(1, net / Math.max(tokens.length, 1)));
+      const subjectivity = totalSentimentWords / Math.max(tokens.length, 1);
 
-      const confidence = Math.min(1, totalSentimentWords / 10);
+      let label = 'neutral';
+      if (polarity > 0.05) label = 'positive';
+      else if (polarity < -0.05) label = 'negative';
+
+      const confidence = Math.min(1, totalSentimentWords / 5);
 
       return {
         polarity: Math.round(polarity * 100) / 100,

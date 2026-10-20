@@ -13,6 +13,7 @@ import { preflightFetch } from '../../../utils/robotsGate.js';
 import { fetchResigned } from '../../../utils/resignedFetch.js';
 import { fetchErrorMessage } from '../../../utils/fetchError.js';
 import { htmlToMarkdown } from '../../../utils/htmlToMarkdown.js';
+import { extractMainContent, isThinMainContent, keepPageHeading } from '../../scrape/_mainContent.js';
 import { elementText } from '../../../utils/elementText.js';
 import { pageTitle } from '../../../utils/pageTitle.js';
 import { classifyContentType, unsupportedContentTypeError } from '../../extract/_fetchAndParse.js';
@@ -108,7 +109,7 @@ export async function scrapeUrl(config, options, defaultTimeout) {
       result.extracted = extractStructuredData($, { ...config.selectors, ...options.extractionSchema });
     }
 
-    result.content = generateFormats($, html, options.formats);
+    result.content = generateFormats($, html, options.formats, config.url);
     return result;
   } catch (error) {
     return {
@@ -161,7 +162,7 @@ function valueText($, el) {
     : flattenText($, $el);
 }
 
-export function generateFormats($, html, formats) {
+export function generateFormats($, html, formats, url) {
   // Script, style, noscript and template bodies are never rendered text.
   // Left in, the text format carried an entire theme-toggle script
   // (erlang.org/downloads) and CSS rules (opennet.ru) — R15, 2026-09-04.
@@ -170,7 +171,7 @@ export function generateFormats($, html, formats) {
   const content = {};
   if (formats.includes('html')) content.html = html;
   if (formats.includes('text')) content.text = flattenText($);
-  if (formats.includes('markdown')) content.markdown = buildMarkdown($);
+  if (formats.includes('markdown')) content.markdown = buildMarkdown($, html, url);
   if (formats.includes('json')) {
     content.json = {
       title: pageTitle($),
@@ -183,8 +184,15 @@ export function generateFormats($, html, formats) {
   return content;
 }
 
-function buildMarkdown($) {
-  const title = pageTitle($);
+/**
+ * The page's main content, by the same pass scrape's markdown uses: converting
+ * the whole <main> handed back Wikipedia's language list and menus (R25,
+ * 2026-10-19). A page Readability finds no article in, or only a thin
+ * fragment of, falls back to the first content container below.
+ */
+function mainContentHtml($, html, url) {
+  const main = extractMainContent(html, url);
+  if (main.html && !isThinMainContent(main.html, html)) return keepPageHeading(main.html, $);
 
   const selectors = ['article', 'main', '.content', '#content', '.post-content', '.entry-content'];
   let $body = null;
@@ -193,17 +201,31 @@ function buildMarkdown($) {
     if ($body.length > 0) break;
   }
   if (!$body || $body.length === 0) $body = $('body');
+  return $.html($body);
+}
+
+// "Web scraping - Wikipedia" names the page "Web scraping": the H1 plus a
+// separator and the site's name.
+function titleRepeatsHeading(title, heading) {
+  const t = title.toLowerCase();
+  const h = heading.toLowerCase();
+  return t === h || (t.startsWith(h) && /^\s+[-–—|·]\s+\S/.test(t.slice(h.length)));
+}
+
+function buildMarkdown($, html, url) {
+  const title = pageTitle($);
+  const mainHtml = mainContentHtml($, html, url);
 
   // Full-fidelity conversion via the shared Turndown helper (same converter
   // the unified `scrape` tool uses). The previous hand-rolled h1–h3/p/li walk
   // silently dropped any text living outside those tags (e.g. quotes in
   // <span>/<small> on quotes.toscrape.com).
-  let md = htmlToMarkdown($.html($body));
+  let md = htmlToMarkdown(mainHtml);
 
-  // C3: de-dup title — only emit the <title> heading if the page has no <h1>
-  // or if the first <h1> text differs from the <title> text (case-insensitive).
-  const firstH1 = $body.find('h1').first().text().trim();
-  const titleDuplicated = firstH1 && firstH1.toLowerCase() === title.toLowerCase();
+  // C3: de-dup title — only emit the <title> heading if the content has no
+  // <h1> or its first <h1> is not what the <title> names (case-insensitive).
+  const firstH1 = load(mainHtml)('h1').first().text().replace(/\s+/g, ' ').trim();
+  const titleDuplicated = firstH1 && titleRepeatsHeading(title, firstH1);
   if (title && !titleDuplicated) md = `# ${title}\n\n${md}`;
 
   return md.trim();

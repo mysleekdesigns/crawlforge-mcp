@@ -641,7 +641,9 @@ export class ExtractWithLlm {
       if (checked.skipped) provenance.skipped = checked.skipped;
     }
 
-    // C3: surface truncation metadata so callers know the input was clipped
+    // C3: surface truncation metadata so callers know the input was clipped.
+    // `input_truncated`, not `truncated`: a top-level `truncated: true` means
+    // "this result is a preview, read the rest with read_result" (R25).
     const result = {
       success: true,
       data: parsed,
@@ -651,7 +653,7 @@ export class ExtractWithLlm {
       usage
     };
     if (inputTruncated) {
-      result.truncated = true;
+      result.input_truncated = true;
       result.original_length = original_length;
     }
     if (fetchWarnings.length > 0) result.warnings = fetchWarnings;
