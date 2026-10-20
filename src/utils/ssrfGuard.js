@@ -36,6 +36,7 @@ import { Agent, buildConnector } from 'undici';
 import { config } from '../constants/config.js';
 import { SSRFProtection } from './ssrfProtection.js';
 import { fetchResigned } from './resignedFetch.js';
+import { withFetchCause } from './fetchError.js';
 
 // Reused only for its (well-tested) CIDR range math — no network state.
 const _ssrf = new SSRFProtection();
@@ -342,7 +343,7 @@ export async function safeFetch(url, options = {}) {
     if (isSsrfError(err)) {
       throw new Error(err.cause?.message || err.message);
     }
-    throw err;
+    throw withFetchCause(err, url);
   }
 }
 
