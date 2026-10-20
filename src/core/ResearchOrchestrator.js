@@ -2066,6 +2066,7 @@ export class ResearchOrchestrator extends EventEmitter {
         title: source.title,
         url: source.link,
         credibility: source.overallCredibility,
+        relevance: this.sourceRelevance(source),
         evidence: source.extractedContent?.substring(0, 300) + '...'
       }))
       .slice(0, 15);

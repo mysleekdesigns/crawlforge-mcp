@@ -15,6 +15,7 @@ import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import { fetchLadder, ladderErrorResult, isJsonType } from '../../utils/fetchLadder.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
+import { tooLargeForReadability } from '../scrape/_mainContent.js';
 
 // Block-level elements whose boundaries should become paragraph breaks
 const BLOCK_ELEMENTS = new Set([
@@ -66,14 +67,17 @@ export function extractBlockText($) {
  * @returns {string}
  */
 export function readabilityToMarkdown(html, pageUrl) {
-  let articleHtml;
-  try {
-    const dom = new JSDOM(html, { url: pageUrl });
-    const reader = new Readability(dom.window.document);
-    const article = reader.parse();
-    articleHtml = article ? article.content : html;
-  } catch {
-    articleHtml = html;
+  let articleHtml = html;
+  // A page too large for Readability is converted whole (R25).
+  if (!tooLargeForReadability(html)) {
+    try {
+      const dom = new JSDOM(html, { url: pageUrl });
+      const reader = new Readability(dom.window.document);
+      const article = reader.parse();
+      if (article) articleHtml = article.content;
+    } catch {
+      // the whole page
+    }
   }
   const $ = load(articleHtml);
   absoluteUrls($, pageUrl);

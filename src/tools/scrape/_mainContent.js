@@ -270,6 +270,28 @@ export function recoverDroppedTables(html, url, keptText = '') {
   }
 }
 
+// Readability's time grows faster than the page, and all of it blocks the
+// event loop: about 1 s at 25k elements (the largest Wikipedia articles), 9 s
+// at 114k (docs.python.org's whatsnew/changelog, 7.3 MB), which starved other
+// crawls past their 30 s queue budget (R25 Phase 2 follow-up). Above this many
+// elements a page skips the main-content pass and callers use the whole page.
+export const MAX_READABILITY_ELEMENTS = 50000;
+
+/**
+ * True when `html` has more elements than Readability should be given. Counts
+ * opening tags with a regex (about 5 ms on 7 MB) rather than building a DOM,
+ * which would itself cost seconds.
+ * @param {string} html
+ */
+export function tooLargeForReadability(html) {
+  const tag = /<[a-zA-Z]/g;
+  let count = 0;
+  while (tag.exec(html)) {
+    if (++count > MAX_READABILITY_ELEMENTS) return true;
+  }
+  return false;
+}
+
 /**
  * Extract a page's main content, re-attaching data tables Readability dropped.
  *
@@ -279,10 +301,12 @@ export function recoverDroppedTables(html, url, keptText = '') {
  *
  * @param {string} html - the page's HTML
  * @param {string} [url] - document URL, used as the base for relative links
- * @returns {{ html: string|null, title: string, tablesRecovered: number }} `html`
- *   is null when Readability found no article; callers decide what to fall back to.
+ * @returns {{ html: string|null, title: string, tablesRecovered: number, tooLarge?: boolean }}
+ *   `html` is null when Readability found no article, or was not run because the
+ *   page is too large (`tooLarge`); callers decide what to fall back to.
  */
 export function extractMainContent(html, url) {
+  if (tooLargeForReadability(html)) return { html: null, title: '', tablesRecovered: 0, tooLarge: true };
   let article;
   try {
     const dom = new JSDOM(html, { url });

@@ -28,7 +28,7 @@ import { setActualCost } from '../../server/requestContext.js';
 import { fenceUntrusted } from '../../utils/untrustedContent.js';
 import { fetchAndParse } from '../extract/_fetchAndParse.js';
 import { fetchErrorMessage } from '../../utils/fetchError.js';
-import { extractMainContent, isThinMainContent, keepPageHeading } from './_mainContent.js';
+import { extractMainContent, isThinMainContent, keepPageHeading, MAX_READABILITY_ELEMENTS } from './_mainContent.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 import { stripHiddenFromDom } from '../../utils/hiddenContent.js';
 import { extractBlockText } from '../basic/extractText.js';
@@ -584,6 +584,11 @@ export class UnifiedScrapeTool {
       if (mainHtml !== null) return mainHtml;
       const main = extractMainContent(html, finalUrl);
       mainHtml = main.html ?? html;
+      if (main.tooLarge) {
+        warnings.push(
+          `mainContent: the page has more than ${MAX_READABILITY_ELEMENTS.toLocaleString('en-US')} elements, too many for main-content extraction; the whole page is used instead`
+        );
+      }
       if (main.tablesRecovered > 0) {
         warnings.push(
           `mainContent: re-attached ${main.tablesRecovered} data table(s) that main-content extraction had dropped`
