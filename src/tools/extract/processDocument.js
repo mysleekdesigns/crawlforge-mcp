@@ -300,6 +300,33 @@ export class ProcessDocumentTool {
         tool: 'process_document'
       });
       if (gate.warnings.length > 0) result.warnings = gate.warnings;
+
+      // What came back is checked before the PDF parser sees it, as the url
+      // branch does: a PNG fetched as pdf_url failed as "Invalid PDF
+      // structure" (R25 3.3).
+      const response = await safeFetch(source, {
+        headers: { ...gate.headers },
+        onRedirect: gate.onRedirect,
+        signal: AbortSignal.timeout(30000)
+      });
+      if (!response.ok) {
+        if (response.status === 429 || response.status === 503) {
+          noteRetryAfter(source, response.headers.get('retry-after'));
+        }
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      const contentType = response.headers.get('content-type') || '';
+      const buffer = await this.pdfProcessor.readBodyWithSizeCap(response);
+      const kind = sniffDocumentKind(contentType, buffer, source);
+      if (kind !== 'pdf') {
+        throw new Error(
+          `${contentType.split(';')[0] || kind} content is not a PDF: sourceType "pdf_url" needs a URL that serves one. ` +
+            'process_document reads PDF, DOCX, HTML and plain text; sourceType "url" detects which.'
+        );
+      }
+      source = buffer;
+      sourceType = 'pdf_buffer';
+      gate = undefined;
     }
 
     const pdfResult = await this.pdfProcessor.processPDF({

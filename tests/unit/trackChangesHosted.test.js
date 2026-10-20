@@ -453,16 +453,16 @@ describe('email notifier (6.2)', () => {
 
 describe('one input shape (G5)', () => {
   test('the tool schema accepts hosted and name, and leaves an omitted block as before', () => {
-    const parsed = TrackChangesSchema.parse({ scheduledMonitorOptions: { hosted: true, name: 'Watch' } });
+    const parsed = TrackChangesSchema.parse({ url: 'https://example.com/', scheduledMonitorOptions: { hosted: true, name: 'Watch' } });
     assert.equal(parsed.scheduledMonitorOptions.hosted, true);
     assert.equal(parsed.scheduledMonitorOptions.name, 'Watch');
     assert.equal(parsed.scheduledMonitorOptions.enabled, true);
-    const bare = TrackChangesSchema.parse({});
+    const bare = TrackChangesSchema.parse({ url: 'https://example.com/' });
     assert.equal(bare.scheduledMonitorOptions, undefined);
     assert.equal(bare.operation, 'compare');
     assert.deepEqual(bare.trackingOptions.excludeSelectors, ['script', 'style', 'noscript', '.advertisement', '.ad', '#comments']);
     assert.equal(bare.monitoringOptions.interval, 300000);
-    assert.throws(() => TrackChangesSchema.parse({ scheduledMonitorOptions: { name: '' } }));
+    assert.throws(() => TrackChangesSchema.parse({ url: 'https://example.com/', scheduledMonitorOptions: { name: '' } }));
   });
 
   test('the shape server.js registers renders hosted, name, email and the defaults through the SDK', () => {
@@ -476,6 +476,6 @@ describe('one input shape (G5)', () => {
     assert.equal(sched.name.maxLength, 80);
     assert.ok(json.properties.notificationOptions.properties.email, 'email block reaches tools/list');
     assert.deepEqual(json.properties.trackingOptions.properties.excludeSelectors.default, ['script', 'style', 'noscript', '.advertisement', '.ad', '#comments']);
-    assert.equal(json.properties.url.description, 'The URL to track changes for (optional for list_scheduled_monitors)');
+    assert.match(json.properties.url.description, /^The URL to track changes for\. Required for create_baseline, compare/);
   });
 });

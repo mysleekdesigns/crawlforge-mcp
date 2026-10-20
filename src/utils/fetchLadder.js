@@ -24,6 +24,7 @@ import { fetchWithTimeout } from '../tools/basic/_fetch.js';
 import { plainVerdict, targetFailure } from '../tools/basic/_targetFailure.js';
 import { stealthDocumentVerdict } from './stealthVerdict.js';
 import { parseRetryAfter } from './hostRateLimiter.js';
+import { fetchErrorMessage } from './fetchError.js';
 import { setActualCost } from '../server/requestContext.js';
 import { SCRAPE_ESCALATION_SHAPE, SCRAPE_ESCALATION_CREDITS, aBrowserMightPass } from '../tools/scrape/escalation.js';
 
@@ -93,16 +94,15 @@ function retryAfterMs(response) {
 
 /**
  * fetchWithTimeout, with undici's bare "fetch failed" (DNS, refused, reset)
- * given the URL and the reason it keeps in `cause`, as the REST route's
- * FETCH_FAILED "Could not reach <url>" does.
+ * given the URL and the reason it keeps in `cause` (fetchErrorMessage).
  */
 async function fetchOnce(url, options) {
   try {
     return await fetchWithTimeout(url, options);
   } catch (error) {
-    if (!(error instanceof TypeError) || error.message !== 'fetch failed') throw error;
-    const reason = error.cause?.message || error.cause?.code;
-    throw new Error(`Could not reach ${url}${reason ? ` (${reason})` : ''}`, { cause: error });
+    const message = fetchErrorMessage(error, url);
+    if (message === error.message) throw error;
+    throw new Error(message, { cause: error });
   }
 }
 

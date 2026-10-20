@@ -11,10 +11,13 @@ import { ssrfGuard, isSsrfError } from '../../../utils/ssrfGuard.js';
 import { noteRetryAfter } from '../../../utils/hostRateLimiter.js';
 import { preflightFetch } from '../../../utils/robotsGate.js';
 import { fetchResigned } from '../../../utils/resignedFetch.js';
+import { fetchErrorMessage } from '../../../utils/fetchError.js';
 import { htmlToMarkdown } from '../../../utils/htmlToMarkdown.js';
 import { elementText } from '../../../utils/elementText.js';
 import { pageTitle } from '../../../utils/pageTitle.js';
 import { classifyContentType, unsupportedContentTypeError } from '../../extract/_fetchAndParse.js';
+import { requestContext } from '../../../server/requestContext.js';
+import { classifyError, CLASS_HINTS, FALLBACK_HINTS } from '../../../server/fallbackHints.js';
 
 /**
  * Fetch a URL with AbortController timeout (SSRF-guarded + per-host throttled).
@@ -57,7 +60,9 @@ export async function fetchUrl(url, options = {}) {
   } catch (error) {
     if (isSsrfError(error)) throw new Error(error.cause?.message || error.message);
     if (error.name === 'AbortError') throw new Error(`Request timeout after ${timeout}ms`);
-    throw error;
+    const message = fetchErrorMessage(error, url);
+    if (message === error.message) throw error;
+    throw new Error(message, { cause: error });
   } finally {
     // Cleared only after the body read finishes (or the fetch itself fails),
     // so the abort timer keeps protecting against a trickling body, not just
@@ -110,11 +115,23 @@ export async function scrapeUrl(config, options, defaultTimeout) {
       success: false,
       url: config.url,
       error: error.message,
+      next_step: failedEntryHint(error.message),
       timestamp: Date.now(),
       executionTime: Date.now() - startTime,
       metadata: config.metadata || {}
     };
   }
+}
+
+/**
+ * The next step for one failed URL (R25 3.1): its error class's hint, else
+ * scrape's. A batch with failed URLs still succeeds, so withAuth never hints
+ * it. Classified from the message alone: the invocation's preflight-refusal
+ * flag belongs to the whole batch, and would give every URL one URL's refusal.
+ */
+export function failedEntryHint(message) {
+  const c = requestContext.exit(() => classifyError(null, message));
+  return c ? CLASS_HINTS[c.cls]('batch_scrape', c.params) : FALLBACK_HINTS.scrape;
 }
 
 function extractStructuredData($, selectors) {

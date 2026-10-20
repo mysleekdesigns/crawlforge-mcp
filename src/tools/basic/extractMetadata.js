@@ -7,6 +7,7 @@
 
 import { load } from 'cheerio';
 import { fetchWithTimeout } from './_fetch.js';
+import { fetchErrorMessage } from '../../utils/fetchError.js';
 import { parseJsonLd, filterJsonLdByType } from '../../utils/jsonLd.js';
 
 /**
@@ -161,7 +162,7 @@ export async function extractMetadataHandler({ url, user_agent, respect_robots, 
     };
   } catch (error) {
     return {
-      content: [{ type: 'text', text: `Failed to extract metadata: ${error.message}` }],
+      content: [{ type: 'text', text: `Failed to extract metadata: ${fetchErrorMessage(error, url)}` }],
       isError: true
     };
   }

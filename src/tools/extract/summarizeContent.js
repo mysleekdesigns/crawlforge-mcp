@@ -211,11 +211,15 @@ export class SummarizeContentTool {
       return result;
 
     } catch (error) {
+      // A ZodError's message is its issue array as JSON; one line per issue reads better.
+      const reason = error instanceof z.ZodError
+        ? `Invalid input - ${error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')}`
+        : error.message;
       return {
         originalText: params.text?.substring(0, 100) || 'unknown',
         summarizedAt: new Date().toISOString(),
         success: false,
-        error: `Content summarization failed: ${error.message}`,
+        error: `Content summarization failed: ${reason}`,
         processingTime: Date.now() - startTime,
         summary: {
           text: '',

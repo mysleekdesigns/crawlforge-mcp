@@ -51,6 +51,17 @@ const SELECTOR_WAIT_STATES = new Set(['attached', 'detached', 'visible', 'hidden
 
 const withoutHash = (url) => url.split('#')[0];
 
+/**
+ * A failed action's message, naming its selector. Playwright names it only in
+ * the "Call log:", which is stripped before the model reads the error (R25 3.2).
+ */
+function actionErrorMessage(action, error) {
+  const firstLine = String(error.message).split('\n')[0];
+  return action.selector && !firstLine.includes(action.selector)
+    ? `${action.type} on selector "${action.selector}": ${error.message}`
+    : error.message;
+}
+
 // Action schemas
 const BaseActionSchema = z.object({
   type: z.string(),
@@ -854,6 +865,11 @@ export class ActionExecutor extends EventEmitter {
           action.timeout) {
         timeout = Math.max(this.defaultTimeout, action.timeout + 5000);
       }
+      // A pause before a selector/text wait (executeWaitAction) runs on top of
+      // that wait's deadline.
+      if (action.type === 'wait' && (action.selector || action.text)) {
+        timeout += action.duration || action.milliseconds || 0;
+      }
 
       // Execute based on action type. Playwright owns the real deadline (every
       // call below is given `timeout`), so this race is only a backstop for a
@@ -902,7 +918,7 @@ export class ActionExecutor extends EventEmitter {
         id: actionId,
         type: action.type,
         success: false,
-        error: error.message,
+        error: actionErrorMessage(action, error),
         // Only when the gate refused (a `navigate` to a URL it would not
         // load), so the chain can tell an answer from a fault.
         ...(refusalCode ? { errorCode: refusalCode } : {}),
@@ -1094,14 +1110,17 @@ export class ActionExecutor extends EventEmitter {
       (!action.selector && !action.text ? action.timeout : undefined);
     if (waitTime) {
       await this.delay(waitTime);
-      return { waited: waitTime };
+      // A pause given with a selector or text waits for that too, after the
+      // pause; the selector and condition used to be dropped (R25 3.3).
+      if (!action.selector && !action.text) return { waited: waitTime };
     }
+    const waited = waitTime ? { waited: waitTime } : {};
 
     const timeout = this.actionTimeout(action);
 
     if (action.selector) {
       await this.waitForCondition(page, action.selector, action.condition, timeout);
-      return { selector: action.selector, condition: action.condition };
+      return { ...waited, selector: action.selector, condition: action.condition };
     }
 
     if (action.text) {
@@ -1110,7 +1129,7 @@ export class ActionExecutor extends EventEmitter {
         action.text,
         { timeout }
       );
-      return { text: action.text };
+      return { ...waited, text: action.text };
     }
 
     throw new Error('Wait action requires duration/milliseconds/timeout, selector, or text');

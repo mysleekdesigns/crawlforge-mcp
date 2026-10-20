@@ -10,6 +10,7 @@ import { load } from 'cheerio';
 import { LLMManager } from '../../core/llm/LLMManager.js';
 import { CRAWLFORGE_USER_AGENT } from '../../utils/fetchIdentity.js';
 import { fetchAndParse, flattenBodyText } from './_fetchAndParse.js';
+import { fetchErrorMessage } from '../../utils/fetchError.js';
 import { extractMainContent } from '../scrape/_mainContent.js';
 import { verifyNumericProvenance } from '../../utils/provenance.js';
 import { validateAgainstSchema, validateFieldsAgainstSchema } from '../../utils/schemaValidate.js';
@@ -532,6 +533,7 @@ export class ExtractStructuredTool {
       };
 
     } catch (error) {
+      const message = fetchErrorMessage(error, params.url);
       return {
         success: false,
         url: params.url || 'unknown',
@@ -540,8 +542,8 @@ export class ExtractStructuredTool {
         confidence: 0,
         schema_used: params.schema || {},
         processingTime: Date.now() - startTime,
-        error: `Structured extraction failed: ${error.message}`,
-        validation: { valid: false, errors: [error.message] }
+        error: `Structured extraction failed: ${message}`,
+        validation: { valid: false, errors: [message] }
       };
     }
   }

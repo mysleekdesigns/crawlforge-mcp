@@ -92,10 +92,22 @@ export const CLASS_HINTS = Object.freeze({
     'The URL points at a private or internal address (localhost, a private network, cloud metadata), which every CrawlForge tool refuses. Do not retry it with this or any other tool; use a public URL.',
   not_found: () =>
     'The URL does not exist (HTTP 404, or the host does not resolve). Check it for typos, or find the right one with map_site on the site or search_web. Retrying it, or switching to stealth_mode, will not help.',
+  model_not_pulled: () =>
+    'The named Ollama model is not installed: pull it (the error gives the command), or call again without `model` so an installed one is picked; list_ollama_models lists them.',
+  refused: () =>
+    'The host refused the connection: nothing is listening on that port, or the server is down. Check the URL and port; retrying right away, or switching to stealth_mode or another tool, will not help.',
   timeout: () =>
     'The request timed out. Retry once with a longer timeout or less work (fewer pages, URLs or actions); if it times out again, the site is too slow from here - do not keep retrying.',
   validation: (tool, params) =>
-    `The input was rejected: fix ${params.length ? params.join(', ') : 'the parameter the error names'} as the error describes and call ${tool} again. Do not switch tools for this.`
+    `The input was rejected: fix ${params.length ? params.join(', ') : 'the parameter the error names'} as the error describes and call ${tool} again. Do not switch tools for this.`,
+  // R25 3.2/3.3: these were told the site was slow (a click) or to escalate (extract_text).
+  selector: (tool) =>
+    'Nothing on the page matched the selector (absent, hidden, or not actionable in time) - a selector problem, not a slow site, so do not retry with a longer timeout. ' +
+    (tool === 'browser_session'
+      ? 'Take another snapshot and act on its refs: navigation invalidates them.'
+      : 'Check the selectors against scrape formats:["html"] output, or use extract_structured when the markup varies.'),
+  unknown_context: () =>
+    'That contextId is not open in this server process (never created, already cleaned up, or lost on a restart). Run stealth_mode operation:"create_context" first and pass the contextId it returns.'
 });
 
 /** The strings that describe what went wrong: the error fields, or the whole text. */
@@ -133,14 +145,28 @@ export function classifyError(parsed, text) {
   if (codes.includes('ROBOTS_DISALLOWED') || refusal === 'ROBOTS_DISALLOWED' || /robots\.txt on \S+ disallows/.test(msg)) return { cls: 'robots' };
   if (codes.includes('HOST_BLOCKED') || refusal === 'HOST_BLOCKED' || /permanent blocklist/.test(msg)) return { cls: 'host_blocked' };
   if (status === 404 || /\bHTTP 404\b|\b404 Not Found\b|\bENOTFOUND\b/i.test(msg)) return { cls: 'not_found' };
+  // "Could not reach <url> (connect ECONNREFUSED 1.2.3.4:9)": after ssrf, so a refused private address stays ssrf.
+  if (/\bECONNREFUSED\b/.test(msg)) return { cls: 'refused' };
+  // "url is required for scrape operation" (stealth_mode, localization): the name is the parameter.
+  const missing = msg.match(/\b([a-z][A-Za-z_]*) is required for (?:\w+ )?operation\b/);
   // Before timeout: a schema message may mention a `timeout` parameter.
-  if (/ZodError|"code":\s*"(?:invalid_[a-z_]+|too_small|too_big|unrecognized_keys|custom)"|\bInvalid (?:input|option|enum value|arguments?)\b|\bvalidation (?:failed|error)\b|\bparameter is required\b/i.test(msg)) {
-    return { cls: 'validation', params: zodPaths(msg) };
+  if (missing || /ZodError|"code":\s*"(?:invalid_[a-z_]+|too_small|too_big|unrecognized_keys|custom)"|\bInvalid (?:input|option|enum value|arguments?)\b|\bvalidation (?:failed|error)\b|\bparameter is required\b/i.test(msg)) {
+    return { cls: 'validation', params: missing ? [missing[1]] : zodPaths(msg) };
   }
-  // A wait for a selector that never appeared is a selector problem, which the
-  // tool's own hint covers; a longer timeout would not help.
-  if (/\btime[ds]? ?out\b|\bTimeout \d+ ?ms exceeded|\bETIMEDOUT\b|aborted due to timeout/i.test(msg) &&
-      !/waiting for (?:locator|selector)|waitFor/i.test(msg)) return { cls: 'timeout' };
+  if (/\bContext not found\b/.test(msg)) return { cls: 'unknown_context' };
+  // extract_with_llm: 'Ollama model "x" is not pulled. Run: "ollama pull x"' - Ollama is up, the model is missing.
+  if (/\bOllama model "[^"]*" is not pulled\b/.test(msg)) return { cls: 'model_not_pulled' };
+  const timedOut = /\btime[ds]? ?out\b|\bTimeout \d+ ?ms exceeded|\bETIMEDOUT\b|aborted due to timeout/i.test(msg);
+  // A selector that matched nothing is a selector problem, not a slow site.
+  // Playwright's "Call log: waiting for locator(...)" is stripped before this
+  // runs (errorText.js), but the API prefix of an element wait stays:
+  // "locator.click: Timeout 4000ms exceeded."
+  if (/\bNo elements? (?:found|matched) (?:for )?selector\b/i.test(msg) ||
+      (timedOut && /\b(?:locator|elementHandle)\.\w+:|\bwaitForSelector\b|waiting for (?:locator|selector)/i.test(msg))) {
+    return { cls: 'selector' };
+  }
+  // Any other wait (page.waitForFunction for a text wait) is the tool hint's.
+  if (timedOut && !/waiting for (?:locator|selector)|waitFor/i.test(msg)) return { cls: 'timeout' };
   return null;
 }
 

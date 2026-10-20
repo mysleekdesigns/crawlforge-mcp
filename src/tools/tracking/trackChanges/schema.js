@@ -16,7 +16,7 @@ import { z } from 'zod';
  * `.default({})` would not.
  */
 export const TRACK_CHANGES_INPUT_SHAPE = {
-  url: z.string().url().optional().describe("The URL to track changes for (optional for list_scheduled_monitors)"),
+  url: z.string().url().optional().describe("The URL to track changes for. Required for create_baseline, compare, monitor, get_history and create_scheduled_monitor; stop_scheduled_monitor takes it or scheduledMonitorOptions.monitorId; the other operations run without one"),
   operation: z.enum([
     'create_baseline',
     'compare',
@@ -146,8 +146,22 @@ export const TRACK_CHANGES_INPUT_SHAPE = {
   }).optional().describe("Dashboard display options")
 };
 
+// The operations that act on one page. The rest are global (list, dashboard,
+// templates) or fall back to every tracked URL when url is omitted (get_stats,
+// export_history, create_alert_rule, generate_trend_report);
+// stop_scheduled_monitor also accepts a monitorId and checks that itself.
+const URL_REQUIRED_OPERATIONS = new Set(['create_baseline', 'compare', 'monitor', 'get_history', 'create_scheduled_monitor']);
+
+// The refinement lives here, not in the registered shape: server.js registers
+// TRACK_CHANGES_INPUT_SHAPE as a raw shape, which cannot carry one, so
+// execute() enforces it. compare without a url used to fail with "Failed to
+// parse URL from undefined" plus a create_baseline hint (R25 3.3).
 export const TrackChangesSchema = z.object({
   ...TRACK_CHANGES_INPUT_SHAPE,
   respect_robots: z.boolean().optional(),
   user_agent: z.string().optional()
+}).superRefine((params, ctx) => {
+  if (!params.url && URL_REQUIRED_OPERATIONS.has(params.operation)) {
+    ctx.addIssue({ code: 'custom', path: ['url'], message: `required for operation "${params.operation}"` });
+  }
 });

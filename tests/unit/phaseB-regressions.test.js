@@ -521,14 +521,14 @@ describe('B2.2 mapSite generateStatistics min:null', () => {
 // ---------------------------------------------------------------------------
 
 describe('B2.3 searxng totalResults is a Number', () => {
-  // Verify via source inspection: searchInformation.totalResults is set to rawResults.length
-  // which is the .length of an Array — always a Number.
-  test('searchViaSearxng returns searchInformation.totalResults as a Number (source check)', () => {
+  // Verify via source inspection: searchInformation.totalResults is SearXNG's
+  // own number_of_results (a Number) or null when it reports none (R25 3.3) —
+  // never a string, and never the page's result count passed off as a total.
+  test('searchViaSearxng returns searchInformation.totalResults as a Number or null (source check)', () => {
     const src = readFileSync(join(repoRoot, 'src/tools/search/providers/searxng.js'), 'utf8');
-    // Must set totalResults from array length (e.g. rawResults.length) — a Number
     assert.ok(
-      /totalResults:\s*rawResults\.length/.test(src),
-      'totalResults must be set to rawResults.length (a Number, not a string)'
+      /totalResults:\s*data\.number_of_results \|\| null/.test(src),
+      'totalResults must be number_of_results (a Number) or null'
     );
   });
 

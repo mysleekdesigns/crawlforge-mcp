@@ -529,8 +529,10 @@ export class ExtractWithLlm {
       }));
     } catch (llmErr) {
       if (signal?.aborted) return { success: false, error: `LLM call aborted: ${llmErr.message}` };
-      // D1.3: If provider is 'auto'/'ollama' and it failed, try MCP sampling as final fallback
-      if (providerParam === 'auto' || providerParam === 'ollama') {
+      // D1.3: If provider is 'auto'/'ollama' and it failed, try MCP sampling as final fallback.
+      // Not when the caller named a model: sampling would answer with a
+      // different one, silently (R25 3.3).
+      if ((providerParam === 'auto' || providerParam === 'ollama') && !modelParam) {
         try {
           const SamplingClient = await getSamplingClient();
           const samplingClient = new SamplingClient({ mcpServer: this._mcpServer });

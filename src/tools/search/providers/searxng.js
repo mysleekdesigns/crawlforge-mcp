@@ -94,6 +94,7 @@ export async function searchViaSearxng(opts = {}) {
   url.searchParams.set('safesearch', String(safesearch));
   url.searchParams.set('language', language);
 
+  const startedAt = Date.now();
   let response;
   try {
     response = await fetch(url.toString(), {
@@ -104,7 +105,10 @@ export async function searchViaSearxng(opts = {}) {
     if (err.name === 'TimeoutError' || err.name === 'AbortError') {
       throw new Error('SearXNG request failed: timed out after 15000ms');
     }
-    throw new Error(`SearXNG request failed: ${err.message}`);
+    throw new Error(
+      `SearXNG is not reachable at ${instanceUrl}: ${err.cause?.code || err.message}.\n` +
+        'Next step: start the instance (for the Docker container: "docker start searxng"), or call search_web without provider:"searxng".'
+    );
   }
 
   if (!response.ok) {
@@ -121,13 +125,26 @@ export async function searchViaSearxng(opts = {}) {
   }
 
   const rawResults = Array.isArray(data.results) ? data.results : [];
+
+  // Every engine failing still comes back HTTP 200 with no results; that is
+  // not an empty search (R25 3.3). Entries are [engine, reason] pairs.
+  const unresponsive = Array.isArray(data.unresponsive_engines) ? data.unresponsive_engines : [];
+  if (rawResults.length === 0 && unresponsive.length > 0) {
+    const engines = unresponsive.map((e) => (Array.isArray(e) ? `${e[0]} (${e[1]})` : String(e))).join(', ');
+    throw new Error(
+      `SearXNG returned no results because its engines failed: ${engines}.\n` +
+        'Next step: retry in a minute, or call search_web without provider:"searxng".'
+    );
+  }
+
   const items = rawResults.slice(0, limit).map(normalizeSearxngResult);
 
   return {
     items,
     searchInformation: {
-      totalResults: rawResults.length,
-      searchTime: 0
+      // SearXNG reports 0 when no engine gave a count; that is unknown, not zero.
+      totalResults: data.number_of_results || null,
+      searchTime: (Date.now() - startedAt) / 1000
     },
     queries: {},
     context: {}

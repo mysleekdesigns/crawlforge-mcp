@@ -217,8 +217,8 @@ describe('error-class hints', () => {
   test('a timeout is told to retry once with a longer timeout', () => {
     assert.equal(hintOf('fetch_url', textError('Failed to fetch URL: Request timeout after 1500ms')), CLASS_HINTS.timeout());
     assert.equal(classifyError(null, 'page.goto: Timeout 30000ms exceeded.').cls, 'timeout');
-    // A selector that never appeared is a selector problem: the tool hint stands.
-    assert.equal(classifyError({ error: 'Action failed: locator.waitFor: Timeout 1500ms exceeded.' }, ''), null);
+    // A selector that never appeared is a selector problem, not a slow site (R25 3.2).
+    assert.equal(classifyError({ error: 'Action failed: locator.waitFor: Timeout 1500ms exceeded.' }, '').cls, 'selector');
   });
 
   test('a validation error names the parameter and says not to switch tools', () => {
@@ -241,7 +241,8 @@ describe('error-class hints', () => {
   });
 
   test('every class hint names only real tools or parameters', () => {
-    const named = new Set([...TOOLS, 'respect_robots']);
+    // create_context: the stealth_mode operation the unknown_context hint names.
+    const named = new Set([...TOOLS, 'respect_robots', 'create_context']);
     for (const make of Object.values(CLASS_HINTS)) {
       for (const tool of ['scrape', 'search_web']) {
         for (const ref of make(tool, []).match(/\b[a-z]+(?:_[a-z]+)+\b/g) ?? []) {
