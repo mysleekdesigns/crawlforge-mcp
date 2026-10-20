@@ -5,6 +5,27 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Fixed
+- **`agent` can cite the exact link of an item.** The synthesis prompt carried
+  page text only, so the answer could name the current Hacker News top story
+  but not link it. Each source now lists up to eight of its links, as anchor
+  text and URL: those whose anchor text (three words or more) is in the
+  excerpt the model reads, the ones naming a task term first.
+- **`agent`'s live-page check no longer accepts an invented URL on the live
+  host.** A cited URL that no source supports is removed before the check
+  looks for the host. An answer that names an item the live page links now
+  counts as coming from it, so a correct answer copied from the page without
+  a URL is no longer marked degraded.
+- **`agent` keeps `reason` when its result is over the inline limit.** A
+  degraded run's reason is longer than the 200 characters kept without
+  asking, so a stored result read `degraded: true` with no reason.
+- **`deep_research` no longer reports non-statements as findings.** It now
+  drops questions (FAQ headings), opening hooks addressed to the reader ("If
+  you've ever…", "What you are experiencing…", "Here's how…") and
+  scoring-rubric weights ("Detection technology (…): 25%"). Page text cut at
+  5,000 characters now ends at the last sentence end inside the limit, so the
+  last sentence is no longer cut off mid-word ("…can range from no bot pro").
+
 ## [6.22.2] - 2026-10-19
 
 ### Fixed

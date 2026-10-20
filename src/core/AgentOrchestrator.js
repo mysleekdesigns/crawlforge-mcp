@@ -161,18 +161,52 @@ export function unverifiedUrls(answer, citable, sourceText = '') {
   });
 }
 
-/** Absolute http(s) hrefs of the links on a parsed page. */
+/** The http(s) links on a parsed page: absolute href and anchor text. */
 function pageLinks($, baseUrl) {
   const links = [];
   $('a[href]').each((_, el) => {
     try {
       const url = new URL($(el).attr('href'), baseUrl);
-      if (url.protocol === 'http:' || url.protocol === 'https:') links.push(url.href);
+      if (url.protocol === 'http:' || url.protocol === 'https:') {
+        links.push({ url: url.href, text: $(el).text().replace(/\s+/g, ' ').trim() });
+      }
     } catch {
       // An unparsable href cites nothing.
     }
   });
   return links;
+}
+
+/** Most links one source lists under its text in the synthesis prompt. */
+const SOURCE_LINKS_MAX = 8;
+
+/**
+ * The links a source lists under its text in the synthesis prompt. Page text
+ * carries no link targets: the model could name the current HN top story but
+ * not link it, and cited an item URL from memory (R25 re-check, 2026-10-19).
+ * Listed: links whose anchor text is printed in the excerpt the model reads
+ * and is long enough to name something (three words: a title, not "97
+ * comments" or "next"), links to the page itself left out. Those whose anchor
+ * text carries one of the task's terms come first, then page order.
+ *
+ * @param {{url: string, text: string}[]} links
+ * @param {string} excerpt the source text the prompt carries
+ * @param {string} pageUrl
+ * @param {string[]} terms the task's terms, lowercase
+ * @returns {{url: string, text: string}[]}
+ */
+export function linksForSynthesis(links, excerpt, pageUrl, terms) {
+  const self = citationKey(pageUrl);
+  const seen = new Set();
+  const listed = (links || []).filter(({ url, text }) => {
+    const key = citationKey(url);
+    if (!key || key === self || seen.has(key)) return false;
+    if (text.split(' ').length < 3 || !excerpt.includes(text)) return false;
+    seen.add(key);
+    return true;
+  });
+  const onTask = link => terms.some(t => link.text.toLowerCase().includes(t));
+  return [...listed.filter(onTask), ...listed.filter(l => !onTask(l))].slice(0, SOURCE_LINKS_MAX);
 }
 
 /**
@@ -665,6 +699,8 @@ export class AgentOrchestrator {
     // URLs an answer may cite: every evidence page's URL (requested and
     // final) and the links on it.
     const citable = [];
+    /** evidence url -> the links on that page, for the synthesis prompt. */
+    const linksOf = new Map();
     let urlsFetched = 0;
     let step = 0;
     const warnings = [];
@@ -700,7 +736,9 @@ export class AgentOrchestrator {
             text: truncate(plain.textContent),
             step
           });
-          citable.push(url, plain.finalUrl, ...pageLinks(plain.$, plain.finalUrl));
+          const links = pageLinks(plain.$, plain.finalUrl);
+          linksOf.set(plain.finalUrl, links);
+          citable.push(url, plain.finalUrl, ...links.map(l => l.url));
           continue;
         }
         // A real page that is simply off-topic: nothing to retry.
@@ -745,7 +783,9 @@ export class AgentOrchestrator {
               via: 'stealth',
               step
             });
-            citable.push(url, stealth.url || url, ...pageLinks(load(stealth.html || ''), stealth.url || url));
+            const links = pageLinks(load(stealth.html || ''), stealth.url || url);
+            linksOf.set(stealth.url || url, links);
+            citable.push(url, stealth.url || url, ...links.map(l => l.url));
             continue;
           }
           warnings.push(`stealth retry of ${url} ${rendered.success ? 'returned a page unrelated to the task' : `did not get the page either${rendered.blocked?.vendor ? ` (${rendered.blocked.vendor})` : ''}`}`);
@@ -782,7 +822,12 @@ export class AgentOrchestrator {
     const sliceTerms = promptTerms.map(t => t.replace(/[^\p{L}\p{N}]/gu, ''))
       .filter(t => t.length > 3 && !/^(what|which|when|where|does|that|this|with|from|have|about)$/.test(t));
     const combinedText = orderedEvidence
-      .map(e => `--- Source: ${e.url}${e.snippet ? ' (search-result snippet; the page itself could not be fetched)' : ''} ---\n${sliceForSynthesis(e.text, perSourceCap, sliceTerms)}`)
+      .map(e => {
+        const excerpt = sliceForSynthesis(e.text, perSourceCap, sliceTerms);
+        const links = linksForSynthesis(linksOf.get(e.url), excerpt, e.url, sliceTerms);
+        return `--- Source: ${e.url}${e.snippet ? ' (search-result snippet; the page itself could not be fetched)' : ''} ---\n${excerpt}` +
+          (links.length > 0 ? `\nLinks on this page:\n${links.map(l => `- ${l.text}: ${l.url}`).join('\n')}` : '');
+      })
       .join('\n\n');
 
     if (!combinedText.trim()) {
@@ -880,7 +925,7 @@ export class AgentOrchestrator {
             : '') +
         `- Answer ONLY from the provided sources; do not use outside knowledge.\n` +
         `- Read the sources carefully before concluding anything is missing from them.\n` +
-        `- Cite the exact source URL(s) you used.\n` +
+        `- Cite the exact URL(s) you used: a source URL, or the URL an item has under "Links on this page".\n` +
         `- If, after careful reading, the sources genuinely do not contain the answer, say so explicitly.\n` +
         `- NEVER invent or guess a URL; cite only URLs that appear in the sources above.\n\n` +
         `Provide a clear, concise answer.`;
@@ -971,14 +1016,22 @@ export class AgentOrchestrator {
       // it. R25 (2026-10-19) answered "not stated" over a promoted Wikipedia
       // Main Page, and the HN question from thehackernews.com, both with
       // degraded:false. The answer counts as the live page's when it cites
-      // that host or states a value (version, date, number) the page shows.
+      // that host, states a value (version, date, number) the page shows, or
+      // names an item the page links (anchor text of three words or more:
+      // the HN title "DeepSeek just open-sourced its inference engine",
+      // 2026-10-20). An invented URL on that host is no citation of it: it is
+      // taken out before the host is looked for.
       if (currentState && promotedOrigin && !degraded) {
         const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return null; } };
         const liveHost = host(promotedOrigin);
-        const liveText = evidence.filter(e => host(e.url) === liveHost).map(e => e.text || '').join('\n');
+        const livePages = evidence.filter(e => host(e.url) === liveHost);
+        const liveText = livePages.map(e => e.text || '').join('\n');
         // unverifiedValues against an empty text lists every value the answer states.
         const stated = unverifiedValues(answer, '');
-        const fromLivePage = answer.toLowerCase().includes(liveHost) ||
+        const cited = unverifiedLinks.reduce((text, url) => text.split(url).join(' '), answer).toLowerCase();
+        const namesLiveItem = livePages.some(e => (linksOf.get(e.url) || [])
+          .some(l => l.text.split(' ').length >= 3 && cited.includes(l.text.toLowerCase())));
+        const fromLivePage = cited.includes(liveHost) || namesLiveItem ||
           (liveText !== '' && unverifiedValues(answer, liveText).length < stated.length);
         if (!fromLivePage) {
           degraded = true;

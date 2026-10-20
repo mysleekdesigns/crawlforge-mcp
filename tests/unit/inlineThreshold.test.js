@@ -410,3 +410,21 @@ test('browser_session read keeps blocked inline over the limit', () => {
   const out = applyInlineThreshold('browser_session', result, { operation: 'read', max_inline_chars: 1000 }, { store, env });
   assert.deepEqual(out.result.blocked, { vendor: 'datadome' });
 });
+
+test('agent: a degraded run keeps its reason inline when the result is stored', () => {
+  // R25 follow-up (2026-10-20): the live-page reason runs ~230 characters, past
+  // the 200 kept unasked, and the result read degraded:true with no reason.
+  const reason = 'The answer does not come from the live page https://news.ycombinator.com/: it neither cites that page nor states a value shown on it. It may describe a dated or third-party source rather than the current state.';
+  assert.ok(reason.length > 200);
+  const result = {
+    success: true,
+    answer: 'The top story is "X".',
+    degraded: true,
+    reason,
+    evidence: [{ url: 'https://news.ycombinator.com/', text: bigMarkdown.repeat(5) }],
+    provenance: { checked: true, unverified: [] }
+  };
+  const { result: shaped, stored } = applyInlineThreshold('agent', result, {}, { store, env });
+  assert.equal(stored, true);
+  assert.equal(shaped.reason, reason);
+});

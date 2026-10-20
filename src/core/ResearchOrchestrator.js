@@ -121,6 +121,25 @@ export function claimStatements(point) {
 }
 
 /**
+ * The first `max` characters of a page's text, ended at the last sentence or
+ * line end inside them. A plain cut leaves the last sentence half written, and
+ * the summarizer took it as a key point: "…the same hostname can range from no
+ * bot pro" was a finding in the R25 re-check (2026-10-19). Cut as before when
+ * no end falls in the second half.
+ *
+ * @param {string} text
+ * @param {number} max
+ * @returns {string}
+ */
+export function cutAtSentence(text, max) {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const ends = [...cut.matchAll(/[.!?]["'\u201D\u2019)]*(?=\s)|\n/g)];
+  const end = ends.length > 0 ? ends[ends.length - 1].index + ends[ends.length - 1][0].length : 0;
+  return end > max / 2 ? cut.slice(0, end).trimEnd() : cut;
+}
+
+/**
  * Page text for the plain-fetch fallback, one line per block element. The
  * regex tag-strip it replaces ran every block together on one line.
  *
@@ -896,7 +915,7 @@ export class ResearchOrchestrator extends EventEmitter {
                   const textContent = fallbackPageText(html);
                   if (textContent.length > 50) {
                     contentData = {
-                      content: textContent.slice(0, 5000),
+                      content: cutAtSentence(textContent, 5000),
                       metadata: { title: source.title || '' },
                       structuredData: {},
                       fallback: true
@@ -1425,7 +1444,7 @@ export class ResearchOrchestrator extends EventEmitter {
       try {
         if (!source.extractedContent) continue;
         
-        const content = source.extractedContent.substring(0, 5000); // Limit content length
+        const content = cutAtSentence(source.extractedContent, 5000); // Limit content length
         
         // Use summarization to extract key points
         const summary = await this.summarizeTool.execute({
