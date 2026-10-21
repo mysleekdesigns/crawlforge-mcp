@@ -283,7 +283,7 @@ describe('scrape_with_actions and browser_session (ActionExecutor)', { skip: !br
     });
   });
 
-  test('a navigate action on a page the caller keeps leaves that page empty when refused', async () => {
+  test('a navigate action on a page the caller keeps puts that page back when refused', async () => {
     await withExecutor(async (executor) => {
       const tab = await browser.newPage();
       try {
@@ -295,8 +295,10 @@ describe('scrape_with_actions and browser_session (ActionExecutor)', { skip: !br
         );
         assert.equal(result.success, false);
         assert.match(result.error, /redirects to .*\/private/);
-        // The session outlives the call; what it holds must not be the refused page.
-        assert.equal(tab.url(), 'about:blank');
+        // The session outlives the call; what it holds must not be the refused
+        // page, and since live sweep 3.3 it is the page it was on, not about:blank.
+        assert.equal(new URL(tab.url()).pathname, '/public');
+        assert.match(result.error, /returned to .*\/public/);
         assert.ok(!(await tab.content()).includes(PRIVATE_TEXT));
       } finally {
         await tab.close();

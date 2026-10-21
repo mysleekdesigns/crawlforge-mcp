@@ -13,6 +13,7 @@ import { flattenText } from 'crawlforge-extractors';
 import ExtractContentTool from '../extract/extractContent.js';
 import { stealthDocumentVerdict } from '../../utils/stealthVerdict.js';
 import { elementText } from '../../utils/elementText.js';
+import { parseSelectorSpec } from '../basic/scrapeStructured.js';
 import { pageTitle } from '../../utils/pageTitle.js';
 import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 import { resolveStealthEngine, redactProxyEntry, assertProxyEngineAllowed } from '../../core/StealthBrowserManager.js';
@@ -779,7 +780,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
         }
 
         if (params.extractionOptions?.selectors) {
-          state.content.extracted = this.extractWithSelectors($, params.extractionOptions.selectors);
+          state.content.extracted = this.extractWithSelectors($, params.extractionOptions.selectors, stateData.formValues);
         }
 
         states.push(state);
@@ -827,7 +828,7 @@ export class ScrapeWithActionsTool extends EventEmitter {
         $('script, style, noscript, template').remove();
         extractResult.content = extractResult.content || {};
         if (params.extractionOptions?.selectors) {
-          extractResult.content.extracted = this.extractWithSelectors($, params.extractionOptions.selectors);
+          extractResult.content.extracted = this.extractWithSelectors($, params.extractionOptions.selectors, chainResult.finalFormValues);
         }
         // Readability picks a "main" block and drops form controls; on a small
         // post-action page (a demo form, a results panel) that leaves the
@@ -945,10 +946,29 @@ export class ScrapeWithActionsTool extends EventEmitter {
     return links;
   }
 
-  extractWithSelectors($, selectors) {
+  /**
+   * Run `extractionOptions.selectors` over a captured page. A selector may end
+   * in `@attr` to read that attribute instead of the text, as in
+   * scrape_structured. `@value` on an input, textarea or select reads what the
+   * control holds now — typed or selected — from `formValues` (captured from
+   * the live page, in document order); every other `@attr` reads the
+   * attribute as the page's HTML has it.
+   */
+  extractWithSelectors($, selectors, formValues = []) {
     const extracted = {};
+    const controls = $('input, textarea, select').toArray();
 
-    for (const [key, selector] of Object.entries(selectors)) {
+    const read = (el, attribute) => {
+      if (!attribute) return elementText($, el);
+      if (attribute === 'value') {
+        const live = formValues[controls.indexOf(el)];
+        if (live?.tag === el.name) return live.value;
+      }
+      return $(el).attr(attribute) ?? null;
+    };
+
+    for (const [key, raw] of Object.entries(selectors)) {
+      const { selector, attribute } = parseSelectorSpec(raw);
       try {
         const elements = $(selector);
         
@@ -958,12 +978,13 @@ export class ScrapeWithActionsTool extends EventEmitter {
         if (elements.length === 0) {
           extracted[key] = null;
         } else if (elements.length === 1) {
-          extracted[key] = elementText($, elements.get(0));
+          extracted[key] = read(elements.get(0), attribute);
         } else {
-          extracted[key] = elements.map((_, el) => elementText($, el)).get();
+          // Not .map().get(), which drops the nulls an absent attribute gives.
+          extracted[key] = elements.toArray().map((el) => read(el, attribute));
         }
       } catch (error) {
-        extracted[key] = { error: `Invalid selector: ${selector}` };
+        extracted[key] = { error: `Invalid selector: ${raw}` };
       }
     }
 

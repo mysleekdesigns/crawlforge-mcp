@@ -3032,7 +3032,8 @@ export class StealthBrowserManager {
       const response = await safeGoto(page, url, { waitUntil: 'domcontentloaded', onRedirect });
       const landedUrl = page.url();
       if (response && status === null) status = response.status();
-      if (wait_for > 0) await page.waitForTimeout(wait_for);
+      const waitedMs = wait_for > 0 ? wait_for : 0;
+      if (waitedMs > 0) await page.waitForTimeout(waitedMs);
       // Cloudflare's and Vercel's JavaScript challenges solve themselves in a
       // real browser and then reload the page. camoufox on lesswrong.com was
       // read while the "Vercel Security Checkpoint" interstitial was still
@@ -3091,7 +3092,7 @@ export class StealthBrowserManager {
         this._markBlocked(contextId, [url, page.url()]);
       }
 
-      return { success: true, url, title, text, html, screenshot: shot, status, gracedMs, engine: engineUsed, warnings, ...(windowState ? { windowState } : {}) };
+      return { success: true, url, title, text, html, screenshot: shot, status, waitedMs, gracedMs, engine: engineUsed, warnings, ...(windowState ? { windowState } : {}) };
     } finally {
       await this.closeContext(contextId).catch(() => {});
     }

@@ -25,7 +25,7 @@ const ATTR_SUFFIX_RE = /@[A-Za-z_:][\w:.-]*$/;
  * @param {string} raw
  * @returns {{ selector: string, attribute: string|null }}
  */
-function parseSelectorSpec(raw) {
+export function parseSelectorSpec(raw) {
   const match = ATTR_SUFFIX_RE.exec(raw);
   // Only treat it as an attribute suffix if it isn't inside brackets/quotes,
   // i.e. the selector portion before it has balanced [ ] and quotes.

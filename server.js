@@ -1060,7 +1060,7 @@ registerToolIfEnabled("scrape_with_actions", {
       includeMetadata: z.boolean().default(true),
       includeLinks: z.boolean().default(true),
       includeImages: z.boolean().default(true)
-    }).optional().describe("Content extraction options. selectors results are returned as content.json.extracted, so include \"json\" in formats when passing selectors — without it the extraction is not part of the response."),
+    }).optional().describe("Content extraction options. selectors results are returned as content.json.extracted, so include \"json\" in formats when passing selectors — without it the extraction is not part of the response. Append @attr to a selector to read an attribute instead of the text (\"a.next@href\"); @value on an input, textarea or select reads what it holds after the actions (typed or selected), and any other @attr reads the attribute as written in the page's HTML."),
     continueOnActionError: z.boolean().default(false).describe("Continue executing actions if one fails"),
     maxRetries: z.number().min(0).max(3).default(0).describe("Whole-chain retries on failure (0-3). A retry re-navigates to the starting URL and replays every action; each attempt is reported under attempts[]."),
     screenshotOnError: z.boolean().default(true).describe("Capture screenshot when an error occurs"),
@@ -1523,7 +1523,11 @@ registerToolIfEnabled("stealth_mode", {
         };
         if (verdict.blocked) result.blocked = verdict.blocked;
         if (verdict.error) result.error = verdict.error;
-        if (scraped.gracedMs > 0) result.waited_for_render_ms = scraped.gracedMs;
+        // The requested wait_for and the render grace the browser added on top
+        // are separate numbers; reporting only the grace made wait_for look
+        // unapplied (wait_for:5000 showed as 4 ms, live sweep 2026-10-20).
+        if (scraped.waitedMs > 0) result.waited_ms = scraped.waitedMs;
+        if (scraped.gracedMs > 0) result.render_grace_ms = scraped.gracedMs;
 
         // Screenshots follow the same crawlforge://screenshot/{id} pattern as
         // scrape and scrape_with_actions, so the base64 never bloats the result.
