@@ -2,7 +2,7 @@
 name: crawlforge-browser-sessions
 description: "Keeps one browser page alive across several tool calls with CrawlForge's browser_session tool. Use when the user needs to log in and then read pages behind that login, work through a multi-step flow (search, filter, paginate, fill a wizard), or look at a page before deciding what to click. The loop is: open a session on a URL, snapshot it to list the interactive elements with stable refs (@e1, @e2), act on those refs, read the content, close. Unlike scrape_with_actions, which is one-shot and closes its browser when the call returns, a session survives between calls, so one login is paid for once and a wrong selector costs one call instead of a whole chain."
 metadata:
-  version: 6.23.1
+  version: 6.23.2
   source: crawlforge-mcp-server
 ---
 

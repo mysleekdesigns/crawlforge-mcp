@@ -342,7 +342,8 @@ export async function safeFetch(url, options = {}) {
     return await fetchResigned(url, { ...options, ...guard });
   } catch (err) {
     if (isSsrfError(err)) {
-      throw new Error(err.cause?.message || err.message);
+      // Keep the code: callers tell a refusal from a fetch failure by it.
+      throw Object.assign(new Error(err.cause?.message || err.message), { code: 'SSRF_BLOCKED' });
     }
     throw withFetchCause(err, url);
   }

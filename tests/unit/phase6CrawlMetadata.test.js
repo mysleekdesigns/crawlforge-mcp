@@ -35,7 +35,8 @@ const PAGES = {
   '/crawl': `<html><head><title>
       Spread
       over   lines
-    </title></head><body><a href="http://169.254.169.254/latest/meta-data/">metadata</a></body></html>`
+    </title></head><body><a href="http://169.254.169.254/latest/meta-data/">metadata</a></body></html>`,
+  '/crawl-hop': '<html><head><title>Hop</title></head><body><a href="/hop">hop</a></body></html>'
 };
 
 let server;
@@ -43,6 +44,11 @@ let baseUrl;
 
 before(async () => {
   server = http.createServer((req, res) => {
+    if (req.url === '/hop') {
+      res.writeHead(302, { Location: 'http://169.254.169.254/latest/meta-data/' });
+      res.end();
+      return;
+    }
     const body = PAGES[req.url.split('?')[0]];
     if (!body) {
       res.writeHead(404);
@@ -109,6 +115,25 @@ describe('6.6 — crawl_deep titles and filterDecisions', () => {
 
     const stats = out.stats.filterDecisions;
     assert.equal(stats.total, 2);
+    assert.equal(stats.allowed, 1);
+    assert.equal(stats.blocked, 1);
+    assert.equal(stats.blockedReasons['SSRF protection'], 1);
+  });
+
+  // 7.1 (re-sweep 2026-10-21): a refusal on a redirect hop comes back from the
+  // dispatcher as a fetch cause; safeFetch rethrew it without the code.
+  test('a URL refused on a redirect hop is counted as blocked', async () => {
+    const out = await new BFSCrawler({
+      maxDepth: 1,
+      maxPages: 5,
+      respectRobots: false,
+      timeout: 5000,
+      enableLinkAnalysis: false
+    }).crawl(`${baseUrl}/crawl-hop`);
+    const hopError = out.errors.find((e) => e.url.endsWith('/hop'));
+    assert.equal(hopError?.code, 'SSRF_BLOCKED', `got ${JSON.stringify(out.errors)}`);
+
+    const stats = out.stats.filterDecisions;
     assert.equal(stats.allowed, 1);
     assert.equal(stats.blocked, 1);
     assert.equal(stats.blockedReasons['SSRF protection'], 1);

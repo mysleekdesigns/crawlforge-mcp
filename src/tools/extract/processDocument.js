@@ -187,15 +187,22 @@ const MAX_TITLE_CHARS = 200;
 /**
  * A title for a document with none in its metadata: the first non-empty line
  * of its text when that line is short enough to be one, else null. arXiv
- * stamps and page numbers before it are skipped.
+ * stamps, page numbers and lines of a prose paragraph before it are skipped:
+ * a line ending a sentence, or one the next line continues in lower case
+ * (the arXiv "Attention Is All You Need" PDF opens with a permission notice,
+ * live sweep 7.3).
  * @param {string} text
  * @returns {string|null}
  */
 export function titleFromText(text) {
-  for (const line of String(text || '').split(/\r?\n/)) {
-    const candidate = line.replace(/\s+/g, ' ').trim();
-    if (candidate === '' || NON_TITLE_LINE_RE.test(candidate)) continue;
-    return candidate.length <= MAX_TITLE_CHARS ? candidate : null;
+  const lines = String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => line !== '' && !NON_TITLE_LINE_RE.test(line));
+  for (const [i, candidate] of lines.entries()) {
+    if (candidate.length > MAX_TITLE_CHARS) return null;
+    const isProse = /[.!?]$/.test(candidate) || /^\p{Ll}/u.test(lines[i + 1] || '');
+    if (!isProse) return candidate;
   }
   return null;
 }

@@ -2,7 +2,7 @@
 name: crawlforge-web-scraping
 description: "Scrapes web pages and returns clean Markdown, HTML, plain text, links, or metadata using CrawlForge's scrape, fetch_url, extract_content, extract_text, extract_links, extract_metadata, map_site, and crawl_deep tools. Use when the user wants to scrape a URL, fetch a page, get the markdown or text of a website, extract links or metadata, read an article, map a site's URLs, generate a sitemap, or crawl a whole website or documentation site. Prefer the unified scrape tool to get multiple formats in one call; use map_site to discover URLs and crawl_deep to walk an entire site."
 metadata:
-  version: 6.23.1
+  version: 6.23.2
   source: crawlforge-mcp-server
 ---
 

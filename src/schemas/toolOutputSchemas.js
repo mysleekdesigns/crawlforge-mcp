@@ -423,6 +423,7 @@ const crawlDeepShape = {
   crawled_at: z.string().optional().describe('When the pages were actually fetched (ISO 8601)'),
   cached: z.boolean().optional().describe('True when this response was replayed from an earlier crawl rather than crawled now; crawled_at gives its age'),
   redaction: redactionShape,
+  warnings: z.array(z.string()).optional().describe('Notes on this result; over max_inline_chars, where the full result is kept and how to read it'),
   ...resultHandleShape,
   _cost: costShape,
   next_step: nextStepShape

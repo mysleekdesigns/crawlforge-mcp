@@ -276,7 +276,10 @@ export class LLMsTxtAnalyzer {
             apis.push({
               url: new URL(href, baseUrl).toString(),
               type: 'documentation',
-              description: text.trim()
+              description: text.trim(),
+              // Link text as written, the label when the page itself was not
+              // classified (live sweep 7.4: it was labelled by its slug).
+              title: $(element).text().replace(/\s+/g, ' ').trim()
             });
           }
         });

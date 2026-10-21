@@ -218,18 +218,21 @@ export class GenerateLLMsTxtTool {
       listed.add(key);
       return true;
     };
-    const emitSection = (heading, urls) => {
-      // Coerce to an array: sitemap/sections may arrive as a flat array, a
-      // grouped object ({path: [...]}), or a single value.
+    // Coerce to a URL array: sitemap/sections may arrive as a flat array, a
+    // grouped object ({path: [...]}), or a single value.
+    const toUrlList = (urls) => {
       let arr = [];
       if (Array.isArray(urls)) {
         arr = urls;
       } else if (urls && typeof urls === 'object') {
         arr = Object.values(urls).flat();
       }
-      const list = arr
+      return arr
         .map((u) => (typeof u === 'string' ? u : (u?.url || u?.loc)))
-        .filter(Boolean)
+        .filter(Boolean);
+    };
+    const emitSection = (heading, urls) => {
+      const list = toUrlList(urls)
         .filter(firstListing)
         .slice(0, 25);
       if (list.length === 0) return;
@@ -262,19 +265,22 @@ export class GenerateLLMsTxtTool {
     // listed only when no named section matched at all, which silently dropped
     // the homepage and whole sections (e.g. /specification) from sites that
     // happen to also have a /docs.
-    emitSection('Pages', flatten('other'));
+    // Only endpoints observed answering JSON/XML are APIs. Links to API
+    // documentation are HTML pages ("Python's C API" on docs.python.org was
+    // listed under APIs, live sweep 7.4), so they are listed as pages.
+    const allApis = (Array.isArray(analysis.apis) ? analysis.apis : []).filter((api) => api?.url);
+    const isMachineReadable = (api) => /json|xml/i.test(api.contentType || '');
+    const docLinks = allApis.filter((api) => !isMachineReadable(api)).map((api) => api.url);
 
     // Fallback: if no categorized section produced output, list the raw
-    // sitemap so llms.txt always carries a URL inventory. Must run BEFORE the
-    // APIs section — an APIs entry alone used to set hasBody and suppress it.
-    const hasBody = lines.some((l) => l.startsWith('## '));
-    if (!hasBody) {
-      emitSection('Pages', analysis.structure?.sitemap || []);
-    }
+    // sitemap so llms.txt always carries a URL inventory. Decided BEFORE the
+    // linked pages and APIs are added — those alone used to suppress it.
+    const pageUrls = flatten('other');
+    const hasBody = lines.some((l) => l.startsWith('## ')) || pageUrls.length > 0;
+    emitSection('Pages', [...(hasBody ? pageUrls : toUrlList(analysis.structure?.sitemap)), ...docLinks]);
 
     // APIs as their own section.
-    const apis = (Array.isArray(analysis.apis) ? analysis.apis : [])
-      .filter((api) => api?.url && firstListing(api.url));
+    const apis = allApis.filter((api) => isMachineReadable(api) && firstListing(api.url));
     if (apis.length > 0) {
       lines.push('## APIs');
       lines.push('');
@@ -310,6 +316,11 @@ export class GenerateLLMsTxtTool {
       counts.set(clean, (counts.get(clean) || 0) + 1);
     };
 
+    // Link text of API documentation links first: a title captured from the
+    // page itself replaces it below.
+    for (const api of Array.isArray(analysis.apis) ? analysis.apis : []) {
+      if (api?.type === 'documentation') add(api.url, api.title);
+    }
     for (const entries of Object.values(analysis.contentTypes || {})) {
       if (!Array.isArray(entries)) continue;
       for (const entry of entries) {

@@ -126,3 +126,44 @@ describe('llms-full.txt says "contact us" only when it lists a contact', () => {
       /Contact us using the information above/);
   });
 });
+
+// Live sweep 7.4: the homepage's "Python's C API" link (an HTML page) was
+// picked up as API documentation and listed under ## APIs as "3: c api / index".
+describe('an HTML page linked as API documentation is a normal page', () => {
+  const tool = new GenerateLLMsTxtTool();
+  const C_API = 'https://docs.python.org/3/c-api/index.html';
+  const C_API_HTML = '<html><head><title>Python/C API Reference Manual</title></head><body><h1>Python/C API Reference Manual</h1><p>This manual documents the API used by C and C++ programmers.</p></body></html>';
+
+  async function pythonAnalysis(urls) {
+    const analyzer = stubbedAnalyzer({
+      [PYTHON_INDEX]: [fixture('python-docs-index.html'), HTML],
+      [C_API]: [C_API_HTML, HTML]
+    });
+    await analyzer.detectAPIEndpoints(PYTHON_INDEX);
+    return classify(analyzer, 'https://docs.python.org/3/', urls);
+  }
+
+  test('classified C API page: listed once by its title, no ## APIs', async () => {
+    const txt = tool.generateSpecLLMsTxt(await pythonAnalysis([PYTHON_INDEX, C_API]), {});
+    assert.doesNotMatch(txt, /## APIs/);
+    assert.doesNotMatch(txt, /3: c api/i);
+    assert.match(txt, /- \[Python\/C API Reference Manual\]\(https:\/\/docs\.python\.org\/3\/c-api\/index\.html\)/);
+    assert.equal(txt.split(C_API).length - 1, 1);
+  });
+
+  test('unclassified C API page: listed as a page under its link text, no ## APIs', async () => {
+    const txt = tool.generateSpecLLMsTxt(await pythonAnalysis([PYTHON_INDEX]), {});
+    assert.doesNotMatch(txt, /## APIs/);
+    assert.doesNotMatch(txt, /3: c api/i);
+    assert.match(txt, /- \[Python's C API\]\(https:\/\/docs\.python\.org\/3\/c-api\/index\.html\)/);
+  });
+
+  test('a probe that answered JSON is still listed under ## APIs', () => {
+    const analysis = {
+      metadata: { baseUrl: 'https://example.com/' },
+      structure: { sections: { other: ['https://example.com/'] } },
+      apis: [{ url: 'https://example.com/v1', type: 'JSON API', contentType: 'application/json' }]
+    };
+    assert.match(tool.generateSpecLLMsTxt(analysis, {}), /## APIs\n\n- \[V1\]\(https:\/\/example\.com\/v1\): JSON API/);
+  });
+});
