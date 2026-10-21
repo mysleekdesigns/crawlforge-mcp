@@ -255,7 +255,7 @@ export class ContentAnalyzer {
 
       // Readability metrics
       if (analysisOptions.includeReadabilityMetrics) {
-        result.readability = await this.calculateReadability(text);
+        result.readability = await this.calculateReadability(text, analysisOptions);
       }
 
       // Sentiment analysis
@@ -512,6 +512,48 @@ export class ContentAnalyzer {
     return latin.length / letters.length < 0.5;
   }
 
+  /**
+   * Whether the text is confidently not English, so the English-only sentiment
+   * lexicon and Flesch formula must not be applied. A Spanish complaint scored
+   * -0.08 and Spanish and German got English Flesch scores (live sweep
+   * 2026-10-20). franc misfiles short English — "I am so happy today" is
+   * Somali — so a detected language counts only when it has a stop-word list,
+   * the script is not Latin, or the text is long enough to detect reliably.
+   * @param {string} text
+   * @param {{ detectedLanguage?: string|null }} options
+   * @returns {boolean}
+   */
+  isNonEnglishText(text, options = {}) {
+    if (!this.needsSegmentedTerms(text, options)) return false;
+    if (this.isCjkText(text) || !this.isLatinScriptText(text)) return true;
+    return Boolean(LANGUAGE_STOP_WORDS[options.detectedLanguage])
+      || text.split(/\s+/).filter(Boolean).length >= 20;
+  }
+
+  /**
+   * The noun run of a compromise noun phrase: leading determiners, numbers
+   * and adjectives and trailing non-nouns dropped. compromise tags "feel" in
+   * "The switches feel crisp" as a noun, and the whole clause came back as a
+   * topic (sweep 2026-10-20); a plural noun ends an English compound
+   * ("battery life", not "batteries life"), so a noun after it is cut off.
+   * A phrase of only time words ("two weeks", "Monday") is not a topic.
+   * @param {Object} phrase - One compromise noun-phrase match
+   * @returns {string} - The head, or '' when there is none
+   */
+  nounPhraseHead(phrase) {
+    const terms = phrase.terms().json().map(t => t.terms[0]);
+    const isNoun = t => t.tags.includes('Noun') && !t.tags.includes('Pronoun');
+    const first = terms.findIndex(isNoun);
+    if (first === -1) return '';
+    let last = terms.length - 1;
+    while (!isNoun(terms[last])) last--;
+    const head = terms.slice(first, last + 1);
+    const plural = head.findIndex(t => t.tags.includes('Plural'));
+    if (plural !== -1 && plural < head.length - 1 && isNoun(head[plural + 1])) head.length = plural + 1;
+    if (head.every(t => t.tags.includes('Date'))) return '';
+    return head.map(t => t.text).join(' ');
+  }
+
   async extractTopics(text, options = {}) {
     try {
       // compromise noun-phrase matching is English-only: on CJK text it emits
@@ -533,8 +575,8 @@ export class ContentAnalyzer {
 
       const doc = nlp(text);
 
-      // Extract noun phrases as potential topics
-      const nounPhrases = doc.nouns().out('array');
+      // Extract noun-phrase heads as potential topics
+      const nounPhrases = doc.nouns().map(phrase => this.nounPhraseHead(phrase)).filter(Boolean);
       const adjNounPhrases = doc.match('#Adjective+ #Noun+').out('array');
       
       // Combine and count frequency
@@ -597,8 +639,12 @@ export class ContentAnalyzer {
       // compromise's out('array') keeps adjoining punctuation ("Craigslist.",
       // "United States,") — clean edges, drop bare stopword/pronoun tokens,
       // and dedupe case-insensitively keeping the first casing seen.
+      // On other languages compromise's capital-letter heuristics also pick
+      // up function words and titles: "über" as an organisation, "Berlin den",
+      // "Präsidenten Emmanuel Macron" (sweep 2026-10-20).
+      const language = options.detectedLanguage;
       const clean = (arr) => this.dedupeEntities(
-        arr.map(e => this.cleanEntityText(e))
+        arr.map(e => this.trimForeignEntity(this.cleanEntityText(e), language))
           .filter(e => e.length > 1
             && !this.isBareStopword(e)
             && !/^(?:inc|corp|ltd|co|llc)\.?$/i.test(e)) // bare corporate-suffix fragment
@@ -609,7 +655,10 @@ export class ContentAnalyzer {
       let organizations = clean(doc.organizations().out('array'));
       // .dates() needs the compromise-dates plugin (not installed) and threw,
       // aborting ALL entity extraction; #Date+ tag matching is core compromise.
-      const dates = clean(doc.match('#Date+').out('array'));
+      // A duration ("weeks", "an hour") is not a date; a weekday is, in
+      // every language with a list — compromise knows only the English ones.
+      const dates = clean([...doc.match('#Date+').out('array'), ...this.findWeekdays(text, language)])
+        .filter(e => !DURATION_ONLY.test(e));
       const money = clean(doc.money().out('array'));
       let other = clean(doc.topics().out('array').slice(0, 10))
         .filter(e => !this.isSentenceInitialArtifact(e, text));
@@ -651,12 +700,13 @@ export class ContentAnalyzer {
       // Unicode classes, not [A-Z]: the ASCII version cut "Universität" to
       // "Universit" and "Wisłą" to "Wis" and dropped "Środkowej" outright (R16).
       // \b stays ASCII-only even under the u flag, hence the lookbehind.
-      const properNouns = (text.match(/(?<![\p{L}\p{N}])\p{Lu}[\p{L}.]+(?:\s+\p{Lu}[\p{L}.]+)*/gu) || [])
+      // German capitalises every noun, so a capital is no evidence there.
+      const properNouns = language === 'deu' ? [] : (text.match(/(?<![\p{L}\p{N}])\p{Lu}[\p{L}.]+(?:\s+\p{Lu}[\p{L}.]+)*/gu) || [])
         // Split matches that crossed a sentence boundary ("XPath. In") — a
         // period after a lowercase letter followed by a capital is a sentence
         // end, while abbreviations ("U.S. Holdings") stay intact.
         .flatMap(n => n.split(/(?<=\p{Ll}\.)\s+(?=\p{Lu})/u));
-      const supplemental = this.dedupeEntities(properNouns.map(n => this.cleanEntityText(n)))
+      const supplemental = this.dedupeEntities(properNouns.map(n => this.trimForeignEntity(this.cleanEntityText(n), language)))
         .filter(n => n.length > 1
           && !existingEntities.has(n.toLowerCase())
           && !this.isSentenceInitialArtifact(n, text))
@@ -778,9 +828,10 @@ export class ContentAnalyzer {
   /**
    * Calculate readability metrics
    * @param {string} text - Text to analyze
+   * @param {{ detectedLanguage?: string|null }} [options]
    * @returns {Promise<Object>} - Readability metrics
    */
-  async calculateReadability(text) {
+  async calculateReadability(text, options = {}) {
     try {
       const sentences = splitSentences(text);
       const isCjk = this.isCjkText(text);
@@ -824,6 +875,14 @@ export class ContentAnalyzer {
           metrics
         };
       }
+      // The constants are fitted to English; Spanish and German got English
+      // scores (sweep 2026-10-20). No other-language formula is implemented.
+      if (this.isNonEnglishText(text, options)) {
+        return {
+          notApplicable: 'flesch-reading-ease-is-english-only',
+          metrics
+        };
+      }
 
       // Flesch Reading Ease Score
       const fleschScore = 206.835 - (1.015 * avgWordsPerSentence) - (84.6 * avgSyllablesPerWord);
@@ -852,31 +911,27 @@ export class ContentAnalyzer {
       // negation ("not happy" scores negative). A 25-word list used to leave
       // clearly positive text "neutral" (R25).
       const { calculation, tokens } = sentimentAnalyzer.analyze(text);
-      // Drop hits that are function words of the detected language: German
-      // "die" is -3 in the English lexicon.
-      const foreignStopWords = LANGUAGE_STOP_WORDS[options.detectedLanguage];
-      const scores = calculation
-        .map(entry => Object.entries(entry)[0])
-        .filter(([word]) => !foreignStopWords?.has(word))
-        .map(([, score]) => score);
+      const scores = calculation.map(entry => Object.values(entry)[0]);
 
       const totalSentimentWords = scores.length;
 
+      // The lexicon is English. Its hits in Spanish or German text are
+      // accidents ("die" is -3), and finding none is not evidence of
+      // neutrality, so say the measure does not apply (R24, sweep 2026-10-20).
+      // Text franc may have misfiled — "I am so happy today" as Somali — is
+      // still scored when the lexicon matched.
+      if (this.isNonEnglishText(text, options)
+        || (totalSentimentWords === 0 && this.needsSegmentedTerms(text, options))) {
+        return {
+          polarity: 0,
+          subjectivity: 0,
+          label: 'not_applicable',
+          confidence: 0,
+          notApplicable: 'sentiment-lexicon-is-english-only'
+        };
+      }
+
       if (totalSentimentWords === 0) {
-        // The lexicon is English. Finding none of its words in German or
-        // Japanese text is not evidence of neutrality, so say the measure does
-        // not apply instead of reporting "neutral" (R24). Only when nothing
-        // matched: franc puts short English such as "I am so happy today" in
-        // Somali, and those strings must still be scored.
-        if (this.needsSegmentedTerms(text, options)) {
-          return {
-            polarity: 0,
-            subjectivity: 0,
-            label: 'not_applicable',
-            confidence: 0,
-            notApplicable: 'sentiment-lexicon-is-english-only'
-          };
-        }
         // No opinion words at all: neutral, but with no evidence behind it.
         return {
           polarity: 0,
@@ -1003,6 +1058,37 @@ export class ContentAnalyzer {
       }
     } while (entity !== previous);
     return entity;
+  }
+
+  /**
+   * Trim an entity found in non-English text: leading and trailing function
+   * words of the detected language ("Berlin den" → "Berlin", "über" → "")
+   * and leading titles ("Präsidenten Emmanuel Macron" → "Emmanuel Macron").
+   * Text with no stop-word list for its language is returned unchanged.
+   * @param {string} entity - Cleaned entity string
+   * @param {string|null} [language] - Detected ISO 639-3 code
+   * @returns {string}
+   */
+  trimForeignEntity(entity, language) {
+    const stopWords = LANGUAGE_STOP_WORDS[language];
+    if (!stopWords) return entity;
+    const tokens = entity.split(/\s+/);
+    while (tokens.length > 0 && (stopWords.has(tokens[0].toLowerCase()) || ENTITY_TITLES.has(tokens[0].toLowerCase()))) tokens.shift();
+    while (tokens.length > 0 && stopWords.has(tokens[tokens.length - 1].toLowerCase())) tokens.pop();
+    return tokens.join(' ');
+  }
+
+  /**
+   * Weekday names of the detected language, as written in the text.
+   * @param {string} text - Full source text
+   * @param {string|null} [language] - Detected ISO 639-3 code
+   * @returns {string[]}
+   */
+  findWeekdays(text, language) {
+    const names = WEEKDAYS[language];
+    if (!names) return [];
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(?:${names.join('|')})(?![\\p{L}\\p{N}])`, 'giu');
+    return text.match(pattern) || [];
   }
 
   /**
@@ -1156,6 +1242,48 @@ export class ContentAnalyzer {
  * way; every language whose function words are not on this list gets them back
  * as topics.
  */
+/**
+ * A bare duration, optionally counted: "weeks", "an hour", "two years". It
+ * measures time but names no date; compromise tags it #Date (sweep 2026-10-20).
+ */
+const DURATION_ONLY = /^(?:(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|few|several|many|\d+)\s+)?(?:seconds?|minutes?|hours?|days?|weeks?|fortnights?|months?|years?|decades?|centuries|century)$/i;
+
+/**
+ * Weekday names by ISO 639-3 code, for the languages with a stop-word list.
+ * English is left to compromise. Indonesian "minggu" (Sunday) is left out: it
+ * also means "week", and Portuguese bare "segunda" also means "second".
+ */
+const WEEKDAYS = {
+  deu: ['montag', 'dienstag', 'mittwoch', 'donnerstag', 'freitag', 'samstag', 'sonnabend', 'sonntag'],
+  spa: ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'],
+  fra: ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'],
+  ita: ['lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'],
+  por: ['segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado', 'domingo'],
+  nld: ['maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag'],
+  swe: ['måndag', 'tisdag', 'onsdag', 'torsdag', 'fredag', 'lördag', 'söndag'],
+  dan: ['mandag', 'tirsdag', 'onsdag', 'torsdag', 'fredag', 'lørdag', 'søndag'],
+  nob: ['mandag', 'tirsdag', 'onsdag', 'torsdag', 'fredag', 'lørdag', 'søndag'],
+  pol: ['poniedziałek', 'wtorek', 'środa', 'środę', 'czwartek', 'piątek', 'sobota', 'sobotę', 'niedziela', 'niedzielę'],
+  ind: ['senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu'],
+  zlm: ['isnin', 'selasa', 'rabu', 'khamis', 'jumaat', 'sabtu', 'ahad'],
+  zsm: ['isnin', 'selasa', 'rabu', 'khamis', 'jumaat', 'sabtu', 'ahad']
+};
+
+/**
+ * Titles that compromise folds into a following name in non-English text
+ * ("Präsidenten Emmanuel Macron"), lowercased. Stripped only from the front.
+ */
+const ENTITY_TITLES = new Set([
+  'präsident', 'präsidenten', 'präsidentin', 'bundespräsident', 'bundespräsidenten',
+  'bundeskanzler', 'bundeskanzlerin', 'kanzler', 'kanzlerin', 'minister', 'ministerin',
+  'ministerpräsident', 'ministerpräsidentin', 'herr', 'herrn', 'frau', 'könig', 'königin',
+  'presidente', 'presidenta', 'señor', 'señora', 'don', 'doña', 'ministro', 'ministra', 'rey', 'reina',
+  'président', 'présidente', 'monsieur', 'madame', 'ministre', 'roi', 'reine',
+  'signor', 'signore', 'signora', 'senhor', 'senhora',
+  'president', 'premier', 'meneer', 'mevrouw', 'koning', 'koningin',
+  'dr', 'dr.', 'prof', 'prof.', 'professor'
+]);
+
 const STOP_WORDS = new Set([
   // English
   'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',

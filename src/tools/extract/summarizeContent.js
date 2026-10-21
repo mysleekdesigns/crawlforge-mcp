@@ -21,7 +21,9 @@ const SummarizeContentSchema = z.object({
   text: z.string().min(10),
   options: z.object({
     summaryLength: z.enum(['short', 'medium', 'long']).default('medium'),
-    summaryType: z.enum(['extractive', 'abstractive']).default('extractive'),
+    // No default: omitted with summaryLength 'medium', abstractive is tried
+    // and falls back to extractive without flagging it (see execute).
+    summaryType: z.enum(['extractive', 'abstractive']).optional(),
     includeKeypoints: z.boolean().default(true),
     includeKeywords: z.boolean().default(true),
     includeStatistics: z.boolean().default(true),
@@ -93,6 +95,26 @@ const NAVIGATION_PHRASES = new Set([
   'de wikipedia, la enciclopedia libre'
 ]);
 
+// Whole lines that are page chrome wherever they appear: consent buttons and
+// account links. The live sweep (2026-10-20) found "all cookies manage
+// preferences" and "register subscribe" in summarize_content key points and
+// keywords. Matched exactly, like NAVIGATION_PHRASES, so a sentence that
+// merely contains one of these words is never touched.
+const CHROME_LINES = new Set([
+  'accept', 'accept all', 'accept all cookies', 'accept cookies', 'reject all',
+  'reject all cookies', 'manage preferences', 'manage cookies', 'manage settings',
+  'cookie settings', 'cookie preferences', 'cookies', 'cookie policy', 'i agree',
+  'register', 'subscribe', 'sign in', 'sign up', 'sign up now', 'log in', 'login',
+  'menu', 'search', 'close', 'skip to content', 'accessibility help', 'privacy policy',
+  'terms of use', 'terms of service'
+]);
+
+// A line about cookies that also speaks the language of consent is a banner,
+// not content; "Bake the cookies for 12 minutes" has no consent vocabulary.
+const COOKIE_WORD = /\bcookies?\b/i;
+const CONSENT_WORD = /\b(accept|agree|consent|manage|preferences|settings|policy|privacy|reject|we use|partners)\b/i;
+const SENTENCE_PUNCTUATION = /[.!?…。！？]/;
+
 export class SummarizeContentTool {
   constructor() {
     this.contentAnalyzer = new ContentAnalyzer();
@@ -131,7 +153,10 @@ export class SummarizeContentTool {
       // Page text often opens with navigation chrome ("Jump to content",
       // "From Wikipedia, the free encyclopedia") that otherwise leads the
       // summary and key points — strip it before summarizing.
-      const text = this.stripLeadingBoilerplate(rawText);
+      // The rest of the page's chrome (menus, consent banners, repeated
+      // labels) is spread through the text, and its unpunctuated lines glue
+      // whole runs of headlines into one "sentence" — strip and split those too.
+      const text = this.terminateLines(this.stripPageBoilerplate(this.stripLeadingBoilerplate(rawText)));
 
       const result = {
         originalText: rawText.substring(0, 500) + (rawText.length > 500 ? '...' : ''),
@@ -148,7 +173,7 @@ export class SummarizeContentTool {
           extractKeywords: options.includeKeywords,
           detectLanguage: true,
           summaryLength: options.summaryLength,
-          summaryType: options.summaryType,
+          summaryType: options.summaryType ?? 'extractive',
           maxKeywords: options.maxKeywords,
           extractTopics: false,
           extractEntities: false,
@@ -167,7 +192,18 @@ export class SummarizeContentTool {
       // D1.3: If abstractive mode requested, attempt sampling-based enhancement.
       // If it can't run (no LLM/sampling available), fall back to the extractive
       // result but flag it explicitly rather than silently masking.
-      if (options.summaryType === 'abstractive') {
+      // An omitted summaryType at the default 'medium' length prefers an
+      // abstractive summary when an LLM is reachable, and otherwise keeps the
+      // extractive one silently: the caller asked for no particular type, so
+      // nothing was degraded. Text too short to compress (ratio 1) is left as is.
+      const preferAbstractive = options.summaryType === undefined &&
+        options.summaryLength === 'medium' && analysisResult.summary.compressionRatio < 1;
+      if (preferAbstractive) {
+        const abstractive = await this._abstractiveSummaryViaSampling(
+          text, analysisResult.summary, options.summaryLength, analysisResult.language?.name
+        );
+        if (abstractive) result.summary = abstractive;
+      } else if (options.summaryType === 'abstractive') {
         const abstractive = await this._abstractiveSummaryViaSampling(
           text, analysisResult.summary, options.summaryLength, analysisResult.language?.name
         );
@@ -201,7 +237,7 @@ export class SummarizeContentTool {
       // Step 6: Set metadata
       result.metadata = {
         language: analysisResult.language?.code || options.language || 'unknown',
-        processingMethod: options.summaryType,
+        processingMethod: options.summaryType ?? result.summary.type,
         confidenceScore: this.calculateConfidenceScore(text, result.summary.text)
       };
 
@@ -359,6 +395,88 @@ export class SummarizeContentTool {
     }
 
     return strippedLines > 0 ? lines.slice(index).join('\n') : text;
+  }
+
+  /**
+   * Strip navigation and consent chrome from anywhere in extracted page text.
+   * A line is dropped when it is:
+   *   - a CHROME_LINES / NAVIGATION_PHRASES entry, or a cookie line that uses
+   *     consent vocabulary;
+   *   - a pipe/bullet menu ("Home | News | Sport"): 3+ segments of ≤ 4 words;
+   *   - repeated on the page: a short label (≤ 4 words, unpunctuated) loses
+   *     every copy — "In stock", "Add to basket", section names — while a
+   *     longer repeated line keeps its first copy;
+   *   - part of a nav run: 4+ consecutive lines that are each ≤ 30 chars,
+   *     ≤ 4 words, unpunctuated and digit-free. The digit rule keeps listings
+   *     whose short titles alternate with prices or counts.
+   * If almost nothing survives (< 10 chars) the text is returned untouched.
+   * @param {string} text - Text to clean
+   * @returns {string} - Text without page chrome
+   */
+  stripPageBoilerplate(text) {
+    const lines = text.split('\n');
+    const key = (line) => line.trim().replace(/[.!?…。！？]+$/, '').trim().toLowerCase();
+    const isShort = (line) => line.split(/\s+/).length <= 4 && !SENTENCE_PUNCTUATION.test(line);
+
+    const counts = new Map();
+    for (const line of lines) {
+      const k = key(line);
+      if (k) counts.set(k, (counts.get(k) || 0) + 1);
+    }
+
+    const seen = new Set();
+    const drop = lines.map((raw) => {
+      const line = raw.trim();
+      if (!line) return false;
+      const k = key(line);
+      if (CHROME_LINES.has(k) || NAVIGATION_PHRASES.has(k)) return true;
+      if (COOKIE_WORD.test(line) && CONSENT_WORD.test(line)) return true;
+      const segments = line.split(/\s*[|•·]\s*/).filter(Boolean);
+      if (segments.length >= 3 && segments.every((s) => s.split(/\s+/).length <= 4)) return true;
+      if (counts.get(k) > 1 && (isShort(line) || seen.has(k))) return true;
+      seen.add(k);
+      return false;
+    });
+
+    // Runs are measured on the original lines, so a menu whose items were
+    // already dropped as repeats still counts towards the run around them.
+    const isNavLine = (line) => line.length <= 30 && isShort(line) && !/\d/.test(line);
+    let run = [];
+    const flush = () => {
+      if (run.length >= 4) for (const i of run) drop[i] = true;
+      run = [];
+    };
+    lines.forEach((raw, i) => {
+      const line = raw.trim();
+      if (!line) return;
+      if (isNavLine(line) || drop[i]) run.push(i);
+      else flush();
+    });
+    flush();
+
+    const cleaned = lines.filter((_, i) => !drop[i]).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    return cleaned.length >= 10 ? cleaned : text;
+  }
+
+  /**
+   * End each unpunctuated line with a full stop when the next line starts a
+   * new unit (a capital, digit, quote or currency sign). Headlines, titles and
+   * prices carry no terminator, so without this the sentence splitter glued a
+   * whole column of them into one "sentence" — the books listing's summary
+   * was a run of prices. A next line starting in lower case is a wrapped
+   * sentence and is left alone; CJK has no capitals and is never touched.
+   * @param {string} text
+   * @returns {string}
+   */
+  terminateLines(text) {
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trimEnd();
+      if (!line.trim() || /[.!?…。！？:;,]$/.test(line)) continue;
+      const next = lines.slice(i + 1).find((l) => l.trim());
+      if (next && /^[\p{Lu}\p{N}£$€'"‘“(]/u.test(next.trim())) lines[i] = `${line}.`;
+    }
+    return lines.join('\n');
   }
 
   /**
