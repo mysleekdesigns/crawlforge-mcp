@@ -122,7 +122,7 @@ Reads a result a tool returned with `truncated: true` and a `result_handle`
 | `length` | number | — | `slice`: characters (default 10,000); `lines`: lines (default 200, at most 5,000). |
 | `query` | string | — | `search`: case-insensitive literal substring. |
 | `max_matches` | number | `20` | `search`: 1–100. |
-| `path` | string | — | `json_path`: path into the stored result object (or the parsed body when the stored text is JSON, e.g. a `fetch_url` body). |
+| `path` | string | — | `json_path`: path from the root of the stored result; a `fetch_url` body is under `body.` (parsed when it holds JSON), and a key containing a dot goes in brackets, e.g. `files["llms.txt"]`. |
 | `max_inline_chars` | number | `40000` | 1,000–10,000,000. |
 
 Every response carries `handle`, `tool`, `operation`, `view` (`text` or `json`),

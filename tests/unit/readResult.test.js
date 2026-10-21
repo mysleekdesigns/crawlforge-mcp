@@ -264,8 +264,8 @@ test('json_path: reads a subtree of a JSON result, error names the available key
   assert.match(noPath.content[0].text, /path is required/);
 });
 
-test('json_path: a text view whose text is JSON (fetch_url body) is addressed as that JSON', async () => {
-  const { body } = await call({ handle: bodyHandle, operation: 'json_path', path: 'items[1].name' });
+test('json_path: paths start at the stored result; a JSON body is read into under body.', async () => {
+  const { body } = await call({ handle: bodyHandle, operation: 'json_path', path: 'body.items[1].name' });
   assert.equal(body.value, 'two');
 
   // A non-JSON text view falls back to the stored result object.

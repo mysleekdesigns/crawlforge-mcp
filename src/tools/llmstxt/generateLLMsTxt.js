@@ -740,9 +740,9 @@ export class GenerateLLMsTxtTool {
     lines.push('If you encounter issues or need clarification on these guidelines:');
     lines.push('1. Check this document for guidance');
     lines.push('2. Review the basic llms.txt file');
-    // Only when section 1 printed something to contact: without either field
-    // this pointed at contact information the file did not contain.
-    if (outputOptions.contactEmail || outputOptions.organizationName) {
+    // Only when the section above lists a contact: an organization name
+    // alone is not one, and without an email it is empty (live sweep 4.4).
+    if (outputOptions.contactEmail) {
       lines.push('3. Contact us using the information above');
     }
     lines.push('');
@@ -833,8 +833,9 @@ export class GenerateLLMsTxtTool {
       });
     }
 
-    // API recommendations
-    if (analysis.apis && analysis.apis.length > 0) {
+    // API recommendations: only endpoints that answered JSON/XML, not links
+    // to API documentation pages.
+    if (analysis.apis && analysis.apis.some((api) => api.type !== 'documentation')) {
       recommendations.push({
         type: 'integration',
         priority: 'high',

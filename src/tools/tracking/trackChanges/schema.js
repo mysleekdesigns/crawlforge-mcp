@@ -49,6 +49,7 @@ export const TRACK_CHANGES_INPUT_SHAPE = {
     trackLinks: z.boolean().optional().describe("Default: true"),
     ignoreWhitespace: z.boolean().optional().describe("Default: true"),
     ignoreCase: z.boolean().optional().describe("Default: false"),
+    includeMarkupChanges: z.boolean().optional().describe("Also return details.markupChanges, a diff of the raw HTML (tags, classes, attributes). details.textChanges always diffs the visible text only. Default: false"),
     customSelectors: z.array(z.string()).optional(),
     excludeSelectors: z.array(z.string()).optional().default([
       'script', 'style', 'noscript', '.advertisement', '.ad', '#comments'

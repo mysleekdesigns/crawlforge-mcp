@@ -74,8 +74,9 @@ describe('llms-full.txt points at contact details only when it has some', () => 
     assert.match(tool.generateLLMsFullTxt(analysis(), { contactEmail: 'ai@example.com' }, 'standard'), CONTACT_LINE);
   });
 
-  test('organizationName alone prints it', () => {
-    assert.match(tool.generateLLMsFullTxt(analysis(), { organizationName: 'Example Org' }, 'standard'), CONTACT_LINE);
+  // Live sweep 4.4: a name is not a contact, so the line needs an email.
+  test('organizationName alone does not print it', () => {
+    assert.doesNotMatch(tool.generateLLMsFullTxt(analysis(), { organizationName: 'Example Org' }, 'standard'), CONTACT_LINE);
   });
 });
 

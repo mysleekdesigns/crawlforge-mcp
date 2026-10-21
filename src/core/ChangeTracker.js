@@ -28,6 +28,7 @@ const ChangeTrackingSchema = z.object({
     trackLinks: z.boolean().default(true),
     ignoreWhitespace: z.boolean().default(true),
     ignoreCase: z.boolean().default(false),
+    includeMarkupChanges: z.boolean().default(false),
     customSelectors: z.array(z.string()).optional(),
     excludeSelectors: z.array(z.string()).optional().default([
       'script', 'style', 'noscript', '.advertisement', '.ad'
@@ -344,10 +345,12 @@ export class ChangeTracker extends EventEmitter {
       const currentAnalysis = await this.analyzeContent(currentContent, baseline.options);
       
       // Perform comprehensive change detection
+      // includeMarkupChanges only shapes the response, so unlike the analysis
+      // options it may be asked for at compare time.
       const changeAnalysis = await this.detectChanges(
         baseline.analysis,
         currentAnalysis,
-        baseline.options
+        { ...baseline.options, includeMarkupChanges: options.includeMarkupChanges ?? baseline.options.includeMarkupChanges }
       );
       
       // Calculate change significance
@@ -615,13 +618,23 @@ export class ChangeTracker extends EventEmitter {
       changes.modifiedElements.push(...elementChanges.modified);
     }
     
-    // Detect text changes
+    // Detect text changes. Diffed over the visible text, not the raw HTML,
+    // so a class rename or icon markup no longer reads as a text change
+    // (live sweep 4.1). The raw markup diff is kept apart in markupChanges
+    // and only computed when the caller asks for it.
     if (options.trackText) {
       changes.textChanges = await this.detectTextChanges(
-        baseline.originalContent,
-        current.originalContent,
+        this.visibleText(baseline.originalContent),
+        this.visibleText(current.originalContent),
         options
       );
+      if (options.includeMarkupChanges) {
+        changes.markupChanges = await this.detectTextChanges(
+          baseline.originalContent,
+          current.originalContent,
+          options
+        );
+      }
     }
     
     // Detect monetary value changes. Scored by magnitude rather than by how
@@ -1038,6 +1051,32 @@ export class ChangeTracker extends EventEmitter {
     return changes;
   }
   
+  /**
+   * The text a reader sees: text nodes in document order, one per line, with
+   * script, style, noscript and template content dropped. Input with no
+   * markup (a plain-text content param) is returned unchanged.
+   * @param {string} content - HTML or plain text
+   * @returns {string} - Visible text
+   */
+  visibleText(content = '') {
+    if (!/<[a-z!/]/i.test(content)) return content;
+    const $ = load(content);
+    $('script, style, noscript, template').remove();
+    const parts = [];
+    const walk = nodes => {
+      for (const node of nodes) {
+        if (node.type === 'text') {
+          const text = node.data.trim();
+          if (text) parts.push(text);
+        } else if (node.children) {
+          walk(node.children);
+        }
+      }
+    };
+    walk($.root().contents().toArray());
+    return parts.join('\n');
+  }
+
   async detectTextChanges(baselineContent, currentContent, options = {}) {
     const textChanges = [];
     

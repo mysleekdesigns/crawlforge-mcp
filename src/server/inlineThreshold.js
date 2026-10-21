@@ -31,11 +31,13 @@ export const MAX_INLINE_CHARS_PARAM = {
 const BROWSER_SESSION_CONTENT_OPERATIONS = new Set(['snapshot', 'act', 'read']);
 
 /**
- * The track_changes operations that return a list or a report; the others
- * return one baseline, one diff or one monitor's id and stay whole.
+ * The track_changes operations that return a list, a report or a diff; the
+ * others return one baseline or one monitor's id and stay whole. compare was
+ * left out until a Hacker News compare with max_inline_chars:4000 came back
+ * as about 15 KB inline (live sweep 4.2, 2026-10-20).
  */
-const TRACK_CHANGES_LIST_OPERATIONS = new Set([
-  'get_history', 'export_history', 'list_scheduled_monitors', 'get_dashboard', 'generate_trend_report'
+const TRACK_CHANGES_SHAPED_OPERATIONS = new Set([
+  'compare', 'get_history', 'export_history', 'list_scheduled_monitors', 'get_dashboard', 'generate_trend_report'
 ]);
 
 export const INLINE_THRESHOLD_TOOLS = Object.freeze({
@@ -89,19 +91,21 @@ export const INLINE_THRESHOLD_TOOLS = Object.freeze({
   // degraded:true with no reason says nothing (R25 follow-up, 2026-10-20).
   agent: { textPaths: ['answer'], truncate: true, keep: ['reason', 'evidence', 'search_results', 'provenance'] },
   // llms-full.txt is the large file and the view; llms.txt stays inline under
-  // `files` when it fits. Neither key can be named in a json_path (the "."),
-  // so the view is the way to read the long one.
+  // `files` when it fits. A json_path names either with brackets, e.g.
+  // files["llms.txt"] (the key holds a ".").
   generate_llms_txt: {
     textPaths: ['files.llms-full.txt', 'files.llms.txt'],
     truncate: true,
     contentKey: 'files',
     keep: ['analysisStats', 'recommendations']
   },
+  // A compare keeps what says whether and how the page changed; the diff
+  // itself (details) is read with json_path. `operation` defaults to compare.
   track_changes: {
     textPaths: ['export.csv'],
     truncate: true,
-    keep: ['pagination', 'timespan'],
-    when: (params) => TRACK_CHANGES_LIST_OPERATIONS.has(params?.operation)
+    keep: ['pagination', 'timespan', 'summary', 'metrics', 'alerts', 'snapshot'],
+    when: (params) => TRACK_CHANGES_SHAPED_OPERATIONS.has(params?.operation ?? 'compare')
   }
 });
 

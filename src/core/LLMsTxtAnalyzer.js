@@ -240,8 +240,10 @@ export class LLMsTxtAnalyzer {
             // "https://site.com/" + "/json" was listed as "https://site.com//json" (R25 1.8).
             const apiUrl = new URL(path, baseUrl).toString();
             const response = await this.fetchWithTimeout(apiUrl, { timeout: 5000 });
-            if (response.ok) {
-              const contentType = response.headers.get('content-type') || '';
+            const contentType = response.headers.get('content-type') || '';
+            // A 200 alone is not an API: gov.uk's /api redirects to an HTML
+            // help page (live sweep 4.4). Only machine-readable answers count.
+            if (response.ok && /json|xml/i.test(contentType)) {
               return {
                 url: apiUrl,
                 type: this.determineAPIType(apiUrl, contentType),
@@ -739,23 +741,33 @@ export class LLMsTxtAnalyzer {
       const html = await readBody(response);
       const $ = load(html);
 
-      // Check for forms
-      if ($('form').length > 0) {
+      // Check for forms. A site-wide search box or a hidden feedback form
+      // is page chrome, not the page's purpose: counting them made every
+      // docs.python.org and gov.uk page a "forms" page (live sweep 4.4).
+      const forms = $('form').filter((_, el) => {
+        const form = $(el);
+        return form.attr('hidden') === undefined
+          && form.closest('[role="search"]').length === 0
+          && form.find('input[type="search"]').length === 0;
+      });
+      if (forms.length > 0) {
         return { 
           category: 'forms', 
           type: 'interactive', 
           confidence: 0.9,
-          metadata: { formCount: $('form').length }
+          metadata: { formCount: forms.length, title: pageTitle($) }
         };
       }
 
-      // Check for login/auth indicators
-      if (html.includes('login') || html.includes('password') || $('input[type="password"]').length > 0) {
+      // Check for login/auth indicators. Substring checks for "login" and
+      // "password" matched link hrefs (gov.uk's /student-finance-register-login).
+      if ($('input[type="password"]').length > 0) {
         return { category: 'restricted', type: 'authentication', confidence: 0.8 };
       }
 
-      // Check for dynamic content indicators
-      if (html.includes('application/json') || contentType.includes('json')) {
+      // Check for dynamic content indicators (the response, not a
+      // <script type="application/json"> inside an HTML page)
+      if (contentType.includes('json')) {
         return { category: 'dynamic', type: 'api', confidence: 0.9 };
       }
 
