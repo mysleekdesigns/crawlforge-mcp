@@ -353,7 +353,7 @@ Use `trackingOptions` to ignore noise and focus on what matters:
   "tool": "track_changes",
   "params": {
     "url": "https://example.com/pricing",
-    "operation": "compare",
+    "operation": "create_baseline",
     "trackingOptions": {
       "granularity": "element",
       "customSelectors": [".price", ".plan-name"],
@@ -367,6 +367,13 @@ Use `trackingOptions` to ignore noise and focus on what matters:
 `granularity`: `page`, `section` (default), `element`, `text`. Toggle
 `trackText`, `trackStructure`, `trackLinks`, `trackImages`. Set
 `significanceThresholds` (`minor`/`moderate`/`major`) to classify change size.
+
+`granularity`, `customSelectors` and `excludeSelectors` are fixed when the
+baseline is created: every `compare` diffs with the baseline's values, so
+pass them on `create_baseline`. A `compare` that asks for different values
+still runs at the baseline's, and its result carries
+`ignoredOptions: [{option, requested, applied}]` plus a `warnings` entry.
+To change them, create a new baseline.
 
 CLI: `crawlforge track https://example.com --selector ".price" --threshold 1`.
 

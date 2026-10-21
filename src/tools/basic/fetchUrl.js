@@ -36,6 +36,9 @@ export async function fetchUrlHandler({ url, headers, timeout, user_agent, respe
           contentType: response.headers.get('content-type') || 'unknown',
           size: body.length,
           url: response.url,
+          // Whether a redirect was followed, and the URL the body came from.
+          redirected: response.redirected === true,
+          final_url: response.url || url,
           // Time the target took to respond and deliver the body, in ms.
           // Excludes the per-host throttle, so it can back a latency check.
           responseTime: response._responseTime

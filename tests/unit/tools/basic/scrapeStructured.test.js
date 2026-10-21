@@ -91,7 +91,8 @@ describe('scrapeStructuredHandler', () => {
     const data = parseResult(result);
 
     assert.equal(data.elements_found.imgs, 3, 'DOM has 3 <img> elements');
-    assert.deepEqual(data.data.imgs, ['a.png', null, 'c.png'], 'array length must equal elements_found, with null for the missing attribute');
+    // src values are resolved against the page URL (live sweep 6.4).
+    assert.deepEqual(data.data.imgs, [`${baseUrl}/a.png`, null, `${baseUrl}/c.png`], 'array length must equal elements_found, with null for the missing attribute');
   });
 
   test('selector a[href*="@"] is not misparsed as attribute syntax', async () => {

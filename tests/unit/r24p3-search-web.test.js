@@ -86,7 +86,7 @@ test('3.6 next_offset is offset + limit when nothing was deduplicated', async ()
   assert.equal(page.next_offset, 8);
 });
 
-test('3.6 the SearXNG path reports next_offset at the next page boundary', async () => {
+test('3.6 the SearXNG path reports next_offset as offset + stream items consumed', async () => {
   const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -99,7 +99,7 @@ test('3.6 the SearXNG path reports next_offset at the next page boundary', async
   try {
     const { tool } = buildTool([]);
     const response = await tool.execute({ query: 'guide', limit: 5, offset: 3, provider: 'searxng' });
-    assert.equal(response.next_offset, 5); // offset 3 reads page 1; page 2 starts at 5
+    assert.equal(response.next_offset, 8); // items 3..7 shown, none deduplicated (6.3: was page * limit)
   } finally {
     delete process.env.CRAWLFORGE_SEARXNG_URL;
     server.close();

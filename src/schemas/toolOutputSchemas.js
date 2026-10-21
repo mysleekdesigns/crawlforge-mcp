@@ -314,7 +314,7 @@ const searchWebShape = {
   search_time: z.number().optional(),
   offset: z.number().optional(),
   limit: z.number().optional(),
-  next_offset: z.number().optional().describe('The offset to pass for the next page. Duplicates removed from this page are replaced from further down the provider\'s results, so it can be larger than offset + limit'),
+  next_offset: z.number().optional().describe('The offset to pass for the next page. Duplicates removed from this page are replaced from further down the provider\'s results, so it can be larger than offset + limit. For provider "searxng", offsets count items in SearXNG\'s result list'),
   cached: z.boolean().optional(),
   provider: z.object({
     name: z.string().optional(),

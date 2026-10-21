@@ -48,6 +48,21 @@ export function searchScore(url, search) {
   return terms.filter((t) => haystack.includes(t)).length;
 }
 
+/**
+ * normalizeUrl, plus a directory index folded into its directory: `/` and
+ * `/index.html` were listed as two URLs (live sweep 2026-10-20). Kept here,
+ * not in the shared normalizer, so other tools' URL keys do not change.
+ * @param {string} url
+ * @returns {string}
+ */
+function normalizeMapUrl(url) {
+  const normalized = normalizeUrl(url);
+  const u = new URL(normalized);
+  if (!/\/index\.html?$/i.test(u.pathname)) return normalized;
+  u.pathname = u.pathname.replace(/index\.html?$/i, '');
+  return normalizeUrl(u.href);
+}
+
 // A gate refusal is the answer to the request, not a page we failed to read.
 const REFUSAL_CODES = new Set(['ROBOTS_DISALLOWED', 'HOST_BLOCKED', 'USE_REDDIT_SEARCH', 'SSRF_BLOCKED']);
 
@@ -159,7 +174,7 @@ export class MapSiteTool {
       // Try to fetch sitemap first
       if (validated.include_sitemap) {
         const sitemapUrls = await this.fetchSitemapUrls(baseUrl, domainFilter, poolLimit, scopePath);
-        sitemapUrls.forEach(url => urls.add(normalizeUrl(url)));
+        sitemapUrls.forEach(url => urls.add(normalizeMapUrl(url)));
       }
 
       // Fetch and parse the main page for additional URLs. A start page that
@@ -170,11 +185,11 @@ export class MapSiteTool {
         // The start page is a page of the site too: a one-page site with no
         // sitemap used to map to 0 URLs (R25 1.2).
         if (!domainFilter || domainFilter.isAllowed(validated.url).allowed) {
-          urls.add(normalizeUrl(validated.url));
+          urls.add(normalizeMapUrl(validated.url));
         }
         pageUrls.forEach(url => {
           if (urls.size < poolLimit) {
-            urls.add(normalizeUrl(url));
+            urls.add(normalizeMapUrl(url));
           }
         });
       } catch (error) {

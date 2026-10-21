@@ -413,7 +413,16 @@ export class ChangeTracker extends EventEmitter {
         metrics: changeRecord.metrics,
         recommendations: this.generateChangeRecommendations(changeRecord),
         ...(alerts.length ? { alerts } : {}),
+        // ignoredOptions is the structured form of the warning: each entry
+        // names what the caller asked for and what the baseline applied, so
+        // a compare at granularity "text" against a "section" baseline says
+        // so in a field, not only in prose (6.12).
         ...(ignoredOptions.length ? {
+          ignoredOptions: ignoredOptions.map(option => ({
+            option,
+            requested: options[option],
+            applied: baseline.options[option] ?? null
+          })),
           warnings: [
             `${ignoredOptions.join(', ')} passed to this compare ${ignoredOptions.length === 1 ? 'was' : 'were'} ignored — ` +
             `the baseline's options are applied to both sides of the diff. Recreate the baseline to change them.`
