@@ -88,9 +88,10 @@ export async function extractMetadataHandler({ url, user_agent, respect_robots, 
       $('h1').first().text().trim() ||
       '';
 
-    const description =
+    const description = (
       $('meta[name="description"]').attr('content') ||
-      $('meta[property="og:description"]').attr('content') || '';
+      $('meta[property="og:description"]').attr('content') || ''
+    ).trim();
     const keywords = $('meta[name="keywords"]').attr('content') || '';
     const canonical = $('link[rel="canonical"]').attr('href') || '';
 
@@ -112,9 +113,13 @@ export async function extractMetadataHandler({ url, user_agent, respect_robots, 
     const author = $('meta[name="author"]').attr('content') || '';
     const robots = $('meta[name="robots"]').attr('content') || '';
     const viewport = $('meta[name="viewport"]').attr('content') || '';
-    const charset =
+    // Only the charset token: the http-equiv form used to come back whole,
+    // "text/html; charset=utf-8" (live sweep 2026-10-20).
+    const charset = (
       $('meta[charset]').attr('charset') ||
-      $('meta[http-equiv="Content-Type"]').attr('content') || '';
+      ($('meta[http-equiv="Content-Type"]').attr('content') || '').match(/charset\s*=\s*["']?([^\s;"']+)/i)?.[1] ||
+      ''
+    ).trim().toUpperCase();
 
     const jsonLd = parseJsonLd($);
     const microdata = parseMicrodata($);

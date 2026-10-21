@@ -7,7 +7,7 @@ import { DomainFilter } from '../../utils/domainFilter.js';
 import { LinkAnalyzer } from '../analysis/LinkAnalyzer.js';
 import { normalizeUrl, extractLinks, isValidUrl } from '../../utils/urlNormalizer.js';
 import { Logger } from '../../utils/Logger.js';
-import { safeFetch } from '../../utils/ssrfGuard.js';
+import { safeFetch, isSsrfError } from '../../utils/ssrfGuard.js';
 import { robotsPreflight, redirectGate, RobotsDisallowedError } from '../../utils/robotsGate.js';
 import { throttleHost } from '../../utils/hostRateLimiter.js';
 import { CRAWLFORGE_USER_AGENT, identityHeaders } from '../../utils/fetchIdentity.js';
@@ -169,11 +169,12 @@ export class BFSCrawler {
 
     // Check domain filter (replaces old pattern checking)
     const filterDecision = this.domainFilter.isAllowed(url, { isSeed });
-    this.filterDecisions.push({
+    const decisionEntry = {
       url: normalizedUrl,
       decision: filterDecision,
       timestamp: new Date().toISOString()
-    });
+    };
+    this.filterDecisions.push(decisionEntry);
     
     if (!filterDecision.allowed) {
       logger.debug(`Domain filter blocks: ${normalizedUrl} - ${filterDecision.reason}`);
@@ -349,6 +350,11 @@ export class BFSCrawler {
         }
       }
     } catch (error) {
+      // The domain filter passed this URL, but the SSRF guard refused it: it
+      // was blocked, not allowed (live sweep 2026-10-20).
+      if (isSsrfError(error)) {
+        decisionEntry.decision = { allowed: false, reason: 'SSRF protection' };
+      }
       this.errors.push({
         url,
         depth,
@@ -437,7 +443,7 @@ export class BFSCrawler {
     const $ = load(html);
     
     // Extract title
-    const title = pageTitle($) || $('h1').first().text().trim() || '';
+    const title = (pageTitle($) || $('h1').first().text().trim() || '').replace(/\s+/g, ' ');
     
     // Extract main content. A page's chrome (header, mega-menu, footer)
     // repeats on every page of a crawl and comes first in body order, so the

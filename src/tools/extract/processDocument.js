@@ -179,6 +179,38 @@ export function decodeTextBody(buffer, contentType = '') {
   }
 }
 
+// Lines that open a PDF's text layer without being its title: arXiv's margin
+// stamp ("arXiv:1706.03762v7 [cs.CL] 2 Aug 2023") and bare page numbers.
+const NON_TITLE_LINE_RE = /^(arXiv:\S+.*|\d+)$/i;
+const MAX_TITLE_CHARS = 200;
+
+/**
+ * A title for a document with none in its metadata: the first non-empty line
+ * of its text when that line is short enough to be one, else null. arXiv
+ * stamps and page numbers before it are skipped.
+ * @param {string} text
+ * @returns {string|null}
+ */
+export function titleFromText(text) {
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const candidate = line.replace(/\s+/g, ' ').trim();
+    if (candidate === '' || NON_TITLE_LINE_RE.test(candidate)) continue;
+    return candidate.length <= MAX_TITLE_CHARS ? candidate : null;
+  }
+  return null;
+}
+
+/**
+ * The text of the first h1-h6 in HTML, or null when it has none.
+ * @param {string} html
+ * @returns {string|null}
+ */
+export function firstHeadingFromHtml(html) {
+  const $ = load(html || '');
+  const text = $('h1, h2, h3, h4, h5, h6').first().text().replace(/\s+/g, ' ').trim();
+  return text || null;
+}
+
 export class ProcessDocumentTool {
   constructor() {
     this.pdfProcessor = new PDFProcessor();
@@ -369,8 +401,9 @@ export class ProcessDocumentTool {
       result.pagesRead = { ...pdfResult.extractedPages, totalPages: pdfResult.pageCount };
     }
 
-    // Set title
-    result.title = pdfResult.metadata?.title || null;
+    // Set title: the metadata title, else the first short line of the text
+    // (an arXiv PDF carries no /Title, live sweep 6.11).
+    result.title = pdfResult.metadata?.title || titleFromText(result.content.text);
 
     // Set metadata
     if (pdfResult.metadata) {
@@ -488,7 +521,10 @@ export class ProcessDocumentTool {
       const md = await mammoth.convertToMarkdown({ buffer });
       result.content.markdown = md.value || '';
     }
-    result.title = null;
+    // A .docx has no title field mammoth reads: use the first heading, else
+    // the first short line of the text (live sweep 6.11).
+    const html = await mammoth.convertToHtml({ buffer });
+    result.title = firstHeadingFromHtml(html.value) || titleFromText(result.content.text);
     const notes = (raw.messages || []).map((m) => m.message).filter(Boolean);
     if (notes.length > 0) result.warnings = [...(result.warnings || []), ...notes.slice(0, 5)];
   }

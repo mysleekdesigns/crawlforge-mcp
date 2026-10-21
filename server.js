@@ -427,7 +427,7 @@ const refusedByGate = (result) => result?.success === false && preflightRefusal(
 
 // Tool: fetch_url
 registerToolIfEnabled("fetch_url", {
-  description: "Use this for a raw HTTP body - JSON, XML, plain text, an API response - or for the status code, headers and response time. Returns the body unprocessed. Not for HTML you intend to read: scrape returns markdown from one fetch, so fetch_url followed by extract_* is a double fetch. Not for JS-rendered or bot-protected pages (scrape, then stealth_mode). Supports custom headers (e.g. auth tokens) and a timeout. Cost: 1 credit. Example: fetch_url({url: \"https://api.example.com/v1/items\", timeout: 15000})",
+  description: "Use this for a raw HTTP body - JSON, XML, plain text, an API response - or for the status code, headers and response time. Returns the body unprocessed. Not for HTML you intend to read: scrape returns markdown from one fetch, so fetch_url followed by extract_* is a double fetch. Not for JS-rendered or bot-protected pages (scrape, then stealth_mode). Supports custom headers (e.g. auth tokens) and a timeout; the result reports redirected and final_url. Cost: 1 credit. Example: fetch_url({url: \"https://api.example.com/v1/items\", timeout: 15000})",
   annotations: { title: "Fetch URL", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to fetch content from"),
@@ -504,7 +504,10 @@ registerToolIfEnabled("scrape_structured", {
   annotations: { title: "Scrape Structured Data", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     url: z.string().url().describe("The URL to scrape"),
-    selectors: z.record(z.string()).describe("CSS selectors mapping field names to selectors. Append @attr to extract an attribute instead of text (e.g. \"a.link@href\", \"img@src\")"),
+    selectors: z.record(z.union([
+      z.string(),
+      z.object({ selector: z.string(), multiple: z.boolean().optional() })
+    ])).describe("CSS selectors mapping field names to selectors. Append @attr to extract an attribute instead of text (e.g. \"a.link@href\", \"img@src\"); @href and @src values are resolved to absolute URLs. A field may also be {selector, multiple: true} to return every match as an array - inside a row_selector row a field otherwise keeps only the first match"),
     row_selector: z.string().optional().describe("CSS selector for the repeating row/container element. When set, each field in selectors is matched inside each row and data is an array of row-aligned records ({field: value|null}) instead of parallel arrays"),
     max_results: z.number().int().min(1).optional().describe("Maximum number of matches to return per field when a selector matches multiple elements, or the maximum number of rows when row_selector is set"),
     ...COMPLIANCE_PARAMS
@@ -1294,7 +1297,7 @@ registerToolIfEnabled("agent", {
 
 // Tool: track_changes
 registerToolIfEnabled("track_changes", {
-  description: "Use this to monitor a URL for content changes over time - competitor pricing, regulation updates, product availability. Start with operation:\"create_baseline\", then periodically use operation:\"compare\" to diff; repeated compare calls on the same URL are expected. Supports webhooks and scheduled monitoring, and scheduledMonitorOptions.hosted:true runs the monitor on CrawlForge's servers with email and signed webhooks. Not for a one-off read (scrape). Cost: 3 credits. Example: track_changes({url: \"https://example.com/pricing\", operation: \"create_baseline\"})",
+  description: "Use this to monitor a URL for content changes over time - competitor pricing, regulation updates, product availability. Start with operation:\"create_baseline\", then periodically use operation:\"compare\" to diff; repeated compare calls on the same URL are expected. Supports webhooks and scheduled monitoring, and scheduledMonitorOptions.hosted:true runs the monitor on CrawlForge's servers with email and signed webhooks. Not for a one-off read (scrape). A compare always uses the baseline's granularity/customSelectors/excludeSelectors; different values are reported in ignoredOptions. Cost: 3 credits. Example: track_changes({url: \"https://example.com/pricing\", operation: \"create_baseline\"})",
   annotations: { title: "Track Changes", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   // The tool module owns the schema (G5); this is the same shape it validates with.
   inputSchema: {

@@ -267,8 +267,9 @@ describe('B1.4 scrapeStructured @attr syntax, max_results, per-field elements_fo
       assert.ok(!res.isError);
       const payload = JSON.parse(res.content[0].text);
       const links = Array.isArray(payload.data.links) ? payload.data.links : [payload.data.links];
-      assert.ok(links.includes('/page1'), `expected /page1, got: ${JSON.stringify(links)}`);
-      assert.ok(links.includes('/page2'), `expected /page2, got: ${JSON.stringify(links)}`);
+      // Live sweep 6.4: href values are resolved against the page URL.
+      assert.ok(links.includes('https://example.com/page1'), `expected https://example.com/page1, got: ${JSON.stringify(links)}`);
+      assert.ok(links.includes('https://example.com/page2'), `expected https://example.com/page2, got: ${JSON.stringify(links)}`);
     } finally {
       globalThis.fetch = origFetch;
     }
@@ -285,7 +286,7 @@ describe('B1.4 scrapeStructured @attr syntax, max_results, per-field elements_fo
       });
       const payload = JSON.parse(res.content[0].text);
       const images = Array.isArray(payload.data.images) ? payload.data.images : [payload.data.images];
-      assert.ok(images.includes('/img1.jpg'), `expected /img1.jpg in ${JSON.stringify(images)}`);
+      assert.ok(images.includes('https://example.com/img1.jpg'), `expected https://example.com/img1.jpg in ${JSON.stringify(images)}`);
     } finally {
       globalThis.fetch = origFetch;
     }

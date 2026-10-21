@@ -45,6 +45,20 @@ const SUPPORTED_COUNTRIES = {
 // "zh-Hans-CN"). "klingon" used to come back as "klingon-DE" (R24).
 const LANGUAGE_TAG = /^[a-z]{2,3}(-[a-z]{4})?(-([a-z]{2}|\d{3}))?$/i;
 
+// A BCP 47 tag that always carries a region, in canonical case: a bare "de"
+// for DE comes back "de-DE" (it used to stay "de" while JP's default answered
+// "ja-JP"), "zh-Hans" for CN becomes "zh-Hans-CN", "EN-gb" becomes "en-GB".
+function withRegion(language, countryCode) {
+  const [lang, ...rest] = String(language).split('-');
+  const script = rest.find(part => part.length === 4);
+  const region = rest.find(part => part.length !== 4) || countryCode;
+  return [
+    lang.toLowerCase(),
+    script && script[0].toUpperCase() + script.slice(1).toLowerCase(),
+    region.toUpperCase()
+  ].filter(Boolean).join('-');
+}
+
 // Common language mappings for Accept-Language headers with cultural preferences
 const LANGUAGE_MAPPINGS = {
   'en': 'en-US,en;q=0.9',
@@ -261,16 +275,17 @@ export class LocalizationManager extends EventEmitter {
     }
     
     const countryData = SUPPORTED_COUNTRIES[validatedInput.countryCode];
+    const language = withRegion(validatedInput.language || countryData.language, validatedInput.countryCode);
     
     // Merge country defaults with custom options
     const localizationConfig = {
       countryCode: validatedInput.countryCode,
-      language: validatedInput.language || countryData.language,
+      language,
       timezone: validatedInput.timezone || countryData.timezone,
       currency: validatedInput.currency || countryData.currency,
       searchDomain: countryData.searchDomain,
       acceptLanguage: validatedInput.acceptLanguage
-        || this.buildAcceptLanguageHeader(validatedInput.language || countryData.language, validatedInput.countryCode),
+        || this.buildAcceptLanguageHeader(language, validatedInput.countryCode),
       customHeaders: validatedInput.customHeaders || {},
       geoLocation: validatedInput.geoLocation,
       proxySettings: validatedInput.proxySettings,
@@ -1291,10 +1306,11 @@ export class LocalizationManager extends EventEmitter {
       return domainMappings[domain];
     }
     
-    // TLD-based suggestions
+    // TLD-based suggestions. ".uk" is the one ccTLD that is not its ISO
+    // code: a .co.uk site used to fall through to the US-first defaults.
     const tldMatch = domain.match(/\.([a-z]{2})$/);
     if (tldMatch) {
-      const tld = tldMatch[1].toUpperCase();
+      const tld = tldMatch[1] === 'uk' ? 'GB' : tldMatch[1].toUpperCase();
       if (SUPPORTED_COUNTRIES[tld]) {
         return [tld];
       }

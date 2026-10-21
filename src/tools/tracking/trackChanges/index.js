@@ -304,6 +304,7 @@ export class TrackChangesTool extends EventEmitter {
       details: comparisonResult.details,
       metrics: comparisonResult.metrics,
       recommendations: comparisonResult.recommendations,
+      ...(comparisonResult.ignoredOptions ? { ignoredOptions: comparisonResult.ignoredOptions } : {}),
       ...(comparisonResult.warnings || fetchWarnings.length
         ? { warnings: [...(comparisonResult.warnings || []), ...fetchWarnings] }
         : {}),

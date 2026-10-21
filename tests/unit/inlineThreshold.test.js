@@ -325,7 +325,8 @@ test('fetch_url uses the body as the text view', () => {
   assert.equal(out.result.view_path, 'body');
   assert.equal(out.result.preview, body.slice(0, 1000));
   assert.equal(out.result.status, 200);
-  assert.equal('headers' in out.result, false, 'nested objects are dropped from the inline copy');
+  // Live sweep 6.9: headers are named in `keep`, so they stay inline.
+  assert.deepEqual(out.result.headers, { 'content-type': 'application/json' }, 'headers are kept inline');
 });
 
 test('highlights, a question answer and json survive markdown truncation', () => {

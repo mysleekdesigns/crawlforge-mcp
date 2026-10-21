@@ -42,7 +42,9 @@ const TRACK_CHANGES_SHAPED_OPERATIONS = new Set([
 
 export const INLINE_THRESHOLD_TOOLS = Object.freeze({
   scrape: { textPaths: ['content.markdown', 'content.text', 'content.html', 'content.rawHtml'], truncate: true },
-  fetch_url: { textPaths: ['body'], truncate: true },
+  // The headers object is what a status/header check asked for; the scalar
+  // filter dropped it from every truncated result (live sweep 6.9).
+  fetch_url: { textPaths: ['body'], truncate: true, keep: ['headers'] },
   extract_content: { textPaths: ['content.markdown', 'content.text', 'content.html', 'content.cleanedHTML'], truncate: true },
   crawl_deep: { textPaths: [], truncate: true },
   batch_scrape: { textPaths: [], truncate: true },

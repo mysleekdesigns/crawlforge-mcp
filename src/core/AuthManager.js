@@ -769,7 +769,7 @@ class AuthManager {
           : 'Browser operation. configure/get_stats/cleanup cost 1 credit each.';
         break;
       case 'browser_session':
-        note = `Priced per operation: open 3, read 2, snapshot/act/screenshot/close/list 1. This call bills ${projected}.`;
+        note = `Priced per operation: open 3, read 2, snapshot/act/screenshot/close/list 1. This call's list price is ${projected}.`;
         break;
       case 'serp_rank':
         note = projected === 0
@@ -809,6 +809,12 @@ class AuthManager {
     // rather than owned by any one case.
     if (redactionSurcharge(toolName, params) > 0) {
       note += ` redact_pii mode:"model" adds ${REDACT_PII_MODEL_CREDITS} once for the PERSON/LOCATION pass; the charge drops back when no LLM route answered.`;
+    }
+
+    // Creator mode bills nothing, so withAuth reports _cost.projected and
+    // actual as 0; the note must not read as a charge next to them (6.10).
+    if (this.isCreatorMode()) {
+      note += ` This install is not billed (creator mode): the figures above are list prices, and _cost.projected and actual are 0.`;
     }
 
     return { projected, note };

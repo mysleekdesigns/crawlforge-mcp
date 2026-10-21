@@ -179,7 +179,7 @@ export class SerpRankTool {
       device: meta.device,
       depthScanned: meta.depth,
       organicResults: meta.organicCount,
-      seResultsCount: meta.seResultsCount,
+      seResultsCount: meta.seResultsCount ?? undefined, // omitted when unknown (see the adapter)
       checkUrl: meta.checkUrl, // link to view the real SERP
       cost: meta.cost, // USD charged by DataForSEO for this lookup
       checkedAt: new Date().toISOString(),

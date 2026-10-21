@@ -41,7 +41,7 @@ export const TRACK_CHANGES_INPUT_SHAPE = {
     // filled in here is indistinguishable from a value the caller passed, so
     // it overrode the template (R24 2.7). ChangeTracker applies these same
     // defaults when the baseline is created.
-    granularity: z.enum(['page', 'section', 'element', 'text']).optional().describe("Default: section"),
+    granularity: z.enum(['page', 'section', 'element', 'text']).optional().describe("Default: section. Fixed when the baseline is created: a compare always diffs at the baseline's granularity (as with customSelectors and excludeSelectors), and one that asks for a different value gets ignoredOptions:[{option, requested, applied}] plus a warnings entry. Recreate the baseline to change it"),
     trackText: z.boolean().optional().describe("Default: true"),
     trackStructure: z.boolean().optional().describe("Default: true"),
     trackAttributes: z.boolean().default(false),

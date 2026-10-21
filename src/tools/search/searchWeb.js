@@ -84,6 +84,8 @@ const SearchWebSchema = z.object({
 // never costs an extra backend search.
 const DEDUPE_OVERFETCH = 4;
 const GOOGLE_MAX_RESULTS_PER_REQUEST = 10;
+// Deepest SearXNG page _executeViaSearxng reads to reach an offset.
+const SEARXNG_MAX_PAGES = 5;
 
 /**
  * Index, in the provider's page, of the first item this response does not
@@ -348,7 +350,9 @@ export class SearchWebTool {
       // Where the next page starts. Deduplication backfills this page from
       // the over-fetched margin, so the next page begins after the first
       // provider item NOT shown here, not at offset + limit (which repeated
-      // the backfilled items on the next page).
+      // the backfilled items on the next page). So next_offset is offset +
+      // the provider items this page consumed, duplicates included: 5 results
+      // with next_offset 6 means one of items 0..5 was a duplicate.
       const nextOffset = localizedParams.offset + firstUnshownIndex(
         processedResults,
         localizedParams.limit,
@@ -469,17 +473,38 @@ export class SearchWebTool {
    * @returns {Promise<Object>} Standard search_web response object
    */
   async _executeViaSearxng(validated) {
-    // page is 1-based; offset is 0-based items, so map via limit
-    const page = Math.floor(validated.offset / validated.limit) + 1;
-
-    const adapterResult = await searchViaSearxng({
-      query: validated.query,
-      // SearXNG returns a whole page per request, so the dedup margin is free.
-      limit: validated.limit + DEDUPE_OVERFETCH,
-      page,
-      safeSearch: validated.safe_search,
-      language: validated.lang
-    });
+    // SearXNG is addressed by page, and its page size is set by the instance
+    // and its engines, not by `limit`. So `offset` counts items in SearXNG's
+    // result stream: read pages 1, 2, ... until the window
+    // [offset, offset + limit + margin) is covered, a page adds no new URL
+    // (end of results, or an instance that repeats a page), or the page cap.
+    const wanted = validated.offset + validated.limit + DEDUPE_OVERFETCH;
+    const stream = [];
+    const seen = new Set();
+    let firstPage = null;
+    for (let page = 1; page <= SEARXNG_MAX_PAGES && stream.length < wanted; page++) {
+      let pageResult;
+      try {
+        pageResult = await searchViaSearxng({
+          query: validated.query,
+          limit: Number.MAX_SAFE_INTEGER, // keep the whole page
+          page,
+          safeSearch: validated.safe_search,
+          language: validated.lang
+        });
+      } catch (error) {
+        if (page === 1) throw error;
+        break; // a later page failing ends the stream; keep what was read
+      }
+      firstPage ??= pageResult;
+      const fresh = (pageResult.items || []).filter(item => !seen.has(item.link) && seen.add(item.link));
+      if (fresh.length === 0) break;
+      stream.push(...fresh);
+    }
+    const adapterResult = {
+      ...firstPage,
+      items: stream.slice(validated.offset, wanted)
+    };
 
     // Run through shared post-processing (deduplication, ranking)
     let processedResults = await this.processResults(adapterResult);
@@ -502,6 +527,14 @@ export class SearchWebTool {
           ((originalCount - processedResults.length) / originalCount * 100).toFixed(1) + '%'
       };
     }
+
+    // Same rule as execute(): the next page starts at the first stream item
+    // this page does not show, so duplicates removed here are not re-read.
+    const nextOffset = validated.offset + firstUnshownIndex(
+      processedResults,
+      validated.limit,
+      adapterResult.items.length
+    );
 
     // Drop the over-fetched margin (see execute()).
     if (processedResults.length > validated.limit) {
@@ -541,9 +574,7 @@ export class SearchWebTool {
       search_time: adapterResult.searchInformation?.searchTime || 0,
       offset: validated.offset,
       limit: validated.limit,
-      // SearXNG is paged (offset maps to page floor(offset/limit)+1), so the
-      // next page starts at the next multiple of limit.
-      next_offset: page * validated.limit,
+      next_offset: nextOffset,
       cached: false,
       provider: {
         name: 'searxng',

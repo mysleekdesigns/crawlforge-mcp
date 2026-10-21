@@ -155,7 +155,10 @@ export class DataForSEOSearchAdapter {
         device,
         depth,
         organicCount: items.length,
-        seResultsCount: result0?.se_results_count ?? null,
+        // Google's "About N results" total. Mobile SERPs (and many desktop
+        // ones) show no total, and DataForSEO then reports 0; a 0 beside
+        // organic results is unknown, not zero.
+        seResultsCount: result0?.se_results_count === 0 && items.length > 0 ? null : result0?.se_results_count ?? null,
         checkUrl: result0?.check_url ?? null, // Google URL to eyeball the real SERP
         cost: data.cost ?? task0.cost ?? null, // USD charged by DataForSEO for this call
       },
