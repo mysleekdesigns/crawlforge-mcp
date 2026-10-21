@@ -267,10 +267,14 @@ describe('D2: _waitOutEmptyDocument gives an empty document one bounded grace', 
 
 describe('D1 / D2: scrapeWithStealth returns the status of the document finally read', () => {
   test('an error page keeps its HTTP status; a filled document is not graced', async () => {
-    const { page } = fakeStealthPage({ status: 403, title: '403 - Access Denied', text: 'Access Denied' });
+    const { page, calls } = fakeStealthPage({ status: 403, title: '403 - Access Denied', text: 'Access Denied' });
     const scraped = await stubbedManager(page).scrapeWithStealth({ url: 'http://127.0.0.1:1/x' });
     assert.equal(scraped.status, 403);
-    assert.equal(scraped.gracedMs, 0);
+    // gracedMs also carries _settleRender's wall-clock load wait, which on a
+    // slow runner reads 1-2 ms even against this instant stub (CI, 2026-10-21).
+    // Not graced = the empty-document wait never ran.
+    assert.ok(!calls.some(([name]) => name === 'waitForFunction'), 'a filled document is not waited on');
+    assert.ok(scraped.gracedMs < 100, `gracedMs ${scraped.gracedMs}`);
     assert.equal(scraped.title, '403 - Access Denied');
     assert.equal(stealthDocumentVerdict(scraped).success, false);
   });

@@ -64,9 +64,18 @@ const MODERN_ENVELOPE = {
   'io.modelcontextprotocol/clientCapabilities': {}
 };
 
-/** A 2026-era request body + the SEP-2243 headers the SDK cross-checks against it. */
+/**
+ * A 2026-era request body + the SEP-2243 headers the SDK cross-checks against it.
+ * MCP-Protocol-Version is required on every modern request POST: SDK 2.3.x
+ * answers its absence with -32020 (validateStandardRequestHeaders), which 2.0.0
+ * did not enforce. The SDK's own client always sends it.
+ */
 function modernRequest(id, method, params = {}) {
-  const headers = { ...jsonRpcHeaders, 'mcp-method': method };
+  const headers = {
+    ...jsonRpcHeaders,
+    'mcp-protocol-version': MODERN_ENVELOPE['io.modelcontextprotocol/protocolVersion'],
+    'mcp-method': method
+  };
   if (typeof params.name === 'string') headers['mcp-name'] = params.name;
   return {
     headers,

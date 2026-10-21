@@ -38,7 +38,7 @@ import tls from 'node:tls';
 import { config } from '../../constants/config.js';
 import { assertUrlAllowed, isSsrfError, ssrfLookup } from '../../utils/ssrfGuard.js';
 
-/** upstream key → Promise<{ server: string }> */
+/** upstream key → Promise<{ server: string, bypass: string }> */
 const servers = new Map();
 
 const hostForUrl = (host) => (net.isIPv6(host) ? `[${host}]` : host);
@@ -261,7 +261,12 @@ function upstreamUrl(proxy) {
  * proxy, chained to `upstream` when one is given.
  * @param {{ server: string, username?: string, password?: string }|null} [upstream]
  *   the proxy the context would otherwise have used, in Playwright's shape
- * @returns {Promise<{ server: string }>}
+ * @returns {Promise<{ server: string, bypass: string }>} `bypass` is Chromium's
+ *   `<-loopback>` (send loopback through the proxy), stated here rather than
+ *   left to Playwright: Playwright adds it only while
+ *   PLAYWRIGHT_DISABLE_FORCED_CHROMIUM_PROXIED_LOOPBACK is unset, and with that
+ *   set every Chromium request to 127.0.0.1 skipped this proxy (measured
+ *   2026-10-21). Named in the list, it is applied whatever the env says.
  */
 export function guardedProxyFor(upstream = null) {
   const up = upstreamUrl(upstream);
@@ -274,7 +279,7 @@ export function guardedProxyFor(upstream = null) {
       server.once('error', reject);
       server.listen(0, '127.0.0.1', () => {
         server.unref();
-        resolve({ server: `http://127.0.0.1:${server.address().port}` });
+        resolve({ server: `http://127.0.0.1:${server.address().port}`, bypass: '<-loopback>' });
       });
     });
     started.catch(() => servers.delete(key));

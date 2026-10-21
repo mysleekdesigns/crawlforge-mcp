@@ -20,7 +20,17 @@ const origFetch = globalThis.fetch;
 const ENV_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'OLLAMA_DEFAULT_MODEL'];
 const savedEnv = {};
 
+// The stubbed providers below hang on promises with no I/O behind them, and
+// the budget is an AbortSignal.timeout, whose timer is unref'd. With nothing
+// else holding the event loop, Node 22's test runner cancels every test
+// ("Promise resolution is still pending but the event loop has already
+// resolved"); Node 24's runner keeps the loop alive itself and hid this. In
+// production a real socket or the transport holds the loop, so this ref'd
+// timer stands in for it.
+let keepAlive;
+
 beforeEach(() => {
+  keepAlive = setInterval(() => {}, 60_000);
   for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
   delete process.env.ANTHROPIC_API_KEY;
   // Skips the /api/tags model lookup, which has its own 3 s bound.
@@ -28,6 +38,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  clearInterval(keepAlive);
   globalThis.fetch = origFetch;
   for (const k of ENV_KEYS) {
     if (savedEnv[k] === undefined) delete process.env[k];
