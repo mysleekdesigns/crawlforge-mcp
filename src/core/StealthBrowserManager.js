@@ -279,7 +279,7 @@ export async function resolveStealthEngine(requested) {
     return { engine: 'chromium', fallbackWarning: null };
   }
 
-  let reason = 'camoufox is not installed (npm install camoufox)';
+  let reason = 'camoufox is not installed (npm install camoufox, then npx camoufox fetch)';
   try {
     if (await new CamoufoxAdapter().isAvailable()) {
       return { engine: 'camoufox', fallbackWarning: null };
@@ -606,7 +606,7 @@ export class StealthBrowserManager {
       const available = await adapter.isAvailable();
       if (!available) {
         throw new Error(
-          'camoufox is not installed. Run: npm install camoufox to use the Firefox-based stealth engine.'
+          'camoufox is not installed. Run: npm install camoufox, then npx camoufox fetch, to use the Firefox-based stealth engine.'
         );
       }
       // camoufox fixes its fingerprint — and, with geoip, its geolocation,
@@ -3612,7 +3612,15 @@ export class CamoufoxAdapter extends BrowserEngine {
 
   async isAvailable() {
     try {
-      await this._load();
+      const camoufox = await this._load();
+      // The npm package ships without the Firefox binary, which comes from a
+      // separate `npx camoufox fetch`. getLaunchPath() throws when it is
+      // missing, and "auto" must then pick Chromium, not fail at launch.
+      try {
+        camoufox.getLaunchPath();
+      } catch {
+        return false;
+      }
       return true;
     } catch (err) {
       if (this._isNotInstalled(err)) {

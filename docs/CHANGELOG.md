@@ -5,6 +5,37 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.23.1] - 2026-10-21
+
+### Security
+- **MCP SDK 2.3.1.** `@modelcontextprotocol/server` and `core` 2.0.0 → 2.3.1,
+  `node` 2.0.0 → 2.1.1, for GHSA-jm63-cq47-j5jp (a shared transport or server
+  instance could deliver one HTTP client's messages to another),
+  GHSA-46jr-4wx8-v453 (one request within the size limit could exhaust memory
+  during validation) and GHSA-rvq5-wwqv-78pq (bearer auth accepted tokens
+  issued for another service). The HTTP transport already built one server per
+  2026-era request and one transport and server per 2025-era session, so it
+  was not exposed to the cross-client delivery.
+- **Browser loopback always goes through the SSRF guard proxy.** The guarded
+  proxy config now names Chromium's `<-loopback>` bypass rule itself. Before,
+  setting `PLAYWRIGHT_DISABLE_FORCED_CHROMIUM_PROXIED_LOOPBACK` made Chromium
+  reach 127.0.0.1 directly, past the guard.
+
+### Changed
+- **2026-07-28-era HTTP requests need the `MCP-Protocol-Version` header.**
+  The SDK now rejects a request without it with `-32020` (HTTP 400), as
+  SEP-2243 requires. The official SDK client always sends it; 2025-era session
+  clients are unaffected.
+
+### Fixed
+- **`engine: "auto"` falls back to Chromium when Camoufox's browser was never
+  fetched.** The npm package loads before `npx camoufox fetch`, so "auto"
+  picked Camoufox and the launch then failed. Availability now also checks the
+  binary, and the fallback warning names `npx camoufox fetch`.
+- **CI unit tests pass on Node 22 and without Camoufox.** Three tests depended
+  on Node 24's runner keeping the event loop alive, on a Camoufox binary, or
+  on a 0 ms timing.
+
 ## [6.23.0] - 2026-10-21
 
 Fixes from a live sweep of all 31 tools on 6.22.3 (3+ live sites per tool)

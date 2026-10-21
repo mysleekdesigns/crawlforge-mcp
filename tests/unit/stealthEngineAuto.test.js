@@ -164,6 +164,18 @@ describe('resolveStealthEngine answers for every spelling a tool uses', () => {
     assert.equal(resolved.engine, 'chromium');
     assert.match(resolved.fallbackWarning, /failed to load: bad ELF header/);
   });
+
+  test('the package without its fetched binary is not available', async (t) => {
+    // camoufox's npm package loads fine before `npx camoufox fetch`, so a
+    // load check alone sent "auto" to camoufox and the launch then threw.
+    t.mock.method(CamoufoxAdapter.prototype, '_load', async () => ({
+      getLaunchPath: () => { throw new Error('Camoufox is not installed'); }
+    }));
+    assert.equal(await new CamoufoxAdapter().isAvailable(), false);
+    const resolved = await resolveStealthEngine('auto');
+    assert.equal(resolved.engine, 'chromium');
+    assert.match(resolved.fallbackWarning, /camoufox fetch/);
+  });
 });
 
 // ── the schema defaults ─────────────────────────────────────────────────────

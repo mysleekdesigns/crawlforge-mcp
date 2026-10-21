@@ -47,7 +47,16 @@ try {
   await (await chromium.launch()).close();
   hasChromium = true;
 } catch { /* no browser binary — the browser suites skip */ }
-const hasCamoufox = hasChromium && await new CamoufoxAdapter().isAvailable().catch(() => false);
+// isAvailable() only proves the npm package loads; the Firefox binary comes
+// from a separate `camoufox fetch` (absent on CI). A launch proves both, as the
+// Chromium probe above does.
+let hasCamoufox = false;
+if (hasChromium) {
+  try {
+    await (await new CamoufoxAdapter().launch({ headless: true })).close();
+    hasCamoufox = true;
+  } catch { /* package or binary missing — the camoufox suite skips */ }
+}
 
 const SECRET = 'the loopback secret';
 
@@ -365,7 +374,8 @@ describe('the guarded proxy chained to an upstream', () => {
         ? { server: `http://127.0.0.1:${httpUpstream.address().port}`, username: 'u', password: 'p' }
         : { server: `socks5://127.0.0.1:${socksUpstream.address().port}` };
       const proxy = await guardedProxyFor(upstream);
-      assert.deepEqual(Object.keys(proxy), ['server']);
+      assert.deepEqual(Object.keys(proxy), ['server', 'bypass']);
+      assert.equal(proxy.bypass, '<-loopback>');
       const res = await tunnelGet(proxy, `localhost:${S}`);
       assert.equal(res.status, 200);
       assert.match(res.body, /the public page/);
