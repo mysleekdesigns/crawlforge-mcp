@@ -64,7 +64,7 @@ describe('summarizeContent tool (real module)', () => {
   });
 
   test('happy path extractive — returns a real extractive summary, not a fallback', async () => {
-    const result = await tool.execute({ text: LONG_TEXT });
+    const result = await tool.execute({ text: LONG_TEXT, options: { summaryType: 'extractive' } });
     assert.equal(result.success, true);
     assert.equal(result.summary.type, 'extractive');
     assert.ok(result.summary.text.length > 0, 'summary text should exist');
@@ -161,7 +161,7 @@ describe('summarizeContent tool (real module)', () => {
 
   describe('extractive lead bias + brevity penalty (regression, 2026-08-20)', () => {
     test('summary includes the document-leading definitional sentence, in first position', async () => {
-      const result = await tool.execute({ text: ENCYCLOPEDIA_TEXT });
+      const result = await tool.execute({ text: ENCYCLOPEDIA_TEXT, options: { summaryType: 'extractive' } });
       assert.equal(result.success, true);
       assert.equal(result.summary.type, 'extractive');
       assert.ok(
