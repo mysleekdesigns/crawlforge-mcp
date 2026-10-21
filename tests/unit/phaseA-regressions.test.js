@@ -199,7 +199,10 @@ describe('A1.8 generate_llms_txt spec output', () => {
     const md = tool.generateLLMsTxt(analysis, {}, 'standard');
     assert.ok(/\n## Pages\n/.test(md), `expected a ## Pages inventory, got:\n${md}`);
     assert.ok(/\]\(https:\/\/books\.toscrape\.com\/catalogue\/x\/index\.html\)/.test(md), 'sitemap URLs must appear as markdown links');
-    assert.ok(/\n## APIs\n/.test(md), 'APIs section still renders');
+    // Live sweep 7.4: a documentation link is an HTML page, listed as a page,
+    // not under ## APIs (only JSON/XML endpoints are).
+    assert.ok(!/\n## APIs\n/.test(md), 'a documentation link is not an API');
+    assert.ok(/\]\(https:\/\/books\.toscrape\.com\/catalogue\/sapiens_996\/index\.html\)/.test(md), 'the documentation link is still listed');
   });
 
   test('robotsStyle:true preserves legacy robots-style output', async () => {
