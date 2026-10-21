@@ -172,7 +172,7 @@ test('4.3 generate_llms_txt: llms-full.txt is the view, llms.txt and the object 
   assert.equal(read.total_matches, 1000);
 });
 
-test('4.3 track_changes: list operations are shaped, a compare is not', async () => {
+test('4.3 track_changes: list operations and compare are shaped, a baseline is not', async () => {
   const history = Array.from({ length: 300 }, (_, i) => ({ timestamp: i, changeType: 'moderate', summary: 'x'.repeat(50) }));
   const result = { success: true, operation: 'get_history', url: 'https://a.example', history, pagination: { total: 300, limit: 300, offset: 0, hasMore: false }, timespan: { earliest: 0, latest: 299, totalEntries: 300 } };
   const { body } = await send('track_changes', result, { url: 'https://a.example', operation: 'get_history', max_inline_chars: 2000 });
@@ -182,10 +182,11 @@ test('4.3 track_changes: list operations are shaped, a compare is not', async ()
   assert.equal(read.value, 299);
 
   const rule = INLINE_THRESHOLD_TOOLS.track_changes;
-  for (const operation of ['get_history', 'export_history', 'list_scheduled_monitors', 'get_dashboard', 'generate_trend_report']) {
-    assert.equal(rule.when({ operation }), true, operation);
+  // compare since live sweep 4.2; undefined is the schema's default, compare.
+  for (const operation of ['compare', undefined, 'get_history', 'export_history', 'list_scheduled_monitors', 'get_dashboard', 'generate_trend_report']) {
+    assert.equal(rule.when({ operation }), true, String(operation));
   }
-  for (const operation of ['create_baseline', 'compare', 'monitor', undefined]) {
+  for (const operation of ['create_baseline', 'monitor']) {
     assert.equal(rule.when({ operation }), false, String(operation));
   }
 });
