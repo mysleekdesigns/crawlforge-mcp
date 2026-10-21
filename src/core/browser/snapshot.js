@@ -511,6 +511,28 @@ export function resolveRef(page, selector) {
   return state.refs.get(id).selector;
 }
 
+/**
+ * Point a ref whose element has left the document at the element that took
+ * its place: the one element with the role and name the snapshot recorded.
+ *
+ * A page can swap an element out without navigating — Wikipedia replaces its
+ * search box after load — and the ref then names a detached node that no
+ * action can reach (live sweep 2026-10-20, 3.2). This is not a guess: an
+ * unnamed ref, or a role and name that match none or several elements, is left
+ * as it was and the action fails as before.
+ * @returns {Promise<boolean>} true when the ref now names the replacement
+ */
+export async function reresolveRef(page, selector) {
+  const entry = isRef(selector) ? pageState.get(page)?.refs?.get(selector.slice(1)) : null;
+  if (!entry?.role || !entry.name) return false;
+  // `s`: the name matches exactly and case-sensitively, not as a substring.
+  const candidate = `role=${entry.role}[name=${JSON.stringify(entry.name)}s]`;
+  const count = await page.locator(candidate).count().catch(() => 0);
+  if (count !== 1) return false;
+  entry.selector = candidate;
+  return true;
+}
+
 /** Register the navigation listener that invalidates this page's refs. Idempotent. */
 export function attachRefTracking(page) {
   const state = stateFor(page);

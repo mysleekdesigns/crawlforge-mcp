@@ -9,7 +9,7 @@ import { EventEmitter } from 'events';
 import { createHash } from 'node:crypto';
 import { assertUrlAllowed, assertNavigationAllowed } from '../utils/ssrfGuard.js';
 import { browserPreflight, redirectGate, pageMoveGate, gateRefusalCode, paceBrowserAction } from '../utils/robotsGate.js';
-import { isRef, resolveRef, captureSnapshot } from './browser/snapshot.js';
+import { isRef, resolveRef, reresolveRef, captureSnapshot } from './browser/snapshot.js';
 import { settlePage } from './browser/settle.js';
 import { handleConsent } from './browser/consent.js';
 import { stealthDocumentVerdict } from '../utils/stealthVerdict.js';
@@ -55,6 +55,27 @@ const withoutHash = (url) => url.split('#')[0];
  * A failed action's message, naming its selector. Playwright names it only in
  * the "Call log:", which is stripped before the model reads the error (R25 3.2).
  */
+/**
+ * The live `.value` of every input, textarea and select, in document order.
+ *
+ * page.content() serializes attributes, and typing changes the property, not
+ * the attribute: `input[type=number]@value` came back null after typing "42"
+ * (live sweep 2026-10-20, 3.4). The serialized HTML's controls are matched to
+ * these by position (ScrapeWithActionsTool.extractWithSelectors).
+ * @param {Page} page - Playwright page
+ * @returns {Promise<Array<{tag: string, value: string}>>} [] when the page cannot answer
+ */
+async function readFormValues(page) {
+  try {
+    return await page.evaluate(() => Array.from(
+      document.querySelectorAll('input, textarea, select'),
+      (el) => ({ tag: el.localName, value: el.value })
+    ));
+  } catch (_) {
+    return [];
+  }
+}
+
 function actionErrorMessage(action, error) {
   const firstLine = String(error.message).split('\n')[0];
   return action.selector && !firstLine.includes(action.selector)
@@ -363,6 +384,7 @@ export class ActionExecutor extends EventEmitter {
         if (finalState) {
           executionContext.finalHtml = finalState.html;
           executionContext.finalUrl = finalState.url;
+          executionContext.finalFormValues = finalState.formValues;
         }
 
         this.stats.successfulChains++;
@@ -433,6 +455,7 @@ export class ActionExecutor extends EventEmitter {
           ...executionContext,
           page: undefined, // Don't store page in history
           finalHtml: undefined,
+          finalFormValues: undefined, // what was typed, passwords included
           screenshots: undefined,
           screenshotCount: executionContext.screenshots.length,
           capturedStates: undefined,
@@ -459,6 +482,7 @@ export class ActionExecutor extends EventEmitter {
         url,
         finalUrl: executionContext.finalUrl || url,
         finalHtml: executionContext.finalHtml,
+        finalFormValues: executionContext.finalFormValues || [],
         navigationStatus: executionContext.page?.__crawlforgeNavigation?.status ?? null,
         navigations: executionContext.navigations || [],
         consent: executionContext.consent,
@@ -579,6 +603,7 @@ export class ActionExecutor extends EventEmitter {
                 afterActionId: actionResult.id,
                 url: captured.url,
                 html: captured.html,
+                formValues: captured.formValues,
                 timestamp: Date.now()
               });
             }
@@ -780,18 +805,19 @@ export class ActionExecutor extends EventEmitter {
   }
 
   /**
-   * The page's URL and HTML, read natively (no in-page JS execution, so it
-   * works regardless of ALLOW_JAVASCRIPT_EXECUTION). A page that cannot be
-   * read yields null and a warning; a page the gate refuses throws.
+   * The page's URL and HTML, read natively (no caller-supplied JS, so it
+   * works regardless of ALLOW_JAVASCRIPT_EXECUTION), and the live value of
+   * each form control. A page that cannot be read yields null and a warning;
+   * a page the gate refuses throws.
    * @param {Page} page - Playwright page
    * @param {Object} [browserOptions] - Browser options (`respectRobots` override)
    * @param {string} what - names the capture in the warning
-   * @returns {Promise<{ url: string, html: string }|null>}
+   * @returns {Promise<{ url: string, html: string, formValues: Array<{tag: string, value: string}> }|null>}
    */
   async captureState(page, browserOptions, what) {
     return await this.readGated(page, browserOptions, async () => {
       try {
-        return { html: await page.content(), url: page.url() };
+        return { html: await page.content(), url: page.url(), formValues: await readFormValues(page) };
       } catch (captureErr) {
         this.log('warn', 'Failed to capture ' + what + ': ' + captureErr.message);
         return null;
@@ -879,7 +905,7 @@ export class ActionExecutor extends EventEmitter {
       // "Action timeout".
       const backstopMs = timeout + ACTION_TIMEOUT_GRACE_MS;
       let backstopTimer;
-      const executionPromise = this.executeActionByType(page, action, executionContext);
+      const executionPromise = this.executeActionWithRefRetry(page, action, executionContext);
       const timeoutPromise = new Promise((_, reject) => {
         backstopTimer = setTimeout(
           () => reject(new Error(
@@ -1056,6 +1082,42 @@ export class ActionExecutor extends EventEmitter {
   async settleAfterInteraction(page, timeout, startedAt) {
     const remaining = Math.max(1, timeout - (Date.now() - startedAt));
     return await settlePage(page, { timeout: remaining });
+  }
+
+  /**
+   * Run the action; if its ref names an element the page has since replaced,
+   * re-find the element by the ref's role and name once and run it again.
+   *
+   * Checked up front as well as on the error, because a detached ref does not
+   * always fail fast: Playwright reports "Element is not attached to the DOM"
+   * when the swap lands mid-action, but waits out the whole action timeout for
+   * a ref that was already detached when the action began.
+   * @param {Page} page - Playwright page
+   * @param {Object} action - Action configuration
+   * @param {Object} [executionContext] - Execution context
+   * @returns {Promise<any>} Action result
+   */
+  async executeActionWithRefRetry(page, action, executionContext) {
+    const ref = [action.selector, action.toElement].find(isRef);
+    let reresolved = false;
+    if (ref) {
+      let matches = 1;
+      try {
+        matches = await this.elementLocator(page, ref).count();
+      } catch (_) {
+        // A stale or unknown ref: the action itself reports it.
+      }
+      if (matches === 0) reresolved = await reresolveRef(page, ref);
+    }
+    try {
+      return await this.executeActionByType(page, action, executionContext);
+    } catch (error) {
+      if (!ref || reresolved || !/not attached to the DOM/i.test(error?.message) ||
+          !(await reresolveRef(page, ref))) {
+        throw error;
+      }
+      return await this.executeActionByType(page, action, executionContext);
+    }
   }
 
   /**
@@ -1442,14 +1504,22 @@ export class ActionExecutor extends EventEmitter {
     const startedAt = Date.now();
     const timeout = this.actionTimeout(action);
 
+    // Both checks run before the page is touched, so a target refused here
+    // leaves the page where it was.
     await assertUrlAllowed(action.url, { resolveDns: true });
     const gateWarnings = await this.assertRobotsAllowed(action.url, executionContext?.browserOptions);
 
-    await this.navigateToUrl(page, action.url, {
-      waitUntil: action.waitUntil,
-      timeout,
-      browserOptions: executionContext?.browserOptions
-    });
+    const previousUrl = page.url();
+    try {
+      await this.navigateToUrl(page, action.url, {
+        waitUntil: action.waitUntil,
+        timeout,
+        browserOptions: executionContext?.browserOptions
+      });
+    } catch (error) {
+      await this.restoreAfterRefusal(page, previousUrl, error, executionContext?.browserOptions);
+      throw error;
+    }
     page.__crawlforgeGateWarnings = gateWarnings;
 
     // Consent handling gets at most what is left of the action's deadline, so
@@ -1475,6 +1545,41 @@ export class ActionExecutor extends EventEmitter {
       ...(navigation.blocked ? { blocked: navigation.blocked } : {}),
       ...(consent ? { consent } : {})
     };
+  }
+
+  /**
+   * Put the page back after a navigation refused partway.
+   *
+   * A target refused up front never leaves the page. A redirect hop to a
+   * blocked address is refused only once the browser asks for it — by the
+   * guarded proxy — and by then the page is gone: blanked by
+   * assertNavigationAllowed, or on the browser's error page when the proxy
+   * refused an https tunnel. The browser cannot undo a committed navigation, so
+   * the page that was left is loaded again (through the same gate). That keeps
+   * a session on its page and its cookies, but not on state that lived only in
+   * the page, and the error says which of the two happened (live sweep
+   * 2026-10-20, 3.3).
+   * @param {Page} page - Playwright page
+   * @param {string} previousUrl - where the page was before the navigation
+   * @param {Error} error - the navigation's failure; its message is extended
+   * @param {Object} [browserOptions] - Browser options (`respectRobots` for the reload's gate)
+   * @returns {Promise<void>}
+   */
+  async restoreAfterRefusal(page, previousUrl, error, browserOptions) {
+    const refused = gateRefusalCode(error) || /ERR_TUNNEL_CONNECTION_FAILED/.test(error?.message);
+    if (!refused || !/^https?:\/\//i.test(previousUrl)) return;
+    // A refused tunnel's error page commits after goto() has already rejected;
+    // let it land first, or it interrupts the reload.
+    if (page.url() === previousUrl) {
+      await page.waitForURL((url) => url.href !== previousUrl, { timeout: 2000 }).catch(() => {});
+    }
+    try {
+      await this.navigateToUrl(page, previousUrl, { browserOptions });
+      error.message += ` The page was returned to ${previousUrl} by loading it again; ` +
+        'state held only in the page (unsaved form input, script state) was lost.';
+    } catch (_) {
+      error.message += ` The page could not be returned to ${previousUrl} and is now ${page.url()}.`;
+    }
   }
 
   /**
