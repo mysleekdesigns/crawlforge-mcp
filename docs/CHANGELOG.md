@@ -5,6 +5,156 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.23.0] - 2026-10-21
+
+Fixes from a live sweep of all 31 tools on 6.22.3 (3+ live sites per tool)
+and a security re-review on 2026-10-20.
+
+### Security
+- **Browser tools no longer request a blocked redirect hop.** A page that
+  redirected to `127.0.0.1` reached the target before the block was reported
+  (`scrape_with_actions`, `stealth_mode` and `browser_session` open and
+  navigate, on Chromium and Camoufox). Every browser context now connects
+  through a local forward proxy on 127.0.0.1 that checks each connection
+  (redirect hops, iframes, subresources, fetch/XHR and WebSockets) and
+  refuses a blocked one with 403. It connects to the address it checked, so
+  DNS rebinding no longer gets past the browser path. A configured upstream
+  proxy is chained behind it; its `bypass` list is ignored.
+- **`[::]` is blocked.** The unspecified IPv6 address connects to the local
+  host, like `0.0.0.0`, and passed the guard in both modes. `::/128` is now
+  blocked by default; `SSRF_STRICT=true` also blocks IPv4-compatible
+  (`::/96`) and NAT64 (`64:ff9b::/96`) addresses.
+- **Local `process_document` reads are limited.** With `sourceType` `file` or
+  `pdf_file`, a path is judged by its realpath (a symlink by its target),
+  must be a `.pdf`, `.docx`, `.txt`, `.md`, `.html` or `.htm` file, and may
+  not sit inside a dot-directory (`~/.ssh`, `~/.aws`, `~/.crawlforge`, ...).
+  `/etc/passwd` and `~/.crawlforge/config.json` were readable before. The new
+  `CRAWLFORGE_ALLOWED_DIRS` (`:`-separated, `;` on Windows) limits reads to
+  the listed directories instead, where dot-directories are allowed; the
+  extension rule still applies. Remote mode still refuses local files.
+- **The SSRF error says what the active mode blocks.** By default
+  (Stage 1) private networks are allowed, and the message no longer says
+  otherwise; it names `SSRF_STRICT=true` for those who want them refused.
+  The README documents both levels.
+- `hono` 4.13.7 → 4.13.13 (moderate advisory, via the MCP SDK).
+
+### Changed
+- **`read_result` `json_path` starts at the full stored result for every
+  tool.** For a `fetch_url` handle the body is now under `body.`, and a JSON
+  body is read into (`body.items[0]`); paths that started inside the body
+  (`items[0]`) no longer resolve. Keys holding a `.` go in brackets
+  (`files["llms.txt"]` or `files['llms.txt']`). A path that does not exist
+  says "not found", lists the available keys, and no longer suggests the
+  handle has expired.
+- **`track_changes` `textChanges` diffs the visible text.** Script and style
+  are dropped, so a class rename or icon markup no longer shows as a text
+  change. The raw-markup diff is opt-in: `trackingOptions.includeMarkupChanges:
+  true` (at baseline or compare time) adds `details.markupChanges`.
+- **`track_changes` compare honours `max_inline_chars`.** A large compare
+  (or a call with no `operation`, which defaults to compare) keeps `summary`,
+  `metrics`, `alerts` and `snapshot` inline and puts `details` behind a
+  `result_handle`. A Hacker News compare with `max_inline_chars: 4000` had
+  come back as about 15 KB inline.
+- **`track_changes` compare reports ignored options in a field.** A compare
+  always uses the baseline's `granularity`, `customSelectors` and
+  `excludeSelectors`; one that asks for different values now also gets
+  `ignoredOptions: [{option, requested, applied}]` beside the warning.
+- **`stealth_mode` reports `waited_ms` and `render_grace_ms`.**
+  `waited_for_render_ms` is removed. It held only the render grace, so
+  `wait_for: 5000` read as 4 ms although the wait ran; the requested wait and
+  the grace are now separate fields.
+- **`summarize_content` tries an abstractive summary by default at medium
+  length.** With `summaryType` omitted and `summaryLength` `medium`, it asks
+  an LLM when one is reachable and falls back to extractive otherwise. An
+  explicit `summaryType: "extractive"` stays extractive. Page chrome (consent
+  and cookie lines, pipe or bullet menus, repeated labels, runs of short
+  navigation lines) is stripped before summarising, and unpunctuated headline
+  and price lines are no longer joined into one sentence.
+- **`analyze_content` does not score non-English text with English formulas.**
+  Sentiment is `not_applicable` with `notApplicable:
+  "sentiment-lexicon-is-english-only"` for every non-English language (Spanish
+  had scored a clear complaint −0.08), and readability returns
+  `notApplicable: "flesch-reading-ease-is-english-only"` instead of an English
+  Flesch score. Entities lose leading and trailing function words and titles
+  ("Berlin den" → "Berlin"), German skips the capitalised-word pass, weekday
+  names count as dates and bare durations ("weeks") do not, and topics are
+  noun-phrase heads.
+- **`scrape_structured` fields can return every match, and URLs are
+  absolute.** A selector may be `{selector, multiple: true}`, which returns
+  an array (inside a `row_selector` row a field otherwise keeps the first
+  match). `@href` and `@src` values are resolved against the final URL, so
+  existing callers get absolute URLs where they got relative ones.
+- **`fetch_url` reports `redirected` and `final_url`**, and a truncated result
+  keeps `headers`.
+- **`serp_rank` omits `seResultsCount` when Google shows no total.** A 0
+  beside organic results (mobile SERPs show no "About N results") is unknown,
+  not zero.
+- **`localization` `locale` always carries a region** in canonical BCP 47
+  form: `de` for DE is now `de-DE`, as JP already gave `ja-JP`. A `.uk` site
+  now gets a GB exit first in geo-block advice.
+- **`generate_llms_txt` counts an API only when an endpoint answers with a
+  JSON or XML content type** (gov.uk's `/api` redirects to an HTML help page),
+  and prints "Contact us using the information above" only when
+  `contactEmail` is set. Search boxes, hidden forms, a "login" link and
+  embedded JSON no longer class every page as forms, restricted or dynamic,
+  so public pages are counted and titled.
+- **`extract_structured` returns every requested field.** A value it cannot
+  find is `null` and named in the new `missing_fields` array. The CSS
+  fallback now reads `th`/`td` and `dt`/`dd` rows, class-encoded star
+  ratings (`star-rating Three` → 3) and counts in running text ("In stock
+  (22 available)" → 22).
+- **`scrape_template` `hacker-news-front-page` returns `score` and `comments`
+  as numbers** (crawlforge-extractors 1.18.3). "discuss" is 0 comments; a
+  label that does not parse is `null`.
+
+### Fixed
+- **List pages keep their text in main-content extraction.** Readability
+  removed a list item's author as the article byline (quotes.toscrape.com
+  lost "by Albert Einstein"), and a list page where it keeps under 60% of the
+  visible text now falls back to the whole page. This reaches `scrape`,
+  `extract_content`, `batch_scrape`, `crawl_deep` and `scrape_with_actions`.
+- **Code blocks come out fenced, with their language.** Sphinx
+  (docs.python.org) code was escaped prose (`\# this is...`) in
+  `extract_text` and the main-content path; MDN's copy-button label no
+  longer appears above the fence.
+- **`extract_with_llm` `verify_numbers` accepts correctly converted dates.**
+  "14 octobre 2026" now matches `2026-10-14` (day-month-year, month-day-year
+  and numeric dates; month names in en, fr, de, es, it, pt and nl); an
+  impossible date such as `2027-03-00` is still flagged, and `12.34` no
+  longer matches `1234`.
+- **`agent` searches the whole question first for a one-word entity** ("Rust"
+  had searched the bare word and cited a game site), drops sites the
+  question's own search does not surface, and corrects or flags an answer
+  that gives a page's "last updated" date as a release date (new
+  `provenance.update_dates`).
+- **`browser_session` and `scrape_with_actions` re-resolve a replaced
+  element.** A ref whose element the page swapped after the snapshot
+  (Wikipedia's search box) is looked up once more by role and name, on a
+  unique match only, instead of failing as detached or waiting out the
+  timeout.
+- **A navigate refused partway no longer wipes the session page.** When a
+  redirect hop is blocked, `browser_session` reloads the previous URL through
+  the same guard instead of leaving `about:blank`; cookies survive, in-page
+  state does not, and the error says so.
+- **`scrape_with_actions` reads `selector@attr`, and `@value` gives the live
+  value** of an input, textarea or select after the actions (typed "42" read
+  as `null` before).
+- **`map_site` lists `/` and `/index.html` once.**
+- **`search_web` `next_offset` on the SearXNG path** counts items in
+  SearXNG's own result list. It assumed each SearXNG page held `limit`
+  items, which the instance decides, so paging could skip or repeat results.
+- **`extract_metadata` `charset` is the charset token** (`UTF-8`, not
+  `text/html; charset=utf-8`), and `description` is trimmed.
+- **`crawl_deep` records an SSRF-refused URL as blocked** in
+  `filterDecisions` (`reason: "SSRF protection"`), not `allowed`, and
+  collapses whitespace in page titles.
+- **`process_document` fills `title`** when the document has none: a PDF
+  falls back to its first short line (skipping arXiv stamps and page
+  numbers), a DOCX to its first heading, then its first short line.
+- **`_cost.note` no longer reads as a charge in creator mode.** The
+  `browser_session` note says "list price", and creator mode adds that the
+  install is not billed.
+
 ## [6.22.3] - 2026-10-20
 
 ### Fixed

@@ -145,10 +145,10 @@ describe('A1.7 scrape_template hacker-news-front-page', () => {
     assert.equal(out.data.stories.length, 1);
     const s = out.data.stories[0];
     assert.equal(s.title, 'Story A');
-    assert.equal(s.score, '123');           // " points" stripped
+    assert.equal(s.score, 123);             // " points" stripped, a number since extractors 1.18.3
     assert.equal(s.author, 'alice');
-    // "45&nbsp;comments" is a bare count since extractors 1.6.2 (R15), like score.
-    assert.equal(s.comments, '45', `comments should be the bare count, got: ${s.comments}`);
+    // "45&nbsp;comments" is a number since extractors 1.18.3, like score.
+    assert.equal(s.comments, 45, `comments should be the bare count, got: ${s.comments}`);
   });
 });
 
