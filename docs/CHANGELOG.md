@@ -5,6 +5,21 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.23.2] - 2026-10-21
+
+### Fixed
+- **crawl_deep counts a refused redirect hop as blocked.** `safeFetch` dropped the
+  `SSRF_BLOCKED` code when it rethrew a connect-time refusal, so `filterDecisions`
+  reported a URL whose redirect led to a blocked address as allowed.
+- **crawl_deep results over `max_inline_chars` pass output validation.** The output
+  schema now declares `warnings`, which the inline layer adds.
+- **process_document PDF titles skip notice prose.** A first-page permission or
+  copyright paragraph is no longer taken as the title (arXiv 1706.03762 now gives
+  "Attention Is All You Need").
+- **generate_llms_txt `## APIs` lists only JSON/XML endpoints.** A documentation link
+  such as docs.python.org's C API manual is listed under `## Pages` with its page
+  title or link text, not under `## APIs` with a URL slug.
+
 ## [6.23.1] - 2026-10-21
 
 ### Security
