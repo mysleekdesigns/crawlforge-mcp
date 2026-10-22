@@ -440,6 +440,7 @@ export class ExtractWithLlm {
    * @param {number}  [params.maxTokens] - Max output tokens (default 4096)
    * @param {boolean} [params.respect_robots] - Per-request robots.txt override
    * @param {string}  [params.user_agent]     - Per-request identity override
+   * @param {number}  [params.maxAge]         - Page-cache age limit in ms, passed to fetchAndParse
    * @param {boolean} [params.verify_numbers] - Numeric provenance guard (default true)
    * @param {AbortSignal} [params.signal] - Aborts the model request(s); an aborted
    *   call skips the retry and the sampling fallback
@@ -456,6 +457,7 @@ export class ExtractWithLlm {
       maxTokens = 4096,
       respect_robots,
       user_agent,
+      maxAge,
       verify_numbers = true,
       signal
     } = params;
@@ -501,6 +503,7 @@ export class ExtractWithLlm {
         const { html, textContent, warnings } = await fetchAndParse(url, {
           respectRobots: respect_robots,
           userAgent: user_agent,
+          maxAge,
           tool: 'extract_with_llm'
         });
         text = textContent;

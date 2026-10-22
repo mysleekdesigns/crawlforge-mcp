@@ -11,16 +11,17 @@ import { fetchLadder, ladderErrorResult, isJsonType } from '../../utils/fetchLad
 
 /**
  * @param {{ url: string, filter_external?: boolean, base_url?: string,
- *   user_agent?: string, respect_robots?: boolean,
+ *   user_agent?: string, respect_robots?: boolean, maxAge?: number,
  *   escalate?: boolean, escalate_engine?: string }} params
  * @param {Function} [escalateFetch] the stealth escalation stage
  */
-async function extractLinks({ url, filter_external, base_url, user_agent, respect_robots, escalate, escalate_engine }, escalateFetch) {
+async function extractLinks({ url, filter_external, base_url, user_agent, respect_robots, maxAge, escalate, escalate_engine }, escalateFetch) {
   try {
     const ladder = await fetchLadder(url, {
       tool: 'extract_links',
       userAgent: user_agent,
       respectRobots: respect_robots,
+      maxAge,
       escalate: escalate === true,
       escalateEngine: escalate_engine,
       escalateFetch

@@ -10,6 +10,7 @@ import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
 import { preflightFetch } from '../../utils/robotsGate.js';
 import { fetchResigned } from '../../utils/resignedFetch.js';
 import { withFetchCause } from '../../utils/fetchError.js';
+import { pageFromResponse, throughPageCache } from '../../core/pageCache.js';
 
 /**
  * Fetch a URL with a configurable timeout and body-size cap.
@@ -19,12 +20,39 @@ import { withFetchCause } from '../../utils/fetchError.js';
  * configurable cap from config.fetch.maxBodySize (env MAX_FETCH_BODY_SIZE,
  * default 25 MB).
  *
+ * The page goes through the process page cache (src/core/pageCache.js):
+ * `maxAge` (ms, default 10 min, 0 = fetch fresh) and `noCache` steer it. A
+ * copy served from it is a Response-like object with the same fields.
+ *
  * @param {string} url
  * @param {{ timeout?: number, headers?: Record<string,string>, userAgent?: string,
- *   respectRobots?: boolean, tool?: string, apiKey?: string }} [options]
+ *   respectRobots?: boolean, tool?: string, apiKey?: string, maxAge?: number,
+ *   noCache?: boolean }} [options]
  * @returns {Promise<Response & { _body: string, _warnings: string[] }>}
  */
-export async function fetchWithTimeout(url, options = {}) {
+export function fetchWithTimeout(url, options = {}) {
+  return throughPageCache(url, options, 'plain', () => fetchFresh(url, options), responseFromPage);
+}
+
+/** A stored page as the Response-like object fetchFresh returns. */
+function responseFromPage(page, warnings) {
+  return {
+    ok: page.status >= 200 && page.status <= 299,
+    status: page.status,
+    statusText: page.statusText,
+    url: page.url,
+    redirected: page.redirected,
+    headers: new Headers(page.headers),
+    text: () => Promise.resolve(page.body),
+    json: () => Promise.resolve(JSON.parse(page.body)),
+    _body: page.body,
+    _responseTime: page.responseTime,
+    _warnings: warnings
+  };
+}
+
+/** The network fetch; resolves to { result: the Response, page: what the cache may keep }. */
+async function fetchFresh(url, options) {
   const { timeout = 10000, headers = {}, userAgent, respectRobots, tool, apiKey } = options;
   const maxBodySize = config.fetch.maxBodySize;
 
@@ -91,13 +119,16 @@ export async function fetchWithTimeout(url, options = {}) {
     }
 
     // Attach the pre-read text so callers can call .text() on the result.
-    return Object.assign(response, {
+    const responseTime = Date.now() - startedAt;
+    const page = { ...pageFromResponse(response, bodyText), responseTime };
+    const result = Object.assign(response, {
       text: () => Promise.resolve(bodyText),
       json: () => Promise.resolve(JSON.parse(bodyText)),
       _body: bodyText,
-      _responseTime: Date.now() - startedAt,
+      _responseTime: responseTime,
       _warnings: gate.warnings
     });
+    return { result, page };
   } finally {
     clearTimeout(timeoutId);
   }

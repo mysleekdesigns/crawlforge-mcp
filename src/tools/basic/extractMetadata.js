@@ -64,13 +64,14 @@ function redirectFields(requested, final) {
 
 /**
  * @param {{ url: string, user_agent?: string, respect_robots?: boolean,
- *   json_ld_types?: string[] }} params
+ *   json_ld_types?: string[], maxAge?: number }} params
  */
-export async function extractMetadataHandler({ url, user_agent, respect_robots, json_ld_types }) {
+export async function extractMetadataHandler({ url, user_agent, respect_robots, json_ld_types, maxAge }) {
   try {
     const response = await fetchWithTimeout(url, {
       userAgent: user_agent,
       respectRobots: respect_robots,
+      maxAge,
       tool: 'extract_metadata'
     });
     if (!response.ok) {

@@ -274,6 +274,29 @@ export function outboundHeaders(userAgent, signature = {}) {
 }
 
 /**
+ * The gate's decision, refusing as {@link preflightFetch} does, without the
+ * per-host throttle. A page-cache hit (src/core/pageCache.js) sends no
+ * request, so there is nothing to space, but the blocklist and robots.txt are
+ * asked again: either may have changed since the copy was fetched.
+ *
+ * @param {string} url
+ * @param {object} [options] see {@link robotsPreflight}
+ * @param {{ redirectedFrom?: string }} [reached] set when `url` is where a
+ *   redirect from the requested URL led
+ * @returns {Promise<{ allowed: true, userAgent: string, crawlDelayMs: number,
+ *   warnings: string[], overridden: boolean }>}
+ * @throws {BlockedHostError|RobotsDisallowedError}
+ */
+export async function preflightDecision(url, options = {}, reached = {}) {
+  const decision = await robotsPreflight(url, options);
+  if (!decision.allowed) {
+    markPreflightRefusal('ROBOTS_DISALLOWED');
+    throw new RobotsDisallowedError(url, reached);
+  }
+  return decision;
+}
+
+/**
  * The call-site helper: run the gate, honour Crawl-delay and any recorded
  * `Retry-After`, and hand back the identity headers to send and the gate for
  * any redirect the fetch follows. Pass both to the fetch.
@@ -286,11 +309,7 @@ export function outboundHeaders(userAgent, signature = {}) {
  * @throws {BlockedHostError|RobotsDisallowedError}
  */
 export async function preflightFetch(url, options = {}) {
-  const decision = await robotsPreflight(url, options);
-  if (!decision.allowed) {
-    markPreflightRefusal('ROBOTS_DISALLOWED');
-    throw new RobotsDisallowedError(url);
-  }
+  const decision = await preflightDecision(url, options);
 
   await throttleHost(url, { crawlDelayMs: decision.crawlDelayMs });
 

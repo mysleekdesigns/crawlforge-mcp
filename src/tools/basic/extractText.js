@@ -105,16 +105,17 @@ function isCut(text, maxLength) {
 /**
  * @param {{ url: string, remove_scripts?: boolean, remove_styles?: boolean,
  *   output_format?: "text"|"markdown", selector?: string, max_length?: number,
- *   user_agent?: string, respect_robots?: boolean,
+ *   user_agent?: string, respect_robots?: boolean, maxAge?: number,
  *   escalate?: boolean, escalate_engine?: string }} params
  * @param {Function} [escalateFetch] the stealth escalation stage
  */
-async function extractText({ url, remove_scripts, remove_styles, output_format, selector, max_length, user_agent, respect_robots, escalate, escalate_engine }, escalateFetch) {
+async function extractText({ url, remove_scripts, remove_styles, output_format, selector, max_length, user_agent, respect_robots, maxAge, escalate, escalate_engine }, escalateFetch) {
   try {
     const ladder = await fetchLadder(url, {
       tool: 'extract_text',
       userAgent: user_agent,
       respectRobots: respect_robots,
+      maxAge,
       escalate: escalate === true,
       escalateEngine: escalate_engine,
       escalateFetch

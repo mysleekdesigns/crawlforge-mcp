@@ -60,6 +60,7 @@ import { scrapeStructuredHandler } from "./src/tools/basic/scrapeStructured.js";
 import { createExtractEmbeddedStateHandler, EMBEDDED_STATE_INPUT_SHAPE } from "./src/tools/extract/extractEmbeddedState.js";
 import { READ_RESULT_INPUT_SHAPE, readResultHandler } from "./src/tools/result/readResult.js"; // Phase 2
 import { MAX_INLINE_CHARS_PARAM } from "./src/server/inlineThreshold.js"; // Phase 2
+import { MAX_AGE_PARAM } from "./src/utils/maxAgeParam.js"; // repeat-call reduction 1.5
 import { REDACT_PII_PARAM } from "./src/server/redaction.js"; // Phase 5 (5.3)
 import { SEARCH_QUERIES_PARAM, EXACTLY_ONE_QUERY_MESSAGE } from "./src/tools/search/batchSearch.js"; // Phase 5 (5.1)
 import { markPreflightRefusal, preflightRefusal, internalOwnerToken } from "./src/server/requestContext.js";
@@ -434,6 +435,7 @@ registerToolIfEnabled("fetch_url", {
     headers: z.record(z.string()).optional().describe("Custom HTTP headers to include in the request"),
     timeout: z.number().min(1000).max(30000).optional().default(10000).describe("Request timeout in milliseconds (1000-30000)"),
     ...COMPLIANCE_PARAMS,
+    ...MAX_AGE_PARAM,
     ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("fetch_url", fetchUrlHandler));
@@ -451,6 +453,7 @@ registerToolIfEnabled("extract_text", {
     max_length: z.number().int().min(1).max(1000000).optional().describe("Maximum characters of text or markdown to return; a longer result is cut, ends with \"...\" and carries truncated:true"),
     ...EXTRACT_ESCALATION_SHAPE,
     ...COMPLIANCE_PARAMS,
+    ...MAX_AGE_PARAM,
     ...REDACT_PII_PARAM
   }
 }, withAuth("extract_text", createExtractTextHandler({
@@ -467,6 +470,7 @@ registerToolIfEnabled("extract_links", {
     base_url: z.string().url().optional().describe("Base URL for resolving relative links"),
     ...EXTRACT_ESCALATION_SHAPE,
     ...COMPLIANCE_PARAMS,
+    ...MAX_AGE_PARAM,
     ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("extract_links", createExtractLinksHandler({
@@ -481,6 +485,7 @@ registerToolIfEnabled("extract_metadata", {
     url: z.string().url().describe("The URL to extract metadata from"),
     json_ld_types: z.array(z.string()).optional().describe("Filter the returned JSON-LD to nodes of these schema.org types, e.g. [\"Product\",\"Offer\"]. Subtypes match their parent: \"Event\" returns MusicEvent, \"Offer\" returns AggregateOffer, \"ItemList\" returns BreadcrumbList. Nodes are found at any depth, including inside @graph and nested inside a parent node; a match nested inside another returned node comes back inside it, not again on its own. When set, json_ld carries only the matching nodes instead of the raw dump, and json_ld_type_counts reports how many matched per requested type, nested ones included. Documented types: ItemList, Product, Offer, Event, JobPosting, RealEstateListing — any other schema.org type is matched exactly."),
     ...COMPLIANCE_PARAMS,
+    ...MAX_AGE_PARAM,
     ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("extract_metadata", extractMetadataHandler));
@@ -492,6 +497,7 @@ registerToolIfEnabled("extract_embedded_state", {
   inputSchema: {
     ...EMBEDDED_STATE_INPUT_SHAPE,
     ...COMPLIANCE_PARAMS,
+    ...MAX_AGE_PARAM,
     ...MAX_INLINE_CHARS_PARAM
   }
 }, withAuth("extract_embedded_state", createExtractEmbeddedStateHandler({
@@ -510,7 +516,8 @@ registerToolIfEnabled("scrape_structured", {
     ])).describe("CSS selectors mapping field names to selectors. Append @attr to extract an attribute instead of text (e.g. \"a.link@href\", \"img@src\"); @href and @src values are resolved to absolute URLs. A field may also be {selector, multiple: true} to return every match as an array - inside a row_selector row a field otherwise keeps only the first match"),
     row_selector: z.string().optional().describe("CSS selector for the repeating row/container element. When set, each field in selectors is matched inside each row and data is an array of row-aligned records ({field: value|null}) instead of parallel arrays"),
     max_results: z.number().int().min(1).optional().describe("Maximum number of matches to return per field when a selector matches multiple elements, or the maximum number of rows when row_selector is set"),
-    ...COMPLIANCE_PARAMS
+    ...COMPLIANCE_PARAMS,
+    ...MAX_AGE_PARAM
   }
 }, withAuth("scrape_structured", scrapeStructuredHandler));
 
@@ -840,6 +847,7 @@ registerToolIfEnabled("extract_structured", {
     fallbackToSelectors: z.boolean().optional().default(true).describe("Fall back to CSS selector extraction if LLM is unavailable"),
     selectorHints: z.record(z.string()).optional().describe("CSS selector hints to guide extraction"),
     ...COMPLIANCE_PARAMS,
+    ...MAX_AGE_PARAM,
     ...VERIFY_NUMBERS_PARAM
   },
   outputSchema: OUTPUT_SCHEMAS.extract_structured
@@ -869,6 +877,7 @@ registerToolIfEnabled("extract_with_llm", {
     model: z.string().optional().describe("Override the model. For ollama, pass a name returned by list_ollama_models (e.g. 'llama3.2', 'qwen2.5:7b'). Defaults: openai='gpt-4o-mini', anthropic='claude-haiku-4-5-20251001', ollama=$OLLAMA_DEFAULT_MODEL, else the best installed model for extraction (gemma3:12b, then gemma3:4b, gpt-oss:20b, mistral:7b, llama3.2, qwen2.5:3b)."),
     maxTokens: z.number().optional().default(4096).describe("Maximum output tokens"),
     ...COMPLIANCE_PARAMS,
+    ...MAX_AGE_PARAM,
     ...VERIFY_NUMBERS_PARAM
   }
 }, withAuth("extract_with_llm", async (params) => {
@@ -1240,6 +1249,7 @@ registerToolIfEnabled("scrape", {
   inputSchema: {
     ...SCRAPE_INPUT_SHAPE,
     ...COMPLIANCE_PARAMS,
+    ...MAX_AGE_PARAM,
     ...MAX_INLINE_CHARS_PARAM,
     ...REDACT_PII_PARAM
   },
