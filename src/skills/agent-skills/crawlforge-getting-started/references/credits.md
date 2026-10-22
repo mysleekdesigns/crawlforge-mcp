@@ -81,6 +81,10 @@ metered; there is no free tier. Tools marked "scales" cost more as work grows.
   when the whole interaction can be written down in advance.
 - A result over `max_inline_chars` costs nothing extra; read the stored copy with
   `read_result` (1) instead of fetching again.
+- In a local (stdio) session, asking again for a page read in the last 10 minutes
+  (`fetch_url`, `scrape`, `extract_*`, `scrape_structured`, `extract_structured`,
+  `extract_with_llm`) with different formats, paths or selectors reuses the copy and
+  costs 1 credit; `maxAge: 0` forces a fresh fetch at the full price.
 - On a site that blocks, one `scrape` with `escalate:true` costs at most 7 and
   only 2 when the plain fetch works; `scrape` then `stealth_mode` costs 7 either
   way. Do not set it on a site that reads fine — it raises the projection your
