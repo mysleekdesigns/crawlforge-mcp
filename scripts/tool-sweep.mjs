@@ -116,7 +116,8 @@ async function connect() {
     args: ['server.js'],
     cwd: REPO,
     // Disk cache off, or a replayed response silently inverts every comparison.
-    env: { ...process.env, CACHE_ENABLE_DISK: 'false' },
+    // CRAWLFORGE_LOG_SOURCE tags its invocation log lines as harness traffic.
+    env: { ...process.env, CACHE_ENABLE_DISK: 'false', CRAWLFORGE_LOG_SOURCE: 'harness' },
     stderr: 'pipe'
   });
   client = new Client({ name: 'tool-sweep', version: '1.0.0' }, { capabilities: {} });

@@ -7,7 +7,11 @@
  *   - resolves toolCost once per call; every tool is metered (no free tier),
  *     so a valid API key is required for every invocation
  *   - try/finally guarantees a single `tool invocation` log line per call
- *   - log payload: { toolName, paramHash, durationMs, outcome, creditCost, creatorMode }
+ *   - log payload: { toolName, paramHash, durationMs, outcome, creditCost, creatorMode,
+ *     internal, runId, client, source, urlKey } — runId is per server process
+ *     (CRAWLFORGE_RUN_ID overrides), client is "<name>/<version>" from initialize,
+ *     source ∈ { 'client' | 'test' | 'harness' | 'eval' }, urlKey is a hash of the
+ *     canonical URL (never the URL itself)
  *   - outcome ∈ { 'success' | 'error' | 'insufficient_credits' | 'input_required' }
  *   - an `input_required` return (Phase 4.4) is a round trip, not an answer: the
  *     handler did no work, so it is billed NOTHING and reports no usage. The
@@ -21,15 +25,46 @@
  *   - increments Prometheus counters via src/observability/metrics.js (if registry passed)
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { isInputRequiredResult } from '@modelcontextprotocol/server';
 import { recordToolInvocation } from '../observability/tracing.js';
-import { isInternalRequest, reportedActualCost, requestContext } from './requestContext.js';
+import { isInternalRequest, reportedActualCost, requestContext, servingServer } from './requestContext.js';
 import { appendFallbackHint } from './fallbackHints.js';
 import { failure, normalizeErrorResult } from './errorText.js';
 import { INLINE_THRESHOLD_TOOLS, applyInlineThreshold } from './inlineThreshold.js';
 import { REDACTION_TOOLS, redactionSurcharge, runRedactionStage } from './redaction.js';
 import { getResultStore } from '../core/ResultStore.js';
+import { canonicalUrl } from '../utils/canonicalUrl.js';
+
+// One id per server process; over stdio that is one client session.
+const PROCESS_RUN_ID = randomUUID().slice(0, 8);
+const LOG_SOURCES = new Set(['harness', 'eval']);
+
+/** Who made this call: a test run, a named harness, or a real client. */
+function logSource() {
+  if (process.env.NODE_ENV === 'test') return 'test';
+  const declared = process.env.CRAWLFORGE_LOG_SOURCE;
+  return LOG_SOURCES.has(declared) ? declared : 'client';
+}
+
+/** First 12 hex chars of sha256(canonical URL); null when there is no single URL. */
+export function urlKey(url) {
+  const canonical = canonicalUrl(url);
+  return canonical ? createHash('sha256').update(canonical).digest('hex').slice(0, 12) : null;
+}
+
+/**
+ * "<name>/<version>" from the client's initialize. Over HTTP each session (or
+ * 2026-era request) is served by its own clone, stamped on the request context.
+ */
+function clientLabel(mcpServer) {
+  try {
+    const info = (servingServer() ?? mcpServer)?.server?.getClientVersion?.();
+    return info?.name ? `${info.name}/${info.version ?? ''}` : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Replace an over-threshold JSON text result (and its structuredContent, if
@@ -255,7 +290,11 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
           outcome,
           creditCost,
           creatorMode,
-          internal
+          internal,
+          runId: process.env.CRAWLFORGE_RUN_ID || PROCESS_RUN_ID,
+          client: clientLabel(mcpServer),
+          source: logSource(),
+          urlKey: urlKey(params?.url)
         });
 
         // Prometheus (no-op unless registry was supplied)
