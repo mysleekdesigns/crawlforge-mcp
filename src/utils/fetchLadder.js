@@ -122,7 +122,7 @@ async function plainFetch(url, options) {
 
 /**
  * @param {string} url
- * @param {{ tool: 'extract_text'|'extract_links', userAgent?: string, respectRobots?: boolean,
+ * @param {{ tool: 'extract_text'|'extract_links', userAgent?: string, respectRobots?: boolean, maxAge?: number,
  *   escalate?: boolean, escalateEngine?: string,
  *   escalateFetch?: (args: { url: string, engine: string, respectRobots?: boolean }) => Promise<object> }} options
  * @returns {Promise<
@@ -132,10 +132,10 @@ async function plainFetch(url, options) {
  *   `fields` carries `escalated` (only when escalate was asked for), `stealth`
  *   (when the stage ran) and `rendered: false` (a client-rendered shell)
  */
-export async function fetchLadder(url, { tool, userAgent, respectRobots, escalate = false, escalateEngine = 'auto', escalateFetch } = {}) {
+export async function fetchLadder(url, { tool, userAgent, respectRobots, maxAge, escalate = false, escalateEngine = 'auto', escalateFetch } = {}) {
   let escalationRan = false;
   try {
-    const response = await plainFetch(url, { timeout: LADDER_TIMEOUT_MS, userAgent, respectRobots, tool });
+    const response = await plainFetch(url, { timeout: LADDER_TIMEOUT_MS, userAgent, respectRobots, maxAge, tool });
     const type = mediaType(response);
     if (response.ok && type && !TEXTUAL_TYPE.test(type)) return { unsupported: type };
 

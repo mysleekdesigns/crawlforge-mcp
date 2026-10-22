@@ -200,6 +200,12 @@
         "description": "Override the outbound User-Agent. CrawlForge identifies itself honestly by default; use this only for targets you have your own agreement with.",
         "type": "string"
       },
+      "maxAge": {
+        "description": "Reuse this session's copy of the page if it was fetched within this many ms (default 600000 = 10 min); 0 always fetches fresh.",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
       "max_inline_chars": {
         "description": "Largest result to return inline, in characters of its JSON. Over it, the call returns a preview plus a result_handle for read_result instead of the whole result (default 40,000; env CRAWLFORGE_MAX_INLINE_CHARS)",
         "type": "integer",
@@ -636,6 +642,40 @@
           },
           "projection_note": {
             "description": "Human-readable note about how the cost was projected",
+            "type": "string"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "cache": {
+        "description": "Page cache: whether this call reused a copy of the page fetched earlier in the session",
+        "type": "object",
+        "properties": {
+          "state": {
+            "description": "hit: every page came from this session's copy; bypass: fetched fresh on request (maxAge 0) or not cacheable; miss: fetched",
+            "type": "string",
+            "enum": [
+              "hit",
+              "miss",
+              "bypass"
+            ]
+          },
+          "fetchedAt": {
+            "description": "When the oldest page used was fetched (ISO 8601)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ageMs": {
+            "description": "Age of that copy in ms",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "note": {
+            "description": "Hits only: how old the copy is and how to force a fresh fetch",
             "type": "string"
           }
         },

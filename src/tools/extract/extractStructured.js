@@ -9,6 +9,7 @@ import { ElicitationHelper } from '../../core/ElicitationHelper.js'; // D1.4
 import { load } from 'cheerio';
 import { LLMManager } from '../../core/llm/LLMManager.js';
 import { CRAWLFORGE_USER_AGENT } from '../../utils/fetchIdentity.js';
+import { MAX_AGE_PARAM } from '../../utils/maxAgeParam.js';
 import { fetchAndParse, flattenBodyText } from './_fetchAndParse.js';
 import { fetchErrorMessage } from '../../utils/fetchError.js';
 import { extractMainContent } from '../scrape/_mainContent.js';
@@ -267,6 +268,7 @@ const ExtractStructuredSchema = z.object({
   selectorHints: z.record(z.string()).optional(),
   respect_robots: z.boolean().optional(),
   user_agent: z.string().optional(),
+  ...MAX_AGE_PARAM,
   verify_numbers: z.boolean().optional().default(true)
 });
 
@@ -324,7 +326,7 @@ export class ExtractStructuredTool {
 
     try {
       const validated = ExtractStructuredSchema.parse(params);
-      const { url, schema: requestedSchema, prompt, llmConfig, fallbackToSelectors, selectorHints, respect_robots, user_agent, verify_numbers } = validated;
+      const { url, schema: requestedSchema, prompt, llmConfig, fallbackToSelectors, selectorHints, respect_robots, user_agent, maxAge, verify_numbers } = validated;
       // `type` is optional on input, and the tool's own example omits it. The
       // validator reads a typeless schema as "anything", so the CSS fallback
       // reported valid:true for "2 reviews" in an integer field (R24). A schema
@@ -387,6 +389,7 @@ export class ExtractStructuredTool {
       const { html, $, textContent, warnings } = await fetchAndParse(url, {
         userAgent: user_agent || this.userAgent,
         respectRobots: respect_robots,
+        maxAge,
         tool: 'extract_structured'
       });
 

@@ -33,6 +33,7 @@ import { htmlToMarkdown } from '../../utils/htmlToMarkdown.js';
 import { stripHiddenFromDom } from '../../utils/hiddenContent.js';
 import { extractBlockText } from '../basic/extractText.js';
 import { pageTitle } from '../../utils/pageTitle.js';
+import { MAX_AGE_PARAM } from '../../utils/maxAgeParam.js';
 import { noteHostBlocked, clearHostBlocked, getHostBlock } from '../../utils/hostRateLimiter.js';
 
 // ── Schema ────────────────────────────────────────────────────────────────────
@@ -168,7 +169,8 @@ export const UnifiedScrapeSchema = z.object({
   // Compliance overrides, per request: identify as yourself for a target you
   // have your own agreement with, and take responsibility for ignoring robots.
   user_agent: z.string().optional(),
-  respect_robots: z.boolean().optional()
+  respect_robots: z.boolean().optional(),
+  ...MAX_AGE_PARAM
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -432,6 +434,7 @@ export class UnifiedScrapeTool {
           timeoutMs,
           userAgent: validated.user_agent,
           respectRobots: validated.respect_robots,
+          maxAge: validated.maxAge,
           tool: 'scrape',
           stripTags: [], // we handle boilerplate ourselves
           // A real wall reaches a plain fetch as a 403 with the challenge in

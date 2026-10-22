@@ -120,7 +120,7 @@ function failed(verdict, status, gotState) {
  */
 export function createExtractEmbeddedStateHandler({ escalateFetch } = {}) {
   return async function extractEmbeddedStateHandler({
-    url, path, keys_only, find, raw = false, escalate, escalate_engine = 'auto', wait_for, user_agent, respect_robots
+    url, path, keys_only, find, raw = false, escalate, escalate_engine = 'auto', wait_for, user_agent, respect_robots, maxAge
   }) {
     // Each replaces `data` with something else, so asking for both has no
     // answer. Nothing was fetched, so - like a robots refusal - it costs nothing.
@@ -149,6 +149,7 @@ export function createExtractEmbeddedStateHandler({ escalateFetch } = {}) {
       const fetched = await fetchAndParse(url, {
         userAgent: user_agent,
         respectRobots: respect_robots,
+        maxAge,
         tool: 'extract_embedded_state',
         errorDocuments: true
       });

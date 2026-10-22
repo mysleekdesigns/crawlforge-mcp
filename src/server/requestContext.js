@@ -140,3 +140,43 @@ export function servingEra() {
 export function servingRequestId() {
   return requestContext.getStore()?.servingRequestId ?? null;
 }
+
+/**
+ * Record one page-cache outcome for this invocation (src/core/pageCache.js):
+ * 'hit' served a stored copy, 'miss' fetched and may have stored, 'bypass'
+ * fetched fresh because the caller asked (maxAge 0, noCache) or the request
+ * may not be cached. A tool can fetch several pages, so outcomes are counted,
+ * with the oldest copy's fetch time.
+ *
+ * @param {'hit'|'miss'|'bypass'} state
+ * @param {number} [fetchedAt] ms since epoch
+ */
+export function recordPageCache(state, fetchedAt) {
+  const store = requestContext.getStore();
+  if (!store) return;
+  const seen = store.pageCache ??= { hit: 0, miss: 0, bypass: 0, fetchedAt: null };
+  seen[state] += 1;
+  if (Number.isFinite(fetchedAt) && (seen.fetchedAt === null || fetchedAt < seen.fetchedAt)) {
+    seen.fetchedAt = fetchedAt;
+  }
+}
+
+/**
+ * This invocation's page-cache summary, or null when no fetch went through the
+ * cache. 'hit' only when every fetch was one; 'bypass' when every fetch was
+ * one; otherwise 'miss'.
+ *
+ * @returns {{ state: 'hit'|'miss'|'bypass', fetchedAt: string|null, ageMs: number|null } | null}
+ */
+export function pageCacheSummary(now = Date.now()) {
+  const seen = requestContext.getStore()?.pageCache;
+  if (!seen) return null;
+  const state = seen.miss === 0 && seen.bypass === 0 ? 'hit'
+    : seen.hit === 0 && seen.miss === 0 ? 'bypass'
+      : 'miss';
+  return {
+    state,
+    fetchedAt: seen.fetchedAt === null ? null : new Date(seen.fetchedAt).toISOString(),
+    ageMs: seen.fetchedAt === null ? null : Math.max(0, now - seen.fetchedAt)
+  };
+}

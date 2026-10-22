@@ -222,10 +222,10 @@ function warningsOf(resultObject) {
  * @param {string} toolName
  * @param {object} resultObject — the parsed JSON result
  * @param {object} params — the tool params (max_inline_chars, url, operation)
- * @param {{ store: import('../core/ResultStore.js').ResultStore, env?: object }} deps
+ * @param {{ store: import('../core/ResultStore.js').ResultStore, env?: object, reserve?: number }} deps
  * @returns {{ result: object, stored: boolean }}
  */
-export function applyInlineThreshold(toolName, resultObject, params, { store, env = process.env }) {
+export function applyInlineThreshold(toolName, resultObject, params, { store, env = process.env, reserve = COST_BLOCK_RESERVE }) {
   const unchanged = { result: resultObject, stored: false };
   const config = INLINE_THRESHOLD_TOOLS[toolName];
   if (!config || (config.when && !config.when(params))) return unchanged;
@@ -254,7 +254,7 @@ export function applyInlineThreshold(toolName, resultObject, params, { store, en
   const readWith = 'read it with read_result (1 credit) - operation "search" (query), "slice" (offset, length), "lines" or "json_path" (path) - and do not fetch the page again';
 
   if (toolName === 'extract_embedded_state') {
-    return { result: shapeEmbeddedState(resultObject, { json, text, maxInline, handle, expires_at, readWith }), stored: true };
+    return { result: shapeEmbeddedState(resultObject, { json, text, maxInline, handle, expires_at, readWith, reserve }), stored: true };
   }
 
   const preview = text.slice(0, maxInline);
@@ -316,6 +316,13 @@ export function applyInlineThreshold(toolName, resultObject, params, { store, en
  */
 export const COST_BLOCK_RESERVE = 400;
 
+/**
+ * Extra room when the call went through the page cache: the `cache` block
+ * with its hit note (~250 chars) and the longer projection note (~70 chars).
+ * withAuth passes it only then, so other calls keep their preview budget.
+ */
+export const CACHE_BLOCK_RESERVE = 350;
+
 /** Object.keys(data) for a plain object, "array(<n>)" for an array, null otherwise. */
 export function embeddedDataKeys(data) {
   if (Array.isArray(data)) return `array(${data.length})`;
@@ -359,7 +366,7 @@ export function wholeLinePreview(text, budget) {
  * under the handle for read_result json_path. The REST route shapes it the
  * same way, measured as the compact JSON it sends; keep the two in step.
  */
-function shapeEmbeddedState(resultObject, { json, text, maxInline, handle, expires_at, readWith }) {
+function shapeEmbeddedState(resultObject, { json, text, maxInline, handle, expires_at, readWith, reserve = COST_BLOCK_RESERVE }) {
   const dataKeys = embeddedDataKeys(resultObject.data);
   const firstKey = Array.isArray(dataKeys) && dataKeys.length > 0 ? dataKeys[0] : null;
   const example = firstKey && /^[A-Za-z_$][\w$]*$/.test(firstKey) ? ` Read one payload with operation "json_path", path "data.${firstKey}".` : '';
@@ -386,7 +393,7 @@ function shapeEmbeddedState(resultObject, { json, text, maxInline, handle, expir
   };
   // The preview's value is one line of the pretty-printed text and escapes
   // the same way there as in compact JSON; `""` is its empty value's quotes.
-  const envelope = JSON.stringify({ ...shaped, preview: '', ...tail }, null, 2).length + COST_BLOCK_RESERVE;
+  const envelope = JSON.stringify({ ...shaped, preview: '', ...tail }, null, 2).length + reserve;
   const preview = wholeLinePreview(text, Math.max(0, maxInline - envelope + 2));
   return { ...shaped, preview, ...tail };
 }

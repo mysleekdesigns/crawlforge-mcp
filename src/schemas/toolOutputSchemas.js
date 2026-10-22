@@ -26,6 +26,15 @@ const costShape = z.object({
   projection_note: z.string().optional().describe('Human-readable note about how the cost was projected')
 }).passthrough().optional().describe('Cost-transparency metadata (D3.5): what this call was projected to cost and what it was charged');
 
+// `cache` is injected the same way when the call fetched through the page
+// cache (REPEAT_CALL_REDUCTION_PLAN 1.6).
+const cacheShape = z.object({
+  state: z.enum(['hit', 'miss', 'bypass']).optional().describe('hit: every page came from this session\'s copy; bypass: fetched fresh on request (maxAge 0) or not cacheable; miss: fetched'),
+  fetchedAt: z.string().nullable().optional().describe('When the oldest page used was fetched (ISO 8601)'),
+  ageMs: z.number().nullable().optional().describe('Age of that copy in ms'),
+  note: z.string().optional().describe('Hits only: how old the copy is and how to force a fresh fetch')
+}).passthrough().optional().describe('Page cache: whether this call reused a copy of the page fetched earlier in the session');
+
 const nextStepShape = z.string().optional().describe('Failed calls only: the tool or fix to try next');
 
 // ── result handles (Phase 2) ────────────────────────────────────────────────
@@ -144,6 +153,7 @@ const scrapeShape = {
   redaction: redactionShape,
   ...resultHandleShape,
   _cost: costShape,
+  cache: cacheShape,
   next_step: nextStepShape
 };
 
@@ -188,6 +198,7 @@ const mapSiteShape = {
   warnings: z.array(z.string()).optional().describe('Present when the map is partial, e.g. the start page could not be read and the URLs come from the sitemap only, or when the result is over max_inline_chars'),
   ...resultHandleShape,
   _cost: costShape,
+  cache: cacheShape,
   next_step: nextStepShape
 };
 
@@ -223,6 +234,7 @@ const serpRankShape = {
   cost: z.number().optional().describe('USD charged by DataForSEO for this lookup (separate from CrawlForge credits)'),
   checkedAt: z.string().optional(),
   _cost: costShape,
+  cache: cacheShape,
   next_step: nextStepShape
 };
 
@@ -277,6 +289,7 @@ const redditSearchShape = {
   notes: z.array(z.string()).optional().describe('Data-provenance caveats (archive freshness, coverage gaps)'),
   checkedAt: z.string().optional(),
   _cost: costShape,
+  cache: cacheShape,
   next_step: nextStepShape
 };
 
@@ -339,6 +352,7 @@ const searchWebShape = {
   warnings: z.array(z.string()).optional().describe('Notes on this result; over max_inline_chars, where the full result is kept and how to read it'),
   ...resultHandleShape,
   _cost: costShape,
+  cache: cacheShape,
   next_step: nextStepShape
 };
 
@@ -373,6 +387,7 @@ const extractStructuredShape = {
     skipped: z.string().optional().describe('"empty_source" when there was nothing to check against')
   }).passthrough().optional(),
   _cost: costShape,
+  cache: cacheShape,
   next_step: nextStepShape
 };
 
@@ -426,6 +441,7 @@ const crawlDeepShape = {
   warnings: z.array(z.string()).optional().describe('Notes on this result; over max_inline_chars, where the full result is kept and how to read it'),
   ...resultHandleShape,
   _cost: costShape,
+  cache: cacheShape,
   next_step: nextStepShape
 };
 
@@ -465,6 +481,7 @@ const readResultShape = {
   truncated: z.boolean().optional().describe('search: more matches than returned; json_path: value replaced by a preview'),
   warnings: z.array(z.string()).optional(),
   _cost: costShape,
+  cache: cacheShape,
   next_step: nextStepShape
 };
 

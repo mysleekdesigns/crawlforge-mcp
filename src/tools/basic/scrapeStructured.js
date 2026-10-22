@@ -139,13 +139,14 @@ function extractRows($, { row_selector, selectors, max_results, baseUrl }) {
 
 /**
  * @param {{ url: string, selectors: Record<string, string|{ selector: string, multiple?: boolean }>, row_selector?: string,
- *   max_results?: number, user_agent?: string, respect_robots?: boolean }} params
+ *   max_results?: number, user_agent?: string, respect_robots?: boolean, maxAge?: number }} params
  */
-export async function scrapeStructuredHandler({ url, selectors, row_selector, max_results, user_agent, respect_robots }) {
+export async function scrapeStructuredHandler({ url, selectors, row_selector, max_results, user_agent, respect_robots, maxAge }) {
   try {
     const response = await fetchWithTimeout(url, {
       userAgent: user_agent,
       respectRobots: respect_robots,
+      maxAge,
       tool: 'scrape_structured'
     });
     if (!response.ok) {

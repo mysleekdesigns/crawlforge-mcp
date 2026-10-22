@@ -16,6 +16,7 @@ import { safeFetch } from '../../utils/ssrfGuard.js';
 import { config } from '../../constants/config.js';
 import { noteRetryAfter } from '../../utils/hostRateLimiter.js';
 import { preflightFetch } from '../../utils/robotsGate.js';
+import { pageFromResponse, pageHeader, throughPageCache } from '../../core/pageCache.js';
 
 const DEFAULT_TIMEOUT_MS = 15000;
 
@@ -108,16 +109,60 @@ export { flattenText as flattenBodyText };
  * @param {number}   [options.timeoutMs]
  * @param {string[]} [options.stripTags]   — additional tags to strip (default: script, style, noscript, iframe, svg)
  * @param {boolean}  [options.errorDocuments] — return a non-2xx HTML/text body with its status instead of throwing
+ * @param {number}   [options.maxAge]   — page cache: reuse a copy at most this many ms old (default 10 min; 0 = fetch fresh)
+ * @param {boolean}  [options.noCache]  — page cache: neither read nor store
  * @returns {Promise<{ html: string, $: import('cheerio').CheerioAPI, textContent: string, finalUrl: string, warnings: string[], status: number }>}
  */
 export async function fetchAndParse(url, options = {}) {
+  const { stripTags = ['script', 'style', 'noscript', 'iframe', 'svg'] } = options;
+
+  // The page itself may come from the process page cache (src/core/pageCache.js);
+  // the parse below is always this call's own, so no two calls share a `$`.
+  const page = await throughPageCache(
+    url,
+    options,
+    'html',
+    async () => {
+      const fetched = await fetchPage(url, options);
+      return { result: fetched, page: fetched };
+    },
+    (entry, warnings) => ({ ...entry, warnings })
+  );
+
+  const html = page.body;
+  const { warnings, status } = page;
+  const finalUrl = page.url;
+
+  // text/plain and application/json aren't markup: running them through the
+  // HTML parser risks misinterpreting substrings (e.g. a "<script>" value
+  // inside a JSON string) as real tags and stripping/mangling content.
+  if (classifyContentType(pageHeader(page, 'content-type')) === 'text') {
+    return { html, $: load(''), textContent: html.trim(), finalUrl, warnings, status };
+  }
+
+  const $ = load(html);
+
+  if (stripTags.length > 0) {
+    $(stripTags.join(', ')).remove();
+  }
+
+  const textContent = flattenText($);
+
+  return { html, $, textContent, finalUrl, warnings, status };
+}
+
+/**
+ * The network fetch behind fetchAndParse: the gate, the request, the status
+ * and content-type checks and the capped body read.
+ * @returns {Promise<object>} the page as pageFromResponse gives it, plus `warnings`
+ */
+async function fetchPage(url, options) {
   const {
     userAgent,
     respectRobots,
     tool,
     apiKey,
     timeoutMs = DEFAULT_TIMEOUT_MS,
-    stripTags = ['script', 'style', 'noscript', 'iframe', 'svg'],
     errorDocuments = false
   } = options;
 
@@ -157,21 +202,5 @@ export async function fetchAndParse(url, options = {}) {
   }
 
   const html = await readTextWithSizeCap(response);
-
-  // text/plain and application/json aren't markup: running them through the
-  // HTML parser risks misinterpreting substrings (e.g. a "<script>" value
-  // inside a JSON string) as real tags and stripping/mangling content.
-  if (classification === 'text') {
-    return { html, $: load(''), textContent: html.trim(), finalUrl: response.url, warnings, status: response.status };
-  }
-
-  const $ = load(html);
-
-  if (stripTags.length > 0) {
-    $(stripTags.join(', ')).remove();
-  }
-
-  const textContent = flattenText($);
-
-  return { html, $, textContent, finalUrl: response.url, warnings, status: response.status };
+  return { ...pageFromResponse(response, html), warnings };
 }

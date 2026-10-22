@@ -8,10 +8,10 @@
  *     so a valid API key is required for every invocation
  *   - try/finally guarantees a single `tool invocation` log line per call
  *   - log payload: { toolName, paramHash, durationMs, outcome, creditCost, creatorMode,
- *     internal, runId, client, source, urlKey } — runId is per server process
+ *     internal, runId, client, source, urlKey, cache } — runId is per server process
  *     (CRAWLFORGE_RUN_ID overrides), client is "<name>/<version>" from initialize,
  *     source ∈ { 'client' | 'test' | 'harness' | 'eval' }, urlKey is a hash of the
- *     canonical URL (never the URL itself)
+ *     canonical URL (never the URL itself), cache ∈ { 'hit' | 'miss' | 'bypass' | null }
  *   - outcome ∈ { 'success' | 'error' | 'insufficient_credits' | 'input_required' }
  *   - an `input_required` return (Phase 4.4) is a round trip, not an answer: the
  *     handler did no work, so it is billed NOTHING and reports no usage. The
@@ -19,6 +19,9 @@
  *     once, so a confirmation costs exactly what the call always cost (G4).
  *   - a failed call (an isError result, a JSON body with success:false, or a
  *     throw) is charged NOTHING and reports no usage: failures are free
+ *   - a call whose every page fetch was served from the page cache
+ *     (src/core/pageCache.js) costs at most 1 credit (D1), says so in `cache`
+ *     and `_cost.projection_note`, and logs `cache: 'hit'`
  *   - error results get a "Next step:" hint naming the tool to try next
  *     (src/server/fallbackHints.js) so a failure is not followed by a blind retry
  *   - emits an OTel span via src/observability/tracing.js (no-op if disabled)
@@ -28,10 +31,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { isInputRequiredResult } from '@modelcontextprotocol/server';
 import { recordToolInvocation } from '../observability/tracing.js';
-import { isInternalRequest, reportedActualCost, requestContext, servingServer } from './requestContext.js';
+import { isInternalRequest, pageCacheSummary, reportedActualCost, requestContext, servingServer } from './requestContext.js';
 import { appendFallbackHint } from './fallbackHints.js';
 import { failure, normalizeErrorResult } from './errorText.js';
-import { INLINE_THRESHOLD_TOOLS, applyInlineThreshold } from './inlineThreshold.js';
+import { CACHE_BLOCK_RESERVE, COST_BLOCK_RESERVE, INLINE_THRESHOLD_TOOLS, applyInlineThreshold } from './inlineThreshold.js';
 import { REDACTION_TOOLS, redactionSurcharge, runRedactionStage } from './redaction.js';
 import { getResultStore } from '../core/ResultStore.js';
 import { canonicalUrl } from '../utils/canonicalUrl.js';
@@ -39,6 +42,10 @@ import { canonicalUrl } from '../utils/canonicalUrl.js';
 // One id per server process; over stdio that is one client session.
 const PROCESS_RUN_ID = randomUUID().slice(0, 8);
 const LOG_SOURCES = new Set(['harness', 'eval']);
+// A cache hit costs at most this much (D1). agent is left out: its price pays
+// for searches and model steps the page cache does not cover.
+const CACHE_HIT_CREDITS = 1;
+const CACHE_HIT_EXCLUDED = new Set(['agent']);
 
 /** Who made this call: a test run, a named harness, or a real client. */
 function logSource() {
@@ -74,7 +81,9 @@ function shapeLargeResult(toolName, result, params) {
   if (!result || !Array.isArray(result.content) || result.content[0]?.type !== 'text') return;
   let parsed;
   try { parsed = JSON.parse(result.content[0].text); } catch { return; }
-  const { result: shaped, stored } = applyInlineThreshold(toolName, parsed, params, { store: getResultStore() });
+  // A call that went through the page cache also gets a `cache` block after shaping.
+  const reserve = COST_BLOCK_RESERVE + (pageCacheSummary() ? CACHE_BLOCK_RESERVE : 0);
+  const { result: shaped, stored } = applyInlineThreshold(toolName, parsed, params, { store: getResultStore(), reserve });
   if (!stored) return;
   result.content[0].text = JSON.stringify(shaped, null, 2);
   if (result.structuredContent) result.structuredContent = shaped;
@@ -96,6 +105,11 @@ async function redactResult(toolName, result, params, mcpServer) {
   result.content[0].text = JSON.stringify(parsed, null, 2);
   if (result.structuredContent) result.structuredContent = parsed;
   return modelRan;
+}
+
+/** The one line a cache hit adds to the result (plan 1.6). */
+export function cacheHitLine(ageMs) {
+  return `Served from a copy of this page fetched ${Math.round((ageMs ?? 0) / 1000)} s ago in this session (pass maxAge: 0 for a fresh fetch).`;
 }
 
 export function hashParams(params) {
@@ -136,9 +150,16 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
       // A handler may report a lower spend (setActualCost). The projection is
       // the ceiling the caller saw before the call, so a report can only ever
       // lower the charge, never raise it.
+      // A page served from the cache costs CACHE_HIT_CREDITS in place of the
+      // tool's base price (D1). Only the base price is discounted: surcharges
+      // for work that still ran on the cached page (scrape's query and model
+      // formats) are still charged.
+      let cacheHitPrice = false;
+      const cacheHitDiscount = Math.max(0, authManager.getToolCost(toolName, {}) - CACHE_HIT_CREDITS);
       const billable = () => {
         const reported = reportedActualCost();
-        const spent = reported == null ? toolCost : Math.min(reported, toolCost);
+        let spent = reported == null ? toolCost : Math.min(reported, toolCost);
+        if (cacheHitPrice) spent = Math.max(Math.min(spent, CACHE_HIT_CREDITS), spent - cacheHitDiscount);
         return spent + (redactionModelRan ? redactionCost : 0);
       };
 
@@ -219,6 +240,9 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
           try { shapeLargeResult(toolName, result, params); } catch { /* shaping must never break the request path */ }
         }
 
+        const cache = isErrorResult ? null : pageCacheSummary();
+        cacheHitPrice = cache?.state === 'hit' && !CACHE_HIT_EXCLUDED.has(toolName);
+
         // Failures are free, as the website promises. A pre-flight refusal that
         // sank the call is one of them; a multi-URL tool that skipped one
         // disallowed URL and still returned a result is a success and bills.
@@ -237,7 +261,14 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
             projected: creditCost,
             actual: creatorMode ? 0 : charge,
             remaining_credits: remainingCredits,
-            projection_note: projection.note
+            projection_note: cacheHitPrice && charge > 0
+              ? `${projection.note} Served from this session's page cache: charged ${charge} instead of ${creditCost}.`
+              : projection.note
+          };
+          // 1.6: say where the page came from, and on a hit that a fresh fetch is one parameter away.
+          const cacheMeta = cache && {
+            ...cache,
+            ...(cache.state === 'hit' ? { note: cacheHitLine(cache.ageMs) } : {})
           };
 
           // Inject _cost into the first text content item if it's JSON
@@ -245,14 +276,17 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
             try {
               const parsed = JSON.parse(result.content[0].text);
               parsed._cost = costMeta;
+              if (cacheMeta) parsed.cache = cacheMeta;
               result.content[0].text = JSON.stringify(parsed, null, 2);
             } catch {
-              // Not JSON — skip injection silently
+              // Not JSON: the hit line goes on the end of the text instead.
+              if (cacheMeta?.note) result.content[0].text += `\n${cacheMeta.note}`;
             }
           }
           // ...and into structuredContent, which is all some clients show (R25 0.2).
           if (result?.structuredContent && typeof result.structuredContent === 'object') {
             result.structuredContent._cost = costMeta;
+            if (cacheMeta) result.structuredContent.cache = cacheMeta;
           }
         } catch {
           // Cost injection must never break the request path
@@ -294,7 +328,8 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
           runId: process.env.CRAWLFORGE_RUN_ID || PROCESS_RUN_ID,
           client: clientLabel(mcpServer),
           source: logSource(),
-          urlKey: urlKey(params?.url)
+          urlKey: urlKey(params?.url),
+          cache: pageCacheSummary()?.state ?? null
         });
 
         // Prometheus (no-op unless registry was supplied)
@@ -343,6 +378,7 @@ export function makeWithAuth({ authManager, logger, metrics = null, mcpServer = 
         ...(requestContext.getStore() ?? {}),
         preflightRefusal: null,
         actualCost: null,
+        pageCache: null,
         servingRequestId: ctx?.mcpReq?.id
       },
       () => invoke(params, ctx)
