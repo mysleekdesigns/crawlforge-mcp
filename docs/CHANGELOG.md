@@ -5,6 +5,32 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.24.0] - 2026-10-22
+
+### Added
+- **Session page cache.** A repeat ask for the same page within 10 minutes (other
+  formats, another JSON path, other selectors) reuses the fetched copy instead of
+  the network, and costs 1 credit. Parallel calls for one page share one request.
+  Covers `fetch_url`, `scrape`, `extract_metadata`, `extract_text`, `extract_links`,
+  `scrape_structured`, `extract_embedded_state`, `extract_structured` and
+  `extract_with_llm` (`src/core/pageCache.js`, under both `fetchWithTimeout` and
+  `fetchAndParse`). Never cached: non-2xx, bot walls and challenge pages,
+  `Cache-Control: no-store`, and requests with `Authorization` or `Cookie` headers.
+  A hit still runs the blocklist and robots.txt checks. Bounded by bytes
+  (`CRAWLFORGE_PAGE_CACHE_MB`, default 64; `0` disables). Off under `--http` and for
+  REST-proxy requests.
+- **`maxAge` parameter** (ms) on those nine tools; `maxAge: 0` forces a fresh fetch.
+  Results carry `cache: { state, fetchedAt, ageMs, note }`, and the descriptions say
+  so in one sentence when the cache is on.
+- **Tagged invocation log.** The `tool invocation` line carries `runId`, `client`,
+  `source` and `urlKey` (a hash of the canonical URL, never the URL), so real
+  sessions can be told from tests.
+
+### Changed
+- **extract_embedded_state path misses are aimed.** A `path` that does not resolve
+  returns two levels of keys where it stopped, with a Next step built from them,
+  instead of a hint to re-read the whole payload.
+
 ## [6.23.2] - 2026-10-21
 
 ### Fixed
