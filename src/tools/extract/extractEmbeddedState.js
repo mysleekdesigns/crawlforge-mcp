@@ -21,7 +21,7 @@ import { z } from 'zod';
 import { fetchAndParse } from './_fetchAndParse.js';
 // Both live in crawlforge-extractors so the REST API's extract_embedded_state
 // runs this exact reader — one RSC flight-stream parser, not two.
-import { extractEmbeddedState, selectJsonPath, findJsonPaths } from 'crawlforge-extractors';
+import { extractEmbeddedState, selectJsonPath, findJsonPaths, parseJsonPath } from 'crawlforge-extractors';
 import { stealthDocumentVerdict } from '../../utils/stealthVerdict.js';
 import { pageTitle } from '../../utils/pageTitle.js';
 import { setActualCost, markPreflightRefusal } from '../../server/requestContext.js';
@@ -37,6 +37,12 @@ const EMBEDDED_STATE_BASE_CREDITS = 2;
 // result_handle (src/server/inlineThreshold.js), and `path`, `keys_only` or
 // `find` ask for less up front.
 const LARGE_RESULT_BYTES = 256_000;
+
+// A path miss carries the key tree where the path stopped, so the next path is
+// aimed rather than guessed (repeat-call plan 2.1). Capped per object and in
+// characters; over the character cap it drops to one level.
+const MISS_TREE_KEYS = 30;
+const MISS_TREE_CHARS = 2000;
 
 // A wall, as opposed to a missing page or a broken server (G4: a 404 or a 5xx
 // never escalates — see aBrowserMightPass).
@@ -75,22 +81,47 @@ function label(value) {
  * Shared shape with the REST route — keep the two in step.
  * @param {unknown} value
  * @param {number} depth
+ * @param {number} [maxKeys] per object; the rest are counted under "…"
  */
-export function describeKeys(value, depth) {
+export function describeKeys(value, depth, maxKeys = Infinity) {
   if (Array.isArray(value)) {
     if (depth <= 1) return label(value);
     return value.length > 0
-      ? { length: value.length, first: describeKeys(value[0], depth - 1) }
+      ? { length: value.length, first: describeKeys(value[0], depth - 1, maxKeys) }
       : { length: 0 };
   }
   if (value !== null && typeof value === 'object') {
     const keys = {};
-    for (const [key, child] of Object.entries(value)) {
-      keys[key] = depth > 1 ? describeKeys(child, depth - 1) : label(child);
+    const entries = Object.entries(value);
+    for (const [key, child] of entries.slice(0, maxKeys)) {
+      keys[key] = depth > 1 ? describeKeys(child, depth - 1, maxKeys) : label(child);
     }
+    if (entries.length > maxKeys) keys['…'] = `${entries.length - maxKeys} more keys`;
     return keys;
   }
   return label(value);
+}
+
+/**
+ * The key tree where `path` stops resolving: `null` when the value there has
+ * no keys (the path ran into a string or number).
+ * @param {unknown} root
+ * @param {string} path
+ * @returns {{ at: string, tree: string } | null}
+ */
+function missKeyTree(root, path) {
+  let current = root;
+  const walked = [];
+  for (const segment of parseJsonPath(path)) {
+    const key = Array.isArray(current) ? Number(segment) : segment;
+    if (current === null || typeof current !== 'object' || !Object.hasOwn(current, key)) break;
+    current = current[key];
+    walked.push(segment);
+  }
+  if (current === null || typeof current !== 'object') return null;
+  let tree = JSON.stringify(describeKeys(current, 2, MISS_TREE_KEYS));
+  if (tree.length > MISS_TREE_CHARS) tree = JSON.stringify(describeKeys(current, 1, MISS_TREE_KEYS));
+  return { at: walked.join('.'), tree };
 }
 
 function httpError(status) {
@@ -284,7 +315,26 @@ export function createExtractEmbeddedStateHandler({ escalateFetch } = {}) {
         }
       }
 
-      const data = effectivePath ? selectJsonPath(state.data, effectivePath) : state.data;
+      let data = state.data;
+      if (effectivePath) {
+        try {
+          data = selectJsonPath(state.data, effectivePath);
+        } catch (error) {
+          // A path miss: the key tree where it stopped, and a next step that
+          // stays on this tool (the fallback hint would say to drop `path`).
+          reportCost();
+          const miss = missKeyTree(state.data, effectivePath);
+          return {
+            content: [{
+              type: 'text',
+              text: `Failed to extract embedded state: ${error.message}` +
+                (miss ? `\nKeys at ${miss.at ? `"${miss.at}"` : 'the top level'}: ${miss.tree}` : '') +
+                '\nNext step: Call again with a path built from the keys above, or with find:"<key>" to get the paths where a field of that name lives.'
+            }],
+            isError: true
+          };
+        }
+      }
       const bytes = Buffer.byteLength(JSON.stringify(data) ?? '');
 
       if (!path && !keys_only && find === undefined && bytes > LARGE_RESULT_BYTES) {

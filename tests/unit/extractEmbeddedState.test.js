@@ -28,7 +28,7 @@ import { dirname, join } from 'node:path';
 process.env.ALLOWED_DOMAINS = '127.0.0.1';
 delete process.env.SSRF_PROTECTION_ENABLED;
 
-const { extractEmbeddedStateHandler } = await import('../../src/tools/extract/extractEmbeddedState.js');
+const { extractEmbeddedStateHandler, describeKeys } = await import('../../src/tools/extract/extractEmbeddedState.js');
 const { appendFallbackHint } = await import('../../src/server/fallbackHints.js');
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '../fixtures/embedded-state');
@@ -163,6 +163,32 @@ describe('3.2 — a path scopes the result instead of returning the blob', () =>
     assert.equal(result.isError, true);
     assert.match(result.content[0].text, /Failed to extract embedded state/);
     assert.match(result.content[0].text, /available keys: pageProps/);
+  });
+
+  // Repeat-call plan 2.1: the miss carries two levels of keys where the path
+  // stopped, so the next path is aimed, and the next step stays on this tool.
+  test('a path miss carries the key tree where the path stopped', async () => {
+    const result = await extractEmbeddedStateHandler({
+      url: `${baseUrl}/ticketmaster`,
+      path: 'next_data.props.pagePropz.event'
+    });
+    assert.equal(result.isError, true);
+    const text = result.content[0].text;
+    const line = text.split('\n').find((l) => l.startsWith('Keys at "next_data.props": '));
+    assert.ok(line, text);
+    const tree = JSON.parse(line.slice('Keys at "next_data.props": '.length));
+    assert.equal(typeof tree.pageProps, 'object');
+    assert.equal(tree.pageProps.eventsJsonLD, 'array(1)');
+    assert.match(text, /\nNext step: Call again with a path built from the keys above/);
+    assert.doesNotMatch(text, /without `path`/);
+  });
+
+  test('the miss tree is capped per object', () => {
+    const wide = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`k${i}`, { a: 1 }]));
+    const tree = describeKeys(wide, 2, 30);
+    assert.equal(Object.keys(tree).length, 31);
+    assert.equal(tree['…'], '10 more keys');
+    assert.deepEqual(tree.k0, { a: 'number' });
   });
 });
 
@@ -300,11 +326,13 @@ describe('a blocked fetch points at escalate:true, not at a different path', () 
     assert.equal(result.content[0].text, text, 'withAuth keeps the hint the error already carries');
   });
 
-  test('any other error still gets the generic hint from withAuth', async () => {
+  test('a path miss carries its own Next step, which withAuth keeps', async () => {
     const result = await extractEmbeddedStateHandler({ url: `${baseUrl}/ticketmaster`, path: 'next_data.nope' });
     assert.equal(result.isError, true);
-    assert.ok(!/Next step:/.test(result.content[0].text));
+    const text = result.content[0].text;
+    assert.match(text, /\nKeys at "next_data": /);
+    assert.match(text, /\nNext step: Call again with a path built from the keys above/);
     appendFallbackHint('extract_embedded_state', result);
-    assert.match(result.content[0].text, /Next step: Call again without `path`/);
+    assert.equal(result.content[0].text, text, 'withAuth keeps the hint the error already carries');
   });
 });
