@@ -19,8 +19,11 @@ import { readFileSync } from 'node:fs';
 process.env.DATAFORSEO_LOGIN = process.env.DATAFORSEO_LOGIN || 'test';
 process.env.DATAFORSEO_PASSWORD = process.env.DATAFORSEO_PASSWORD || 'test';
 const { default: AuthManager } = await import('../../src/core/AuthManager.js');
+const { PAGE_CACHE_TEXT } = await import('../../src/utils/maxAgeParam.js');
 
-const src = readFileSync(new URL('../../server.js', import.meta.url), 'utf8');
+// The nine cached tools splice in the cache sentence (on wherever the cache is); read them with it.
+const src = readFileSync(new URL('../../server.js', import.meta.url), 'utf8')
+  .replaceAll('" + PAGE_CACHE_SENTENCE + "', JSON.stringify(PAGE_CACHE_TEXT).slice(1, -1));
 const LIMIT = 2048;
 
 function registrations() {

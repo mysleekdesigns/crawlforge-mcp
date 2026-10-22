@@ -108,3 +108,6 @@ get_batch_results...) up to 10+ for `deep_research`. Full table:
 [credits](references/credits.md). Prefer the cheapest tool that does the job, and
 cap dynamic tools (`deep_research`, `agent`, `crawl_deep`) with their max
 parameters.
+In a local session, asking again for the same page with different formats, paths or
+selectors reuses this session's copy for 10 minutes at 1 credit; pass `maxAge: 0` to
+force a fresh fetch.

@@ -112,3 +112,23 @@ test('each tool passes maxAge to its page-cache seam', () => {
     assert.equal(calls[name]?.maxAge, 1234, `${name} passed maxAge to its seam`);
   }
 });
+
+test('PAGE_CACHE_SENTENCE is set only where the page cache is on (3.1)', () => {
+  const sentence = (extra, args = []) => {
+    const env = { ...childEnv(), ...extra };
+    delete env.NODE_TEST_CONTEXT;
+    delete env.NODE_ENV;
+    const script = "import('./src/utils/maxAgeParam.js').then((m) => process.stdout.write(JSON.stringify(m.PAGE_CACHE_SENTENCE)))";
+    return JSON.parse(execFileSync(process.execPath, ['-e', script, ...args], { cwd: REPO_ROOT, env, timeout: 30000 }).toString());
+  };
+  assert.match(sentence({}), /reuses this session's copy for 10 minutes at 1 credit; pass maxAge: 0/);
+  assert.equal(sentence({ MCP_HTTP: 'true' }), '');
+  assert.equal(sentence({ CRAWLFORGE_PAGE_CACHE_MB: '0' }), '');
+});
+
+test('tools/list: no cache sentence when the cache is off (this child runs under test)', () => {
+  for (const name of TOOLS) {
+    assert.doesNotMatch(tools.get(name).description, /session's copy/, name);
+    assert.match(tools.get(name).description, /\. Cost: /, `${name}: description still joins cleanly`);
+  }
+});
