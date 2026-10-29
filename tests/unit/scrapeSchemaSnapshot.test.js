@@ -23,7 +23,9 @@
  * more permissive than the validator, not the other way round. Regenerated
  * 2026-10-19 for R25 0.2: outputSchema gains `next_step`, and `_cost` now
  * describes the free-failure rule. Regenerated 2026-10-22 for the
- * repeat-call reduction plan's 1.5: inputSchema gains `maxAge`.
+ * repeat-call reduction plan's 1.5: inputSchema gains `maxAge`. Regenerated
+ * 2026-10-29 for branding roles: brandingOptions gains `computeStyles`,
+ * `rawVariables` and `dtcg`, and the description names the new output.
  *
  * The server is spawned with HOME pointed at a temp dir and an empty creator
  * secret so the real ~/.crawlforge is never read or written.

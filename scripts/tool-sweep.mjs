@@ -240,6 +240,18 @@ const CHECKS = [
     }
   },
   {
+    tool: 'scrape', tier: 'default', what: '6.25 branding roles come from the rendered page',
+    run: async () => {
+      const r = await call('scrape', { url: 'https://www.crawlforge.dev', formats: ['branding'] });
+      const b = r.content?.branding || {};
+      expect(b.sources?.rendered === true, `the page was not rendered: ${JSON.stringify(r.warnings)}`);
+      expect(b.roles?.primary?.source === 'computed', `primary role is not computed: ${JSON.stringify(b.roles?.primary)}`);
+      expect(Boolean(b.components?.buttonPrimary?.background), 'no primary button fill');
+      expect(JSON.stringify(r).length < 40000, `branding result is ${JSON.stringify(r).length} chars, over the inline limit`);
+      return `primary ${b.roles.primary.value} from ${b.roles.primary.evidence}`;
+    }
+  },
+  {
     tool: 'scrape_structured', tier: 'default', what: '3.2 row_selector pairs each version with its own date',
     run: async () => {
       const r = await call('scrape_structured', {

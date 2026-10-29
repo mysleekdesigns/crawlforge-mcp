@@ -2,7 +2,7 @@
 name: crawlforge-stealth-browsing
 description: "Bypasses bot detection with CrawlForge's stealth_mode tool and looks up a country's locale settings with localization. Use when a site returns 403 or 429, CAPTCHAs, 'please enable JavaScript', or empty content, or is protected by Cloudflare, DataDome, or PerimeterX, or when the user needs a page in a specific locale, language, or timezone. stealth_mode runs a stealth browser (engine auto by default: camoufox/Firefox for advanced fingerprinting, playwright/Chromium when pinned for speed) and can screenshot; localization returns a country's Accept-Language, timezone and currency for you to pass to fetch_url or stealth_mode - it applies nothing itself and uses no proxy. Explains when to escalate from a normal scrape to stealth, and why a hard block needs a residential proxy."
 metadata:
-  version: 6.24.0
+  version: 6.25.0
   source: crawlforge-mcp-server
 ---
 

@@ -48,8 +48,14 @@ describe('extractBranding (static, no linked CSS)', () => {
     assert.equal(b.logo.ogImage, 'https://acme.test/og.png');
     assert.ok(b.logo.candidates.some((c) => c.src === 'https://acme.test/logo.svg'));
     assert.ok(b.radii.some((r) => r.value === '8px'));
-    assert.ok('--brand-primary' in b.cssVariables);
+    assert.equal(b.tokens.colors.semantic['brand-primary'], '#ff5722');
+    assert.equal(b.cssVariables, undefined, 'raw variables are opt-in');
     assert.ok(Array.isArray(b.notes) && b.notes.length > 0);
+  });
+
+  test('rawVariables:true returns every custom property as found', async () => {
+    const b = await extractBranding(load(HTML), 'https://acme.test/', { fetchLinkedCss: false, rawVariables: true });
+    assert.ok('--brand-primary' in b.cssVariables);
   });
 
   test('never throws on empty / style-less HTML', async () => {

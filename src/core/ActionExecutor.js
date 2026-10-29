@@ -387,6 +387,18 @@ export class ActionExecutor extends EventEmitter {
           executionContext.finalFormValues = finalState.formValues;
         }
 
+        // A read the server itself asks for (the branding format's computed
+        // styles). It has to be a function, so no tool call can supply one:
+        // JSON carries no functions, and caller-written scripts still go
+        // through executeJavaScript and ALLOW_JAVASCRIPT_EXECUTION.
+        if (typeof browserOptions.pageProbe === 'function') {
+          try {
+            executionContext.probe = await this.readGated(page, browserOptions, () => page.evaluate(browserOptions.pageProbe));
+          } catch (probeErr) {
+            executionContext.probeError = probeErr.message;
+          }
+        }
+
         this.stats.successfulChains++;
         executionContext.success = true;
 
@@ -492,6 +504,8 @@ export class ActionExecutor extends EventEmitter {
         attempts: executionContext.attempts,
         screenshots: executionContext.screenshots,
         capturedStates: executionContext.capturedStates || [],
+        probe: executionContext.probe,
+        probeError: executionContext.probeError,
         metadata: executionContext.metadata,
         stats: {
           totalActions: executionContext.results.length,
