@@ -116,7 +116,7 @@ const scrapeFormatShapes = {
   text: z.string().optional(),
   links: scrapeLinksShape.optional(),
   metadata: scrapeMetadataShape.optional(),
-  branding: z.record(z.unknown()).optional().describe('Static design tokens: colors, fonts, logo'),
+  branding: z.record(z.unknown()).optional().describe('Brand style: colour roles, button components and type (computed or inferred), logo, fonts and grouped design tokens'),
   screenshots: z.array(z.object({}).passthrough()).optional().describe('Present for the "screenshot" format; each item carries a resourceUri once published'),
   json: z.unknown().optional().describe('Result of the {type:"json"} format (LLM-structured extraction)'),
   highlights: z.array(scrapeHighlightUnitShape).optional().describe('Result of the {type:"highlights"} format: the units matching the query, best first, verbatim with offsets'),

@@ -10,6 +10,7 @@ CrawlForge credits.
 | `url` | string (URL) | — | Required. |
 | `formats` | array | `["markdown"]` | Any of `markdown`, `html`, `rawHtml`, `text`, `links`, `metadata`, `branding`, `screenshot`, `{type:"json", schema?, prompt?}`, `{type:"highlights", query, max_highlights?, mode?}` (the matching sentences, table rows and code blocks, verbatim, with offsets into the markdown; +1 credit once per call) or `{type:"question", question, mode?}` (an answer assembled from the evidence units; same +1). `mode:"model"` adds 3 credits and needs an LLM route. |
 | `onlyMainContent` | boolean | `true` | Strip boilerplate via Readability. |
+| `brandingOptions` | object | — | For `branding`: `computeStyles` (default `true`: render the page and read colour roles, the primary and secondary buttons and type from computed styles; `false` stays static and marks roles `inferred`), `rawVariables` (default `false`: add every CSS custom property as `cssVariables`), `dtcg` (default `false`: add the tokens as W3C Design Tokens 2025.10 JSON as `dtcg`, which can double the result; read it back with `read_result` and `json_path: "content.branding.dtcg"`), `fetchLinkedCss`, `maxStylesheets`. Every role and component carries `source` (`computed`, `css-variable`, `inferred`…); `provenance` in the result defines each. |
 | `timeoutMs` | number | `15000` | 1000–60000. |
 | `max_inline_chars` | number | `40000` | 1,000–10,000,000. A larger result returns `preview` + `result_handle` for `read_result` (below). |
 

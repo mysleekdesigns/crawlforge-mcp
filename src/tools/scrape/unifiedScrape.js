@@ -148,7 +148,10 @@ export const SCRAPE_INPUT_SHAPE = {
   // Optional, additive: only consulted when 'branding' / 'screenshot' is requested.
   brandingOptions: z.object({
     fetchLinkedCss: z.boolean().optional().default(true).describe('Fetch linked stylesheets for richer color/font extraction'),
-    maxStylesheets: z.number().min(0).max(20).optional().default(10).describe('Max linked stylesheets to fetch')
+    maxStylesheets: z.number().min(0).max(20).optional().default(10).describe('Max linked stylesheets to fetch'),
+    computeStyles: z.boolean().optional().default(true).describe('Render the page and read computed styles for colour roles, buttons and type (default: true; false keeps branding to the HTML and CSS)'),
+    rawVariables: z.boolean().optional().default(false).describe('Also return every CSS custom property as found, under cssVariables (large on design-system sites)'),
+    dtcg: z.boolean().optional().default(false).describe('Also return the tokens as W3C Design Tokens (DTCG 2025.10) JSON, under dtcg')
   }).optional().describe('Options for the "branding" format'),
   screenshotOptions: z.object({
     fullPage: z.boolean().optional().default(false).describe('Capture the full scrollable page'),
@@ -374,13 +377,34 @@ export class UnifiedScrapeTool {
     return this._extractWithLlm;
   }
 
-  /** Lazy-load an ActionExecutor only when a screenshot is actually requested. */
+  /** Lazy-load an ActionExecutor only when a screenshot or computed branding is requested. */
   async _getActionExecutor() {
     if (!this._actionExecutor) {
       const { default: ActionExecutor } = await import('../../core/ActionExecutor.js');
       this._actionExecutor = new ActionExecutor({ enableLogging: false });
     }
     return this._actionExecutor;
+  }
+
+  /**
+   * One browser render of `url`: the screenshot action when `screenshot` is
+   * set, and branding's computed-style probe when `probe` is.
+   */
+  async _render(url, { screenshot, probe }) {
+    const exec = await this._getActionExecutor();
+    const pageProbe = probe ? (await import('./_brandingComputed.js')).brandingProbe : undefined;
+    return exec.executeActionChain(
+      url,
+      {
+        actions: screenshot ? [{
+          type: 'screenshot',
+          fullPage: screenshot.fullPage ?? false,
+          format: screenshot.format ?? 'png',
+          ...(screenshot.quality != null ? { quality: screenshot.quality } : {})
+        }] : []
+      },
+      { headless: true, timeout: 30000, ...(pageProbe ? { pageProbe } : {}) }
+    );
   }
 
   /**
@@ -667,6 +691,15 @@ export class UnifiedScrapeTool {
       }
     }
 
+    // One browser render serves both formats that need one: the screenshot,
+    // and branding's computed styles, which ride along on the same page load.
+    const wantsComputed = formats.includes('branding') && brandingOptions?.computeStyles !== false;
+    let render = null;
+    const renderOnce = () => (render ??= this._render(finalUrl, {
+      screenshot: formats.includes('screenshot') ? (screenshotOptions ?? {}) : null,
+      probe: wantsComputed
+    }));
+
     for (const fmt of formats) {
       // JSON format object
       if (fmt && typeof fmt === 'object' && fmt.type === 'json') {
@@ -879,10 +912,30 @@ export class UnifiedScrapeTool {
 
         case 'branding':
           try {
+            let computed = null;
+            if (wantsComputed) {
+              const unavailable = (why) => warnings.push(`branding: computed styles unavailable — ${why}; roles are inferred from CSS variable names`);
+              if (escalationRan) {
+                // A plain render would read the wall the stealth stage got past.
+                unavailable('this page needed the stealth browser');
+              } else {
+                try {
+                  const r = await renderOnce();
+                  if (r?.navigationStatus >= 400) unavailable(`the render got HTTP ${r.navigationStatus}`);
+                  else if (r?.probe) computed = r.probe;
+                  else unavailable(r?.probeError || r?.error || 'the render returned nothing');
+                } catch (err) {
+                  unavailable(err.message);
+                }
+              }
+            }
             const { extractBranding } = await import('./_brandingExtractor.js');
             const branding = await extractBranding($, finalUrl, {
               fetchLinkedCss: brandingOptions?.fetchLinkedCss ?? true,
-              maxStylesheets: brandingOptions?.maxStylesheets ?? 10
+              maxStylesheets: brandingOptions?.maxStylesheets ?? 10,
+              computed,
+              rawVariables: brandingOptions?.rawVariables ?? false,
+              dtcg: brandingOptions?.dtcg ?? false
             });
             if (Array.isArray(branding.warnings)) {
               warnings.push(...branding.warnings);
@@ -898,19 +951,7 @@ export class UnifiedScrapeTool {
         case 'screenshot':
           // Opt-in browser path: only launched when 'screenshot' is requested.
           try {
-            const exec = await this._getActionExecutor();
-            const r = await exec.executeActionChain(
-              finalUrl,
-              {
-                actions: [{
-                  type: 'screenshot',
-                  fullPage: screenshotOptions?.fullPage ?? false,
-                  format: screenshotOptions?.format ?? 'png',
-                  ...(screenshotOptions?.quality != null ? { quality: screenshotOptions.quality } : {})
-                }]
-              },
-              { headless: true, timeout: 30000 }
-            );
+            const r = await renderOnce();
             content.screenshots = Array.isArray(r?.screenshots) ? r.screenshots : [];
             if (r?.success === false) {
               warnings.push(`screenshot: ${r.error || 'capture failed'}`);

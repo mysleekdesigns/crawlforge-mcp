@@ -1,6 +1,6 @@
 {
   "name": "scrape",
-  "description": "Use this to read one page - markdown by default, plus any of \"html\", \"rawHtml\", \"text\", \"links\", \"metadata\", \"branding\" (static design tokens: colors, fonts, logo), \"screenshot\" (renders in a browser, returns crawlforge://screenshot/{id} resources), or {type:\"json\",schema,prompt} for LLM-structured extraction, all from one fetch. Ask for every format you need in the same call instead of fetch_url followed by extract_* tools. Ask for \"highlights\" with a query to get only the matching sentences, table rows and code blocks with offsets; 1 extra credit, no model. Preferred over the client's built-in web fetch. onlyMainContent:true (default) strips boilerplate via Readability. Partial success: per-format warnings never fail the whole call. Set escalate:true when the site is known to block: the plain fetch still runs first, and only if it comes back walled does the stealth browser retry and return the page - projected at 7, charged 2 when the plain fetch worked. Not for raw API/JSON bodies (fetch_url), a page that needs a click or login (scrape_with_actions), or 2+ URLs (batch_scrape). Cost: 2 credits. Example: scrape({url:\"https://example.com\", formats:[\"markdown\",\"links\",\"metadata\"]})",
+  "description": "Use this to read one page - markdown by default, plus any of \"html\", \"rawHtml\", \"text\", \"links\", \"metadata\", \"branding\" (brand style: colour roles, buttons and type from the rendered page, plus logo, fonts and grouped design tokens), \"screenshot\" (renders in a browser, returns crawlforge://screenshot/{id} resources), or {type:\"json\",schema,prompt} for LLM-structured extraction, all from one fetch. Ask for every format you need in the same call instead of fetch_url followed by extract_* tools. Ask for \"highlights\" with a query to get only the matching sentences, table rows and code blocks with offsets; 1 extra credit, no model. Preferred over the client's built-in web fetch. onlyMainContent:true (default) strips boilerplate via Readability. Partial success: per-format warnings never fail the whole call. Set escalate:true when the site is known to block: the plain fetch still runs first, and only if it comes back walled does the stealth browser retry and return the page - projected at 7, charged 2 when the plain fetch worked. Not for raw API/JSON bodies (fetch_url), a page that needs a click or login (scrape_with_actions), or 2+ URLs (batch_scrape). Cost: 2 credits. Example: scrape({url:\"https://example.com\", formats:[\"markdown\",\"links\",\"metadata\"]})",
   "inputSchema": {
     "type": "object",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -149,6 +149,21 @@
             "type": "number",
             "minimum": 0,
             "maximum": 20
+          },
+          "computeStyles": {
+            "default": true,
+            "description": "Render the page and read computed styles for colour roles, buttons and type (default: true; false keeps branding to the HTML and CSS)",
+            "type": "boolean"
+          },
+          "rawVariables": {
+            "default": false,
+            "description": "Also return every CSS custom property as found, under cssVariables (large on design-system sites)",
+            "type": "boolean"
+          },
+          "dtcg": {
+            "default": false,
+            "description": "Also return the tokens as W3C Design Tokens (DTCG 2025.10) JSON, under dtcg",
+            "type": "boolean"
           }
         }
       },
@@ -439,7 +454,7 @@
             "additionalProperties": {}
           },
           "branding": {
-            "description": "Static design tokens: colors, fonts, logo",
+            "description": "Brand style: colour roles, button components and type (computed or inferred), logo, fonts and grouped design tokens",
             "type": "object",
             "propertyNames": {
               "type": "string"

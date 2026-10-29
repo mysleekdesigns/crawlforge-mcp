@@ -5,6 +5,42 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.25.0] - 2026-10-29
+
+### Added
+- **`branding` reads the rendered page.** By default the format now renders the
+  page once and returns `roles` (background, text, heading, link, primary,
+  onPrimary), `components.buttonPrimary` / `buttonSecondary` (fill, label,
+  border, radius, padding, type) and `typography` (body, h1, h2) from computed
+  styles, plus `colorScheme`. The probe is a fixed server function passed as
+  `pageProbe` to the action chain, so it runs with `ALLOW_JAVASCRIPT_EXECUTION`
+  off and behind the same page gate as a screenshot; a call asking for both
+  `branding` and `screenshot` shares one render. `brandingOptions.computeStyles:
+  false` keeps the format static. Still 2 credits.
+- **Provenance on every role.** Each role and component carries `source`
+  (`computed`, `css-variable`, `inferred`, …) and `evidence` (the element or
+  variable it came from), and the result defines each source under `provenance`.
+  Without a render, roles are guessed from variable names and marked `inferred`.
+- **Grouped design tokens.** `branding.tokens` sorts CSS custom properties into
+  colour ramps, semantic colours, typography, spacing, radius and shadow, with
+  `var()` chains resolved, layout state (`--bar-index`, `--tw-*`) dropped, each
+  group capped, and `stats` counting what was dropped. stripe.com's 960
+  variables come back as 397 tokens in a 19K-character result (was 78K).
+- **DTCG export.** `brandingOptions.dtcg: true` adds `branding.dtcg`, the tokens
+  and roles as W3C Design Tokens JSON in the 2025.10 format (the spec's first
+  stable version). Tool support for 2025.10 is still arriving: Style Dictionary
+  lists it as in progress for v5.
+- **lab(), lch(), oklch() and oklab() colours** are parsed (Tailwind v4 ships its
+  palette as `lab()`), and colours keep their alpha in tokens.
+- **`crawlforge-brand-style-guide` skill** (the ninth): turns a branding result into
+  a style guide or a `tokens.json`, and tells the agent which values are guesses.
+
+### Changed
+- **`branding.cssVariables` is opt-in** (`brandingOptions.rawVariables: true`);
+  `branding.spacing` (the raw spacing/radius variable map) is replaced by
+  `tokens.spacing` and `tokens.radius`. `radii` and `shadows` now count
+  declarations that use `var()` under the resolved value.
+
 ## [6.24.0] - 2026-10-22
 
 ### Added

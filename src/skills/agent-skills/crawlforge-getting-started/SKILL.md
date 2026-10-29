@@ -2,7 +2,7 @@
 name: crawlforge-getting-started
 description: "Orientation and tool-selection guide for the CrawlForge MCP server's 31 web tools. Use when the user is getting started with CrawlForge, asks which CrawlForge tool to use, how to set up the API key, how skills or the CLI work, what a tool costs in credits, or when one tool fails and a fallback is needed. Routes requests to the right specialized skill (web scraping, deep research, stealth, structured extraction, change tracking, batch automation, browser sessions), and explains MCP-tools-vs-CLI, the Ollama-first LLM fallback chain, and per-tool credit costs."
 metadata:
-  version: 6.24.0
+  version: 6.25.0
   source: crawlforge-mcp-server
 ---
 
@@ -52,6 +52,7 @@ stored at `~/.crawlforge/config.json`.
 | Watch a page for changes / monitor pricing | **crawlforge-change-tracking** |
 | Scrape many URLs, run browser actions, generate llms.txt | **crawlforge-batch-automation** |
 | Keep a browser open across calls: log in then read, click through a multi-step flow | **crawlforge-browser-sessions** |
+| Make a style guide or design-token file from a website's brand | **crawlforge-brand-style-guide** |
 
 ## The 31 tools at a glance
 

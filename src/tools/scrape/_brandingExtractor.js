@@ -1,14 +1,17 @@
 /**
- * _brandingExtractor.js — static design-token / branding extraction.
+ * _brandingExtractor.js — design-token / branding extraction.
  *
- * Extracts a site's visual identity from HTML + CSS WITHOUT a browser:
+ * Extracts a site's visual identity from HTML + CSS:
  *   - colors      (CSS custom properties, theme-color, declarations) -> hex + frequency
  *   - fonts       (font-family, @font-face, Google/Adobe webfont links)
  *   - logo        (favicons, og:image, header img/svg candidates)
- *   - tokens      (border-radius, box-shadow, spacing custom props)
+ *   - tokens      (CSS custom properties, var() chains resolved, grouped; _brandingTokens.js)
+ *   - roles       (background, text, heading, link, primary) plus button
+ *                 components and type, from a rendered page's computed styles
+ *                 when the caller passes a probe result (_brandingComputed.js),
+ *                 otherwise guessed from variable names and marked "inferred"
  *
- * Static-only limits (documented in the returned `notes`): computed/cascaded
- * styles and JS-injected CSS are not visible without rendering. Linked CSS is
+ * Without a probe result, JS-injected CSS is not visible. Linked CSS is
  * fetched through the SSRF guard, capped in count/size/time.
  *
  * Every helper is defensive: failures push to `warnings` and never throw.
@@ -16,20 +19,15 @@
 
 import { safeFetch } from '../../utils/ssrfGuard.js';
 import { mediaAppliesToScreen } from '../../utils/hiddenContent.js';
+import { parseColor, toHex } from './_brandingColor.js';
+import { resolveValue, groupTokens, toDtcg } from './_brandingTokens.js';
+import { buildComputedBranding, inferRoles, schemeOf } from './_brandingComputed.js';
 
 const GENERIC_FAMILIES = new Set([
   'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui',
   'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'inherit',
   'initial', 'unset', 'revert', 'emoji', 'math', 'fangsong',
 ]);
-
-const NAMED_COLORS = {
-  black: '#000000', white: '#ffffff', red: '#ff0000', green: '#008000',
-  blue: '#0000ff', yellow: '#ffff00', orange: '#ffa500', purple: '#800080',
-  gray: '#808080', grey: '#808080', silver: '#c0c0c0', navy: '#000080',
-  teal: '#008080', maroon: '#800000', olive: '#808000', lime: '#00ff00',
-  aqua: '#00ffff', fuchsia: '#ff00ff',
-};
 
 // CSS variable names that strongly indicate brand colors.
 const BRAND_VAR_RE = /(primary|secondary|brand|accent|theme|background|surface|foreground|text|link)/i;
@@ -38,71 +36,13 @@ function clamp(n, lo, hi) {
   return Math.max(lo, Math.min(hi, n));
 }
 
-function toHex2(n) {
-  return clamp(Math.round(n), 0, 255).toString(16).padStart(2, '0');
-}
-
 /**
  * Normalize a CSS color token to lowercase #rrggbb (drops alpha). Returns null
  * for values we can't confidently parse (gradients, currentColor, var(), etc.).
  */
 export function normalizeColor(raw) {
-  if (!raw) return null;
-  const v = String(raw).trim().toLowerCase();
-
-  if (NAMED_COLORS[v]) return NAMED_COLORS[v];
-
-  // hex
-  let m = v.match(/^#([0-9a-f]{3,8})$/);
-  if (m) {
-    const h = m[1];
-    if (h.length === 3) return '#' + h.split('').map((c) => c + c).join('');
-    if (h.length === 4) return '#' + h.slice(0, 3).split('').map((c) => c + c).join('');
-    if (h.length === 6) return '#' + h;
-    if (h.length === 8) return '#' + h.slice(0, 6);
-    return null;
-  }
-
-  // rgb()/rgba()
-  m = v.match(/^rgba?\(([^)]+)\)$/);
-  if (m) {
-    const parts = m[1].split(/[,/\s]+/).filter(Boolean);
-    if (parts.length >= 3) {
-      const [r, g, b] = parts;
-      const pn = (x) => (x.endsWith('%') ? (parseFloat(x) / 100) * 255 : parseFloat(x));
-      const rr = pn(r), gg = pn(g), bb = pn(b);
-      if ([rr, gg, bb].every((x) => !Number.isNaN(x))) return '#' + toHex2(rr) + toHex2(gg) + toHex2(bb);
-    }
-    return null;
-  }
-
-  // hsl()/hsla()
-  m = v.match(/^hsla?\(([^)]+)\)$/);
-  if (m) {
-    const parts = m[1].split(/[,/\s]+/).filter(Boolean);
-    if (parts.length >= 3) {
-      const h = parseFloat(parts[0]);
-      const s = parseFloat(parts[1]) / 100;
-      const l = parseFloat(parts[2]) / 100;
-      if (![h, s, l].some((x) => Number.isNaN(x))) {
-        const c = (1 - Math.abs(2 * l - 1)) * s;
-        const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-        const mm = l - c / 2;
-        let r = 0, g = 0, b = 0;
-        const hh = ((h % 360) + 360) % 360;
-        if (hh < 60) [r, g, b] = [c, x, 0];
-        else if (hh < 120) [r, g, b] = [x, c, 0];
-        else if (hh < 180) [r, g, b] = [0, c, x];
-        else if (hh < 240) [r, g, b] = [0, x, c];
-        else if (hh < 300) [r, g, b] = [x, 0, c];
-        else [r, g, b] = [c, 0, x];
-        return '#' + toHex2((r + mm) * 255) + toHex2((g + mm) * 255) + toHex2((b + mm) * 255);
-      }
-    }
-    return null;
-  }
-
-  return null;
+  const c = parseColor(raw);
+  return c ? toHex(c) : null;
 }
 
 function resolveUrl(href, base) {
@@ -245,7 +185,7 @@ function extractColors(cssText, $, cssVariables) {
   // brand-ish CSS variables (high confidence)
   for (const [name, value] of Object.entries(cssVariables)) {
     if (BRAND_VAR_RE.test(name)) {
-      const hex = normalizeColor(value);
+      const hex = normalizeColor(resolveValue(value, cssVariables, new Set([name])));
       if (hex) add(hex, 'css-var');
     }
   }
@@ -396,33 +336,40 @@ function extractLogo($, pageUrl) {
 }
 
 function extractTokens(cssText, cssVariables) {
+  // Declarations that reference a variable count under the value it resolves to.
   const collect = (re) => {
     const counts = new Map();
     let m;
     while ((m = re.exec(cssText)) !== null) {
-      const v = m[1].trim();
+      const v = resolveValue(m[1].replace(/!important/i, '').trim(), cssVariables);
       if (v && !v.includes('var(')) counts.set(v, (counts.get(v) || 0) + 1);
     }
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([value, count]) => ({ value, count }));
   };
 
-  const spacing = {};
-  for (const [name, value] of Object.entries(cssVariables)) {
-    if (/(space|spacing|gap|radius|size)/i.test(name)) spacing[name] = value;
-  }
-
   return {
     radii: collect(/border-radius\s*:\s*([^;}{]+)/gi),
     shadows: collect(/box-shadow\s*:\s*([^;}{]+)/gi),
-    spacingVariables: spacing,
   };
 }
+
+// What each `source` value in the result means, returned with it so a reader
+// of the output can audit any value without this file.
+const PROVENANCE = {
+  computed: 'read from the rendered page with getComputedStyle',
+  'css-variable': 'a CSS custom property, var() references resolved',
+  'css-var': 'counted in brand-named CSS custom properties',
+  'theme-color': 'the page\'s theme-color meta tag',
+  declaration: 'counted in CSS declarations',
+  inferred: 'a guess from CSS variable names; no rendered element confirmed it',
+};
 
 /**
  * Extract the full branding object from a loaded cheerio $.
  * @param {import('cheerio').CheerioAPI} $
  * @param {string} pageUrl
- * @param {{ fetchLinkedCss?: boolean, maxStylesheets?: number, perFileTimeoutMs?: number, timeoutMs?: number, overallTimeoutMs?: number, stylesheetConcurrency?: number, media?: 'screen'|'unconditional-screen', inlineStyles?: boolean }} [opts]
+ * @param {{ fetchLinkedCss?: boolean, maxStylesheets?: number, perFileTimeoutMs?: number, timeoutMs?: number, overallTimeoutMs?: number, stylesheetConcurrency?: number, media?: 'screen'|'unconditional-screen', inlineStyles?: boolean, computed?: object|null, rawVariables?: boolean, dtcg?: boolean }} [opts]
+ *   `computed` is a brandingProbe() result from a render of the same page.
  * @returns {Promise<object>}
  */
 export async function extractBranding($, pageUrl, opts = {}) {
@@ -445,26 +392,51 @@ export async function extractBranding($, pageUrl, opts = {}) {
   const colors = safe(() => extractColors(sources.cssText, $, cssVariables), [], 'colors');
   const fontInfo = safe(() => extractFonts(sources.cssText, $, cssVariables), { fonts: [], genericFallbacks: [], webfontProviders: [], fontFaces: [] }, 'fonts');
   const logo = safe(() => extractLogo($, pageUrl), { favicons: [], ogImage: null, candidates: [], inlineHeaderSvg: null }, 'logo');
-  const tokens = safe(() => extractTokens(sources.cssText, cssVariables), { radii: [], shadows: [], spacingVariables: {} }, 'tokens');
+  const declTokens = safe(() => extractTokens(sources.cssText, cssVariables), { radii: [], shadows: [] }, 'tokens');
+  const tokens = safe(() => groupTokens(cssVariables), null, 'token grouping');
 
-  return {
-    colors,
+  const computed = options.computed ? safe(() => buildComputedBranding(options.computed), null, 'computed styles') : null;
+  const resolved = safe(() => Object.fromEntries(Object.entries(cssVariables).map(([k, v]) => [k, resolveValue(v, cssVariables, new Set([k]))])), {}, 'variable resolution');
+  // Computed roles win; an inferred guess fills only a role no element showed.
+  const roles = { ...(computed?.roles || {}) };
+  for (const [name, guess] of Object.entries(safe(() => inferRoles(resolved, colors), {}, 'role inference'))) {
+    if (!roles[name]) roles[name] = guess;
+  }
+
+  const result = {
+    colorScheme: computed?.colorScheme || schemeOf(roles.background?.value) || undefined,
+    roles,
+    components: computed?.components || {},
+    typography: computed?.typography || {},
     fonts: fontInfo.fonts,
     genericFallbacks: fontInfo.genericFallbacks,
     webfontProviders: fontInfo.webfontProviders,
     fontFaces: fontInfo.fontFaces,
     logo,
-    cssVariables,
-    radii: tokens.radii,
-    shadows: tokens.shadows,
-    spacing: tokens.spacingVariables,
+    colors,
+    tokens: tokens ? { source: 'css-variable', ...tokens } : undefined,
+    radii: declTokens.radii,
+    shadows: declTokens.shadows,
+  };
+  if (options.rawVariables) result.cssVariables = cssVariables;
+  if (options.dtcg && tokens) {
+    result.dtcg = safe(() => toDtcg({ tokens, roles, fonts: fontInfo.fonts, url: pageUrl }), undefined, 'dtcg');
+  }
+
+  return {
+    ...result,
     sources: {
       styleBlocks: sources.styleBlocks,
       inlineStyleEls: sources.inlineStyleEls,
       linkedStylesheetsFetched: sources.fetchedUrls,
+      rendered: Boolean(computed),
     },
+    provenance: PROVENANCE,
     notes: [
-      'Static extraction from HTML + linked/inline CSS. Computed/cascaded colors and JS-injected styles require browser rendering and are not reflected here.',
+      computed
+        ? 'Roles, components and typography were read from the rendered page (source "computed"); tokens come from CSS custom properties with var() references resolved.'
+        : 'Not rendered: roles marked "inferred" are guesses from CSS variable names, and components and typography are empty. JS-injected styles are not reflected.',
+      ...(options.rawVariables ? [] : ['cssVariables (every custom property as found) is left out; pass brandingOptions.rawVariables:true to include it.']),
     ],
     warnings: warnings.length ? warnings : undefined,
   };
