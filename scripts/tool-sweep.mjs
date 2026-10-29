@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Live regression sweep: drive all 28 tools over real MCP stdio and assert the
+ * Live regression sweep: drive all 31 tools over real MCP stdio and assert the
  * ground truths the 2026-08-28 quality sweep established (TOOL_QUALITY_PLAN.md
  * item 7.1). One assertion per defect fixed in Phases 1-6, so none of them can
  * come back silently.
@@ -200,7 +200,9 @@ const CHECKS = [
   {
     tool: 'scrape', tier: 'default', what: '1.1 data tables survive onlyMainContent',
     run: async () => {
-      const r = await call('scrape', { url: SP500, formats: ['markdown'] });
+      // Inline in full: at the default 40K threshold this 157K-character page
+      // comes back as a preview, which has no table rows to count.
+      const r = await call('scrape', { url: SP500, formats: ['markdown'], max_inline_chars: 10_000_000 });
       const rows = (r.content?.markdown || '').split('\n').filter((l) => l.trim().startsWith('|'));
       // The constituents list changes size; the defect returned zero rows.
       expect(rows.length >= 400, `only ${rows.length} pipe-table lines (was 505 when fixed, 0 when broken)`);
@@ -209,6 +211,16 @@ const CHECKS = [
         `no table re-attach warning: ${JSON.stringify(r.warnings)}`
       );
       return `${rows.length} pipe-table lines`;
+    }
+  },
+  {
+    tool: 'read_result', tier: 'default', what: 'a result over the inline threshold reads back by search',
+    run: async () => {
+      const r = await call('scrape', { url: SP500, formats: ['markdown'] });
+      expect(r.truncated === true && typeof r.result_handle === 'string', `the page was not stored for read_result: keys ${JSON.stringify(Object.keys(r))}`);
+      const found = await call('read_result', { handle: r.result_handle, operation: 'search', query: 'Apple Inc.' });
+      expect((found.matches || []).length > 0, `no match for a constituent in the stored page: ${JSON.stringify(found).slice(0, 200)}`);
+      return `${r.total_chars} chars stored, ${found.matches.length} match(es)`;
     }
   },
   {
@@ -231,10 +243,15 @@ const CHECKS = [
       expect(families.length > 0, 'no font families extracted');
       const leaked = families.filter((f) => f.includes('var('));
       expect(leaked.length === 0, `font list leaks CSS variable text: ${JSON.stringify(leaked)}`);
+      // Checked against the webfonts the page itself loads, not a hard-coded
+      // pair: the site's fonts change with its design (JetBrains Mono + Inter
+      // until the Geist redesign), the check's point does not.
       const lead = families.slice(0, 3);
+      const faces = [...new Set((r.content?.branding?.fontFaces || []).map((f) => f.family))];
+      expect(faces.length > 0, 'no @font-face families extracted to check the list against');
       expect(
-        lead.includes('JetBrains Mono') && lead.includes('Inter'),
-        `expected the list to lead with the real families, got ${JSON.stringify(lead)}`
+        lead.some((f) => faces.includes(f)),
+        `expected the list to lead with a family the page loads via @font-face (${JSON.stringify(faces.slice(0, 4))}), got ${JSON.stringify(lead)}`
       );
       return lead.join(', ');
     }
@@ -558,6 +575,24 @@ const CHECKS = [
     }
   },
   {
+    tool: 'browser_session', tier: 'browser', what: 'open, snapshot, read and close one session',
+    run: async () => {
+      const opened = await call('browser_session', { operation: 'open', url: 'https://example.com' }, 240000);
+      const id = opened.sessionId;
+      expect(typeof id === 'string', `open returned no sessionId: ${JSON.stringify(opened).slice(0, 200)}`);
+      try {
+        const snap = await call('browser_session', { operation: 'snapshot', session_id: id });
+        expect(JSON.stringify(snap).includes('@e1'), `snapshot listed no refs: ${JSON.stringify(snap).slice(0, 200)}`);
+        const read = await call('browser_session', { operation: 'read', session_id: id });
+        const markdown = read.content?.markdown || '';
+        expect(/Example Domain/.test(markdown), `read is missing the page: ${JSON.stringify(read).slice(0, 200)}`);
+        return `session ${id.slice(0, 8)}…, ${markdown.length} chars read`;
+      } finally {
+        await call('browser_session', { operation: 'close', session_id: id }).catch(() => {});
+      }
+    }
+  },
+  {
     tool: 'stealth_mode', tier: 'browser', what: '6.4 fingerprint is internally coherent',
     run: async () => {
       const context = await call('stealth_mode', { operation: 'create_context', verbose: true }, 240000);
@@ -660,7 +695,7 @@ const record = (status, check, detail) => {
   console.error(`  ${status}  ${check.tool} — ${check.what}${detail ? `\n        ${detail}` : ''}`);
 };
 
-console.error('CrawlForge tool sweep — 28 tools over real MCP stdio, disk cache off.');
+console.error('CrawlForge tool sweep — 31 tools over real MCP stdio, disk cache off.');
 console.error(
   only.length ? `Running only: ${only.join(', ')}`
     : runAll ? `Running every tier${skipPaid ? ' except paid' : ''}.`
@@ -695,8 +730,8 @@ console.error('Creator mode verified on the spawned server.\n');
 
 // The tool count has drifted before; pin it before asserting anything about the tools.
 const listed = (await client.listTools()).tools.map((t) => t.name);
-const countCheck = { tool: 'tools/list', what: 'the server registers exactly 28 tools' };
-if (listed.length === 28) record('PASS', countCheck, '28 tools');
+const countCheck = { tool: 'tools/list', what: 'the server registers exactly 31 tools' };
+if (listed.length === 31) record('PASS', countCheck, '31 tools');
 else record('FAIL', countCheck, `${listed.length} tools registered: ${listed.join(', ')}`);
 
 // Nothing may be exercised by accident and nothing may go unexercised.
