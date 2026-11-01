@@ -1,0 +1,17 @@
+# gitleaks configuration (S-0.3 in docs/pending/PERF_SECURITY_REVIEW_2026_11_01.md).
+# The default rules, plus CrawlForge API keys, which no default rule matches:
+# the keys that leaked into scripts/ on 10-07 were invisible to a default scan.
+# The same file lives in crawlforge-mcp-server; keep the two in step.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "crawlforge-api-key"
+description = "CrawlForge API key"
+regex = '''\bcf_(?:live|test)_[0-9a-f]{32,64}\b'''
+keywords = ["cf_live_", "cf_test_"]
+
+  # Test fixtures repeat one 16-character block four times; a generated key never does.
+  [rules.allowlist]
+  regexes = ['''^cf_(?:live|test)_(?:1234567890abcdef|abcdef1234567890|fedcba0987654321){4}$''']
