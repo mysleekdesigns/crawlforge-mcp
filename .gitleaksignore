@@ -1,0 +1,26 @@
+# Reviewed gitleaks findings in history (S-0.3, crawlforge-website
+# docs/pending/PERF_SECURITY_REVIEW_2026_11_01.md), one fingerprint per line
+# (commit:file:rule:line). Reviewed 2026-11-01; none is a live credential:
+# - tests/unit/*.test.js: generated test keys and PEMs for webBotAuth, webhook TLS, OAuth fixtures
+# - tests/fixtures/**: third-party tokens embedded in captured public pages
+# - src/core/creatorMode.js, server.js, docs/*.md: CREATOR_SECRET_HASH, a one-way hash (by design)
+# - CLAUDE.md: an env flag name; docs/n8n-integration.md: a curl example
+# Add a line here only after reviewing the finding; rotate anything real instead.
+0d0beab4a06c1c11d3269ca296ac40e98a2aefe7:docs/n8n-integration.md:curl-auth-header:83
+1a0fb763c1b81f9ab2a1f7fa588ca2bfad9241ba:src/core/creatorMode.js:generic-api-key:32
+2498d7e11c40fe5c01195ba3a90c0d69feb378cc:tests/unit/webBotAuth.test.js:generic-api-key:26
+2498d7e11c40fe5c01195ba3a90c0d69feb378cc:tests/unit/webBotAuth.test.js:generic-api-key:27
+2498d7e11c40fe5c01195ba3a90c0d69feb378cc:tests/unit/webBotAuth.test.js:private-key:23
+3f4519ec6023a65d30dbbddba6de7240cdf09615:docs/user-journey-validation-report.md:generic-api-key:519
+42942654a4a3f62f2156cb5622815499ad3c0705:tests/fixtures/embedded-state/healthgrades-rsc.html:jwt:54
+42942654a4a3f62f2156cb5622815499ad3c0705:tests/fixtures/embedded-state/healthgrades-rsc.html:jwt:54
+42e3f83603cb13eeaea4b7dffbb45c7d96be97c4:server.js:generic-api-key:11
+4f2e49558067a9978be6dd9385894f88df45ebd0:tests/unit/d2-reliability.test.js:generic-api-key:15
+59ecc74496be6691071c8c81a0a7b9faf989a923:tests/unit/oauth.test.js:generic-api-key:21
+5cd78fa6b398d2e959a72d2170f40f2466eab3f9:docs/auth-credit-system-validation.md:generic-api-key:867
+74c07e164352a50cef222b04572ec822c949b6d6:tests/fixtures/blocked/aws-waf-202.html:generic-api-key:9
+7e82b9058ab6f196cb7ae004bccdd601602dccca:tests/unit/webhookDispatcher.test.js:private-key:55
+8ab9d415fac3c92cdd55c785d4aa88ed5cd00e53:src/core/creatorMode.js:generic-api-key:32
+94d43e4aaf989b0d18561a03ea9574d4e589e300:CLAUDE.md:generic-api-key:189
+a95ce21f7f376a25d51c9249d78d922664a23b61:tests/unit/phase1-oauth.test.js:generic-api-key:28
+d9a95b611a8ad079a957701a3f881a1fb0e532ce:src/core/creatorMode.js:generic-api-key:19

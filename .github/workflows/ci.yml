@@ -7,6 +7,22 @@ on:
     branches: [main, development]
 
 jobs:
+  # S-0.3: gitleaks over the commits this push or PR adds (.gitleaks.toml adds
+  # CrawlForge API keys to the default rules). A finding fails the build.
+  secret-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan for secrets (gitleaks)
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_ENABLE_COMMENTS: false
+
   lint-and-syntax:
     name: Lint & Syntax
     runs-on: ubuntu-latest
