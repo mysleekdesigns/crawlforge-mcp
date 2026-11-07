@@ -161,8 +161,28 @@ export class SerpRankTool {
         snippet: it.snippet,
       }));
 
-    const relevance = assessSerpRelevance(validated.keyword, results);
+    // A wrapped result has no URL; its recovered domain still says what it is.
+    const relevance = assessSerpRelevance(
+      validated.keyword,
+      results.map((r) => ({ ...r, url: r.url ?? (r.domain || null) })),
+    );
     const suspect = relevance?.suspect ?? false;
+    const warnings = [];
+    if (suspect) {
+      warnings.push(
+        `These results look unrelated to the keyword (${relevance.matching} of the top ${relevance.checked} mention it). ` +
+          'Google may have served a decoy results page. Re-run the lookup, or check Search Console, before acting on this rank.',
+      );
+    }
+    if (meta.wrappedCount > 0) {
+      warnings.push(
+        `Google hid the destination links of ${meta.wrappedCount} of the ${items.length} results behind its own redirect. ` +
+          'Their domains were read from the displayed breadcrumb, so rank matching still works, but their page URLs are unavailable (url is null)' +
+          (meta.unresolvedCount > 0
+            ? `, and ${meta.unresolvedCount} showed no domain at all, so they cannot match any target.`
+            : '.'),
+      );
+    }
 
     return {
       configured: true,
@@ -185,14 +205,7 @@ export class SerpRankTool {
       checkedAt: new Date().toISOString(),
       // true when the top results barely mention the keyword: a likely decoy SERP
       suspect,
-      ...(suspect
-        ? {
-            warnings: [
-              `These results look unrelated to the keyword (${relevance.matching} of the top ${relevance.checked} mention it). ` +
-                'Google may have served a decoy results page. Re-run the lookup, or check Search Console, before acting on this rank.',
-            ],
-          }
-        : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
 }

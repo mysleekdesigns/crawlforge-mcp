@@ -11,7 +11,7 @@
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { SerpRankTool, assessSerpRelevance } from '../../src/tools/search/serpRank.js';
-import { DataForSEOSearchAdapter } from '../../src/tools/search/adapters/dataforseoSearch.js';
+import { DataForSEOSearchAdapter, unwrapSerpItem } from '../../src/tools/search/adapters/dataforseoSearch.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures & fetch stub
@@ -485,5 +485,68 @@ describe('SerpRankTool decoy flag', () => {
     const out = await tool.execute({ keyword: 'crawlforge', target: 'crawlforge.dev' });
     assert.equal(out.suspect, false);
     assert.equal(out.warnings, undefined);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Google-wrapped result links (live shape seen from ~2026-10-30)
+// ---------------------------------------------------------------------------
+
+describe('unwrapSerpItem', () => {
+  test('leaves an ordinary result, and a real Google property, untouched', () => {
+    assert.deepEqual(unwrapSerpItem({ domain: 'WWW.Example.com', url: 'https://www.example.com/a' }),
+      { domain: 'www.example.com', url: 'https://www.example.com/a', wrapped: false });
+    assert.equal(unwrapSerpItem({ domain: 'support.google.com', url: 'https://support.google.com/x' }).wrapped, false);
+  });
+
+  test('a /goto redirect takes its host from the breadcrumb and drops the URL', () => {
+    assert.deepEqual(
+      unwrapSerpItem({ domain: 'google.com', url: 'https://google.com/goto?url=CAES', breadcrumb: 'https://www.CrawlForge.dev › Docs' }),
+      { domain: 'www.crawlforge.dev', url: null, wrapped: true });
+  });
+
+  test('the older /url?q= form keeps the real URL', () => {
+    assert.deepEqual(
+      unwrapSerpItem({ domain: 'www.google.com', url: 'https://www.google.com/url?q=https://docs.example.com/x&sa=U' }),
+      { domain: 'docs.example.com', url: 'https://docs.example.com/x', wrapped: true });
+  });
+
+  test('a breadcrumb with no host yields an empty domain', () => {
+    assert.deepEqual(
+      unwrapSerpItem({ domain: 'google.com', url: 'https://google.com/goto?url=CAES', breadcrumb: '2 likes  ·  1 week ago' }),
+      { domain: '', url: null, wrapped: true });
+  });
+});
+
+describe('SerpRankTool — wrapped links', () => {
+  const wrapped = (rank, breadcrumb) => ({
+    type: 'organic', rank_group: rank, rank_absolute: rank, domain: 'google.com',
+    url: `https://google.com/goto?url=CAES${rank}`, breadcrumb, title: 'CrawlForge result', description: 'd',
+  });
+
+  test('finds the target through the breadcrumb, nulls the URL and warns', async () => {
+    stubFetch(() => okResponse(envelope([
+      wrapped(1, 'https://www.crawlforge.dev › Docs › API Reference'),
+      wrapped(2, 'https://crawlforge.org › docs'),
+      wrapped(3, '2 likes  ·  1 week ago'),
+    ])));
+    const tool = new SerpRankTool({ login: 'l', password: 'p' });
+    const res = await tool.execute({ keyword: 'crawlforge', target: 'crawlforge.dev' });
+
+    assert.equal(res.found, true);
+    assert.equal(res.position, 1);
+    assert.equal(res.url, null);
+    assert.equal(res.results[0].domain, 'www.crawlforge.dev');
+    assert.equal(res.suspect, false);
+    assert.equal(res.warnings.length, 1);
+    assert.match(res.warnings[0], /3 of the 3 results/);
+    assert.match(res.warnings[0], /1 showed no domain/);
+  });
+
+  test('no wrapped-link warning for ordinary results', async () => {
+    stubFetch(() => okResponse(envelope(SAMPLE_ITEMS)));
+    const tool = new SerpRankTool({ login: 'l', password: 'p' });
+    const res = await tool.execute({ keyword: 'target hosting', target: 'target.com' });
+    assert.equal(res.warnings, undefined);
   });
 });

@@ -20,6 +20,55 @@
  * poll if cost matters.
  */
 
+const GOOGLE_HOSTS = new Set(['google.com', 'www.google.com']);
+const BREADCRUMB_HOST = /^https?:\/\/([^\s/›?#]+)/i;
+
+/**
+ * Recover the real destination of an organic result whose link Google wrapped
+ * in its own redirect.
+ *
+ * Since about 2026-10-30 Google serves organic links as
+ * `https://google.com/goto?url=<opaque token>`, and DataForSEO passes that
+ * through as `url` with `domain: "google.com"`, so no target ever matched. The
+ * token is not decodable. The destination host survives in the display
+ * `breadcrumb` ("https://www.crawlforge.dev › Docs"); the page URL does not,
+ * because breadcrumb segments are labels, not a path.
+ *
+ * Mirrors `unwrapSerpItem` in the website's `src/lib/tools/serp-unwrap.ts`;
+ * keep the two in step.
+ *
+ * @returns {{ domain: string, url: string|null, wrapped: boolean }}
+ */
+export function unwrapSerpItem(item) {
+  const domain = (item.domain || '').toLowerCase();
+  const url = item.url || null;
+
+  let parsed = null;
+  try {
+    parsed = url ? new URL(url) : null;
+  } catch {
+    parsed = null;
+  }
+  const isRedirect =
+    parsed !== null &&
+    GOOGLE_HOSTS.has(parsed.hostname.toLowerCase()) &&
+    (parsed.pathname === '/goto' || parsed.pathname === '/url');
+  if (!isRedirect) return { domain, url, wrapped: false };
+
+  // The older /url?q=<destination> form still carries the real URL.
+  const q = parsed.searchParams.get('q');
+  if (q && /^https?:\/\//i.test(q)) {
+    try {
+      return { domain: new URL(q).hostname.toLowerCase(), url: q, wrapped: true };
+    } catch {
+      // fall through to the breadcrumb
+    }
+  }
+
+  const match = BREADCRUMB_HOST.exec((item.breadcrumb || '').trim());
+  return { domain: match?.[1]?.toLowerCase() ?? '', url: null, wrapped: true };
+}
+
 export class DataForSEOSearchAdapter {
   constructor(login, password, options = {}) {
     if (!login || !password) {
@@ -135,16 +184,27 @@ export class DataForSEOSearchAdapter {
     // Keep only true organic results and normalize to a small, stable shape.
     // rank_group  = position within the organic results (the "rank" most people mean)
     // rank_absolute = position across ALL SERP elements (ads, snippets, packs, …)
+    // Google may wrap result links in its own redirect; unwrapSerpItem recovers
+    // the real host so a wrapped result can still match the target.
+    let wrappedCount = 0;
+    let unresolvedCount = 0;
     const items = rawItems
       .filter((it) => it && it.type === 'organic')
-      .map((it) => ({
-        position: it.rank_group ?? null,
-        rankAbsolute: it.rank_absolute ?? null,
-        domain: (it.domain || '').toLowerCase(),
-        url: it.url || null,
-        title: it.title || null,
-        snippet: it.description || null,
-      }));
+      .map((it) => {
+        const link = unwrapSerpItem(it);
+        if (link.wrapped) {
+          wrappedCount += 1;
+          if (!link.domain) unresolvedCount += 1;
+        }
+        return {
+          position: it.rank_group ?? null,
+          rankAbsolute: it.rank_absolute ?? null,
+          domain: link.domain,
+          url: link.url,
+          title: it.title || null,
+          snippet: it.description || null,
+        };
+      });
 
     return {
       items,
@@ -155,6 +215,8 @@ export class DataForSEOSearchAdapter {
         device,
         depth,
         organicCount: items.length,
+        wrappedCount, // results whose link Google replaced with its own redirect
+        unresolvedCount, // wrapped results whose breadcrumb showed no host either
         // Google's "About N results" total. Mobile SERPs (and many desktop
         // ones) show no total, and DataForSEO then reports 0; a 0 beside
         // organic results is unknown, not zero.
