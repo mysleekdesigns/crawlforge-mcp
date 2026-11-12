@@ -8,6 +8,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { performance } from 'perf_hooks';
 import { createLogger } from '../utils/Logger.js';
+import { config } from '../constants/config.js';
 
 const logger = createLogger('Metrics');
 
@@ -19,7 +20,7 @@ export class MetricsCollector extends EventEmitter {
       collectInterval: options.collectInterval || 10000, // 10 seconds
       retentionPeriod: options.retentionPeriod || 7 * 24 * 60 * 60 * 1000, // 7 days
       exportInterval: options.exportInterval || 60000, // 1 minute
-      exportPath: options.exportPath || './cache/metrics',
+      exportPath: options.exportPath || path.join(config.performance.cacheDir, 'metrics'),
       enableFileExport: options.enableFileExport !== false,
       enableRealtimeMetrics: options.enableRealtimeMetrics !== false,
       ...options

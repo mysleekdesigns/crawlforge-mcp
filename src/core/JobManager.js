@@ -5,15 +5,18 @@
 
 import { promises as fs } from 'fs';
 import path from 'path';
+import os from 'os';
 import crypto from 'crypto';
 import { EventEmitter } from 'events';
 
 export class JobManager extends EventEmitter {
   constructor(options = {}) {
     super();
-    
+
     const {
-      storageDir = './jobs',
+      // ~/.crawlforge, not the cwd: MCP clients start the server from any
+      // directory, and './jobs' left an empty jobs/ folder there.
+      storageDir = path.join(os.homedir(), '.crawlforge', 'jobs'),
       defaultTtl = 24 * 60 * 60 * 1000, // 24 hours
       cleanupInterval = 60 * 60 * 1000, // 1 hour
       enablePersistence = true,

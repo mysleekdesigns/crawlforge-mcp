@@ -16,7 +16,7 @@
  * served an unrelated site's pages. That is why the two failures took 13ms and
  * 5ms: no crawl happened at all, both were instant disk hits.
  *
- * The defaults are unchanged ('./cache', enabled). The env vars now work, and
+ * The disk cache defaults to ~/.crawlforge/cache, enabled. The env vars work, and
  * the test scripts set CACHE_ENABLE_DISK=false so no suite touches the disk.
  *
  * crawl_deep has since been taken off the disk entirely (its result cache and

@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import { EventEmitter } from 'events';
 import { promises as fs } from 'fs';
 import path from 'path';
+import os from 'os';
 import RetryManager from '../utils/RetryManager.js';
 import { safeFetch } from '../utils/ssrfGuard.js';
 import { identityHeaders } from '../utils/fetchIdentity.js';
@@ -16,7 +17,9 @@ export class WebhookDispatcher extends EventEmitter {
     super();
     
     const {
-      queueDir = './webhooks',
+      // ~/.crawlforge, not the cwd: MCP clients start the server from any
+      // directory, and './webhooks' left an empty webhooks/ folder there.
+      queueDir = path.join(os.homedir(), '.crawlforge', 'webhooks'),
       maxRetries = 3,
       retryDelay = 5000,
       timeout = 30000,

@@ -14,8 +14,8 @@ export class CacheManager extends EventEmitter {
       ttl = 3600000, // 1 hour default
       // CACHE_DIR and CACHE_ENABLE_DISK have always been documented knobs in
       // constants/config.js, but nothing read them: the disk cache was hard-
-      // wired to ./cache and always on. Defaults are unchanged ('./cache',
-      // true) — the env vars now actually do what they say.
+      // wired to ./cache and always on. The env vars now do what they say;
+      // the directory defaults to ~/.crawlforge/cache (see config.js).
       diskCacheDir = config.performance.cacheDir,
       enableDiskCache = config.performance.cacheEnableDisk,
       enableCacheWarming = false,
