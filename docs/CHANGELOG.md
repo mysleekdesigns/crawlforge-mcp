@@ -5,6 +5,22 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+## [6.25.1] - 2026-11-12
+
+### Fixed
+- **`search_web` keeps search operators whole when it expands a query.** The
+  zero-result fallback tokenised on punctuation, so
+  `pricing site:prospectapis.com` was retried as `pric site prospectapi com`
+  and returned pages from other sites. Operator terms (`site:`, `-site:`,
+  `filetype:`, `inurl:` ...) are now carried through verbatim and only the free
+  text is expanded.
+- **`serp_rank` finds domains behind Google's redirect links.** Since about
+  2026-10-30 DataForSEO organic rows carry `domain: "google.com"` and a
+  `google.com/goto?url=...` link, so every target read `found: false`. The real
+  host is now recovered from the row's breadcrumb (or a `/url?q=` link); such
+  rows return `url: null`, and a warning counts wrapped and unresolved rows.
+  Affects installs that run `serp_rank` with their own DataForSEO keys.
+
 ## [6.25.0] - 2026-10-29
 
 ### Added

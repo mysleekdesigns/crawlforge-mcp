@@ -2,7 +2,7 @@
 name: crawlforge-brand-style-guide
 description: "Builds a brand style guide or a design-token file from a live website with the branding format of CrawlForge's scrape tool. Use when the user wants a company's brand colours, fonts, logo, button styles or design tokens, asks to extract a website's style, design system or brand kit, wants a style guide made from a URL, wants to match a site's look, or wants tokens for Figma, Tokens Studio or Style Dictionary (W3C DTCG JSON). One scrape call returns colour roles, the primary and secondary buttons and type read from the rendered page, the logo and favicons, font families and grouped CSS tokens, each value labelled with where it came from."
 metadata:
-  version: 6.25.0
+  version: 6.25.1
   source: crawlforge-mcp-server
 ---
 
