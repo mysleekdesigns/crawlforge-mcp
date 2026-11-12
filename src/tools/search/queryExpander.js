@@ -1,5 +1,8 @@
 import { createHash } from 'crypto';
 
+/** A search operator term: `site:example.com`, `-site:x.com`, `filetype:pdf`. */
+const SEARCH_OPERATOR = /^-?[a-z]+:\S+$/i;
+
 /**
  * QueryExpander - Advanced query expansion and refinement capabilities
  * Provides synonym expansion, misspelling correction, stemming, phrase detection, and boolean operators
@@ -33,9 +36,21 @@ export class QueryExpander {
       throw new Error('Query must be a non-empty string');
     }
 
+    // Search operators (site:example.com, -site:, filetype:pdf, inurl:...) are
+    // not words: tokenising one drops its restriction, so the search returns
+    // pages from anywhere. Expand the free text and carry the operators whole.
+    const terms = query.trim().split(/\s+/);
+    const operators = terms.filter(term => SEARCH_OPERATOR.test(term));
+    if (operators.length > 0) {
+      const text = terms.filter(term => !SEARCH_OPERATOR.test(term)).join(' ');
+      if (!text) return [query.trim()];
+      const [, ...variations] = await this.expandQuery(text, options);
+      return [query.trim(), ...variations.map(variation => `${variation} ${operators.join(' ')}`)];
+    }
+
     const expansionOptions = { ...this.options, ...options };
     const expansions = new Set();
-    
+
     try {
       // Always include the original query
       expansions.add(query.trim());
