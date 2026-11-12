@@ -5,6 +5,17 @@
 All notable changes to CrawlForge MCP Server will be documented in this file.
 ## [Unreleased]
 
+### Fixed
+- **The server no longer creates `cache/`, `jobs/` and `webhooks/` in the
+  folder it is started from.** The batch job store, the webhook queue, the
+  disk cache, the sitemap cache and the metrics export defaulted to paths
+  relative to the working directory, so an MCP client launching the server
+  from a project folder left empty folders in it. They now default to
+  `~/.crawlforge/{cache,jobs,webhooks}`, like snapshots and `config.json`
+  already did. `CACHE_DIR` still overrides the cache location, and the sitemap
+  cache now follows `CACHE_DIR` and `CACHE_ENABLE_DISK` instead of always
+  writing to `./cache/sitemaps`.
+
 ## [6.25.1] - 2026-11-12
 
 ### Fixed

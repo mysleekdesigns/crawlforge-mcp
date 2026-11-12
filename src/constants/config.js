@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { homedir } from 'os';
 import { resolveApiEndpoint } from '../core/endpointGuard.js';
 import { CRAWLFORGE_USER_AGENT } from '../utils/fetchIdentity.js';
 
@@ -28,7 +29,10 @@ export const config = {
     cacheMaxSize: parseInt(process.env.CACHE_MAX_SIZE || '1000'),
     cacheTTL: parseInt(process.env.CACHE_TTL || '3600000'),
     cacheEnableDisk: process.env.CACHE_ENABLE_DISK !== 'false',
-    cacheDir: process.env.CACHE_DIR || './cache'
+    // Rooted in ~/.crawlforge (like snapshots and config.json), not the cwd:
+    // MCP clients launch the server from any directory, and a relative path
+    // left an empty cache/ in whichever folder that happened to be.
+    cacheDir: process.env.CACHE_DIR || join(homedir(), '.crawlforge', 'cache')
   },
 
   // Rate Limiting

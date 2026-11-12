@@ -1,7 +1,9 @@
 import { load } from 'cheerio';
 import zlib from 'zlib';
 import { promisify } from 'util';
+import path from 'path';
 import { CacheManager } from '../core/cache/CacheManager.js';
+import { config } from '../constants/config.js';
 import { normalizeUrl } from './urlNormalizer.js';
 import { safeFetch } from './ssrfGuard.js';
 import { CRAWLFORGE_USER_AGENT } from './fetchIdentity.js';
@@ -49,8 +51,9 @@ export class SitemapParser {
     this.cache = enableCaching ? new CacheManager({
       maxSize: 500,
       ttl: cacheTTL,
-      diskCacheDir: './cache/sitemaps',
-      enableDiskCache: true
+      // Under CACHE_DIR (default ~/.crawlforge/cache), not './cache/sitemaps'
+      // in the cwd; disk use follows CACHE_ENABLE_DISK like every other cache.
+      diskCacheDir: path.join(config.performance.cacheDir, 'sitemaps')
     }) : null;
 
     // Track processed sitemaps to avoid infinite loops
