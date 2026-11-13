@@ -24,7 +24,7 @@ export const FALLBACK_HINTS = Object.freeze({
   scrape_structured: 'Check the selectors against scrape formats:["html"] output, or use extract_structured when the markup varies.',
   search_web: 'Shorten the query or drop the filters; for Reddit use reddit_search. Fall back to the client\'s built-in search only if CrawlForge is out of credits.',
   serp_rank: 'configured:false means DataForSEO is not set up - do not retry; approximate visibility with search_web and a site: filter.',
-  reddit_search: 'Add subreddit or author to query the archive directly, or set source:"web_discovery" for a Reddit-wide keyword search; a thread needs mode:"thread" with link_id.',
+  reddit_search: 'Add subreddit or author to query the archive directly, or set source:"web_discovery" for a Reddit-wide keyword search; a thread needs mode:"thread" with the post\'s url or link_id.',
   crawl_deep: 'Use map_site for the URL list alone, or batch_scrape when you already have the URLs.',
   map_site: 'Use crawl_deep with extract_content:false to discover URLs by following links when there is no sitemap.',
   batch_scrape: 'For an async job poll get_batch_results with the batchId; scrape one of the URLs alone to diagnose a per-URL failure.',

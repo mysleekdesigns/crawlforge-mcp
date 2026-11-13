@@ -624,14 +624,16 @@ registerToolIfEnabled("serp_rank", {
 
 // Tool: reddit_search — search Reddit posts/comments or read a full thread (via community archives)
 registerToolIfEnabled("reddit_search", {
-  description: "Use this to search Reddit posts or comments, or read a full comment thread - reddit.com blocks direct scraping, so this reads the Arctic Shift community archive instead (free, no Reddit credentials). Modes: 'posts' (default) and 'comments' search; 'thread' returns a post plus its nested comment tree by link_id. A subreddit/author-scoped search queries the archive directly. A keyword search across ALL of Reddit finds posts with a site-restricted web search and then reads those posts from the archive, because Arctic Shift can only keyword-search within a scope; results come back as real archive rows, ordered by search relevance. An unscoped COMMENT search discovers posts the same way and then searches each post's comments for the keywords. A scoped comment search Arctic Shift times out on is retried over narrower windows (7d, 3d, 1d) and reports window_applied. Arctic Shift is tried first and the PullPush archive second for posts/comments searches (fallback_used says so; PullPush has refused automated clients since August 2026). Not for reddit.com URLs via scrape or fetch_url (blocked) - use mode:'thread' with the post's link_id. Cost: 5 credits. Example: reddit_search({query: \"best mechanical keyboard\", subreddit: \"MechanicalKeyboards\", limit: 10})",
+  description: "Use this to search Reddit posts or comments, or read a full comment thread - reddit.com blocks direct scraping, so this reads the Arctic Shift community archive instead (free, no Reddit credentials). Modes: 'posts' (default) and 'comments' search; 'thread' returns a post plus its nested comment tree by link_id. A subreddit/author-scoped search queries the archive directly. A keyword search across ALL of Reddit finds posts with a site-restricted web search and then reads those posts from the archive, because Arctic Shift can only keyword-search within a scope; results come back as real archive rows, ordered by search relevance. An unscoped COMMENT search discovers posts the same way and then searches each post's comments for the keywords. A scoped comment search Arctic Shift times out on is retried over narrower windows (7d, 3d, 1d) and reports window_applied. Arctic Shift is tried first and the PullPush archive second for posts/comments searches (fallback_used says so; PullPush has refused automated clients since August 2026). Not for reddit.com URLs via scrape or fetch_url (blocked) - use mode:'thread' with the post's url or link_id. Cost: 5 credits. Example: reddit_search({query: \"best mechanical keyboard\", subreddit: \"MechanicalKeyboards\", limit: 10})",
   annotations: { title: "Reddit Search", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   inputSchema: {
     query: z.string().optional().describe("Keyword search. Posts: matches title+selftext; comments: matches body. Supports \"quoted phrases\", OR, -exclusion"),
     subreddit: z.string().optional().describe("Limit to one subreddit (with or without the r/ prefix)"),
     author: z.string().optional().describe("Limit to one author (with or without the u/ prefix)"),
-    mode: z.enum(["posts", "comments", "thread"]).optional().describe("What to search: posts (default), comments, or thread (full comment tree — requires link_id)"),
-    link_id: z.string().optional().describe("Post ID (e.g. '1twm1zh' or 't3_1twm1zh') — required for thread mode, optional filter for comments mode"),
+    mode: z.enum(["posts", "comments", "thread"]).optional().describe("What to search: posts (default), comments, or thread (full comment tree — requires link_id, id or url)"),
+    link_id: z.string().optional().describe("Post ID (e.g. '1twm1zh' or 't3_1twm1zh') — thread mode needs this, id or url; optional filter for comments mode"),
+    id: z.string().optional().describe("Alias of link_id — pass a search result's id straight back"),
+    url: z.string().optional().describe("A Reddit post link (reddit.com/r/<sub>/comments/<id>/… or redd.it/<id>) — an alternative to link_id for thread mode and the comments-mode filter"),
     after: z.string().optional().describe("Only content posted after this date — ISO 8601, epoch seconds, or an offset like '7d'"),
     before: z.string().optional().describe("Only content posted before this date — same formats as after"),
     limit: z.number().min(1).max(100).optional().describe("Max results (default 25; thread mode: max comments returned)"),
@@ -639,9 +641,9 @@ registerToolIfEnabled("reddit_search", {
     source: z.enum(["auto", "arctic_shift", "pullpush", "reddit_api", "web_discovery"]).optional().describe("Backend: auto routes + falls back (default). web_discovery serves only unscoped keyword searches (web search finds the posts, the archive supplies the rows). reddit_api uses the official Reddit Data API — only when REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET are set; serves posts/thread, not comment search")
   },
   outputSchema: OUTPUT_SCHEMAS.reddit_search
-}, withAuth("reddit_search", async ({ query, subreddit, author, mode, link_id, after, before, limit, sort, source }) => {
+}, withAuth("reddit_search", async ({ query, subreddit, author, mode, link_id, id, url, after, before, limit, sort, source }) => {
   try {
-    const result = await redditSearchTool.execute({ query, subreddit, author, mode, link_id, after, before, limit, sort, source });
+    const result = await redditSearchTool.execute({ query, subreddit, author, mode, link_id, id, url, after, before, limit, sort, source });
     return dualOutput(result);
   } catch (error) {
     return { content: [{ type: "text", text: `Reddit search failed: ${error.message}` }], isError: true };

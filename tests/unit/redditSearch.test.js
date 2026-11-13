@@ -11,6 +11,7 @@ import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { RedditSearchTool } from '../../src/tools/search/redditSearch.js';
+import { FALLBACK_HINTS } from '../../src/server/fallbackHints.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures & fetch stub
@@ -79,9 +80,34 @@ describe('RedditSearchTool — validation & routing', () => {
     await assert.rejects(() => tool.execute({}), /requires at least one of/);
   });
 
-  test('thread mode requires link_id', async () => {
+  test('thread mode requires link_id, id or url', async () => {
     const tool = new RedditSearchTool();
-    await assert.rejects(() => tool.execute({ mode: 'thread' }), /requires link_id/);
+    await assert.rejects(() => tool.execute({ mode: 'thread' }), {
+      message: 'thread mode requires link_id or id (the post ID, e.g. "1twm1zh" or "t3_1twm1zh"), or url (the post\'s permalink)',
+    });
+  });
+
+  test('a url that names no post is refused with the exact message', async () => {
+    stubFetch(() => okResponse({ data: [] }));
+    const tool = new RedditSearchTool();
+    const message = 'url does not name a Reddit post — pass a post permalink (reddit.com/r/<sub>/comments/<id>/…) or a redd.it/<id> link';
+    for (const url of ['https://www.reddit.com/r/x/', 'https://example.com/', 'https://example.com/r/x/comments/1twm1zh/slug/']) {
+      await assert.rejects(() => tool.execute({ mode: 'thread', url }), { message }, url);
+    }
+    assert.equal(requests.length, 0);
+  });
+
+  test('the fallback hint points a thread at the post url or link_id', () => {
+    assert.match(FALLBACK_HINTS.reddit_search, /a thread needs mode:"thread" with the post's url or link_id\./);
+  });
+
+  test('comments mode uses a post url as its link_id filter', async () => {
+    stubFetch(() => okResponse({ data: [RAW_COMMENT] }));
+    const tool = new RedditSearchTool();
+    const res = await tool.execute({ mode: 'comments', url: 'https://www.reddit.com/r/x/comments/1twm1zh/slug/' });
+    assert.equal(res.source, 'arctic_shift');
+    assert.match(requests[0].url.pathname, /\/api\/comments\/search$/);
+    assert.equal(requests[0].url.searchParams.get('link_id'), '1twm1zh');
   });
 
   test('comments mode accepts link_id alone as its scope', async () => {
@@ -314,6 +340,25 @@ describe('RedditSearchTool — thread mode', () => {
     assert.deepEqual(top.replies[0].replies, []);                    // "" replies → empty array
     assert.deepEqual(top.replies[1], { more_count: 5, more_ids: ['aaa', 'bbb'] });
   });
+
+  // A result carries id and permalink; thread mode takes either back.
+  for (const [label, params] of [
+    ['a permalink url', { url: 'https://www.reddit.com/r/x/comments/1twm1zh/slug/' }],
+    ['a redd.it url', { url: 'https://redd.it/1twm1zh' }],
+    ['id, the alias of link_id', { id: '1twm1zh' }],
+  ]) {
+    test(`reads the thread named by ${label}`, async () => {
+      stubFetch((url) => String(url).includes('/api/posts/ids')
+        ? okResponse({ data: [RAW_POST] })
+        : okResponse(TREE));
+      const tool = new RedditSearchTool();
+      const res = await tool.execute({ mode: 'thread', ...params });
+      assert.equal(requests[0].url.searchParams.get('ids'), '1twm1zh');
+      assert.equal(requests[1].url.searchParams.get('link_id'), 't3_1twm1zh');
+      assert.equal(res.link_id, '1twm1zh');
+      assert.equal(res.post.title, RAW_POST.title);
+    });
+  }
 
   test('unknown post id yields post:null rather than a crash', async () => {
     stubFetch((url) => String(url).includes('/api/posts/ids')
