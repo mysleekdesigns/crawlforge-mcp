@@ -46,6 +46,7 @@ import {
 import { RedditOfficialApiAdapter } from './adapters/redditOfficialApi.js';
 import { SearchProviderFactory } from './adapters/searchProviderFactory.js';
 import { identityHeaders } from '../../utils/fetchIdentity.js';
+import { isRedditUrl, redditSearchCallFor } from '../../utils/redditHosts.js';
 
 const ARCTIC_SHIFT_BASE = 'https://arctic-shift.photon-reddit.com';
 const PULLPUSH_BASE = 'https://api.pullpush.io';
@@ -65,6 +66,8 @@ const RedditSearchSchema = z.object({
   author: z.string().min(1).optional(),
   mode: z.enum(['posts', 'comments', 'thread']).optional().default('posts'),
   link_id: z.string().min(1).optional(), // post ID — required for thread mode
+  id: z.string().min(1).optional(), // alias of link_id — a search result's id passed straight back
+  url: z.string().min(1).optional(), // post permalink or redd.it link — alternative to link_id
   after: z.string().min(1).optional(),
   before: z.string().min(1).optional(),
   limit: z.number().int().min(1).max(100).optional().default(25),
@@ -137,9 +140,21 @@ export class RedditSearchTool {
   async execute(params) {
     const v = RedditSearchSchema.parse(params);
 
+    // The post may be named by link_id, by id (what a result carries), or by
+    // its permalink; everything downstream reads v.link_id.
+    let urlId;
+    if (v.url) {
+      const call = isRedditUrl(v.url) ? redditSearchCallFor(v.url) : {};
+      if (call.mode !== 'thread' || !call.link_id) {
+        throw new Error('url does not name a Reddit post — pass a post permalink (reddit.com/r/<sub>/comments/<id>/…) or a redd.it/<id> link');
+      }
+      urlId = call.link_id;
+    }
+    v.link_id = v.link_id ?? v.id ?? urlId;
+
     // Cross-field validation zod can't express per-mode.
     if (v.mode === 'thread') {
-      if (!v.link_id) throw new Error('thread mode requires link_id (the post ID, e.g. "1twm1zh" or "t3_1twm1zh")');
+      if (!v.link_id) throw new Error('thread mode requires link_id or id (the post ID, e.g. "1twm1zh" or "t3_1twm1zh"), or url (the post\'s permalink)');
     } else if (!v.query && !v.subreddit && !v.author && !(v.mode === 'comments' && v.link_id)) {
       throw new Error(`${v.mode} mode requires at least one of: query, subreddit, author${v.mode === 'comments' ? ', link_id' : ''}`);
     }
