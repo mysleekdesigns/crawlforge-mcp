@@ -29,7 +29,8 @@ const pair = generateKeyPairSync('ed25519');
 process.env.CRAWLFORGE_SIGNING_KEY = pair.privateKey.export({ type: 'pkcs8', format: 'pem' });
 process.env.WEB_BOT_AUTH_DIRECTORY = 'https://www.crawlforge.dev';
 
-const { preflightFetch, _resetRobotsGate } = await import('../../src/utils/robotsGate.js');
+const { preflightFetch, preflightDecision, redirectGate, gateRefusalCode, _resetRobotsGate } = await import('../../src/utils/robotsGate.js');
+const { requestContext, preflightRefusal } = await import('../../src/server/requestContext.js');
 const { _resetHostRateLimiter } = await import('../../src/utils/hostRateLimiter.js');
 const { _setBlockedHostsForTests } = await import('../../src/utils/hostBlocklist.js');
 const { setComplianceAuditSink, _resetComplianceAudit } = await import('../../src/utils/complianceAudit.js');
@@ -107,6 +108,9 @@ before(async () => {
   baseUrl = `http://127.0.0.1:${port}`;
   // Same server, reached by another name, so it can be blocklisted on its own.
   REDIRECTS['/to-blocked'] = `http://localhost:${port}/public`;
+  // Another host whose robots.txt disallows the target: a bot wall's shape.
+  REDIRECTS['/to-wall'] = `http://localhost:${port}/private?from=x`;
+  PAGES['/hub'] = html('Hub', '<a href="/to-wall">Wall</a>');
 
   setComplianceAuditSink((row) => { auditRows.push(row); });
 });
@@ -182,6 +186,75 @@ describe('a redirect into a path robots.txt disallows is refused', () => {
     const response = await fetchWithTimeout(`${baseUrl}/to-public`, { tool: 'fetch_url' });
     assert.equal(response.status, 200);
     assert.equal(new URL(response.url).pathname, '/public');
+  });
+});
+
+// Phase 3 (3.1): federalregister.gov allows the document and redirects
+// crawlers to unblock.federalregister.gov, whose robots.txt disallows
+// everything. That is a bot wall; respect_robots: false would only fetch it.
+describe('a redirect onto another host whose robots.txt disallows the target is a block', () => {
+  const block = (err) => {
+    assert.equal(err.code, 'BLOCKED');
+    assert.equal(err.vendor, undefined);
+    assert.equal(gateRefusalCode(err), 'BLOCKED', 'the hop is still refused, so nothing retries it');
+    assert.equal(
+      err.message,
+      `${baseUrl}/to-wall redirects to http://localhost:${new URL(baseUrl).port}/private, a different host whose robots.txt ` +
+      'disallows this crawler: the site sends crawlers there instead of the page, so this is a block, not a robots ' +
+      'rule on the page. respect_robots: false would fetch that page, not the one asked for.'
+    );
+    return true;
+  };
+
+  test('a fetch is refused as BLOCKED, the hop is not requested, and the request is stamped BLOCKED', async () => {
+    await requestContext.run({}, async () => {
+      await assert.rejects(() => fetchWithTimeout(`${baseUrl}/to-wall`, { tool: 'fetch_url' }), block);
+      assert.equal(preflightRefusal(), 'BLOCKED');
+    });
+    assert.equal(requested('/private'), false, 'the wall page must never be requested');
+  });
+
+  test('a cached redirect (page cache) gets the same decision', async () => {
+    const to = `http://localhost:${new URL(baseUrl).port}/private`;
+    await assert.rejects(() => preflightDecision(to, {}, { redirectedFrom: `${baseUrl}/to-wall` }), block);
+  });
+
+  test('a host that differs only by www. is the same host: ROBOTS_DISALLOWED as before', async () => {
+    const { port } = new URL(baseUrl);
+    const gate = redirectGate(`http://www.localhost:${port}/moved`);
+    await assert.rejects(() => gate(`http://localhost:${port}/private`), (err) => {
+      assert.equal(err.code, 'ROBOTS_DISALLOWED');
+      assert.match(err.message, /robots\.txt on localhost:\d+ disallows that path/);
+      return true;
+    });
+  });
+
+  test('crawl_deep reports the hop with its code and carries on', async () => {
+    const crawler = new BFSCrawler({
+      respectRobots: true,
+      enableLinkAnalysis: false,
+      concurrency: 1,
+      maxDepth: 1,
+      maxPages: 10,
+      timeout: 5000
+    });
+    const result = await crawler.crawl(`${baseUrl}/hub`);
+    crawler.destroy();
+
+    assert.equal(requested('/private'), false);
+    assert.equal(result.errors.length, 1);
+    assert.equal(new URL(result.errors[0].url).pathname, '/to-wall');
+    assert.equal(result.errors[0].code, 'BLOCKED');
+  });
+
+  test('respect_robots: false follows the redirect and records the hop, as before', async () => {
+    const response = await fetchWithTimeout(`${baseUrl}/to-wall`, { tool: 'fetch_url', respectRobots: false });
+
+    assert.equal(response.status, 200);
+    assert.equal(new URL(response.url).host, `localhost:${new URL(baseUrl).port}`);
+    const row = auditRows.find((r) => r.event === 'robots_override' && r.url.startsWith(`http://localhost:${new URL(baseUrl).port}/private`));
+    assert.ok(row, `no audit row for the hop; saw ${JSON.stringify(auditRows)}`);
+    assert.equal(row.robotsAllowed, false);
   });
 });
 

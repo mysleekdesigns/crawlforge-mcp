@@ -61,8 +61,58 @@ export class RobotsDisallowedError extends Error {
   }
 }
 
-/** What a refusal carries as `code`: this gate's three, and the SSRF guard's. */
-const REFUSAL_CODES = new Set(['ROBOTS_DISALLOWED', 'HOST_BLOCKED', 'USE_REDDIT_SEARCH', 'SSRF_BLOCKED']);
+/**
+ * A redirect onto a different host whose robots.txt disallows us. That is a
+ * bot wall, not a robots rule on the page: federalregister.gov allows the
+ * document and sends crawlers to unblock.federalregister.gov, which disallows
+ * everything. respect_robots: false would fetch the wall page, not the
+ * document, so the message must not offer it as the way through.
+ */
+export class RedirectBlockedError extends Error {
+  /**
+   * @param {string} url where the redirect led
+   * @param {string} redirectedFrom the URL the caller asked for
+   */
+  constructor(url, redirectedFrom) {
+    super(
+      `${withoutQuery(redirectedFrom)} redirects to ${withoutQuery(url)}, a different host whose robots.txt ` +
+      `disallows this crawler: the site sends crawlers there instead of the page, so this is a block, not a ` +
+      `robots rule on the page. respect_robots: false would fetch that page, not the one asked for.`
+    );
+    this.name = 'RedirectBlockedError';
+    this.code = 'BLOCKED';
+    this.url = url;
+  }
+}
+
+/** The host a redirect is judged on: no port, no leading `www.`. */
+function siteHost(url) {
+  return new URL(url).hostname.replace(/^www\./, '');
+}
+
+/**
+ * The refusal for a URL robots.txt disallows, stamped on the request. A
+ * redirect onto another host is a {@link RedirectBlockedError}; anything else
+ * is a {@link RobotsDisallowedError}.
+ * @param {string} url
+ * @param {{ redirectedFrom?: string, movedFrom?: string }} reached
+ * @returns {Error}
+ */
+function disallowedRefusal(url, reached) {
+  if (reached.redirectedFrom && siteHost(reached.redirectedFrom) !== siteHost(url)) {
+    markPreflightRefusal('BLOCKED');
+    return new RedirectBlockedError(url, reached.redirectedFrom);
+  }
+  markPreflightRefusal('ROBOTS_DISALLOWED');
+  return new RobotsDisallowedError(url, reached);
+}
+
+/**
+ * What a refusal carries as `code`: this gate's four, and the SSRF guard's.
+ * BLOCKED is only ever the redirect refusal above: the hop was not fetched,
+ * and asking again meets the same redirect.
+ */
+const REFUSAL_CODES = new Set(['ROBOTS_DISALLOWED', 'BLOCKED', 'HOST_BLOCKED', 'USE_REDDIT_SEARCH', 'SSRF_BLOCKED']);
 
 /**
  * The refusal code an error carries, or null when it is a failure rather than
@@ -214,7 +264,8 @@ export async function robotsPreflight(url, options = {}) {
  * @param {string} from the URL the fetch started at, for the refusal message
  * @param {object} [options] see {@link robotsPreflight}
  * @returns {(to: string, hop?: { alreadyRequested?: boolean }) => Promise<void>}
- *   throws BlockedHostError or RobotsDisallowedError to refuse the hop
+ *   throws BlockedHostError, RobotsDisallowedError or (a hop onto another
+ *   host) RedirectBlockedError to refuse the hop
  */
 export function redirectGate(from, options = {}) {
   return hopGate(options, { redirectedFrom: from });
@@ -239,10 +290,7 @@ export function pageMoveGate(from, options = {}) {
 function hopGate(options, reached) {
   return async (to, { alreadyRequested = false } = {}) => {
     const decision = await robotsPreflight(to, options);
-    if (!decision.allowed) {
-      markPreflightRefusal('ROBOTS_DISALLOWED');
-      throw new RobotsDisallowedError(to, reached);
-    }
+    if (!decision.allowed) throw disallowedRefusal(to, reached);
     if (!alreadyRequested) await throttleHost(to, { crawlDelayMs: decision.crawlDelayMs });
   };
 }
@@ -285,14 +333,11 @@ export function outboundHeaders(userAgent, signature = {}) {
  *   redirect from the requested URL led
  * @returns {Promise<{ allowed: true, userAgent: string, crawlDelayMs: number,
  *   warnings: string[], overridden: boolean }>}
- * @throws {BlockedHostError|RobotsDisallowedError}
+ * @throws {BlockedHostError|RobotsDisallowedError|RedirectBlockedError}
  */
 export async function preflightDecision(url, options = {}, reached = {}) {
   const decision = await robotsPreflight(url, options);
-  if (!decision.allowed) {
-    markPreflightRefusal('ROBOTS_DISALLOWED');
-    throw new RobotsDisallowedError(url, reached);
-  }
+  if (!decision.allowed) throw disallowedRefusal(url, reached);
   return decision;
 }
 
