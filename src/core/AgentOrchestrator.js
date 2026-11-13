@@ -42,9 +42,13 @@ const PLAN_MAX_SHARE = 0.25;
 // would run into the hard stop, so the first answer is kept and flagged.
 const REWRITE_MIN_REMAINING_MS = 15_000;
 
-/** A refusal (robots.txt, blocklist) is a decision, not a wall — a browser must not retry it. */
+/**
+ * A refusal (robots.txt, blocklist) is a decision, not a wall — a browser must
+ * not retry it. BLOCKED, a redirect onto another host's disallowing robots.txt,
+ * is kept here so the agent does what it did before that refusal had its own code.
+ */
 function isRefusal(err) {
-  return err?.code === 'ROBOTS_DISALLOWED' || err?.code === 'HOST_BLOCKED';
+  return err?.code === 'ROBOTS_DISALLOWED' || err?.code === 'BLOCKED' || err?.code === 'HOST_BLOCKED';
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

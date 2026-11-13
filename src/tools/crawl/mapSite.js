@@ -64,7 +64,7 @@ function normalizeMapUrl(url) {
 }
 
 // A gate refusal is the answer to the request, not a page we failed to read.
-const REFUSAL_CODES = new Set(['ROBOTS_DISALLOWED', 'HOST_BLOCKED', 'USE_REDDIT_SEARCH', 'SSRF_BLOCKED']);
+const REFUSAL_CODES = new Set(['ROBOTS_DISALLOWED', 'BLOCKED', 'HOST_BLOCKED', 'USE_REDDIT_SEARCH', 'SSRF_BLOCKED']);
 
 // Lazy singleton — avoids creating a CacheManager timer per request
 let _ranker = null;

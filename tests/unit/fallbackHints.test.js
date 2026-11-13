@@ -192,6 +192,26 @@ describe('error-class hints', () => {
     assert.equal(classifyError({ code: 'HOST_BLOCKED', error: 'refused' }, '').cls, 'host_blocked');
   });
 
+  // Phase 3 (3.1): a redirect onto another host's disallowing robots.txt is a wall.
+  test('a redirect onto a wall host is told it is a block and pointed at stealth_mode, not respect_robots', () => {
+    const BLOCK = 'https://www.federalregister.gov/d/2026-1 redirects to https://unblock.federalregister.gov/, a different host whose robots.txt disallows this crawler: the site sends crawlers there instead of the page, so this is a block, not a robots rule on the page. respect_robots: false would fetch that page, not the one asked for.';
+    const hint = hintOf('scrape', textError(`Scrape failed: scrape: fetch failed for https://www.federalregister.gov/d/2026-1: ${BLOCK}`));
+    assert.equal(hint, CLASS_HINTS.blocked('scrape'));
+    assert.match(hint, /bot wall, not a robots\.txt rule/);
+    assert.match(hint, /stealth_mode operation:"scrape"/);
+    assert.doesNotMatch(hint, /do not set it on your own|respect_robots:false is the only override/);
+
+    // A browser tool already was the browser: no stealth_mode step.
+    const browserHint = hintOf('stealth_mode', textError(`Stealth mode operation failed: ${BLOCK}`));
+    assert.equal(browserHint, CLASS_HINTS.blocked('stealth_mode'));
+    assert.doesNotMatch(browserHint, /Use stealth_mode/);
+
+    assert.equal(classifyError({ code: 'BLOCKED', error: 'refused' }, '').cls, 'blocked');
+    requestContext.run({ preflightRefusal: 'BLOCKED' }, () => {
+      assert.equal(classifyError(null, 'Crawl failed').cls, 'blocked');
+    });
+  });
+
   test('an SSRF block is told every tool refuses it, not to use stealth', () => {
     for (const [tool, text] of [
       ['fetch_url', "Failed to fetch URL: SSRF Protection: blocked hostname '127.0.0.1'"],

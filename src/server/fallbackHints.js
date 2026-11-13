@@ -73,6 +73,9 @@ const ROBOTS_OVERRIDE_TOOLS = new Set([
   'scrape_with_actions', 'stealth_mode', 'track_changes'
 ]);
 
+/** The tools that load the page in a browser, so stealth_mode is no step up. */
+const BROWSER_TOOLS = new Set(['browser_session', 'scrape_with_actions', 'stealth_mode']);
+
 /**
  * Hints keyed on the error class (R24 4.1). The tool's generic hint names
  * the tool to try after a block, which is the wrong move for an error that
@@ -86,6 +89,14 @@ export const CLASS_HINTS = Object.freeze({
     (ROBOTS_OVERRIDE_TOOLS.has(tool)
       ? 'respect_robots:false is the only override: it is your user\'s explicit decision, recorded against their API key, so do not set it on your own. Otherwise get the content from another source.'
       : 'This tool has no override; get the content from another source.'),
+  // A redirect onto another host whose robots.txt disallows us: a bot wall
+  // (federalregister.gov -> unblock.federalregister.gov), not a robots rule on
+  // the page, so respect_robots:false is not the way through.
+  blocked: (tool) =>
+    'The site redirected CrawlForge to a different host instead of serving the page - a bot wall, not a robots.txt rule on the page - so respect_robots:false would only fetch the wall page. ' +
+    (BROWSER_TOOLS.has(tool)
+      ? 'A browser was redirected there too; get the content from another source.'
+      : 'Use stealth_mode operation:"scrape" on the original URL: a browser may be served the page. If it meets the same redirect, get the content from another source.'),
   host_blocked: () =>
     'This host is on CrawlForge\'s permanent blocklist (a site-owner opt-out). No CrawlForge tool will fetch it and there is no override - get the content from another source.',
   // Names what the active mode refuses (ssrfGuard.js): local Stage 1 lets private networks through.
@@ -146,6 +157,8 @@ export function classifyError(parsed, text) {
   const status = parsed?.status ?? parsed?.statusCode;
 
   if (codes.includes('SSRF_BLOCKED') || refusal === 'SSRF_BLOCKED' || /\bSSRF Protection\b/.test(msg)) return { cls: 'ssrf' };
+  // A redirect onto another host's disallowing robots.txt (robotsGate.js RedirectBlockedError) is a wall, not robots.
+  if (codes.includes('BLOCKED') || refusal === 'BLOCKED' || /a different host whose robots\.txt disallows this crawler/.test(msg)) return { cls: 'blocked' };
   if (codes.includes('ROBOTS_DISALLOWED') || refusal === 'ROBOTS_DISALLOWED' || /robots\.txt on \S+ disallows/.test(msg)) return { cls: 'robots' };
   if (codes.includes('HOST_BLOCKED') || refusal === 'HOST_BLOCKED' || /permanent blocklist/.test(msg)) return { cls: 'host_blocked' };
   if (status === 404 || /\bHTTP 404\b|\b404 Not Found\b|\bENOTFOUND\b/i.test(msg)) return { cls: 'not_found' };

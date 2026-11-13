@@ -57,7 +57,7 @@ export function internalOwnerToken() {
  * reaches withAuth. It also survives both routes a refusal can take — thrown,
  * or swallowed into an isError result.
  *
- * @param {string} code 'ROBOTS_DISALLOWED' | 'HOST_BLOCKED' | 'USE_REDDIT_SEARCH'
+ * @param {string} code 'ROBOTS_DISALLOWED' | 'BLOCKED' | 'HOST_BLOCKED' | 'USE_REDDIT_SEARCH'
  */
 export function markPreflightRefusal(code) {
   const store = requestContext.getStore();
